@@ -1,0 +1,8 @@
+libva-intel-driver:
+    unscaled osd not working
+libva-vdpau-driver:
+    G210 osd update too slow (needs hardware problem workaround)
+
+video/audio asyncron
+
+playback of >2 channels on 2 channel hardware

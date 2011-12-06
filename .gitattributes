@@ -1,0 +1,6 @@
+# gitattributes(5) file
+*.[15]	ident
+*.[ch]	ident
+*.cpp	ident
+*.txt	ident
+Makefile	ident

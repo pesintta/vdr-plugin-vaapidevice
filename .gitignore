@@ -1,0 +1,11 @@
+# gitignore(5) file
+*.[oa]
+*~
+.*.swp
+.gdb_history
+# work directory
+chaos
+# generated files
+.dependencies
+po/*.pot
+libvdr-softhddevice.so*

@@ -1,0 +1,20 @@
+User johns
+Date:
+
+    Add libva-driver-vdpau autodetection.
+    Add workaround for bugs in libva-driver-vdpau.
+    Threaded video display handler written.
+    Add support for unscaled osd (f.e. supported by intel-vaapi)
+    Add support for 16:9 and 4:3 video streams.
+    Add buildin X11 server start.
+    Remove ffmpeg deprecated functions.
+    Disable display of window cursor.
+    Can force self as primary device.
+    Smaller audio buffer.
+    Don't trust ffmpeg or stream interlace flag.
+    Fix Makefile.
+    Add setting analog volume.
+
+Date: Thu Dec  1 20:48:35 CET 2011
+
+    Release Version 0.0.5
