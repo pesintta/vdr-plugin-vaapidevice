@@ -43,6 +43,8 @@
 
 #define DEBUG
 
+static char BrokenThreadsAndPlugins;	///< broken vdr threads and plugins
+
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
 //////////////////////////////////////////////////////////////////////////////
@@ -64,6 +66,9 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
     int n;
     AVPacket avpkt[1];
 
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
@@ -150,6 +155,9 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 */
 void Mute(void)
 {
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     AudioSetVolume(0);
 }
 
@@ -160,6 +168,9 @@ void Mute(void)
 */
 void SetVolumeDevice(int volume)
 {
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     AudioSetVolume((volume * 100) / 255);
 }
 
@@ -458,6 +469,9 @@ void PlayVideo(const uint8_t * data, int size)
     uint64_t pts;
     int n;
 
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     if (Usr1Signal) {			// x11 server ready
 	Usr1Signal = 0;
 	StartVideo();
@@ -540,6 +554,9 @@ void PlayVideo(const uint8_t * data, int size)
 */
 void SetPlayMode(void)
 {
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     if (MyVideoDecoder) {
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
@@ -584,6 +601,9 @@ void GetOsdSize(int *width, int *height, double *aspect)
 */
 void OsdClose(void)
 {
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     VideoOsdClear();
 }
 
@@ -592,6 +612,9 @@ void OsdClose(void)
 */
 void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 {
+    if (BrokenThreadsAndPlugins) {
+	return;
+    }
     VideoOsdDrawARGB(x, y, height, width, argb);
 }
 
@@ -776,7 +799,14 @@ void Stop(void)
 {
     Debug(3, "video: max used PES packet size: %d\n", VideoMaxPacketSize);
 
+    // FIXME:
+    // don't let any thread enter our plugin, but can still crash, when
+    // a thread has called any function, while Stop is called.
+    BrokenThreadsAndPlugins = 1;
+    usleep(2 * 1000);
+
     // lets hope that vdr does a good thead cleanup
+    // no it doesn't do a good thread cleanup
     if (MyVideoDecoder) {
 	CodecVideoClose(MyVideoDecoder);
 	MyVideoDecoder = NULL;

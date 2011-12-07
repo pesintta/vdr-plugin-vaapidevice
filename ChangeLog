@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Reduce program exit crashes.
     Add libva-driver-vdpau autodetection.
     Add workaround for bugs in libva-driver-vdpau.
     Threaded video display handler written.
