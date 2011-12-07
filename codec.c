@@ -344,8 +344,12 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 */
 void CodecVideoClose(VideoDecoder * video_decoder)
 {
-    (void)video_decoder;
-    // FIXME: write close code
+    // FIXME: play buffered data
+    av_freep(&video_decoder->Frame);
+    if ( video_decoder->VideoCtx ) {
+	avcodec_close(video_decoder->VideoCtx);
+	av_freep(&video_decoder->VideoCtx);
+    }
 }
 
 #if 0
