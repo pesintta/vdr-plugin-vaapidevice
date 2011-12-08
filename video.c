@@ -2223,6 +2223,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	}
 
 	// update aspect ratio changes
+#ifdef still_to_detect_define
 	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
 	    Debug(3, "video/vaapi: aspect ratio changed\n");
 
@@ -2231,6 +2232,16 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    decoder->InputAspect = frame->sample_aspect_ratio;
 	    VaapiUpdateOutput(decoder);
 	}
+#else
+	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	    Debug(3, "video/vaapi: aspect ratio changed\n");
+
+	    //decoder->InputWidth = video_ctx->width;
+	    //decoder->InputHeight = video_ctx->height;
+	    decoder->InputAspect = frame->sample_aspect_ratio;
+	    VaapiUpdateOutput(decoder);
+	}
+#endif
 
 	if (VideoDeinterlace == VideoDeinterlaceSoftware && interlaced) {
 	    // FIXME: software deinterlace avpicture_deinterlace
@@ -3170,7 +3181,7 @@ void VideoDisplayHandler(void)
 	pthread_mutex_init(&VideoLockMutex, NULL);
 	pthread_cond_init(&VideoWakeupCond, NULL);
 	pthread_create(&VideoThread, NULL, VideoDisplayHandlerThread, NULL);
-	pthread_detach(VideoThread);
+	//pthread_detach(VideoThread);
     }
 }
 
