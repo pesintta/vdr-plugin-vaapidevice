@@ -35,6 +35,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <inttypes.h>
 
 #include <libintl.h>
 #define _(str) gettext(str)		///< gettext shortcut
@@ -63,7 +64,7 @@ static volatile char AudioRunning;	///< thread running / stopped
 static int AudioPaused;			///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
-static uint64_t AudioPTS;		///< audio pts clock
+static int64_t AudioPTS;		///< audio pts clock
 
 //----------------------------------------------------------------------------
 //	Alsa variables
@@ -75,6 +76,7 @@ static int AlsaUseMmap;			///< use mmap
 
 static RingBuffer *AlsaRingBuffer;	///< audio ring buffer
 static unsigned AlsaStartThreshold;	///< start play, if filled
+static int AlsaFlushBuffer;		///< flag empty buffer
 
 static snd_mixer_t *AlsaMixer;		///< alsa mixer handle
 static snd_mixer_elem_t *AlsaMixerElem;	///< alsa pcm mixer element
@@ -102,7 +104,8 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
 	// too many bytes are lost
     }
     // Update audio clock
-    AudioPTS += (count * 90000) / (AudioSampleRate * AudioChannels * 2);
+    AudioPTS +=
+	((int64_t) count * 90000) / (AudioSampleRate * AudioChannels * 2);
 
     if (!AudioRunning) {
 	if (AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
@@ -149,7 +152,7 @@ static int AlsaPlayRingbuffer(void)
 		// happens with broken alsa drivers
 		Error(_("audio/alsa: broken driver %d\n"), avail);
 	    }
-	    break;
+	    //break;
 	}
 
 	n = RingBufferGetReadPointer(AlsaRingBuffer, &p);
@@ -373,6 +376,18 @@ static void *AudioPlayHandlerThread(void *dummy)
 		usleep(100 * 1000);
 		continue;
 	    }
+	    if (AlsaFlushBuffer) {
+		// we can flush too many, but wo cares
+		Debug(3, "audio/alsa: flushing buffers\n");
+		RingBufferReadAdvance(AlsaRingBuffer,
+		    RingBufferUsedBytes(AlsaRingBuffer));
+		if ((err = snd_pcm_drain(AlsaPCMHandle))) {
+		    Error(_("audio: snd_pcm_drain(): %s\n"),
+			snd_strerror(err));
+		}
+		AlsaFlushBuffer = 0;
+		break;
+	    }
 	    if ((err = AlsaPlayRingbuffer())) {	// empty / error
 		snd_pcm_state_t state;
 
@@ -400,6 +415,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 */
 void AudioEnqueue(const void *samples, int count)
 {
+    if (!AlsaRingBuffer || !AlsaPCMHandle) {
+	Debug(3, "audio/alsa: alsa not ready\n");
+	return;
+    }
     if (AlsaAddToRingbuffer(samples, count)) {
 	snd_pcm_state_t state;
 
@@ -508,7 +527,7 @@ static void AlsaInitPCM(void)
     pthread_mutex_init(&AudioMutex, NULL);
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
-    pthread_detach(AudioThread);
+    //pthread_detach(AudioThread);
 }
 
 //----------------------------------------------------------------------------
@@ -584,27 +603,42 @@ static void AlsaInitMixer(void)
 //----------------------------------------------------------------------------
 
 /**
+**	Set audio clock base.
+**
+**	@param pts	audio presentation timestamp
+*/
+void AudioSetClock(int64_t pts)
+{
+    if (AudioPTS != pts) {
+	Debug(3, "audio: set clock to %#012" PRIx64 " %#012" PRIx64 " pts\n",
+	    AudioPTS, pts);
+
+	AudioPTS = pts;
+    }
+}
+
+/**
 **	Get audio delay in time stamps.
 */
 uint64_t AudioGetDelay(void)
 {
     int err;
     snd_pcm_sframes_t delay;
+    uint64_t pts;
 
     if ((err = snd_pcm_delay(AlsaPCMHandle, &delay)) < 0) {
 	//Debug(3, "audio/alsa: no hw delay\n");
 	delay = 0UL;
     } else if (snd_pcm_state(AlsaPCMHandle) != SND_PCM_STATE_RUNNING) {
-	//Debug(3, "audio/alsa: %lu delay ok, but not running\n", delay);
+	//Debug(3, "audio/alsa: %ld delay ok, but not running\n", delay);
     }
-    delay = (delay * 90000) / AudioSampleRate;
-    //Debug(3, "audio/alsa: hw delay %lu\n", delay);
-    delay +=
-	(RingBufferUsedBytes(AlsaRingBuffer) * 90000) / (AudioSampleRate *
-	AudioChannels);
-    //Debug(3, "audio/alsa: hw+sw delay %lu ms\n", delay / 90);
 
-    return delay;
+    pts = ((uint64_t) delay * 90000) / AudioSampleRate;
+    pts += ((uint64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90000)
+	/ (AudioSampleRate * AudioChannels);
+    //Debug(3, "audio/alsa: hw+sw delay %"PRId64" ms\n", pts / 90);
+
+    return pts;
 }
 
 /**
@@ -613,40 +647,70 @@ uint64_t AudioGetDelay(void)
 **	@param freq	sample frequency
 **	@param channels	number of channels
 **
+**	@retval 0	everything ok
+**	@retval 1	didn't support frequency/channels combination
+**	@retval -1	something gone wrong
+**
 **	@todo audio changes must be queued and done when the buffer is empty
 */
-void AudioSetup(int freq, int channels)
+int AudioSetup(int *freq, int *channels)
 {
     snd_pcm_uframes_t buffer_size;
     snd_pcm_uframes_t period_size;
     int err;
+    int ret;
 
 #if 1
-    Debug(3, "audio/alsa: channels %d frequency %d hz\n", channels, freq);
+    Debug(3, "audio/alsa: channels %d frequency %d hz\n", *channels, *freq);
 
-    if (!freq || !channels) {		// invalid parameter
+    // invalid parameter
+    if (!freq || !channels || !*freq || !*channels) {
+	Debug(3, "audio: bad channels or frequency parameters\n");
 	// FIXME: set flag invalid setup
-	return;
+	return -1;
     }
 
-    AudioChannels = channels;
-    AudioSampleRate = freq;
-    // FIXME: thread!!
-    RingBufferReadAdvance(AlsaRingBuffer, RingBufferUsedBytes(AlsaRingBuffer));
+    AudioChannels = *channels;
+    AudioSampleRate = *freq;
 
+    // flush any buffered data
+#ifdef USE_AUDIO_THREAD
+    if (AudioRunning) {
+	AlsaFlushBuffer = 1;
+    } else
+#endif
+    {
+	RingBufferReadAdvance(AlsaRingBuffer,
+	    RingBufferUsedBytes(AlsaRingBuffer));
+    }
+
+    ret = 0;
+  try_again:
     if ((err =
 	    snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
 		AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
-		SND_PCM_ACCESS_RW_INTERLEAVED, channels, freq, 1,
+		SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
 		125 * 1000))) {
 	Error(_("audio/alsa: set params error: %s\n"), snd_strerror(err));
-	if (channels == 2) {
-	    // FIXME: must stop sound
-	    return;
+	switch (*channels) {
+	    case 1:
+		// FIXME: enable channel upmix
+		ret = 1;
+		*channels = 2;
+		goto try_again;
+	    case 2:
+		return -1;
+	    case 4:
+	    case 6:
+		// FIXME: enable channel downmix
+		*channels = 2;
+		goto try_again;
+	    default:
+		Error(_("audio/alsa: unsupported number of channels\n"));
+		// FIXME: must stop sound
+		return -1;
 	}
-	// FIXME: enable channel downmix
-	// AudioChannels = downmix_channels;
-	return;
+	return -1;
     }
 #else
     snd_pcm_hw_params_t *hw_params;
@@ -731,14 +795,15 @@ void AudioSetup(int freq, int channels)
     Debug(3, "audio/alsa: state %s\n",
 	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 
-    AlsaStartThreshold =
-	snd_pcm_frames_to_bytes(AlsaPCMHandle, buffer_size + period_size);
+    AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, buffer_size);
     // min 500ms
-    if (AlsaStartThreshold < (freq * channels * 2U) / 2) {
-	AlsaStartThreshold = (freq * channels * 2U) / 2;
+    if (AlsaStartThreshold < (*freq * *channels * 2U) / 2) {
+	AlsaStartThreshold = (*freq * *channels * 2U) / 2;
     }
     Debug(3, "audio/alsa: delay %u ms\n", (AlsaStartThreshold * 1000)
 	/ (AudioSampleRate * AudioChannels * 2));
+
+    return ret;
 }
 
 /**
@@ -752,16 +817,39 @@ void AudioSetDevice(const char *device)
 }
 
 /**
+**	Empty log callback
+*/
+static void AlsaNoopCallback( __attribute__ ((unused))
+    const char *file, __attribute__ ((unused))
+    int line, __attribute__ ((unused))
+    const char *function, __attribute__ ((unused))
+    int err, __attribute__ ((unused))
+    const char *fmt, ...)
+{
+}
+
+/**
 **	Initialize audio output module.
 */
 void AudioInit(void)
 {
+    int freq;
+    int chan;
+
+#ifndef DEBUG
+    // display alsa error messages
+    snd_lib_error_set_handler(AlsaNoopCallback);
+#endif
     AlsaRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
 
     AlsaInitPCM();
     AlsaInitMixer();
 
-    AudioSetup(48000, 2);		// set default parameters
+    freq = 48000;
+    chan = 2;
+    if (AudioSetup(&freq, &chan)) {	// set default parameters
+	Error(_("audio: can't do initial setup\n"));
+    }
 
     AudioPaused = 1;
 }
@@ -773,9 +861,10 @@ void AudioExit(void)
 {
     void *retval;
 
-    pthread_cancel(AudioThread);
-    pthread_join(AudioThread, &retval);
-    if (retval != PTHREAD_CANCELED) {
+    if (pthread_cancel(AudioThread)) {
+	Error(_("audio: can't queue cancel alsa play thread\n"));
+    }
+    if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
 	Error(_("audio: can't cancel alsa play thread\n"));
     }
     pthread_cond_destroy(&AudioStartCond);

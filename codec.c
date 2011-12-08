@@ -346,7 +346,7 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 {
     // FIXME: play buffered data
     av_freep(&video_decoder->Frame);
-    if ( video_decoder->VideoCtx ) {
+    if (video_decoder->VideoCtx) {
 	avcodec_close(video_decoder->VideoCtx);
 	av_freep(&video_decoder->VideoCtx);
     }
@@ -455,8 +455,13 @@ struct _audio_decoder_
 
     /// audio parser to support wired dvb streaks
     AVCodecParserContext *AudioParser;
-    int SampleRate;			///< old sample rate
-    int Channels;			///< old channels
+    int SampleRate;			///< current sample rate
+    int Channels;			///< current channels
+
+    int HwSampleRate;			///< hw sample rate
+    int HwChannels;			///< hw channels
+
+    ReSampleContext *ReSample;		///< audio resampling context
 };
 
 /**
@@ -525,6 +530,10 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 void CodecAudioClose(AudioDecoder * audio_decoder)
 {
     // FIXME: output any buffered data
+    if (audio_decoder->ReSample) {
+	audio_resample_close(audio_decoder->ReSample);
+	audio_decoder->ReSample = NULL;
+    }
     if (audio_decoder->AudioParser) {
 	av_parser_close(audio_decoder->AudioParser);
 	audio_decoder->AudioParser = NULL;
@@ -549,11 +558,13 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
     AVCodecContext *audio_ctx;
     int index;
-    AVPacket spkt[1];
 
     if (!audio_decoder->AudioParser) {
 	Fatal(_("codec: internal error parser freeded while running\n"));
     }
+#define spkt avpkt
+#if 0
+    AVPacket spkt[1];
 
     if (av_new_packet(spkt, avpkt->size + FF_INPUT_BUFFER_PADDING_SIZE)) {
 	Error(_("codec: out of memory\n"));
@@ -561,6 +572,9 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
     }
     memcpy(spkt->data, avpkt->data, avpkt->size);
     memset(spkt->data + avpkt->size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+    spkt->pts = avpkt->pts;
+#endif
+
     audio_ctx = audio_decoder->AudioCtx;
     index = 0;
     while (avpkt->size > index) {
@@ -571,11 +585,13 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	av_init_packet(dpkt);
 	n = av_parser_parse2(audio_decoder->AudioParser, audio_ctx,
 	    &dpkt->data, &dpkt->size, spkt->data + index, avpkt->size - index,
-	    AV_NOPTS_VALUE, AV_NOPTS_VALUE, AV_NOPTS_VALUE);
+	    !index ? (uint64_t) spkt->pts : AV_NOPTS_VALUE, AV_NOPTS_VALUE,
+	    -1);
 
 	if (dpkt->size) {
 	    int buf_sz;
 
+	    dpkt->pts = audio_decoder->AudioParser->pts;
 	    buf_sz = sizeof(buf);
 	    l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, dpkt);
 	    if (l < 0) {		// no audio frame could be decompressed
@@ -589,17 +605,62 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	    avcodec_decode_audio4(audio_ctx, frame, &got_frame, dpkt);
 #else
 #endif
+	    // Update audio clock
+	    if ((uint64_t) dpkt->pts != AV_NOPTS_VALUE) {
+		AudioSetClock(dpkt->pts);
+	    }
 	    // FIXME: must first play remainings bytes, than change and play new.
 	    if (audio_decoder->SampleRate != audio_ctx->sample_rate
 		|| audio_decoder->Channels != audio_ctx->channels) {
+		int err;
 
-		// FIXME: channels not support?
-		AudioSetup(audio_ctx->sample_rate, audio_ctx->channels);
+		if (audio_decoder->ReSample) {
+		    audio_resample_close(audio_decoder->ReSample);
+		    audio_decoder->ReSample = NULL;
+		}
 
 		audio_decoder->SampleRate = audio_ctx->sample_rate;
+		audio_decoder->HwSampleRate = audio_ctx->sample_rate;
 		audio_decoder->Channels = audio_ctx->channels;
+		audio_decoder->HwChannels = audio_ctx->channels;
+
+		// channels not support?
+		if ((err =
+			AudioSetup(&audio_decoder->HwSampleRate,
+			    &audio_decoder->HwChannels))) {
+		    Debug(3, "codec/audio: resample %d -> %d\n",
+			audio_ctx->channels, audio_decoder->HwChannels);
+
+		    if (err == 1) {
+			audio_decoder->ReSample =
+			    av_audio_resample_init(audio_decoder->HwChannels,
+			    audio_ctx->channels, audio_decoder->HwSampleRate,
+			    audio_ctx->sample_rate, audio_ctx->sample_fmt,
+			    audio_ctx->sample_fmt, 16, 10, 0, 0.8);
+		    } else {
+			// FIXME: handle errors
+			audio_decoder->HwChannels = 0;
+			audio_decoder->HwSampleRate = 0;
+		    }
+		}
 	    }
-	    AudioEnqueue(buf, buf_sz);
+
+	    if (audio_decoder->HwSampleRate && audio_decoder->HwChannels) {
+		// need to resample audio
+		if (audio_decoder->ReSample) {
+		    int16_t outbuf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
+			FF_INPUT_BUFFER_PADDING_SIZE]
+			__attribute__ ((aligned(16)));
+		    int outlen;
+
+		    outlen =
+			audio_resample(audio_decoder->ReSample, outbuf, buf,
+			buf_sz);
+		    AudioEnqueue(outbuf, outlen);
+		} else {
+		    AudioEnqueue(buf, buf_sz);
+		}
+	    }
 
 	    if (dpkt->size > l) {
 		Error(_("codec: error more than one frame data\n"));
@@ -608,7 +669,10 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 
 	index += n;
     }
+
+#if 0
     av_destruct_packet(spkt);
+#endif
 }
 
 //----------------------------------------------------------------------------
@@ -616,10 +680,24 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 //----------------------------------------------------------------------------
 
 /**
+**	Empty log callback
+*/
+static void CodecNoopCallback( __attribute__ ((unused))
+    void *ptr, __attribute__ ((unused))
+    int level, __attribute__ ((unused))
+    const char *fmt, __attribute__ ((unused)) va_list vl)
+{
+}
+
+/**
 **	Codec init
 */
 void CodecInit(void)
 {
+#ifndef DEBUG
+    // display ffmpeg error messages
+    av_log_set_callback(CodecNoopCallback);
+#endif
     avcodec_register_all();		// register all formats and codecs
 }
 
