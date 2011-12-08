@@ -31,10 +31,11 @@ extern void AudioEnqueue(const void *, int);	///< buffer audio samples
 
 //extern int AudioFreeBytes(void);	///< free bytes in audio output
 //extern int AudioUsedBytes(void);	///< used bytes in audio output
-//extern void AudioSetClock(int64_t);	///< set audio clock base
+extern void AudioSetClock(int64_t);	///< set audio clock base
+
 //extern int64_t AudioGetClock();		///< get current audio clock
 extern uint64_t AudioGetDelay(void);	///< get current audio delay
-extern void AudioSetup(int, int);	///< setup audio output
+extern int AudioSetup(int *, int *);	///< setup audio output
 
 //extern void AudioPlay(void);		///< play audio
 //extern void AudioPause(void);		///< pause audio
