@@ -1,7 +1,17 @@
+
 libva-intel-driver:
-    unscaled osd not working
+    intel still has hangups
+    osd has sometimes wrong size (workaround written)
+    can show defect surfaces (white bars on top of frame) only interlace
+    defect shown upto driver surface swap?
+
 libva-vdpau-driver:
     G210 osd update too slow (needs hardware problem workaround)
+
+x11:
+    support resize of x11 window
+    support fullscreen window
+    support fullscreen / window toggle
 
 video/audio asyncron
 

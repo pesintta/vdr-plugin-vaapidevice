@@ -55,6 +55,8 @@ extern "C"
     /// C plugin process the command line arguments
     extern int ProcessArgs(int, char *const[]);
 
+    /// C plugin exit + cleanup
+    extern void SoftHdDeviceExit(void);
     /// C plugin start code
     extern void Start(void);
     /// C plugin stop code

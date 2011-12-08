@@ -219,7 +219,7 @@ class cSoftOsdProvider:public cOsdProvider
     cSoftOsdProvider(void);
 };
 
-cOsd *cSoftOsdProvider::Osd;
+cOsd *cSoftOsdProvider::Osd;			///< single osd
 
 /**
 **	Create a new OSD.
@@ -330,6 +330,8 @@ class cSoftHdDevice:public cDevice
 cSoftHdDevice::cSoftHdDevice(void)
 {
     dsyslog("[softhddev]%s\n", __FUNCTION__);
+
+    spuDecoder = NULL;
 }
 
 cSoftHdDevice::~cSoftHdDevice(void)
@@ -577,6 +579,8 @@ cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
 {
     // Clean up after yourself!
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    ::SoftHdDeviceExit();
 }
 
 const char *cPluginSoftHdDevice::Version(void)

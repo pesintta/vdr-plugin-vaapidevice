@@ -26,6 +26,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <unistd.h>
 
 #include <libintl.h>
@@ -78,30 +79,32 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
     // MPEG-PS mp2 MPEG1, MPEG2, AC3
 
     if (size < 9) {
-	Error("[softhddev] invalid audio packet\n");
+	Error(_("[softhddev] invalid audio packet\n"));
 	return;
     }
 
-    avpkt->pts = AV_NOPTS_VALUE;
-    avpkt->dts = AV_NOPTS_VALUE;
-    if (data[7] & 0x80) {
+    n = data[8];			// header size
+
+    av_init_packet(avpkt);
+    if (data[7] & 0x80 && n >= 5) {
 	avpkt->pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
-	    0xFE) << 15 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-	// Debug(3, "audio: pts %ld\n", avpkt->pts);
+	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
+	// Debug(3, "audio: pts %#012" PRIx64 "\n", avpkt->pts);
     }
-    if (data[7] & 0x40) {
-	avpkt->dts =
-	    (int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16] &
-	    0xFE) << 15 | data[17] << 7 | (data[18] & 0xFE) >> 1;
-	Debug(3, "audio: dts %ld\n", avpkt->dts);
+    if (0) {				// dts is unused
+	if (data[7] & 0x40) {
+	    avpkt->dts =
+		(int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16]
+		& 0xFE) << 14 | data[17] << 7 | (data[18] & 0xFE) >> 1;
+	    Debug(3, "audio: dts %#012" PRIx64 "\n", avpkt->dts);
+	}
     }
 
-    n = data[8];			// header size
     data += 9 + n;
     size -= 9 + n;			// skip pes header
     if (size <= 0) {
-	Error("[softhddev] invalid audio packet\n");
+	Error(_("[softhddev] invalid audio packet\n"));
 	return;
     }
     // Syncword - 0x0B77
@@ -113,6 +116,7 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	if (AudioCodecID != CODEC_ID_AC3) {
 	    Debug(3, "[softhddev]%s: AC-3 %d\n", __FUNCTION__, id);
 	    CodecAudioClose(MyAudioDecoder);
+
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
 	    AudioCodecID = CODEC_ID_AC3;
 	}
@@ -125,6 +129,7 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	if (AudioCodecID != CODEC_ID_MP2) {
 	    Debug(3, "[softhddev]%s: MP2 %d\n", __FUNCTION__, id);
 	    CodecAudioClose(MyAudioDecoder);
+
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
 	}
@@ -143,7 +148,6 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	return;
     }
 
-    av_init_packet(avpkt);
     avpkt->data = (void *)data;
     avpkt->size = size;
     //memset(avpkt->data + avpkt->size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
@@ -244,8 +248,12 @@ static void VideoEnqueue(const void *data, int size)
 	    avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE);
 
 	av_grow_packet(avpkt,
-	    (size + FF_INPUT_BUFFER_PADDING_SIZE + VIDEO_BUFFER_SIZE / 2)
-	    / (VIDEO_BUFFER_SIZE / 2));
+	    ((size + FF_INPUT_BUFFER_PADDING_SIZE + VIDEO_BUFFER_SIZE / 2)
+		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
+	if (avpkt->size <
+	    avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE) {
+	    abort();
+	}
     }
 #ifdef DEBUG
     if (!avpkt->stream_index) {		// debug save time of first packet
@@ -504,8 +512,8 @@ void PlayVideo(const uint8_t * data, int size)
     if (data[7] & 0x80) {
 	pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
-	    0xFE) << 15 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-	// Debug(3, "video: pts %ld\n", pts);
+	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
+	// Debug(3, "video: pts %#012" PRIx64 "\n", pts);
     }
     // FIXME: no valid mpeg2/h264 detection yet
 
@@ -774,6 +782,13 @@ static void StartXServer(void)
     execvp(args[0], (char *const *)args);
 
     Error(_("x-setup: Failed to start X server '%s'\n"), args[0]);
+}
+
+/**
+**	Exit + cleanup.
+*/
+void SoftHdDeviceExit(void)
+{
 }
 
 /**
