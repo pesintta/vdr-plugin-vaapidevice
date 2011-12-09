@@ -37,6 +37,7 @@
 ///
 
 #define DEBUG
+#define Fix60Hz 0
 #define USE_XLIB_XCB
 #define noUSE_GLX
 #define noUSE_DOUBLEBUFFER
@@ -687,6 +688,7 @@ static void GlxExit(void)
 
 static int VideoVaapiEnabled = 1;	///< use VA-API decoder
 static int VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
+static int VaapiBuggyIntel;		///< fix libva-driver-intel bugs
 
 static VADisplay *VaDisplay;		///< VA-API display
 
@@ -694,7 +696,7 @@ static VAImage VaOsdImage = {
     .image_id = VA_INVALID_ID
 };					///< osd VA-API image
 
-static VASubpictureID VaOsdSubpicture;	///< osd VA-API subpicture
+static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
 
     /// VA-API decoder typedef
@@ -753,6 +755,7 @@ struct _vaapi_decoder_
     int SurfaceField;			///< current displayed field
     struct timespec FrameTime;		///< time of last display
     struct timespec StartTime;		///< decoder start time
+    int64_t PTS;			///< video PTS clock
 
     int FramesDuped;			///< frames duplicated
     int FramesDropped;			///< frames dropped
@@ -800,6 +803,20 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	Warning(_("video/vaapi: no osd subpicture yet\n"));
 	return;
     }
+#if 0
+    // FIXME: try to fix intel osd bugs
+    if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
+	!= VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy subpicture\n"));
+    }
+    VaOsdSubpicture = VA_INVALID_ID;
+
+    if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id,
+	    &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't create subpicture\n"));
+	return;
+    }
+#endif
 
     if (VaapiUnscaledOsd) {
 	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
@@ -845,6 +862,7 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
 		decoder->SurfaceUsedN);
 	}
+
     }
 
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree,
@@ -1014,6 +1032,8 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->VaapiContext->context_id = VA_INVALID_ID;
 
 #ifdef USE_GLX
+    decoder->GlxSurface[0] = VA_INVALID_ID;
+    decoder->GlxSurface[1] = VA_INVALID_ID;
     if (GlxEnabled) {
 	// FIXME: create GLX context here
     }
@@ -1051,10 +1071,20 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	atomic_dec(&decoder->SurfacesFilled);
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	if (vaSyncSurface(decoder->VaDisplay, surface)
+	if (surface == VA_INVALID_ID) {
+	    printf(_("video/vaapi: invalid surface in ringbuffer\n"));
+	    Error(_("video/vaapi: invalid surface in ringbuffer\n"));
+	    continue;
+	}
+	// can crash and hang
+	if (0 && vaSyncSurface(decoder->VaDisplay, surface)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
+    }
+
+    if (decoder->SurfaceRead != decoder->SurfaceWrite) {
+	abort();
     }
 
     decoder->WrongInterlacedWarned = 0;
@@ -1091,6 +1121,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	VaapiDestroySurfaces(decoder);
     }
 
+    decoder->PTS = AV_NOPTS_VALUE;
     clock_gettime(CLOCK_REALTIME, &decoder->StartTime);
 }
 
@@ -1103,7 +1134,7 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
 {
     VaapiCleanup(decoder);
 
-    if (decoder->BlackSurface) {
+    if (decoder->BlackSurface != VA_INVALID_ID) {
 	if (vaDestroySurfaces(decoder->VaDisplay, &decoder->BlackSurface, 1)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy a surface\n"));
@@ -1111,13 +1142,13 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
     }
     // FIXME: decoder->DeintImages
 #ifdef USE_GLX
-    if (decoder->GlxSurface[0]) {
+    if (decoder->GlxSurface[0] != VA_INVALID_ID) {
 	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurface[0])
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy glx surface!\n"));
 	}
     }
-    if (decoder->GlxSurface[1]) {
+    if (decoder->GlxSurface[1] != VA_INVALID_ID) {
 	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurface[1])
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy glx surface!\n"));
@@ -1161,14 +1192,18 @@ static void VideoVaapiInit(const char *display_name)
 	VaDisplay = vaGetDisplay(XlibDisplay);
     }
     if (!VaDisplay) {
-	Fatal(_("video/vaapi: Can't connect VA-API to X11 server on '%s'"),
+	Error(_("video/vaapi: Can't connect VA-API to X11 server on '%s'"),
 	    display_name);
 	// FIXME: no fatal for plugin
+	return;
     }
 
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
-	Fatal(_("video/vaapi: Can't inititialize VA-API on '%s'"),
+	Error(_("video/vaapi: Can't inititialize VA-API on '%s'"),
 	    display_name);
+	vaTerminate(VaDisplay);
+	VaDisplay = NULL;
+	return;
     }
     s = vaQueryVendorString(VaDisplay);
     Info(_("video/vaapi: libva %d.%d (%s) initialized\n"), major, minor, s);
@@ -1180,6 +1215,9 @@ static void VideoVaapiInit(const char *display_name)
 	Info(_("video/vaapi: use vdpau bug workaround\n"));
 	setenv("VDPAU_VIDEO_PUTSURFACE_FAST", "0", 0);
 	VaapiBuggyVdpau = 1;
+    }
+    if (strstr(s, "Intel i965")) {
+	VaapiBuggyIntel = 1;
     }
     //
     //	check if driver makes a copy of the VA surface for display.
@@ -1210,6 +1248,15 @@ static void VideoVaapiExit(void)
     int i;
 
     // FIXME: more VA-API cleanups...
+    // FIXME: can hang with vdpau in pthread_rwlock_wrlock
+
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	if (VaapiDecoders[i]) {
+	    VaapiDelDecoder(VaapiDecoders[i]);
+	    VaapiDecoders[i] = NULL;
+	}
+    }
+    VaapiDecoderN = 0;
 
     if (VaOsdImage.image_id != VA_INVALID_ID) {
 	if (vaDestroyImage(VaDisplay,
@@ -1220,20 +1267,13 @@ static void VideoVaapiExit(void)
     }
 
     if (VaOsdSubpicture != VA_INVALID_ID) {
+	// still has 35 surfaces associated to it
 	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy subpicture\n"));
 	}
 	VaOsdSubpicture = VA_INVALID_ID;
     }
-
-    for (i = 0; i < VaapiDecoderN; ++i) {
-	if (VaapiDecoders[i]) {
-	    VaapiDelDecoder(VaapiDecoders[i]);
-	    VaapiDecoders[i] = NULL;
-	}
-    }
-    VaapiDecoderN = 0;
 
     if (!VaDisplay) {
 	vaTerminate(VaDisplay);
@@ -1351,6 +1391,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     VAConfigAttrib attrib;
 
     Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
+
     // create initial black surface and display
     VaapiBlackSurface(decoder);
     VaapiCleanup(decoder);
@@ -1534,10 +1575,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     unsigned type;
     VAStatus status;
 
-    // fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
-    //	  timer elapsed... GPU hung
-    usleep(1 * 1000);
-
     // deinterlace
     if (interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
 	if (top_field_first) {
@@ -1557,6 +1594,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	type = VA_FRAME_PICTURE;
     }
 
+    xcb_flush(Connection);
     if ((status = vaPutSurface(decoder->VaDisplay, surface, decoder->Window,
 		// decoder src
 		decoder->InputX, decoder->InputY, decoder->InputWidth,
@@ -1585,10 +1623,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 		surface, status);
 	    return;
 	}
-	if (vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
-	    Error(_("video: vaSyncSurface failed\n"));
-	}
-
     }
 
     if (0) {
@@ -1606,6 +1640,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	    usleep(1 * 1000);
 	}
     }
+
 }
 
 #ifdef USE_GLX
@@ -1866,10 +1901,10 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     if ((old = decoder->SurfacesRb[decoder->SurfaceWrite])
 	!= VA_INVALID_ID) {
 
-	if (vaSyncSurface(decoder->VaDisplay, old) != VA_STATUS_SUCCESS) {
+#if 0
+	if (0 && vaSyncSurface(decoder->VaDisplay, old) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
-#if 0
 	VASurfaceStatus status;
 
 	if (vaQuerySurfaceStatus(decoder->VaDisplay, old, &status)
@@ -1881,7 +1916,9 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	    Warning(_
 		("video/vaapi: surface %#x not ready: still displayed %d\n"),
 		old, status);
-	    if (vaSyncSurface(decoder->VaDisplay, old) != VA_STATUS_SUCCESS) {
+	    if (0
+		&& vaSyncSurface(decoder->VaDisplay,
+		    old) != VA_STATUS_SUCCESS) {
 		Error(_("video/vaapi: vaSyncSurface failed\n"));
 	    }
 	}
@@ -1892,14 +1929,29 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	    VaapiReleaseSurface(decoder, old);
 	}
     }
-#if 0
-    //
-    //	associate the OSD with surface
-    //
-    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, &surface, 1, 0, 0,
-	    VaOsdImage.width, VaOsdImage.height, 0, 0, decoder->InputWidth,
-	    decoder->InputHeight, 0) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't associate subpicture\n"));
+#if 1
+    // FIXME: intel seems to forget this, nvidia GT 210 has speed problems here
+    if (VaapiBuggyIntel && VaOsdSubpicture != VA_INVALID_ID) {
+
+	//
+	//	associate the OSD with surface
+	//
+	if (VaapiUnscaledOsd) {
+	    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, &surface, 1,
+		    0, 0, VaOsdImage.width, VaOsdImage.height, 0, 0,
+		    VideoWindowWidth, VideoWindowHeight,
+		    VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+		!= VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't associate subpicture\n"));
+	    }
+	} else {
+	    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, &surface, 1,
+		    0, 0, VaOsdImage.width, VaOsdImage.height, 0, 0,
+		    decoder->InputWidth, decoder->InputHeight, 0)
+		!= VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't associate subpicture\n"));
+	    }
+	}
     }
 #endif
 
@@ -1940,6 +1992,9 @@ static void FilterLine(const uint8_t * past, const uint8_t * cur,
 static void VaapiBlackSurface(VaapiDecoder * decoder)
 {
     VAStatus status;
+    uint32_t start;
+    uint32_t sync;
+    uint32_t put1;
 
     // wait until we have osd subpicture
     if (VaOsdSubpicture == VA_INVALID_ID) {
@@ -1955,7 +2010,9 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    return;
 	}
     }
+    // FIXME: no need to re associate
 
+    // full sized surface, no difference unscaled/scaled osd
     if (vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
 	    &decoder->BlackSurface, 1, 0, 0, VaOsdImage.width,
 	    VaOsdImage.height, 0, 0, VideoWindowWidth, VideoWindowHeight,
@@ -1963,6 +2020,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	Error(_("video/vaapi: can't associate subpicture\n"));
     }
 
+    start = GetMsTicks();
     if (vaSyncSurface(decoder->VaDisplay,
 	    decoder->BlackSurface) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
@@ -1970,6 +2028,8 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 
     Debug(4, "video/vaapi: yy black video surface %#x displayed\n",
 	decoder->BlackSurface);
+    sync = GetMsTicks();
+    xcb_flush(Connection);
     if ((status =
 	    vaPutSurface(decoder->VaDisplay, decoder->BlackSurface,
 		decoder->Window,
@@ -1982,12 +2042,16 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     }
     clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
 
-    if (vaSyncSurface(decoder->VaDisplay,
+    put1 = GetMsTicks();
+    Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
+
+    if (0
+	&& vaSyncSurface(decoder->VaDisplay,
 	    decoder->BlackSurface) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
 
-    usleep(1 * 1000);
+    usleep(500);
 }
 
 ///
@@ -2140,7 +2204,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 	    img1->num_planes);
     }
 
-    if (vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
 
@@ -2163,7 +2227,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 	Fatal("video/vaapi: can't put image!\n");
     }
     VaapiQueueSurface(decoder, out1, 1);
-    if (vaSyncSurface(decoder->VaDisplay, out1) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, out1) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
     // get a free surface and upload the image
@@ -2174,7 +2238,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 	Fatal("video/vaapi: can't put image!\n");
     }
     VaapiQueueSurface(decoder, out2, 1);
-    if (vaSyncSurface(decoder->VaDisplay, out2) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, out2) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
     // FIXME: must release software input surface
@@ -2233,12 +2297,12 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    VaapiUpdateOutput(decoder);
 	}
 #else
-	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	if (av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
 	    Debug(3, "video/vaapi: aspect ratio changed\n");
 
 	    //decoder->InputWidth = video_ctx->width;
 	    //decoder->InputHeight = video_ctx->height;
-	    decoder->InputAspect = frame->sample_aspect_ratio;
+	    decoder->InputAspect = video_ctx->sample_aspect_ratio;
 	    VaapiUpdateOutput(decoder);
 	}
 #endif
@@ -2371,10 +2435,13 @@ void VaapiDisplayFrame(void)
 		atomic_dec(&decoder->SurfacesFilled);
 	    }
 
-	    start = GetMsTicks();
 	    surface = decoder->SurfacesRb[decoder->SurfaceRead];
+	    if (surface == VA_INVALID_ID) {
+		printf(_("video/vaapi: invalid surface in ringbuffer\n"));
+	    }
 	    Debug(4, "video/vaapi: yy video surface %#x displayed\n", surface);
 
+	    start = GetMsTicks();
 	    if (vaSyncSurface(decoder->VaDisplay, surface)
 		!= VA_STATUS_SUCCESS) {
 		Error(_("video/vaapi: vaSyncSurface failed\n"));
@@ -2387,22 +2454,33 @@ void VaapiDisplayFrame(void)
 	    put2 = put1;
 	    // deinterlace and full frame rate
 	    if (decoder->Interlaced) {
+		usleep(500);
 		VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		    decoder->TopFieldFirst, 1);
+
+		if (0 && vaSyncSurface(decoder->VaDisplay, surface)
+		    != VA_STATUS_SUCCESS) {
+		    Error(_("video/vaapi: vaSyncSurface failed\n"));
+		}
 		// FIXME: buggy libva-driver-vdpau.
 		if (VaapiBuggyVdpau
 		    && VideoDeinterlace != VideoDeinterlaceWeave) {
+		    usleep(500);
 		    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 			decoder->TopFieldFirst, 0);
+		    usleep(500);
 		    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 			decoder->TopFieldFirst, 1);
 		}
 		put2 = GetMsTicks();
 	    }
-	    xcb_flush(Connection);
+	    clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
+
+	    // fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
+	    //	  timer elapsed... GPU hung
+	    //usleep(1 * 1000);
 	    Debug(4, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
 		put1 - sync, put2 - put1);
-	    clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
 	} else {
 	    Debug(3, "video/vaapi: no video surface ready\n");
 	}
@@ -2503,6 +2581,8 @@ static void VaapiOsdInit(int width, int height)
 	Debug(3, "video/vaapi: va-api not setup\n");
 	return;
     }
+    /*FIXME:return; */
+
     //
     //	look through subpicture formats
     //
@@ -2544,9 +2624,8 @@ static void VaapiOsdInit(int width, int height)
 	Info(_("video/vaapi: vaapi supports unscaled osd\n"));
 	VaapiUnscaledOsd = 1;
     }
-    // FIXME:
-    VaapiUnscaledOsd = 0;
-    Info(_("video/vaapi: unscaled osd disabled\n"));
+    //VaapiUnscaledOsd = 0;
+    //Info(_("video/vaapi: unscaled osd disabled\n"));
 
     if (vaCreateImage(VaDisplay, &formats[u], width, height,
 	    &VaOsdImage) != VA_STATUS_SUCCESS) {
@@ -2556,6 +2635,13 @@ static void VaapiOsdInit(int width, int height)
     if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id,
 	    &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't create subpicture\n"));
+
+	if (vaDestroyImage(VaDisplay,
+		VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+	VaOsdImage.image_id = VA_INVALID_ID;
+
 	return;
     }
     // FIXME: must store format, to convert ARGB to it.
@@ -2950,29 +3036,36 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	struct timespec abstime;
 	VaapiDecoder *decoder;
 	uint64_t delay;
+	int64_t audio_clock;
+	int64_t video_clock;
 
 	decoder = VaapiDecoders[0];
 
 	VideoPollEvent();
 
-	// initial delay
-	delay = AudioGetDelay();
-	if (delay < 100 * 90) {		// no audio delay known
-	    delay = 760 * 1000 * 1000;
-	} else {
-	    delay = (delay * 1000 * 1000) / 90 + 60 * 1000 * 1000;
+	audio_clock = AudioGetClock();
+	video_clock = audio_clock;
+	if ((uint64_t) audio_clock != AV_NOPTS_VALUE
+	    && (uint64_t) decoder->PTS != AV_NOPTS_VALUE) {
+	    video_clock = decoder->PTS - (decoder->Interlaced ? 40 : 20) * 90;
 	}
-	clock_gettime(CLOCK_REALTIME, &nowtime);
-	if (!atomic_read(&decoder->SurfacesFilled)
-	    || (uint64_t) ((nowtime.tv_sec - decoder->StartTime.tv_sec)
-		* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		    decoder->StartTime.tv_nsec)) > delay) {
 
-	    if ((nowtime.tv_sec - decoder->StartTime.tv_sec)
-		* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		    decoder->StartTime.tv_nsec)
-		< 2000 * 1000 * 1000) {
-		Debug(3, "video: audio delay %lu ms\n", delay / (1000 * 1000));
+	delay = 4 * 500L * 1000 * 1000;
+	clock_gettime(CLOCK_REALTIME, &nowtime);
+
+	// wait until we got any surface
+	if (!atomic_read(&decoder->SurfacesFilled)
+	    || video_clock < audio_clock
+	    || ((uint64_t) ((nowtime.tv_sec - decoder->StartTime.tv_sec)
+		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+			decoder->StartTime.tv_nsec)) > delay)) {
+
+	    if (!(decoder->FrameCounter % (50 * 10))) {
+		Debug(3,
+		    "video: %09" PRIx64 "-%09" PRIx64 " pts %+dms %" PRId64
+		    "\n", audio_clock, video_clock,
+		    (int)(audio_clock - video_clock) / 90,
+		    AudioGetDelay() / 90);
 	    }
 	    // FIXME: hot polling
 	    pthread_mutex_lock(&VideoLockMutex);
@@ -2988,9 +3081,13 @@ static void *VideoDisplayHandlerThread(void *dummy)
 		((nowtime.tv_sec - decoder->StartTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
 			decoder->StartTime.tv_nsec)) / (1000 * 1000));
+	    Debug(3,
+		"video: %#012" PRIx64 "-%#012" PRIx64 " pts %+d ms %" PRId64
+		"\n", audio_clock, video_clock,
+		(int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
 
 	    abstime = nowtime;
-	    abstime.tv_nsec += 18 * 1000 * 1000;
+	    abstime.tv_nsec += 10 * 1000 * 1000;
 	    if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
 		// avoid overflow
 		abstime.tv_sec++;
@@ -3007,129 +3104,21 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	    pthread_mutex_unlock(&VideoLockMutex);
 	}
 
+	filled = atomic_read(&decoder->SurfacesFilled);
 	clock_gettime(CLOCK_REALTIME, &nowtime);
 	// time for one frame over, buggy for vaapi-vdpau
-	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec) * 1000 * 1000 * 1000 +
-	    (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
-	    (decoder->Interlaced ? 17 : 17) * 1000 * 1000) {
+	if (filled <= 1 && (nowtime.tv_sec - decoder->FrameTime.tv_sec)
+	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+		decoder->FrameTime.tv_nsec) <
+	    (decoder->Interlaced ? 15 : 15) * 1000 * 1000) {
 	    continue;
 	}
 
-	filled = atomic_read(&decoder->SurfacesFilled);
 	if (!filled) {
 	    pthread_mutex_lock(&VideoLockMutex);
 	    VaapiBlackSurface(decoder);
 	    pthread_mutex_unlock(&VideoLockMutex);
-	} else if (filled == 1) {
-	    decoder->FramesDuped++;
-	    ++decoder->FrameCounter;
-	    if (!(decoder->FrameCounter % 333)) {
-		Warning(_
-		    ("video: display buffer empty, duping frame (%d/%d)\n"),
-		    decoder->FramesDuped, decoder->FrameCounter);
-		VaapiPrintFrames(decoder);
-	    }
-	}
-
-	if (filled) {
-	    pthread_mutex_lock(&VideoLockMutex);
-	    VideoDisplayFrame();
-	    pthread_mutex_unlock(&VideoLockMutex);
-	}
-    }
-#if 0
-    for (;;) {
-	int err;
-	int filled;
-	struct timespec nowtime;
-	struct timespec abstime;
-	VaapiDecoder *decoder;
-
-	clock_gettime(CLOCK_REALTIME, &abstime);
-
-	VideoPollEvent();
-
-	// fill surface buffer
-	for (;;) {
-	    static int max_filled;
-	    uint32_t delay;
-
-	    clock_gettime(CLOCK_REALTIME, &nowtime);
-	    // time to receive and decode over
-	    if ((nowtime.tv_sec - abstime.tv_sec) * 1000 * 1000 * 1000 +
-		(nowtime.tv_nsec - abstime.tv_nsec) >
-		(decoder->Interlaced + 1) * 15 * 1000 * 1000) {
-		break;
-	    }
-
-	    delay = 700 * 1000 * 1000;
-	    // initial delay get decode only 1 frame
-	    if ((nowtime.tv_sec - decoder->StartTime.tv_sec)
-		* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		    decoder->StartTime.tv_nsec) < delay) {
-		Debug(3, "video/vaapi: waiting %9lu ms\n",
-		    ((nowtime.tv_sec - decoder->StartTime.tv_sec)
-			* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-			    decoder->StartTime.tv_nsec)) / (1000 * 1000));
-
-		if (atomic_read(&decoder->SurfacesFilled)) {
-		    break;
-		}
-	    }
-
-	    if (atomic_read(&decoder->SurfacesFilled) >= 3) {
-		break;
-	    }
-	    // FIXME: hot polling
-	    pthread_mutex_lock(&VideoLockMutex);
-	    err = VideoDecode();
-	    pthread_mutex_unlock(&VideoLockMutex);
-	    if (atomic_read(&decoder->SurfacesFilled) > 3) {
-		Debug(3, "video: %d filled\n",
-		    atomic_read(&decoder->SurfacesFilled));
-		if (atomic_read(&decoder->SurfacesFilled) > max_filled) {
-		    max_filled = atomic_read(&decoder->SurfacesFilled);
-		}
-	    }
-	    if (err) {
-		usleep(1 * 1000);	// nothing buffered
-	    }
-
-	}
-
-	// wait up to 20ms
-	// FIXME: 50hz video frame rate hardcoded
-	abstime.tv_nsec += (decoder->Interlaced + 1) * 16 * 1000 * 1000;
-	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
-	    // avoid overflow
-	    abstime.tv_sec++;
-	    abstime.tv_nsec -= 1000 * 1000 * 1000;
-	}
-	pthread_mutex_lock(&VideoMutex);
-	while ((err =
-		pthread_cond_timedwait(&VideoWakeupCond, &VideoMutex,
-		    &abstime)) != ETIMEDOUT) {
-	    Debug(3, "video/vaapi: pthread_cond_timedwait timeout\n");
-	}
-	pthread_mutex_unlock(&VideoMutex);
-	if (err != ETIMEDOUT) {
-	    Debug(3, "video/vaapi: pthread_cond_timedwait failed: %d\n", err);
-	}
-#ifdef USE_GLX
-	//printf("video %p <-> %p\n", glXGetCurrentContext(), GlxThreadContext);
-	if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-	    GlxCheck();
-	    Error(_("video/glx: can't make glx context current\n"));
-	    return NULL;
-	}
-#endif
-
-	filled = atomic_read(&decoder->SurfacesFilled);
-	if (!filled) {
-	    pthread_mutex_lock(&VideoLockMutex);
-	    VaapiBlackSurface(decoder);
-	    pthread_mutex_unlock(&VideoLockMutex);
-	} else if (filled == 1) {
+	} else if (filled == 1 || (Fix60Hz && !(decoder->FrameCounter % 6))) {
 	    decoder->FramesDuped++;
 	    ++decoder->FrameCounter;
 	    Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
@@ -3144,15 +3133,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	    VideoDisplayFrame();
 	    pthread_mutex_unlock(&VideoLockMutex);
 	}
-
-	if (0) {
-	    clock_gettime(CLOCK_REALTIME, &nowtime);
-	    Debug(3, "video/vaapi: ticks %9lu ms\n",
-		((nowtime.tv_sec - abstime.tv_sec) * 1000 * 1000 * 1000 +
-		    (nowtime.tv_nsec - abstime.tv_nsec)) / (1000 * 1000));
-	}
     }
-#endif
 
     return dummy;
 }
@@ -3194,7 +3175,7 @@ static void VideoThreadExit(void)
 
     if (VideoThread) {
 	if (pthread_cancel(VideoThread)) {
-	    Error(_("video: can't cancel video display thread\n"));
+	    Error(_("video: can't queue cancel video display thread\n"));
 	}
 	if (pthread_join(VideoThread, &retval) || retval != PTHREAD_CANCELED) {
 	    Error(_("video: can't cancel video display thread\n"));
@@ -3202,6 +3183,7 @@ static void VideoThreadExit(void)
 	pthread_cond_destroy(&VideoWakeupCond);
 	pthread_mutex_destroy(&VideoLockMutex);
 	pthread_mutex_destroy(&VideoMutex);
+	VideoThread = 0;
     }
 }
 
@@ -3386,6 +3368,16 @@ void VaapiTest(void)
 void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
     AVFrame * frame)
 {
+    decoder->Vaapi.PTS += (decoder->Vaapi.Interlaced ? 40 : 20) * 90;
+
+    // libav: sets only pkt_dts
+    if ((uint64_t) frame->pkt_dts != AV_NOPTS_VALUE) {
+	if (decoder->Vaapi.PTS != frame->pkt_dts) {
+	    Debug(4, "video: %#012" PRIx64 "- %#012" PRIx64 " pts\n",
+		decoder->Vaapi.PTS, frame->pkt_dts);
+	    decoder->Vaapi.PTS = frame->pkt_dts;
+	}
+    }
     if (!atomic_read(&decoder->Vaapi.SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
@@ -3394,7 +3386,7 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 	struct timespec abstime;
 
 	abstime = decoder->Vaapi.FrameTime;
-	abstime.tv_nsec += 16 * 1000 * 1000;
+	abstime.tv_nsec += 10 * 1000 * 1000;
 	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
 	    // avoid overflow
 	    abstime.tv_sec++;

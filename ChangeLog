@@ -1,6 +1,10 @@
 User johns
-Date:
+Date: Sat Dec 10 00:06:46 CET 2011
 
+    Release Version 0.0.9
+    Pass audio/video PTS to codec.
+    Fix libva-driver-intel OSD problems.
+    Add audio resample support.
     Reduce program exit crashes.
     Add libva-driver-vdpau autodetection.
     Add workaround for bugs in libva-driver-vdpau.

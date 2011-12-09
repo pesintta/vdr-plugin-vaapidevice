@@ -520,6 +520,10 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 	    av_parser_init(audio_decoder->AudioCtx->codec_id))) {
 	Fatal(_("codec: can't init audio parser\n"));
     }
+    audio_decoder->SampleRate = 0;
+    audio_decoder->Channels = 0;
+    audio_decoder->HwSampleRate = 0;
+    audio_decoder->HwChannels = 0;
 }
 
 /**

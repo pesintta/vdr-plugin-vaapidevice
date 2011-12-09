@@ -152,7 +152,9 @@ static int AlsaPlayRingbuffer(void)
 		// happens with broken alsa drivers
 		Error(_("audio/alsa: broken driver %d\n"), avail);
 	    }
-	    //break;
+	    Debug(4, "audio/alsa: break state %s\n",
+		snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+	    break;
 	}
 
 	n = RingBufferGetReadPointer(AlsaRingBuffer, &p);
@@ -320,8 +322,7 @@ void AudioEnqueue(const void *samples, int count)
 	    }
 #endif
 	    state = snd_pcm_state(AlsaPCMHandle);
-	    Debug(3, "audio/alsa: state %d - %s\n", state,
-		snd_pcm_state_name(state));
+	    Debug(3, "audio/alsa: state %s\n", snd_pcm_state_name(state));
 	    Debug(3, "audio/alsa: unpaused\n");
 	    AudioPaused = 0;
 	}
@@ -381,10 +382,15 @@ static void *AudioPlayHandlerThread(void *dummy)
 		Debug(3, "audio/alsa: flushing buffers\n");
 		RingBufferReadAdvance(AlsaRingBuffer,
 		    RingBufferUsedBytes(AlsaRingBuffer));
-		if ((err = snd_pcm_drain(AlsaPCMHandle))) {
-		    Error(_("audio: snd_pcm_drain(): %s\n"),
+#if 1
+		if ((err = snd_pcm_drop(AlsaPCMHandle))) {
+		    Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
+		}
+		if ((err = snd_pcm_prepare(AlsaPCMHandle))) {
+		    Error(_("audio: snd_pcm_prepare(): %s\n"),
 			snd_strerror(err));
 		}
+#endif
 		AlsaFlushBuffer = 0;
 		break;
 	    }
@@ -504,10 +510,11 @@ static void AlsaInitPCM(void)
 		SND_PCM_NONBLOCK)) < 0) {
 	Fatal(_("audio/alsa: playback open '%s' error: %s\n"), device,
 	    snd_strerror(err));
+	// FIXME: no fatal error for plugins!
     }
     AlsaPCMHandle = handle;
 
-    if ((err = snd_pcm_nonblock(handle, SND_PCM_NONBLOCK)) < 0) {
+    if ((err = snd_pcm_nonblock(handle, 0)) < 0) {
 	Error(_("audio/alsa: can't set block mode: %s\n"), snd_strerror(err));
     }
 
@@ -610,11 +617,25 @@ static void AlsaInitMixer(void)
 void AudioSetClock(int64_t pts)
 {
     if (AudioPTS != pts) {
-	Debug(3, "audio: set clock to %#012" PRIx64 " %#012" PRIx64 " pts\n",
+	Debug(4, "audio: set clock to %#012" PRIx64 " %#012" PRIx64 " pts\n",
 	    AudioPTS, pts);
 
 	AudioPTS = pts;
     }
+}
+
+/**
+**	Get current audio clock.
+*/
+int64_t AudioGetClock(void)
+{
+    int64_t delay;
+
+    delay = AudioGetDelay();
+    if (delay) {
+	return AudioPTS - delay;
+    }
+    return INT64_C(0x8000000000000000);
 }
 
 /**
@@ -626,17 +647,19 @@ uint64_t AudioGetDelay(void)
     snd_pcm_sframes_t delay;
     uint64_t pts;
 
+    // delay in frames in alsa + kernel buffers
     if ((err = snd_pcm_delay(AlsaPCMHandle, &delay)) < 0) {
 	//Debug(3, "audio/alsa: no hw delay\n");
 	delay = 0UL;
     } else if (snd_pcm_state(AlsaPCMHandle) != SND_PCM_STATE_RUNNING) {
-	//Debug(3, "audio/alsa: %ld delay ok, but not running\n", delay);
+	//Debug(3, "audio/alsa: %ld frames delay ok, but not running\n", delay);
     }
-
-    pts = ((uint64_t) delay * 90000) / AudioSampleRate;
-    pts += ((uint64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90000)
-	/ (AudioSampleRate * AudioChannels);
-    //Debug(3, "audio/alsa: hw+sw delay %"PRId64" ms\n", pts / 90);
+    //Debug(3, "audio/alsa: %ld frames hw delay\n", delay);
+    pts = ((uint64_t) delay * 90 * 1000) / AudioSampleRate;
+    pts += ((uint64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90 * 1000)
+	/ (AudioSampleRate * AudioChannels * 2);
+    Debug(4, "audio/alsa: hw+sw delay %zd %" PRId64 " ms\n",
+	RingBufferUsedBytes(AlsaRingBuffer), pts / 90);
 
     return pts;
 }
@@ -676,13 +699,18 @@ int AudioSetup(int *freq, int *channels)
     // flush any buffered data
 #ifdef USE_AUDIO_THREAD
     if (AudioRunning) {
-	AlsaFlushBuffer = 1;
+	while (AudioRunning) {
+	    AlsaFlushBuffer = 1;
+	    usleep(1 * 1000);
+	}
+	AlsaFlushBuffer = 0;
     } else
 #endif
     {
 	RingBufferReadAdvance(AlsaRingBuffer,
 	    RingBufferUsedBytes(AlsaRingBuffer));
     }
+    AudioPTS = INT64_C(0x8000000000000000);
 
     ret = 0;
   try_again:
@@ -692,6 +720,15 @@ int AudioSetup(int *freq, int *channels)
 		SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
 		125 * 1000))) {
 	Error(_("audio/alsa: set params error: %s\n"), snd_strerror(err));
+
+	/*
+	   if ( err == -EBADFD ) {
+	   snd_pcm_close(AlsaPCMHandle);
+	   AlsaPCMHandle = NULL;
+	   goto try_again;
+	   }
+	 */
+
 	switch (*channels) {
 	    case 1:
 		// FIXME: enable channel upmix
@@ -795,10 +832,10 @@ int AudioSetup(int *freq, int *channels)
     Debug(3, "audio/alsa: state %s\n",
 	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 
-    AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, buffer_size);
-    // min 500ms
-    if (AlsaStartThreshold < (*freq * *channels * 2U) / 2) {
-	AlsaStartThreshold = (*freq * *channels * 2U) / 2;
+    AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
+    // min 333ms
+    if (AlsaStartThreshold < (*freq * *channels * 2U) / 3) {
+	AlsaStartThreshold = (*freq * *channels * 2U) / 3;
     }
     Debug(3, "audio/alsa: delay %u ms\n", (AlsaStartThreshold * 1000)
 	/ (AudioSampleRate * AudioChannels * 2));

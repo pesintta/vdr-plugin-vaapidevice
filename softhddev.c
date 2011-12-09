@@ -90,7 +90,7 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	avpkt->pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-	// Debug(3, "audio: pts %#012" PRIx64 "\n", avpkt->pts);
+	//Debug(3, "audio: pts %#012" PRIx64 "\n", avpkt->pts);
     }
     if (0) {				// dts is unused
 	if (data[7] & 0x40) {
@@ -234,13 +234,17 @@ static void VideoPacketInit(void)
 /**
 **	Place video data in packet ringbuffer.
 */
-static void VideoEnqueue(const void *data, int size)
+static void VideoEnqueue(int64_t pts, const void *data, int size)
 {
     AVPacket *avpkt;
 
     // Debug(3, "video: enqueue %d\n", size);
 
     avpkt = &VideoPacketRb[VideoPacketWrite];
+    if (!avpkt->stream_index) {		// add pts only for first added
+	avpkt->pts = pts;
+	avpkt->dts = pts;
+    }
     if (avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE >=
 	avpkt->size) {
 
@@ -255,9 +259,9 @@ static void VideoEnqueue(const void *data, int size)
 	    abort();
 	}
     }
-#ifdef DEBUG
+#ifdef xxDEBUG
     if (!avpkt->stream_index) {		// debug save time of first packet
-	avpkt->dts = GetMsTicks();
+	avpkt->pos = GetMsTicks();
     }
 #endif
     if (!VideoStartTick) {		// tick of first valid packet
@@ -329,6 +333,14 @@ int VideoDecode(void)
 	// Debug(3, "video: decode no packets buffered\n");
 	return -1;
     }
+#if 0
+    // FIXME: flush buffers, if close is in the queue
+    while (filled) {
+	avpkt = &VideoPacketRb[VideoPacketRead];
+	if ((int)(size_t) avpkt->priv == CODEC_ID_NONE) {
+	}
+    }
+#endif
     avpkt = &VideoPacketRb[VideoPacketRead];
 
     //
@@ -430,9 +442,9 @@ void VideoWakeup(void)
     while (filled) {
 	avpkt = &VideoPacketRb[VideoPacketRead];
 	now = GetMsTicks();
-	if (avpkt->dts + 500 > now) {
+	if (avpkt->pos + 500 > now) {
 	    Debug(3, "video: %d packets %u delayed\n", filled,
-		(unsigned)(now - avpkt->dts));
+		(unsigned)(now - avpkt->pos));
 	    return;
 	}
 	filled = atomic_read(&VideoPacketsFilled);
@@ -474,7 +486,7 @@ static void StartVideo(void)
 void PlayVideo(const uint8_t * data, int size)
 {
     const uint8_t *check;
-    uint64_t pts;
+    int64_t pts;
     int n;
 
     if (BrokenThreadsAndPlugins) {
@@ -513,7 +525,7 @@ void PlayVideo(const uint8_t * data, int size)
 	pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-	// Debug(3, "video: pts %#012" PRIx64 "\n", pts);
+	//Debug(3, "video: pts %#012" PRIx64 "\n", pts);
     }
     // FIXME: no valid mpeg2/h264 detection yet
 
@@ -527,6 +539,7 @@ void PlayVideo(const uint8_t * data, int size)
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	} else {
+	    Debug(3, "video: mpeg2 detected\n");
 	    VideoCodecID = CODEC_ID_MPEG2VIDEO;
 	}
 	// Access Unit Delimiter
@@ -552,7 +565,7 @@ void PlayVideo(const uint8_t * data, int size)
 
     // SKIP PES header
     size -= 9 + n;
-    VideoEnqueue(check, size);
+    VideoEnqueue(pts, check, size);
 }
 
 //////////////////////////////////////////////////////////////////////////////

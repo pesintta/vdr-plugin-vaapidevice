@@ -1,12 +1,11 @@
 
 libva-intel-driver:
-    intel still has hangups
+    intel still has hangups most with 1080i
     osd has sometimes wrong size (workaround written)
-    can show defect surfaces (white bars on top of frame) only interlace
-    defect shown upto driver surface swap?
 
 libva-vdpau-driver:
     G210 osd update too slow (needs hardware problem workaround)
+    OSD update is too slow
 
 x11:
     support resize of x11 window
