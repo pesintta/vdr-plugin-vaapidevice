@@ -351,7 +351,6 @@ static void *AudioPlayHandlerThread(void *dummy)
     int err;
 
     Debug(3, "audio: play thread started\n");
-
     for (;;) {
 	Debug(3, "audio: wait on start condition\n");
 	pthread_mutex_lock(&AudioMutex);
@@ -435,6 +434,37 @@ void AudioEnqueue(const void *samples, int count)
 	AudioRunning = 1;
 	pthread_cond_signal(&AudioStartCond);
     }
+}
+
+/**
+**	Initialize audio thread.
+*/
+static void AudioInitThread(void)
+{
+    pthread_mutex_init(&AudioMutex, NULL);
+    pthread_cond_init(&AudioStartCond, NULL);
+    pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
+    //pthread_detach(AudioThread);
+    do {
+	pthread_yield();
+    } while (!AlsaPCMHandle);
+}
+
+/**
+**	Cleanup audio thread.
+*/
+static void AudioExitThread(void)
+{
+    void *retval;
+
+    if (pthread_cancel(AudioThread)) {
+	Error(_("audio: can't queue cancel alsa play thread\n"));
+    }
+    if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
+	Error(_("audio: can't cancel alsa play thread\n"));
+    }
+    pthread_cond_destroy(&AudioStartCond);
+    pthread_mutex_destroy(&AudioMutex);
 }
 
 #endif
@@ -531,10 +561,6 @@ static void AlsaInitPCM(void)
     snd_pcm_hw_params_get_buffer_size_max(hw_params, &buffer_size);
     Info(_("audio/alsa: max buffer size %lu\n"), buffer_size);
 
-    pthread_mutex_init(&AudioMutex, NULL);
-    pthread_cond_init(&AudioStartCond, NULL);
-    pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
-    //pthread_detach(AudioThread);
 }
 
 //----------------------------------------------------------------------------
@@ -647,6 +673,9 @@ uint64_t AudioGetDelay(void)
     snd_pcm_sframes_t delay;
     uint64_t pts;
 
+    if (!AlsaPCMHandle) {
+	return 0;
+    }
     // delay in frames in alsa + kernel buffers
     if ((err = snd_pcm_delay(AlsaPCMHandle, &delay)) < 0) {
 	//Debug(3, "audio/alsa: no hw delay\n");
@@ -887,6 +916,9 @@ void AudioInit(void)
     if (AudioSetup(&freq, &chan)) {	// set default parameters
 	Error(_("audio: can't do initial setup\n"));
     }
+#ifdef USE_AUDIO_THREAD
+    AudioInitThread();
+#endif
 
     AudioPaused = 1;
 }
@@ -896,17 +928,9 @@ void AudioInit(void)
 */
 void AudioExit(void)
 {
-    void *retval;
-
-    if (pthread_cancel(AudioThread)) {
-	Error(_("audio: can't queue cancel alsa play thread\n"));
-    }
-    if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
-	Error(_("audio: can't cancel alsa play thread\n"));
-    }
-    pthread_cond_destroy(&AudioStartCond);
-    pthread_mutex_destroy(&AudioMutex);
-
+#ifdef USE_AUDIO_THREAD
+    AudioExitThread();
+#endif
     if (AlsaPCMHandle) {
 	snd_pcm_close(AlsaPCMHandle);
 	AlsaPCMHandle = NULL;
@@ -931,17 +955,20 @@ void AudioTest(void)
     for (;;) {
 	unsigned u;
 	uint8_t buffer[16 * 1024];	// some random data
+	int i;
 
 	for (u = 0; u < sizeof(buffer); u++) {
 	    buffer[u] = random() & 0xffff;
 	}
 
 	Debug(3, "audio/test: loop\n");
-	for (;;) {
+	for (i = 0; i < 100; ++i) {
 	    while (RingBufferFreeBytes(AlsaRingBuffer) > sizeof(buffer)) {
 		AudioEnqueue(buffer, sizeof(buffer));
 	    }
+	    usleep(20 * 1000);
 	}
+	break;
     }
 }
 
