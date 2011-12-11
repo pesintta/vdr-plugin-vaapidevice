@@ -6,6 +6,8 @@ libva-intel-driver:
 libva-vdpau-driver:
     G210 osd update too slow (needs hardware problem workaround)
     OSD update is too slow
+    hangup on exit (VaapiDelDecoder -> VaapiCleanup
+	-> vaDestroyContext -> pthread_rwlock_wrlock)
 
 x11:
     support resize of x11 window
@@ -15,3 +17,5 @@ x11:
 video/audio asyncron
 
 playback of >2 channels on 2 channel hardware
+
+playback of recording

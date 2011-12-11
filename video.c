@@ -849,20 +849,21 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     //	update OSD associate
     //
     if (VaOsdSubpicture != VA_INVALID_ID) {
-	if (vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+	if (decoder->SurfaceFreeN
+	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesFree, decoder->SurfaceFreeN)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
 		decoder->SurfaceFreeN);
 	}
 
-	if (vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+	if (decoder->SurfaceUsedN
+	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesUsed, decoder->SurfaceUsedN)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
 		decoder->SurfaceUsedN);
 	}
-
     }
 
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree,
@@ -1135,6 +1136,15 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
     VaapiCleanup(decoder);
 
     if (decoder->BlackSurface != VA_INVALID_ID) {
+	//
+	//	update OSD associate
+	//
+	if (VaOsdSubpicture != VA_INVALID_ID) {
+	    if (vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+		    &decoder->BlackSurface, 1) != VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't deassociate black surfaces\n"));
+	    }
+	}
 	if (vaDestroySurfaces(decoder->VaDisplay, &decoder->BlackSurface, 1)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy a surface\n"));
@@ -2410,7 +2420,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 **	FIXME: frame delay for 50hz hardcoded
 **
 */
-void VaapiDisplayFrame(void)
+static void VaapiDisplayFrame(void)
 {
     uint32_t start;
     uint32_t sync;
@@ -3050,7 +3060,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	    video_clock = decoder->PTS - (decoder->Interlaced ? 40 : 20) * 90;
 	}
 
-	delay = 4 * 500L * 1000 * 1000;
+	delay = 1 * 500L * 1000 * 1000;
 	clock_gettime(CLOCK_REALTIME, &nowtime);
 
 	// wait until we got any surface
@@ -3395,6 +3405,16 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 
 	VideoPollEvent();
 
+	if (!(decoder->Vaapi.FrameCounter % (50 * 10))) {
+	    int64_t audio_clock;
+
+	    audio_clock = AudioGetClock();
+	    Debug(3,
+		"video: %09" PRIx64 "-%09" PRIx64 " pts %+dms %" PRId64 "\n",
+		audio_clock, decoder->Vaapi.PTS,
+		(int)(audio_clock - decoder->Vaapi.PTS) / 90,
+		AudioGetDelay() / 90);
+	}
 	// give osd some time slot
 	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
 		&abstime) != ETIMEDOUT) {
