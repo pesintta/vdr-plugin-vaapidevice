@@ -13,7 +13,7 @@ PLUGIN = softhddevice
 
 ### The version number of this plugin (taken from the main source file):
 
-VERSION = $(shell grep 'static const char \* const VERSION *=' $(PLUGIN).cpp | awk '{ print $$8 }' | sed -e 's/[";]//g')
+VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | awk '{ print $$7 }' | sed -e 's/[";]//g')
 
 ### The C++ compiler and options:
 
