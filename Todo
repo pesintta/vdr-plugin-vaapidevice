@@ -14,8 +14,13 @@ x11:
     support fullscreen window
     support fullscreen / window toggle
 
-video/audio asyncron
+audio/alsa:
+    video/audio asyncron
 
-playback of >2 channels on 2 channel hardware
+    playback of >2 channels on 2 channel hardware
+	    done?
+
+    on some channels it takes long time until sound can be heared.
+    this channels has packet start not at the beginning of the start packet
 
 playback of recording

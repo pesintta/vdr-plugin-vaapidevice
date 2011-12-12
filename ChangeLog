@@ -1,4 +1,9 @@
 User johns
+Date:
+
+    DisplayFrame displays now only a single frame.
+    Add deinterlace/scaling modes to setup.
+
 Date: Sat Dec 10 00:06:46 CET 2011
 
     Release Version 0.0.9

@@ -478,26 +478,28 @@ static void StartVideo(void)
 **	@param data	data of exactly one complete PES packet
 **	@param size	size of PES packet
 **
+**	@return number of bytes used, 0 if internal buffer are full.
+**
 **	@note vdr sends incomplete packets, va-api h264 decoder only
 **	supports complete packets.
 **	We buffer here until we receive an complete PES Packet, which
 **	is no problem, the audio is always far behind us.
 */
-void PlayVideo(const uint8_t * data, int size)
+int PlayVideo(const uint8_t * data, int size)
 {
     const uint8_t *check;
     int64_t pts;
     int n;
 
     if (BrokenThreadsAndPlugins) {
-	return;
+	return size;
     }
     if (Usr1Signal) {			// x11 server ready
 	Usr1Signal = 0;
 	StartVideo();
     }
     if (!MyVideoDecoder) {		// no x11 video started
-	return;
+	return size;
     }
     if (NewVideoStream) {
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
@@ -506,15 +508,15 @@ void PlayVideo(const uint8_t * data, int size)
 	NewVideoStream = 0;
     }
     // must be a PES start code
-    if (data[0] || data[1] || data[2] != 0x01 || size < 9) {
+    if (size < 9 || data[0] || data[1] || data[2] != 0x01) {
 	Error(_("[softhddev] invalid PES video packet\n"));
-	return;
+	return size;
     }
     n = data[8];			// header size
     // wrong size
     if (size < 9 + n) {
 	Error(_("[softhddev] invalid video packet\n"));
-	return;
+	return size;
     }
     check = data + 9 + n;
 
@@ -555,7 +557,7 @@ void PlayVideo(const uint8_t * data, int size)
 	// this happens when vdr sends incomplete packets
 	if (VideoCodecID == CODEC_ID_NONE) {
 	    Debug(3, "video: not detected\n");
-	    return;
+	    return size;
 	}
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    // mpeg codec supports incomplete packages
@@ -564,8 +566,9 @@ void PlayVideo(const uint8_t * data, int size)
     }
 
     // SKIP PES header
-    size -= 9 + n;
-    VideoEnqueue(pts, check, size);
+    VideoEnqueue(pts, check, size - 9 - n);
+
+    return size;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -589,6 +592,23 @@ void SetPlayMode(void)
 	CodecAudioClose(MyAudioDecoder);
 	AudioCodecID = CODEC_ID_NONE;
     }
+}
+
+/**
+**	Poll if device is ready.  Called by replay.
+*/
+int Poll(int timeout)
+{
+    return 1;
+    // buffers are too full
+    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
+	if (timeout) {
+	    // let display thread work
+	    usleep(timeout * 1000);
+	}
+	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX / 2;
+    }
+    return 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////

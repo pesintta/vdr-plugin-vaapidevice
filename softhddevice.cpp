@@ -33,10 +33,13 @@
 
 #include "softhddev.h"
 #include "softhddevice.h"
+extern "C" {
+    #include "video.h"
+}
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.0.9";
+static const char *const VERSION = "0.1.0";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -254,6 +257,8 @@ class cMenuSetupSoft:public cMenuSetupPage
 {
   protected:
     int MakePrimary;
+    int Deinterlace;
+    int Scaling;
   protected:
      virtual void Store(void);
   public:
@@ -265,10 +270,17 @@ class cMenuSetupSoft:public cMenuSetupPage
 */
 cMenuSetupSoft::cMenuSetupSoft(void)
 {
+    static const char * const deinterlace[] = {
+	"Bob", "Weave", "Temporal", "TemporalSpatial", "Software" };
+    static const char * const scaling[] = {
+	"Normal", "Fast", "HQ", "Anamorphic" };
+
     // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
     // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
 	    tr("no"), tr("yes")));
+    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5, deinterlace));
+    Add(new cMenuEditStraItem(tr("Scaling"), &Scaling, 4, scaling));
 }
 
 /**
@@ -277,6 +289,8 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 void cMenuSetupSoft::Store(void)
 {
     SetupStore("MakePrimary", MakePrimary);
+    SetupStore("Deinterlace", Deinterlace);
+    SetupStore("Scaling", Scaling);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -451,11 +465,11 @@ void cSoftHdDevice::StillPicture(
 }
 
 bool cSoftHdDevice::Poll(
-    __attribute__ ((unused)) cPoller & poller, __attribute__ ((unused))
-    int timeout_ms)
+    __attribute__ ((unused)) cPoller & poller, int timeout_ms)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
-    return true;
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
+
+    return ::Poll(timeout_ms);
 }
 
 bool cSoftHdDevice::Flush( __attribute__ ((unused)) int timeout_ms)
@@ -518,9 +532,7 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {
     //dsyslog("[softhddev]%s: %p %d\n", __FUNCTION__, data, length);
 
-    ::PlayVideo(data, length);
-
-    return length;
+    return ::PlayVideo(data, length);
 }
 
 #if 0
@@ -726,6 +738,16 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     // FIXME: handle the values
     if (!strcmp(name, "MakePrimary")) {
 	ConfigMakePrimary = atoi(value);
+	return true;
+    }
+    if (!strcmp(name, "Deinterlace")) {
+	printf("Deinterlace: %d\n", atoi(value));
+	VideoSetDeinterlace(atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "Scaling")) {
+	printf("Scaling: %d\n", atoi(value));
+	VideoSetScaling(atoi(value));
 	return true;
     }
 

@@ -43,12 +43,14 @@ extern "C"
     extern void SetVolumeDevice(int);
 
     /// C plugin play video packet
-    extern void PlayVideo(const uint8_t *, int);
+    extern int PlayVideo(const uint8_t *, int);
     /// C plugin play TS video packet
     extern void PlayTsVideo(const uint8_t *, int);
 
     /// C plugin set play mode
     extern void SetPlayMode(void);
+    /// C plugin poll if ready
+    extern int Poll(int);
 
     /// C plugin command line help
     extern const char *CommandLineHelp(void);

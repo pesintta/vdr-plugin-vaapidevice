@@ -71,6 +71,12 @@ extern void VideoDisplayHandler(void);
     /// set video geometry
 extern int VideoSetGeometry(const char *);
 
+    /// set deinterlace
+extern void VideoSetDeinterlace(int);
+
+    /// set scaling
+extern void VideoSetScaling(int);
+
     /// Clear OSD
 extern void VideoOsdClear(void);
 
