@@ -184,7 +184,9 @@ static VideoScalingModes VideoScaling;
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message
 
-extern uint32_t VideoSwitch;
+extern uint32_t VideoSwitch;		///< ticks for channel switch
+
+static int VideoDropNextFrame;		///< flag drop next frame
 
 //----------------------------------------------------------------------------
 //	Functions
@@ -827,11 +829,17 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
     } else {
+	int i;
+
 	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesFree, decoder->SurfaceFreeN, 0, 0,
 		VaOsdImage.width, VaOsdImage.height, 0, 0, width, height, 0)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+	for (i = 0; i < decoder->SurfaceFreeN; ++i) {
+	    Debug(3, "video/vaapi: associate %08x\n",
+		decoder->SurfacesFree[i]);
 	}
     }
 }
@@ -2019,15 +2027,15 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    Error(_("video/vaapi: can't create a surface\n"));
 	    return;
 	}
-    }
-    // FIXME: no need to re associate
-
-    // full sized surface, no difference unscaled/scaled osd
-    if (vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
-	    &decoder->BlackSurface, 1, 0, 0, VaOsdImage.width,
-	    VaOsdImage.height, 0, 0, VideoWindowWidth, VideoWindowHeight,
-	    0) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't associate subpicture\n"));
+	// full sized surface, no difference unscaled/scaled osd
+	if (vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
+		&decoder->BlackSurface, 1, 0, 0, VaOsdImage.width,
+		VaOsdImage.height, 0, 0, VideoWindowWidth, VideoWindowHeight,
+		0) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+	Debug(3, "video/vaapi: associate %08x\n", decoder->BlackSurface);
+	// FIXME: check if intel forgets this also
     }
 
     start = GetMsTicks();
@@ -2330,6 +2338,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 		decoder->Interlaced = interlaced;
 		decoder->TopFieldFirst = frame->top_field_first;
+		decoder->SurfaceField = 1;
 
 	    }
 	    VaapiQueueSurface(decoder, surface, 0);
@@ -2373,6 +2382,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 	    decoder->Interlaced = frame->interlaced_frame;
 	    decoder->TopFieldFirst = frame->top_field_first;
+	    decoder->SurfaceField = 1;
 	    // FIXME: I hope this didn't change in the middle of the stream
 	}
 	// FIXME: Need to insert software deinterlace here
@@ -2436,64 +2446,74 @@ static void VaapiDisplayFrame(void)
 
 	decoder = VaapiDecoders[i];
 	filled = atomic_read(&decoder->SurfacesFilled);
-	if (filled) {
-	    // show any frame as fast as possible
-	    // we keep always the last frame in the ring buffer
-	    if (filled > 1) {
-		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
-		    % VIDEO_SURFACES_MAX;
-		atomic_dec(&decoder->SurfacesFilled);
-	    }
+	// no surface availble show black with possible osd
+	if (!filled) {
+	    VaapiBlackSurface(decoder);
+	    continue;
+	}
+	// show any frame as fast as possible
+	// we keep always the last frame in the ring buffer
 
-	    surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	    if (surface == VA_INVALID_ID) {
-		printf(_("video/vaapi: invalid surface in ringbuffer\n"));
+	// 0 -> 1
+	// 1 -> 0 + advance
+	if (decoder->Interlaced) {
+	    // FIXME: first frame is never shown
+	    if (decoder->SurfaceField) {
+		if (filled > 1) {
+		    decoder->SurfaceRead = (decoder->SurfaceRead + 1)
+			% VIDEO_SURFACES_MAX;
+		    atomic_dec(&decoder->SurfacesFilled);
+		    decoder->SurfaceField = 0;
+		}
+	    } else {
+		decoder->SurfaceField = 1;
 	    }
-	    Debug(4, "video/vaapi: yy video surface %#x displayed\n", surface);
+	} else if (filled > 1) {
+	    decoder->SurfaceRead = (decoder->SurfaceRead + 1)
+		% VIDEO_SURFACES_MAX;
+	    atomic_dec(&decoder->SurfacesFilled);
+	}
 
-	    start = GetMsTicks();
-	    if (vaSyncSurface(decoder->VaDisplay, surface)
-		!= VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: vaSyncSurface failed\n"));
-	    }
+	surface = decoder->SurfacesRb[decoder->SurfaceRead];
+	if (surface == VA_INVALID_ID) {
+	    printf(_("video/vaapi: invalid surface in ringbuffer\n"));
+	}
+	Debug(4, "video/vaapi: yy video surface %#x displayed\n", surface);
 
-	    sync = GetMsTicks();
+	start = GetMsTicks();
+	// wait for rendering finished
+	if (vaSyncSurface(decoder->VaDisplay, surface)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaSyncSurface failed\n"));
+	}
+
+	sync = GetMsTicks();
+
+	// deinterlace and full frame rate
+	if (decoder->Interlaced
+	    // FIXME: buggy libva-driver-vdpau.
+	    && VaapiBuggyVdpau && VideoDeinterlace != VideoDeinterlaceWeave) {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, 0);
 	    put1 = GetMsTicks();
-	    put2 = put1;
-	    // deinterlace and full frame rate
-	    if (decoder->Interlaced) {
-		usleep(500);
-		VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-		    decoder->TopFieldFirst, 1);
 
-		if (0 && vaSyncSurface(decoder->VaDisplay, surface)
-		    != VA_STATUS_SUCCESS) {
-		    Error(_("video/vaapi: vaSyncSurface failed\n"));
-		}
-		// FIXME: buggy libva-driver-vdpau.
-		if (VaapiBuggyVdpau
-		    && VideoDeinterlace != VideoDeinterlaceWeave) {
-		    usleep(500);
-		    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-			decoder->TopFieldFirst, 0);
-		    usleep(500);
-		    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-			decoder->TopFieldFirst, 1);
-		}
-		put2 = GetMsTicks();
-	    }
-	    clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
-
-	    // fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
-	    //	  timer elapsed... GPU hung
-	    //usleep(1 * 1000);
-	    Debug(4, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
-		put1 - sync, put2 - put1);
+	    usleep(500);
+	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
+		decoder->TopFieldFirst, 1);
+	    put2 = GetMsTicks();
 	} else {
-	    Debug(3, "video/vaapi: no video surface ready\n");
+	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
+		decoder->TopFieldFirst, decoder->SurfaceField);
+	    put1 = GetMsTicks();
+	    put2 = put1;
 	}
+	clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
+
+	// fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
+	//	  timer elapsed... GPU hung
+	usleep(1 * 1000);
+	Debug(4, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
+	    put1 - sync, put2 - put1);
     }
 }
 
@@ -2944,6 +2964,13 @@ static void VideoEvent(void)
 	    break;
 	case KeyPress:
 	    keysym = XLookupKeysym(&event.xkey, 0);
+	    switch (keysym) {
+		case XK_d:
+		    break;
+		case XK_S:
+		    VideoDropNextFrame = 1;
+		    break;
+	    }
 	    if (keysym == NoSymbol) {
 		Warning(_("video: No symbol for %d\n"), event.xkey.keycode);
 	    }
@@ -3059,7 +3086,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	    && (uint64_t) decoder->PTS != AV_NOPTS_VALUE) {
 	    video_clock = decoder->PTS - (decoder->Interlaced ? 40 : 20) * 90;
 	}
-
+	// default video delay, if audio delay isn't known yet
 	delay = 1 * 500L * 1000 * 1000;
 	clock_gettime(CLOCK_REALTIME, &nowtime);
 
@@ -3116,11 +3143,10 @@ static void *VideoDisplayHandlerThread(void *dummy)
 
 	filled = atomic_read(&decoder->SurfacesFilled);
 	clock_gettime(CLOCK_REALTIME, &nowtime);
-	// time for one frame over, buggy for vaapi-vdpau
+	// time for one frame over
 	if (filled <= 1 && (nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		decoder->FrameTime.tv_nsec) <
-	    (decoder->Interlaced ? 15 : 15) * 1000 * 1000) {
+		decoder->FrameTime.tv_nsec) < 15 * 1000 * 1000) {
 	    continue;
 	}
 
@@ -3131,9 +3157,10 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	} else if (filled == 1 || (Fix60Hz && !(decoder->FrameCounter % 6))) {
 	    decoder->FramesDuped++;
 	    ++decoder->FrameCounter;
-	    Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
-		decoder->FramesDuped, decoder->FrameCounter);
 	    if (!(decoder->FrameCounter % 333)) {
+		Warning(_
+		    ("video: display buffer empty, duping frame (%d/%d)\n"),
+		    decoder->FramesDuped, decoder->FrameCounter);
 		VaapiPrintFrames(decoder);
 	    }
 	}
@@ -3183,6 +3210,7 @@ static void VideoThreadExit(void)
 {
     void *retval;
 
+    Debug(3, "video: video thread canceled\n");
     if (VideoThread) {
 	if (pthread_cancel(VideoThread)) {
 	    Error(_("video: can't queue cancel video display thread\n"));
@@ -3378,6 +3406,7 @@ void VaapiTest(void)
 void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
     AVFrame * frame)
 {
+    // update video clock
     decoder->Vaapi.PTS += (decoder->Vaapi.Interlaced ? 40 : 20) * 90;
 
     // libav: sets only pkt_dts
@@ -3388,11 +3417,18 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 	    decoder->Vaapi.PTS = frame->pkt_dts;
 	}
     }
+
     if (!atomic_read(&decoder->Vaapi.SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
-    //	if video output buffer is full, wait and display surface.
-    if (atomic_read(&decoder->Vaapi.SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+
+    if (VideoDropNextFrame) {		// drop frame requested
+	VideoDropNextFrame--;
+	return;
+    }
+    // if video output buffer is full, wait and display surface.
+    // loop for interlace
+    while (atomic_read(&decoder->Vaapi.SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
 	abstime = decoder->Vaapi.FrameTime;
@@ -3578,6 +3614,22 @@ int VideoSetGeometry(const char *geometry)
 	&VideoWindowWidth, &VideoWindowHeight);
 
     return 0;
+}
+
+/**
+**	Set deinterlace mode.
+*/
+void VideoSetDeinterlace(int mode)
+{
+    VideoDeinterlace = mode;
+}
+
+/**
+**	Set scaling mode.
+*/
+void VideoSetScaling(int mode)
+{
+    VideoScaling = mode;
 }
 
 /**
