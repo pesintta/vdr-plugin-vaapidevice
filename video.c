@@ -2432,6 +2432,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 */
 static void VaapiDisplayFrame(void)
 {
+    struct timespec nowtime;
     uint32_t start;
     uint32_t sync;
     uint32_t put1;
@@ -2482,7 +2483,7 @@ static void VaapiDisplayFrame(void)
 
 	start = GetMsTicks();
 	// wait for rendering finished
-	if (vaSyncSurface(decoder->VaDisplay, surface)
+	if (0 && vaSyncSurface(decoder->VaDisplay, surface)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
@@ -2490,9 +2491,13 @@ static void VaapiDisplayFrame(void)
 	sync = GetMsTicks();
 
 	// deinterlace and full frame rate
+	// VDPAU driver only display a frame, if a full frame is put
+	// INTEL driver does the same, but only with 1080i
 	if (decoder->Interlaced
-	    // FIXME: buggy libva-driver-vdpau.
-	    && VaapiBuggyVdpau && VideoDeinterlace != VideoDeinterlaceWeave) {
+	    // FIXME: buggy libva-driver-vdpau, buggy libva-driver-intel
+	    && (VaapiBuggyVdpau || (VaapiBuggyIntel
+		    && decoder->InputHeight == 1080))
+	    && VideoDeinterlace != VideoDeinterlaceWeave) {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, 0);
 	    put1 = GetMsTicks();
@@ -2507,13 +2512,29 @@ static void VaapiDisplayFrame(void)
 	    put1 = GetMsTicks();
 	    put2 = put1;
 	}
-	clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
+	clock_gettime(CLOCK_REALTIME, &nowtime);
+#ifdef noDEBUG
+	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+		decoder->FrameTime.tv_nsec) > 21 * 1000 * 1000) {
+	    Debug(3, "video/vaapi: time/frame too long %ld ms\n",
+		((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+			decoder->FrameTime.tv_nsec)) / (1000 * 1000));
+	    Debug(4, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
+		put1 - sync, put2 - put1);
+	}
+	if (put2 > start + 20) {
+	    Debug(3, "video/vaapi: putsurface too long %u ms\n", put2 - start);
+	}
+	Debug(3, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
+	    put1 - sync, put2 - put1);
+#endif
+	decoder->FrameTime = nowtime;
 
 	// fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
 	//	  timer elapsed... GPU hung
 	usleep(1 * 1000);
-	Debug(4, "video/vaapi: sync %2u put1 %2u put2 %2u\n", sync - start,
-	    put1 - sync, put2 - put1);
     }
 }
 
@@ -3104,11 +3125,15 @@ static void *VideoDisplayHandlerThread(void *dummy)
 		    (int)(audio_clock - video_clock) / 90,
 		    AudioGetDelay() / 90);
 	    }
-	    // FIXME: hot polling
-	    pthread_mutex_lock(&VideoLockMutex);
-	    // fetch or reopen
-	    err = VideoDecode();
-	    pthread_mutex_unlock(&VideoLockMutex);
+	    if (0 && audio_clock < video_clock + 2000) {
+		err = 1;
+	    } else {
+		// FIXME: hot polling
+		pthread_mutex_lock(&VideoLockMutex);
+		// fetch or reopen
+		err = VideoDecode();
+		pthread_mutex_unlock(&VideoLockMutex);
+	    }
 	    if (err) {
 		// FIXME: sleep on wakeup
 		usleep(5 * 1000);	// nothing buffered
@@ -3124,7 +3149,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 		(int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
 
 	    abstime = nowtime;
-	    abstime.tv_nsec += 10 * 1000 * 1000;
+	    abstime.tv_nsec += 8 * 1000 * 1000;
 	    if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
 		// avoid overflow
 		abstime.tv_sec++;
@@ -3144,7 +3169,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	filled = atomic_read(&decoder->SurfacesFilled);
 	clock_gettime(CLOCK_REALTIME, &nowtime);
 	// time for one frame over
-	if (filled <= 1 && (nowtime.tv_sec - decoder->FrameTime.tv_sec)
+	if (filled <= 2 && (nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
 		decoder->FrameTime.tv_nsec) < 15 * 1000 * 1000) {
 	    continue;
@@ -3157,10 +3182,9 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	} else if (filled == 1 || (Fix60Hz && !(decoder->FrameCounter % 6))) {
 	    decoder->FramesDuped++;
 	    ++decoder->FrameCounter;
+	    Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
+		decoder->FramesDuped, decoder->FrameCounter);
 	    if (!(decoder->FrameCounter % 333)) {
-		Warning(_
-		    ("video: display buffer empty, duping frame (%d/%d)\n"),
-		    decoder->FramesDuped, decoder->FrameCounter);
 		VaapiPrintFrames(decoder);
 	    }
 	}
