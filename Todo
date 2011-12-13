@@ -1,6 +1,7 @@
 
 libva-intel-driver:
     intel still has hangups most with 1080i
+    1080i does no v-sync (workaround written)
     osd has sometimes wrong size (workaround written)
 
 libva-vdpau-driver:
@@ -16,6 +17,7 @@ x11:
 
 audio/alsa:
     video/audio asyncron
+    random crash in av_parser_parse2, when switching channels
 
     playback of >2 channels on 2 channel hardware
 	    done?

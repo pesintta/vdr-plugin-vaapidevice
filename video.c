@@ -2444,6 +2444,7 @@ static void VaapiDisplayFrame(void)
     // look if any stream have a new surface available
     for (i = 0; i < VaapiDecoderN; ++i) {
 	int filled;
+	int next_surface;
 
 	decoder = VaapiDecoders[i];
 	filled = atomic_read(&decoder->SurfacesFilled);
@@ -2457,6 +2458,7 @@ static void VaapiDisplayFrame(void)
 
 	// 0 -> 1
 	// 1 -> 0 + advance
+	next_surface = 0;
 	if (decoder->Interlaced) {
 	    // FIXME: first frame is never shown
 	    if (decoder->SurfaceField) {
@@ -2465,6 +2467,7 @@ static void VaapiDisplayFrame(void)
 			% VIDEO_SURFACES_MAX;
 		    atomic_dec(&decoder->SurfacesFilled);
 		    decoder->SurfaceField = 0;
+		    next_surface = 1;
 		}
 	    } else {
 		decoder->SurfaceField = 1;
@@ -2483,7 +2486,7 @@ static void VaapiDisplayFrame(void)
 
 	start = GetMsTicks();
 	// wait for rendering finished
-	if (0 && vaSyncSurface(decoder->VaDisplay, surface)
+	if (next_surface && vaSyncSurface(decoder->VaDisplay, surface)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
@@ -3465,6 +3468,7 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 
 	VideoPollEvent();
 
+	// FIXME: with interlace it could happen that this is not displayed
 	if (!(decoder->Vaapi.FrameCounter % (50 * 10))) {
 	    int64_t audio_clock;
 
