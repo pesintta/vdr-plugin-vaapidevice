@@ -7,5 +7,4 @@
 chaos
 # generated files
 .dependencies
-po/*.pot
 libvdr-softhddevice.so*
