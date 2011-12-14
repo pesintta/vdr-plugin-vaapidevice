@@ -3122,11 +3122,15 @@ static void *VideoDisplayHandlerThread(void *dummy)
 			decoder->StartTime.tv_nsec)) > delay)) {
 
 	    if (!(decoder->FrameCounter % (50 * 10))) {
+		static int64_t last_video_clock;
+
 		Debug(3,
-		    "video: %09" PRIx64 "-%09" PRIx64 " pts %+dms %" PRId64
-		    "\n", audio_clock, video_clock,
+		    "video: %09" PRIx64 "-%09" PRIx64 " %4" PRId64
+		    " pts %+dms %" PRId64 "\n", audio_clock, video_clock,
+		    video_clock - last_video_clock,
 		    (int)(audio_clock - video_clock) / 90,
 		    AudioGetDelay() / 90);
+		last_video_clock = video_clock;
 	    }
 	    if (0 && audio_clock < video_clock + 2000) {
 		err = 1;
@@ -3561,6 +3565,33 @@ void VideoDisplayHandler(void)
 }
 
 #endif
+
+/**
+**	Get video clock.
+**
+**	@note this isn't monoton, decoding reorders frames.
+*/
+int64_t VideoGetClock(void)
+{
+#ifdef USE_VAAPI
+    if (VideoVaapiEnabled) {
+	// pts is the timestamp of the latest decoded frame
+	// FIXME: +-20ms which field is currently displayed
+	if ((uint64_t) VaapiDecoders[0]->PTS == AV_NOPTS_VALUE) {
+	    return AV_NOPTS_VALUE;
+	}
+	return VaapiDecoders[0]->PTS -
+	    (VaapiDecoders[0]->Interlaced ? 40 : 20) * 90 *
+	    atomic_read(&VaapiDecoders[0]->SurfacesFilled);
+    }
+#endif
+#ifdef USE_VDPAU
+    if (VideoVdpauEnabled) {
+	return 0L;
+    }
+#endif
+    return 0L;
+}
 
 //----------------------------------------------------------------------------
 //	Setup

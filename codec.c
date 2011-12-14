@@ -567,28 +567,29 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	Fatal(_("codec: internal error parser freeded while running\n"));
     }
 #define spkt avpkt
-#if 0
+#if 0					// didn't fix crash in av_parser_parse2
     AVPacket spkt[1];
 
-    if (av_new_packet(spkt, avpkt->size + FF_INPUT_BUFFER_PADDING_SIZE)) {
+    // av_new_packet reserves FF_INPUT_BUFFER_PADDING_SIZE and clears it
+    if (av_new_packet(spkt, avpkt->size)) {
 	Error(_("codec: out of memory\n"));
 	return;
     }
     memcpy(spkt->data, avpkt->data, avpkt->size);
-    memset(spkt->data + avpkt->size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
     spkt->pts = avpkt->pts;
+    spkt->dts = avpkt->dts;
 #endif
 
     audio_ctx = audio_decoder->AudioCtx;
     index = 0;
-    while (avpkt->size > index) {
+    while (spkt->size > index) {
 	int n;
 	int l;
 	AVPacket dpkt[1];
 
 	av_init_packet(dpkt);
 	n = av_parser_parse2(audio_decoder->AudioParser, audio_ctx,
-	    &dpkt->data, &dpkt->size, spkt->data + index, avpkt->size - index,
+	    &dpkt->data, &dpkt->size, spkt->data + index, spkt->size - index,
 	    !index ? (uint64_t) spkt->pts : AV_NOPTS_VALUE, AV_NOPTS_VALUE,
 	    -1);
 

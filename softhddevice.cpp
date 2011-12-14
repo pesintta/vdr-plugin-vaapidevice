@@ -62,11 +62,11 @@ class cSoftRemote:public cRemote
   public:
     cSoftRemote(const char *name):cRemote(name)
     {
-    };
+    }
 
     bool Put(const char *code, bool repeat = false, bool release = false) {
 	return cRemote::Put(code, repeat, release);
-    };
+    }
 };
 
 extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
@@ -168,13 +168,13 @@ void cSoftOsd::Flush(void)
 	    // FIXME: need only to convert and upload dirty areas
 
 	    // DrawBitmap(bitmap);
-	    argb = (uint8_t *) malloc(bitmap->Width() * bitmap->Height() * 4);
-
 	    w = bitmap->Width();
 	    h = bitmap->Height();
+	    argb = (uint8_t *) malloc(w * h * sizeof(uint32_t));
+
 	    for (y = 0; y < h; ++y) {
 		for (x = 0; x < w; ++x) {
-		    ((uint32_t *) argb)[(x + y * w)] = bitmap->GetColor(x, y);
+		    ((uint32_t *) argb)[x + y * w] = bitmap->GetColor(x, y);
 		}
 	    }
 
@@ -353,12 +353,6 @@ cSoftHdDevice::~cSoftHdDevice(void)
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
-int64_t cSoftHdDevice::GetSTC(void)
-{
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
-    return 0L;
-};
-
 void cSoftHdDevice::MakePrimaryDevice(bool on)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
@@ -385,7 +379,7 @@ cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 	spuDecoder = new cDvbSpuDecoder();
     }
     return spuDecoder;
-};
+}
 
 bool cSoftHdDevice::HasDecoder(void) const
 {
@@ -421,6 +415,13 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode PlayMode)
     return true;
 }
 
+int64_t cSoftHdDevice::GetSTC(void)
+{
+    // dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    return ::VideoGetClock();
+}
+
 void cSoftHdDevice::TrickSpeed(int Speed)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, Speed);
@@ -429,16 +430,25 @@ void cSoftHdDevice::TrickSpeed(int Speed)
 void cSoftHdDevice::Clear(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    cDevice::Clear();
+    ::Clear();
 }
 
 void cSoftHdDevice::Play(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    cDevice::Play();
+    ::Play();
 }
 
 void cSoftHdDevice::Freeze(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    cDevice::Freeze();
+    ::Freeze();
 }
 
 void cSoftHdDevice::Mute(void)
@@ -467,16 +477,17 @@ void cSoftHdDevice::StillPicture(
 bool cSoftHdDevice::Poll(
     __attribute__ ((unused)) cPoller & poller, int timeout_ms)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
+    // dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
 
     return ::Poll(timeout_ms);
 }
 
-bool cSoftHdDevice::Flush( __attribute__ ((unused)) int timeout_ms)
+bool cSoftHdDevice::Flush(int timeout_ms)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    dsyslog("[softhddev]%s: %d ms\n", __FUNCTION__, timeout_ms);
+
     return true;
-};
+}
 
 // ----------------------------------------------------------------------------
 
@@ -552,7 +563,7 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int sizex,
 	quality, sizex, sizey);
 
     return NULL;
-};
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //	cPlugin

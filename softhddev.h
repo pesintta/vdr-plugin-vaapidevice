@@ -49,6 +49,12 @@ extern "C"
 
     /// C plugin set play mode
     extern void SetPlayMode(void);
+    /// C plugin clears all video and audio data from the device
+    extern void Clear(void);
+    /// C plugin sets the device into play mode
+    extern void Play(void);
+    /// C plugin sets the device into "freeze frame" mode
+    extern void Freeze(void);
     /// C plugin poll if ready
     extern int Poll(int);
 

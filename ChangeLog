@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Initial support of replay.
     Workaround for libva-driver-intel 1080i problems.
     DisplayFrame displays now only a single frame.
     Add deinterlace/scaling modes to setup.

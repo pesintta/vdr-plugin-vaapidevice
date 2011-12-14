@@ -200,8 +200,13 @@ static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
 static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
+static char VideoFreezed;		///< video freezed
+static char VideoClearBuffers;		///< clear video buffers
+
+#ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
 static uint32_t VideoStartTick;		///< video start tick
+#endif
 
 extern void VideoWakeup(void);		///< wakeup video handler
 
@@ -326,6 +331,15 @@ int VideoDecode(void)
     AVPacket *avpkt;
     int saved_size;
     static int last_codec_id = CODEC_ID_NONE;
+
+    if (VideoFreezed) {
+	return 1;
+    }
+    if (VideoClearBuffers) {
+	atomic_set(&VideoPacketsFilled, 0);
+	VideoClearBuffers = 0;
+	return 1;
+    }
 
     filled = atomic_read(&VideoPacketsFilled);
     //Debug(3, "video: decode %3d packets buffered\n", filled);
@@ -503,6 +517,10 @@ int PlayVideo(const uint8_t * data, int size)
     }
     if (NewVideoStream) {
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
+	// FIXME: hack to test results
+	if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+	    return 0;
+	}
 	VideoNextPacket(CODEC_ID_NONE);
 	VideoCodecID = CODEC_ID_NONE;
 	NewVideoStream = 0;
@@ -539,6 +557,10 @@ int PlayVideo(const uint8_t * data, int size)
     if ((data[6] & 0xC0) != 0x80 || (!check[0] && !check[1]
 	    && check[2] == 0x1)) {
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	    // FIXME: hack to test results
+	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+		return 0;
+	    }
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	} else {
 	    Debug(3, "video: mpeg2 detected\n");
@@ -548,6 +570,10 @@ int PlayVideo(const uint8_t * data, int size)
     } else if (!check[0] && !check[1] && !check[2] && check[3] == 0x1
 	&& check[4] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
+	    // FIXME: hack to test results
+	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+		return 0;
+	    }
 	    VideoNextPacket(CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
@@ -561,6 +587,10 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    // mpeg codec supports incomplete packages
+	    // FIXME: hack to test results
+	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+		return 0;
+	    }
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	}
     }
@@ -595,11 +625,37 @@ void SetPlayMode(void)
 }
 
 /**
+**	Clears all video and audio data from the device.
+*/
+void Clear(void)
+{
+    VideoClearBuffers = 1;
+    // FIXME: flush audio buffers
+}
+
+/**
+**	Sets the device into play mode.
+*/
+void Play(void)
+{
+    VideoFreezed = 0;
+    // FIXME: restart audio
+}
+
+/**
+**	Sets the device into "freeze frame" mode.
+*/
+void Freeze(void)
+{
+    VideoFreezed = 1;
+    // FIXME: freeze audio
+}
+
+/**
 **	Poll if device is ready.  Called by replay.
 */
 int Poll(int timeout)
 {
-    return 1;
     // buffers are too full
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
 	if (timeout) {

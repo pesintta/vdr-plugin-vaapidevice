@@ -14,6 +14,7 @@ x11:
     support resize of x11 window
     support fullscreen window
     support fullscreen / window toggle
+    close window should send power button
 
 audio/alsa:
     video/audio asyncron
@@ -26,3 +27,8 @@ audio/alsa:
     this channels has packet start not at the beginning of the start packet
 
 playback of recording
+
+setup:
+    Saved parameters aren't used as default for setup menu.
+    Setup parameters are not used until restart.
+	Can a notice be added to the setup menu?
