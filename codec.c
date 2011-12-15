@@ -590,13 +590,14 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	av_init_packet(dpkt);
 	n = av_parser_parse2(audio_decoder->AudioParser, audio_ctx,
 	    &dpkt->data, &dpkt->size, spkt->data + index, spkt->size - index,
-	    !index ? (uint64_t) spkt->pts : AV_NOPTS_VALUE, AV_NOPTS_VALUE,
-	    -1);
+	    !index ? (uint64_t) spkt->pts : AV_NOPTS_VALUE,
+	    !index ? (uint64_t) spkt->dts : AV_NOPTS_VALUE, -1);
 
 	if (dpkt->size) {
 	    int buf_sz;
 
 	    dpkt->pts = audio_decoder->AudioParser->pts;
+	    dpkt->dts = audio_decoder->AudioParser->dts;
 	    buf_sz = sizeof(buf);
 	    l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, dpkt);
 	    if (l < 0) {		// no audio frame could be decompressed

@@ -208,8 +208,6 @@ static int VideoMaxPacketSize;		///< biggest used packet buffer
 static uint32_t VideoStartTick;		///< video start tick
 #endif
 
-extern void VideoWakeup(void);		///< wakeup video handler
-
 /**
 **	Initialize video packet ringbuffer.
 */
@@ -319,7 +317,7 @@ static void VideoNextPacket(int codec_id)
     avpkt->pts = AV_NOPTS_VALUE;
     avpkt->dts = AV_NOPTS_VALUE;
 
-    VideoWakeup();
+    VideoDisplayHandler();
 }
 
 /**
@@ -342,9 +340,7 @@ int VideoDecode(void)
     }
 
     filled = atomic_read(&VideoPacketsFilled);
-    //Debug(3, "video: decode %3d packets buffered\n", filled);
     if (!filled) {
-	// Debug(3, "video: decode no packets buffered\n");
 	return -1;
     }
 #if 0
@@ -403,6 +399,8 @@ int VideoDecode(void)
     return 0;
 }
 
+#if 0
+
 /**
 **	Flush video buffer.
 */
@@ -424,9 +422,6 @@ void VideoWakeup(void)
     int filled;
     uint32_t now;
     uint64_t delay;
-
-    VideoDisplayHandler();
-    return;
 
     filled = atomic_read(&VideoPacketsFilled);
     if (!filled) {
@@ -465,6 +460,8 @@ void VideoWakeup(void)
     }
 #endif
 }
+
+#endif
 
 /**
 **	Try video start.

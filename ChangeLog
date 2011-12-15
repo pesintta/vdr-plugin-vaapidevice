@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    New video/audio sync code.
+    Support xcb-util <0.3.8.
     Use current configuration for setup menu.
     Initial support of replay.
     Workaround for libva-driver-intel 1080i problems.
