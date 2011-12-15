@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Use current configuration for setup menu.
     Initial support of replay.
     Workaround for libva-driver-intel 1080i problems.
     DisplayFrame displays now only a single frame.

@@ -48,8 +48,10 @@ static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
 
-static char ConfigMakePrimary = 1;
-static char DoMakePrimary;
+static char ConfigMakePrimary;			///< config primary wanted
+static char ConfigVideoDeinterlace;		///< config deinterlace
+static char ConfigVideoScaling;			///< config scaling
+static char DoMakePrimary;			///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -277,9 +279,12 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 
     // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
     // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
+    MakePrimary = ConfigMakePrimary;
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
 	    tr("no"), tr("yes")));
+    Deinterlace = ConfigVideoDeinterlace;
     Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5, deinterlace));
+    Scaling = ConfigVideoScaling;
     Add(new cMenuEditStraItem(tr("Scaling"), &Scaling, 4, scaling));
 }
 
@@ -752,13 +757,11 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
     if (!strcmp(name, "Deinterlace")) {
-	printf("Deinterlace: %d\n", atoi(value));
-	VideoSetDeinterlace(atoi(value));
+	VideoSetDeinterlace(ConfigVideoDeinterlace = atoi(value));
 	return true;
     }
     if (!strcmp(name, "Scaling")) {
-	printf("Scaling: %d\n", atoi(value));
-	VideoSetScaling(atoi(value));
+	VideoSetScaling(ConfigVideoScaling = atoi(value));
 	return true;
     }
 
