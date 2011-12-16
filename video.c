@@ -3725,8 +3725,14 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 		xcb_intern_atom_reply(Connection, xcb_intern_atom(Connection,
 			0, sizeof("WM_PROTOCOLS") - 1, "WM_PROTOCOLS"),
 		    NULL))) {
+#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 	    xcb_icccm_set_wm_protocols(Connection, VideoWindow, reply->atom, 1,
 		&WmDeleteWindowAtom);
+#endif
+#ifdef XCB_NUM_WM_HINTS_ELEMENTS
+	    xcb_set_wm_protocols(Connection, reply->atom, VideoWindow, 1,
+		&WmDeleteWindowAtom);
+#endif
 	    free(reply);
 	}
     }

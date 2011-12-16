@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Support xcb_icccm_set_wm_protocols with xcb-util <0.3.8.
     New video/audio sync code.
     Support xcb-util <0.3.8.
     Use current configuration for setup menu.
