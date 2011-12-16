@@ -57,6 +57,19 @@ Install:
 	cd vdr-softhddevice
 	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
 
+Setup: /etc/vdr/setup.conf
+	Following is supported:
+
+	softhddevice.Deinterlace = 0
+	0 = bob, 1 = weave, 2 = temporal, 3 = temporal_spatial, 4 = software
+	(only 0, 1 supported)
+
+	softhddevice.MakePrimary = 1
+	0 = no change, 1 make softhddevice primary at start
+
+	softhddevice.Scaling = 0
+	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
+
 Requires:
 ---------
 	media-video/ffmpeg
