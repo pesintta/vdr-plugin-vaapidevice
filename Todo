@@ -1,3 +1,14 @@
+missing:
+    video out with xv
+    video out with opengl
+    video out with vdpau
+    software decoder
+    vdpau decoder
+    software deinterlace
+    auto crop
+    atmolight
+    zoom/fit-zoom 4:3
+    multistream handling
 
 libva-intel-driver:
     intel still has hangups most with 1080i
@@ -9,6 +20,9 @@ libva-vdpau-driver:
     OSD update is too slow
     hangup on exit (VaapiDelDecoder -> VaapiCleanup
 	-> vaDestroyContext -> pthread_rwlock_wrlock)
+
+libva-xvba-driver:
+    mpeg1/2 needs software decoder fixed
 
 x11:
     support resize of x11 window
@@ -27,8 +41,9 @@ audio/alsa:
     this channels has packet start not at the beginning of the start packet
 
 playback of recording
+    play back is too fast
 
 setup:
-    Saved parameters aren't used as default for setup menu.
+    Setup menu parameters aren't automatic loaded?
     Setup parameters are not used until restart.
 	Can a notice be added to the setup menu?

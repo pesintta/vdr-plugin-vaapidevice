@@ -293,9 +293,11 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 */
 void cMenuSetupSoft::Store(void)
 {
-    SetupStore("MakePrimary", MakePrimary);
-    SetupStore("Deinterlace", Deinterlace);
-    SetupStore("Scaling", Scaling);
+    SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
+    SetupStore("Deinterlace", ConfigVideoDeinterlace = Deinterlace);
+    VideoSetDeinterlace(ConfigVideoDeinterlace);
+    SetupStore("Scaling", ConfigVideoScaling = Scaling);
+    VideoSetScaling(ConfigVideoScaling);
 }
 
 //////////////////////////////////////////////////////////////////////////////
