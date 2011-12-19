@@ -267,7 +267,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	Fatal(_("codec: can't allocate video codec context\n"));
     }
     // open codec
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,122,0)
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
 	Fatal(_("codec: can't open video codec!\n"));
     }
@@ -523,7 +523,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 	Fatal(_("codec: can't allocate audio codec context\n"));
     }
     // open codec
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,122,0)
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(audio_decoder->AudioCtx, audio_codec) < 0) {
 	Fatal(_("codec: can't open audio codec\n"));
     }
