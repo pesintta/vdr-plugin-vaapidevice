@@ -655,6 +655,7 @@ int Poll(int timeout)
 {
     // buffers are too full
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
+	Debug(3, "replay: poll %d\n", timeout);
 	if (timeout) {
 	    // let display thread work
 	    usleep(timeout * 1000);

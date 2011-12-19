@@ -51,6 +51,7 @@ static class cSoftHdDevice *MyDevice;
 static char ConfigMakePrimary;			///< config primary wanted
 static char ConfigVideoDeinterlace;		///< config deinterlace
 static char ConfigVideoScaling;			///< config scaling
+static int ConfigVideoAudioDelay;		///< config audio delay
 static char DoMakePrimary;			///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
@@ -261,6 +262,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int MakePrimary;
     int Deinterlace;
     int Scaling;
+    int AudioDelay;
   protected:
      virtual void Store(void);
   public:
@@ -286,6 +288,8 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5, deinterlace));
     Scaling = ConfigVideoScaling;
     Add(new cMenuEditStraItem(tr("Scaling"), &Scaling, 4, scaling));
+    AudioDelay = ConfigVideoAudioDelay;
+    Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000, 1000));
 }
 
 /**
@@ -298,6 +302,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetDeinterlace(ConfigVideoDeinterlace);
     SetupStore("Scaling", ConfigVideoScaling = Scaling);
     VideoSetScaling(ConfigVideoScaling);
+    SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
+    VideoSetAudioDelay(ConfigVideoAudioDelay);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -764,6 +770,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcmp(name, "Scaling")) {
 	VideoSetScaling(ConfigVideoScaling = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "AudioDelay")) {
+	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;
     }
 

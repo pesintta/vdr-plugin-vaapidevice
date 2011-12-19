@@ -181,6 +181,9 @@ static VideoDeinterlaceModes VideoDeinterlace;
     /// Default scaling mode
 static VideoScalingModes VideoScaling;
 
+    /// Default audio/video delay
+static int VideoAudioDelay;
+
 //static char VideoSoftStartSync;		///< soft start sync audio/video
 
 static char Video60HzMode;		///< handle 60hz displays
@@ -2520,7 +2523,7 @@ static void VaapiDisplayFrame(void)
 	// deinterlace and full frame rate
 	// VDPAU driver only display a frame, if a full frame is put
 	// INTEL driver does the same, but only with 1080i
-	if (decoder->Interlaced
+	if (0 && decoder->Interlaced
 	    // FIXME: buggy libva-driver-vdpau, buggy libva-driver-intel
 	    && (VaapiBuggyVdpau || (0 && VaapiBuggyIntel
 		    && decoder->InputHeight == 1080))
@@ -3136,10 +3139,11 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
-	} else if (video_clock > audio_clock + 300 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame = 1;
-	} else if (audio_clock > video_clock + 300 * 90) {
+	} else if (audio_clock + VideoAudioDelay > video_clock + 50 * 90
+	    && filled > 1) {
 	    Debug(3, "video: speed up video\n");
 	    decoder->DropNextFrame = 1;
 	}
@@ -3502,19 +3506,30 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
     // FIXME: move into vaapi module
 
     // update video clock
-    decoder->Vaapi.PTS += decoder->Vaapi.Interlaced ? 40 * 90 : 20 * 90;
-
+    if ((uint64_t) decoder->Vaapi.PTS != AV_NOPTS_VALUE) {
+	decoder->Vaapi.PTS += decoder->Vaapi.Interlaced ? 40 * 90 : 20 * 90;
+    }
     //pts = frame->best_effort_timestamp;
     pts = frame->pkt_pts;
     if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
+	// libav: 0.8pre didn't set pts
 	pts = frame->pkt_dts;
     }
-    // libav: sets only pkt_dts
+    if (!pts) {
+	pts = AV_NOPTS_VALUE;
+    }
+    // build a monotonic pts
+    if ((uint64_t) decoder->Vaapi.PTS != AV_NOPTS_VALUE) {
+	if (pts - decoder->Vaapi.PTS < -10 * 90) {
+	    pts = AV_NOPTS_VALUE;
+	}
+    }
+    // libav: sets only pkt_dts which can be 0
     if ((uint64_t) pts != AV_NOPTS_VALUE) {
 	if (decoder->Vaapi.PTS != pts) {
-	    Debug(4,
+	    Debug(3,
 		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",
-		decoder->Vaapi.PTS, pts, decoder->Vaapi.PTS - pts);
+		decoder->Vaapi.PTS, pts, pts - decoder->Vaapi.PTS);
 	    decoder->Vaapi.PTS = pts;
 	}
     }
@@ -3556,6 +3571,10 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 	}
 
 	VaapiSyncDisplayFrame(&decoder->Vaapi);
+    }
+
+    if (frame->repeat_pict) {
+	Warning("video/vaapi: repeated pict found, but not handle\n");
     }
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
@@ -3634,7 +3653,8 @@ void VideoDisplayHandler(void)
 /**
 **	Get video clock.
 **
-**	@note this isn't monoton, decoding reorders frames.
+**	@note this isn't monoton, decoding reorders frames,
+**	setter keeps it monotonic
 */
 int64_t VideoGetClock(void)
 {
@@ -3774,6 +3794,16 @@ void VideoSetDeinterlace(int mode)
 void VideoSetScaling(int mode)
 {
     VideoScaling = mode;
+}
+
+/**
+**	Set audio delay.
+**
+**	@param ms	delay in ms
+*/
+void VideoSetAudioDelay(int ms)
+{
+    VideoAudioDelay = ms * 90;
 }
 
 /**

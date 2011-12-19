@@ -65,6 +65,9 @@ extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
     /// Display video TEST
 extern void VideoDisplayHandler(void);
 
+    /// Poll video events
+extern void VideoPollEvent(void);
+
     /// set video mode
 //extern void VideoSetVideoMode(int, int, int, int);
 
@@ -76,6 +79,9 @@ extern void VideoSetDeinterlace(int);
 
     /// set scaling
 extern void VideoSetScaling(int);
+
+    /// set audio delay
+extern void VideoSetAudioDelay(int);
 
     /// Clear OSD
 extern void VideoOsdClear(void);

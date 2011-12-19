@@ -259,6 +259,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	Debug(3, "codec: vdpau decoder found\n");
     } else if (!(video_codec = avcodec_find_decoder(codec_id))) {
 	Fatal(_("codec: codec ID %#04x not found\n"), codec_id);
+	// FIXME: none fatal
     }
     decoder->VideoCodec = video_codec;
 
@@ -266,9 +267,15 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	Fatal(_("codec: can't allocate video codec context\n"));
     }
     // open codec
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,122,0)
+    if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
+	Fatal(_("codec: can't open video codec!\n"));
+    }
+#else
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
 	Fatal(_("codec: can't open video codec!\n"));
     }
+#endif
 
     decoder->VideoCtx->opaque = decoder;	// our structure
 
@@ -354,26 +361,36 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 
 #if 0
 
-#ifdef DEBUG
-
 /**
 **	Display pts...
+**
+**	ffmpeg 0.9 pts always AV_NOPTS_VALUE
+**	ffmpeg 0.9 pkt_pts nice monotonic (only with HD)
+**	ffmpeg 0.9 pkt_dts wild jumping -160 - 340 ms
+**
+**	libav 0.8_pre20111116 pts always AV_NOPTS_VALUE
+**	libav 0.8_pre20111116 pkt_pts always 0
+**	libav 0.8_pre20111116 pkt_dts wild jumping -160 - 340 ms
 */
 void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
 {
     int ms_delay;
+    int64_t pts;
+    static int64_t last_pts;
 
-    if (frame->pts == (int64_t) AV_NOPTS_VALUE) {
+    pts = frame->pkt_pts;
+    if (pts == (int64_t) AV_NOPTS_VALUE) {
 	printf("*");
     }
     ms_delay = (1000 * video_ctx->time_base.num) / video_ctx->time_base.den;
     ms_delay += frame->repeat_pict * ms_delay / 2;
-    printf("codec: PTS %s%s %" PRId64 " %d/%d %dms\n",
+    printf("codec: PTS %s%s %" PRId64 " %d %d/%d %dms\n",
 	frame->repeat_pict ? "r" : " ", frame->interlaced_frame ? "I" : " ",
-	frame->pts, video_ctx->time_base.num, video_ctx->time_base.den,
-	ms_delay);
+	pts, (int)(pts - last_pts) / 90, video_ctx->time_base.num,
+	video_ctx->time_base.den, ms_delay);
+
+    last_pts = pts;
 }
-#endif
 
 #endif
 
@@ -506,9 +523,15 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 	Fatal(_("codec: can't allocate audio codec context\n"));
     }
     // open codec
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,122,0)
+    if (avcodec_open(audio_decoder->AudioCtx, audio_codec) < 0) {
+	Fatal(_("codec: can't open audio codec\n"));
+    }
+#else
     if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, NULL) < 0) {
 	Fatal(_("codec: can't open audio codec\n"));
     }
+#endif
     Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCtx->codec_name);
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {

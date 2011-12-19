@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Configurable audio delay.
+    Make pts monotonic.
+    Support old libav and ffmpeg libs.
     Support xcb_icccm_set_wm_protocols with xcb-util <0.3.8.
     New video/audio sync code.
     Support xcb-util <0.3.8.

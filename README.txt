@@ -70,6 +70,9 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.Scaling = 0
 	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
 
+	softhddevice.AudioDelay = 0
+	+n or -n ms
+
 Requires:
 ---------
 	media-video/ffmpeg
