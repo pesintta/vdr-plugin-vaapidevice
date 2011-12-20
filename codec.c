@@ -127,10 +127,17 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
 	frame->age = 256 * 256 * 256 * 64;
+#endif
 	frame->data[0] = (void *)(size_t) surface;
 
-	// FIXME: reordered?
+	// reordered frames
+	if (video_ctx->pkt) {
+	    frame->pkt_pts = video_ctx->pkt->pts;
+	} else {
+	    frame->pkt_pts = AV_NOPTS_VALUE;
+	}
 	return 0;
     }
     // VA-API:
@@ -144,12 +151,19 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
 	frame->age = 256 * 256 * 256 * 64;
+#endif
 	// vaapi needs both fields set
 	frame->data[0] = (void *)(size_t) surface;
 	frame->data[3] = (void *)(size_t) surface;
 
-	// FIXME: reordered?
+	// reordered frames
+	if (video_ctx->pkt) {
+	    frame->pkt_pts = video_ctx->pkt->pts;
+	} else {
+	    frame->pkt_pts = AV_NOPTS_VALUE;
+	}
 	return 0;
     }
     //Debug(3, "codec: fallback to default get_buffer\n");
@@ -369,7 +383,7 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 **	ffmpeg 0.9 pkt_dts wild jumping -160 - 340 ms
 **
 **	libav 0.8_pre20111116 pts always AV_NOPTS_VALUE
-**	libav 0.8_pre20111116 pkt_pts always 0
+**	libav 0.8_pre20111116 pkt_pts always 0 (could be fixed?)
 **	libav 0.8_pre20111116 pkt_dts wild jumping -160 - 340 ms
 */
 void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
@@ -389,7 +403,9 @@ void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
 	pts, (int)(pts - last_pts) / 90, video_ctx->time_base.num,
 	video_ctx->time_base.den, ms_delay);
 
-    last_pts = pts;
+    if (pts != (int64_t) AV_NOPTS_VALUE) {
+	last_pts = pts;
+    }
 }
 
 #endif

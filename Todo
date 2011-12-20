@@ -29,6 +29,7 @@ x11:
     support fullscreen window
     support fullscreen / window toggle
     close window should send power button
+    disable cursor
 
 audio/alsa:
     video/audio asyncron

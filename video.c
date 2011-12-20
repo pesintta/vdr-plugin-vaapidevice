@@ -1422,6 +1422,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     VaapiCleanup(decoder);
 
     if (getenv("NO_HW")) {		// FIXME: make config option
+	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
 
