@@ -36,13 +36,12 @@
 ///	- Xrender rendering
 ///
 
-#define DEBUG
 #define USE_XLIB_XCB
 #define noUSE_GLX
 #define noUSE_DOUBLEBUFFER
 
-#define USE_VAAPI
-#define noUSE_VDPAU
+//#define USE_VAAPI				///< enable vaapi support
+//#define USE_VDPAU				///< enable vdpau support
 #define noUSE_BITMAP
 
 #define USE_VIDEO_THREAD
@@ -158,7 +157,7 @@ typedef enum _video_scaling_modes_
 #define CODEC_SURFACES_H264	21	///< 1 decode, up to 20 references
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
-#define VIDEO_SURFACES_MAX	3	///< video output surfaces for queue
+#define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
 #define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
@@ -170,10 +169,10 @@ static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
 static xcb_window_t VideoWindow;	///< video window
 
-static int VideoWindowX;		///< video output x
-static int VideoWindowY;		///< video outout y
-static unsigned VideoWindowWidth;	///< video output width
-static unsigned VideoWindowHeight;	///< video output height
+static int VideoWindowX;		///< video output window x coordinate
+static int VideoWindowY;		///< video outout window y coordinate
+static unsigned VideoWindowWidth;	///< video output window width
+static unsigned VideoWindowHeight;	///< video output window height
 
     /// Default deinterlace mode
 static VideoDeinterlaceModes VideoDeinterlace;
@@ -191,6 +190,15 @@ static char Video60HzMode;		///< handle 60hz displays
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message
 
 extern uint32_t VideoSwitch;		///< ticks for channel switch
+
+#ifdef USE_VIDEO_THREAD
+
+static pthread_t VideoThread;		///< video decode thread
+static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
+static pthread_mutex_t VideoMutex;	///< video condition mutex
+static pthread_mutex_t VideoLockMutex;	///< video lock mutex
+
+#endif
 
 //----------------------------------------------------------------------------
 //	Functions
@@ -765,8 +773,9 @@ struct _vaapi_decoder_
     struct timespec StartTime;		///< decoder start time
     int64_t PTS;			///< video PTS clock
 
-    int FramesDuped;			///< frames duplicated
-    int FramesDropped;			///< frames dropped
+    int FramesDuped;			///< number of frames duplicated
+    int FramesMissed;			///< number of frames missed
+    int FramesDropped;			///< number of frames dropped
     int FrameCounter;			///< number of frames decoded
     int FramesDisplayed;		///< number of frames displayed
 };
@@ -904,13 +913,15 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 ///
 ///	@param decoder	VA-API decoder
 ///
+///	@returns the oldest free surface
+///
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
 {
     VASurfaceID surface;
     int i;
 
     if (!decoder->SurfaceFreeN) {
-	Error("video/vaapi: out of surfaces\n");
+	Error(_("video/vaapi: out of surfaces\n"));
 	return VA_INVALID_ID;
     }
     // use oldest surface
@@ -959,12 +970,15 @@ static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 ///
 static void VaapiPrintFrames(const VaapiDecoder * decoder)
 {
-    Debug(3, "video/vaapi: %d duped, %d dropped frames of %d\n",
-	decoder->FramesDuped, decoder->FramesDropped, decoder->FrameCounter);
+    Debug(3, "video/vaapi: %d missed, %d duped, %d dropped frames of %d\n",
+	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
+	decoder->FrameCounter);
 }
 
 ///
 ///	Allocate new VA-API decoder.
+///
+///	@returns a new prepared va-api hardware decoder.
 ///
 static VaapiDecoder *VaapiNewDecoder(void)
 {
@@ -1200,10 +1214,6 @@ static void VideoVaapiInit(const char *display_name)
     int minor;
     VADisplayAttribute attr;
     const char *s;
-
-    // FIXME: make configurable
-    // FIXME: intel get hangups with bob
-    // VideoDeinterlace = VideoDeinterlaceWeave;
 
     VaOsdImage.image_id = VA_INVALID_ID;
     VaOsdSubpicture = VA_INVALID_ID;
@@ -1831,9 +1841,12 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 /**
 **	Configure VA-API for new video format.
 **
+**	@param decoder	VA-API decoder
+**
 **	@note called only for software decoder.
 */
-static void VaapiSetup(VaapiDecoder * decoder, AVCodecContext * video_ctx)
+static void VaapiSetup(VaapiDecoder * decoder,
+    const AVCodecContext * video_ctx)
 {
     int width;
     int height;
@@ -1915,10 +1928,12 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	    }
 	    return;
 	}
+#if 0
     } else {				// wait for output queue empty
 	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	    VideoDisplayHandler();
 	}
+#endif
     }
 
     //
@@ -2280,7 +2295,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 ///	@param frame		frame to display
 ///
 static void VaapiRenderFrame(VaapiDecoder * decoder,
-    AVCodecContext * video_ctx, AVFrame * frame)
+    const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     VASurfaceID surface;
 
@@ -2481,11 +2496,9 @@ static void VaapiAdvanceFrame(void)
 }
 
 /**
-**	Video display frame.
+**	Display a video frame.
 **
-**	FIXME: no locks for multi-thread
-**	FIXME: frame delay for 50hz hardcoded
-**
+**	@todo FIXME: add detection of missed frames
 */
 static void VaapiDisplayFrame(void)
 {
@@ -2569,10 +2582,227 @@ static void VaapiDisplayFrame(void)
     }
 }
 
+///
+///	Sync and display surface.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
+{
+    int filled;
+    int64_t audio_clock;
+    int64_t video_clock;
+
+    if (!decoder->DupNextFrame && (!Video60HzMode
+	    || decoder->FramesDisplayed % 6)) {
+	VaapiAdvanceFrame();
+    }
+    // debug duplicate frames
+    filled = atomic_read(&decoder->SurfacesFilled);
+    if (filled == 1) {
+	decoder->FramesDuped++;
+	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
+	    decoder->FramesDuped, decoder->FrameCounter);
+	if (!(decoder->FramesDisplayed % 333)) {
+	    VaapiPrintFrames(decoder);
+	}
+    }
+
+    VaapiDisplayFrame();
+
+    //
+    //	audio/video sync
+    //
+    audio_clock = AudioGetClock();
+    video_clock = VideoGetClock();
+    // FIXME: audio not known assume 333ms delay
+
+    if (decoder->DupNextFrame) {
+	decoder->DupNextFrame = 0;
+    } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
+	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
+	// both clocks are known
+
+	if (abs(video_clock - audio_clock) > 5000 * 90) {
+	    Debug(3, "video: pts difference too big\n");
+	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
+	    Debug(3, "video: slow down video\n");
+	    decoder->DupNextFrame = 1;
+	} else if (audio_clock + VideoAudioDelay > video_clock + 50 * 90
+	    && filled > 1) {
+	    Debug(3, "video: speed up video\n");
+	    decoder->DropNextFrame = 1;
+	}
+    }
+
+    if (decoder->DupNextFrame || decoder->DropNextFrame
+	|| !(decoder->FramesDisplayed % (50 * 10))) {
+	static int64_t last_video_clock;
+
+	Debug(3,
+	    "video: %09" PRIx64 "-%09" PRIx64 " %4" PRId64 " pts %+dms %"
+	    PRId64 "\n", audio_clock, video_clock,
+	    video_clock - last_video_clock,
+	    (int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
+
+	last_video_clock = video_clock;
+    }
+}
+
+///
+///	Sync and render a ffmpeg frame
+///
+///	@param decoder		VA-API decoder
+///	@param video_ctx	ffmpeg video codec context
+///	@param frame		frame to display
+///
+static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
+    const AVCodecContext * video_ctx, const AVFrame * frame)
+{
+    if (!atomic_read(&decoder->SurfacesFilled)) {
+	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
+    }
+
+    if (decoder->DropNextFrame) {	// drop frame requested
+	++decoder->FramesDropped;
+	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
+	    decoder->FrameCounter);
+	if (!(decoder->FramesDisplayed % 100)) {
+	    VaapiPrintFrames(decoder);
+	}
+	decoder->DropNextFrame = 0;
+	return;
+    }
+    // if video output buffer is full, wait and display surface.
+    // loop for interlace
+    while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	struct timespec abstime;
+
+	abstime = decoder->FrameTime;
+	abstime.tv_nsec += 14 * 1000 * 1000;
+	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
+	    // avoid overflow
+	    abstime.tv_sec++;
+	    abstime.tv_nsec -= 1000 * 1000 * 1000;
+	}
+
+	VideoPollEvent();
+
+	// give osd some time slot
+	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
+		&abstime) != ETIMEDOUT) {
+	    // SIGUSR1
+	    Debug(3, "video/vaapi: pthread_cond_timedwait error\n");
+	}
+
+	VaapiSyncDisplayFrame(decoder);
+    }
+
+    VaapiRenderFrame(decoder, video_ctx, frame);
+}
+
+#if 0
+
+/**
+**	Update video pts.
+**
+**	@param decoder	VA-API decoder
+**	@param frame		frame to display
+*/
+static void VaapiSetPts(VaapiDecoder * decoder, const AVFrame * frame)
+{
+    int64_t pts;
+
+    // update video clock
+    if ((uint64_t) decoder->PTS != AV_NOPTS_VALUE) {
+	decoder->PTS += decoder->Interlaced ? 40 * 90 : 20 * 90;
+    }
+    //pts = frame->best_effort_timestamp;
+    pts = frame->pkt_pts;
+    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
+	// libav: 0.8pre didn't set pts
+	pts = frame->pkt_dts;
+    }
+    if (!pts) {
+	pts = AV_NOPTS_VALUE;
+    }
+    // build a monotonic pts
+    if ((uint64_t) decoder->PTS != AV_NOPTS_VALUE) {
+	if (pts - decoder->PTS < -10 * 90) {
+	    pts = AV_NOPTS_VALUE;
+	}
+    }
+    // libav: sets only pkt_dts which can be 0
+    if ((uint64_t) pts != AV_NOPTS_VALUE) {
+	if (decoder->PTS != pts) {
+	    Debug(3,
+		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",
+		decoder->PTS, pts, pts - decoder->PTS);
+	    decoder->PTS = pts;
+	}
+    }
+
+}
+
+#endif
+
+#ifdef USE_VIDEO_THREAD
+
+/**
+**	Handle a va-api display.
+**
+**	@todo FIXME: only a single decoder supported.
+*/
+static void VaapiDisplayHandlerThread(void)
+{
+    int err;
+    int filled;
+    struct timespec nowtime;
+    VaapiDecoder *decoder;
+
+    decoder = VaapiDecoders[0];
+
+    //
+    // fill frame output ring buffer
+    //
+    filled = atomic_read(&decoder->SurfacesFilled);
+    err = 1;
+    if (filled <= 2) {
+	// FIXME: hot polling
+	pthread_mutex_lock(&VideoLockMutex);
+	// fetch+decode or reopen
+	err = VideoDecode();
+	pthread_mutex_unlock(&VideoLockMutex);
+    }
+    if (err) {
+	// FIXME: sleep on wakeup
+	usleep(5 * 1000);		// nothing buffered
+    }
+
+    filled = atomic_read(&decoder->SurfacesFilled);
+    clock_gettime(CLOCK_REALTIME, &nowtime);
+    // time for one frame over?
+    if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
+	15 * 1000 * 1000) {
+	return;
+    }
+
+    pthread_mutex_lock(&VideoLockMutex);
+    VaapiSyncDisplayFrame(decoder);
+    pthread_mutex_unlock(&VideoLockMutex);
+}
+
+#endif
+
+//----------------------------------------------------------------------------
+//	VA-API OSD
+//----------------------------------------------------------------------------
+
 /**
 **	Clear subpicture image.
 **
-**	@note it is possible, that we need a lock here
+**	@note looked by caller
 */
 static void VaapiOsdClear(void)
 {
@@ -2602,7 +2832,7 @@ static void VaapiOsdClear(void)
 /**
 **	Upload ARGB to subpicture image.
 **
-**	@note it is possible, that we need a lock here
+**	@note looked by caller
 */
 static void VaapiUploadImage(int x, int y, int width, int height,
     const uint8_t * argb)
@@ -2642,7 +2872,7 @@ static void VaapiUploadImage(int x, int y, int width, int height,
 /**
 **	VA-API initialize OSD.
 **
-**	Subpicture is unusable, its scaled with the video image.
+**	@note subpicture is unusable, it can be scaled with the video image.
 */
 static void VaapiOsdInit(int width, int height)
 {
@@ -2663,8 +2893,6 @@ static void VaapiOsdInit(int width, int height)
 	Debug(3, "video/vaapi: va-api not setup\n");
 	return;
     }
-    /*FIXME:return; */
-
     //
     //	look through subpicture formats
     //
@@ -2730,6 +2958,1753 @@ static void VaapiOsdInit(int width, int height)
 
     VaapiOsdClear();
 }
+
+#endif
+
+//----------------------------------------------------------------------------
+//	VDPAU
+//----------------------------------------------------------------------------
+
+#ifdef USE_VDPAU
+
+///
+///	VDPAU decoder
+///
+typedef struct _vdpau_decoder_
+{
+    VdpDevice Device;			///< VDPAU device
+
+    xcb_window_t Window;		///< output window
+    int OutputX;			///< output window x
+    int OutputY;			///< output window y
+    int OutputWidth;			///< output window width
+    int OutputHeight;			///< output window height
+
+    enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
+    int Interlaced;			///< ffmpeg interlaced flag
+    int TopFieldFirst;			///< ffmpeg top field displayed first
+
+    int InputX;				///< input x
+    int InputY;				///< input y
+    int InputWidth;			///< input width
+    int InputHeight;			///< input height
+
+#ifdef noyetUSE_GLX
+    GLuint GlTexture[2];		///< gl texture for VDPAU
+    void *GlxSurface[2];		///< VDPAU/GLX surface
+#endif
+
+    VdpVideoMixer VideoMixer;		///< vdp video mixer
+    VdpChromaType ChromaType;		///< vdp video surface chroma format
+
+    int SurfaceUsedN;			///< number of used video surfaces
+    /// used video surface ids
+    VdpVideoSurface SurfacesUsed[CODEC_SURFACES_MAX];
+    int SurfaceFreeN;			///< number of free video surfaces
+    /// free video surface ids
+    VdpVideoSurface SurfacesFree[CODEC_SURFACES_MAX];
+
+    /// video surface ring buffer
+    VdpVideoSurface SurfacesRb[VIDEO_SURFACES_MAX];
+    int SurfaceWrite;			///< write pointer
+    int SurfaceRead;			///< read pointer
+    atomic_t SurfacesFilled;		///< how many of the buffer is used
+
+    int SurfaceField;			///< current displayed field
+    int DropNextFrame;			///< flag drop next frame
+    int DupNextFrame;			///< flag duplicate next frame
+    struct timespec FrameTime;		///< time of last display
+    struct timespec StartTime;		///< decoder start time
+    int64_t PTS;			///< video PTS clock
+
+    int FramesDuped;			///< number of frames duplicated
+    int FramesMissed;			///< number of frames missed
+    int FramesDropped;			///< number of frames dropped
+    int FrameCounter;			///< number of frames decoded
+    int FramesDisplayed;		///< number of frames displayed
+} VdpauDecoder;
+
+static int VideoVdpauEnabled = 1;	///< use VDPAU decoder
+
+static VdpauDecoder *VdpauDecoders[1];	///< open decoder streams
+static int VdpauDecoderN;		///< number of decoder streams
+
+static VdpDevice VdpauDevice;		///< VDPAU device
+static VdpGetProcAddress *VdpauGetProcAddress;	///< entry point to use
+
+    /// presentation queue target
+static VdpPresentationQueueTarget VdpauQueueTarget;
+static VdpPresentationQueue VdpauQueue;	///< presentation queue
+static VdpColor VdpauBackgroundColor[1];	///< queue background color
+
+static int VdpauHqScalingMax;		///< highest supported scaling level
+static int VdpauTemporal;		///< temporal deinterlacer supported
+static int VdpauTemporalSpatial;	///< temporal spatial deint. supported
+static int VdpauInverseTelecine;	///< inverse telecine deint. supported
+static int VdpauSkipChroma;		///< skip chroma deint. supported
+
+    /// display surface ring buffer
+static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
+static int VdpauSurfaceIndex;		///< current display surface
+static int VdpauSurfaceNotStart;	///< not the first surface
+
+///
+///	Function pointer of the VDPAU device.
+///
+///@{
+static VdpGetErrorString *VdpauGetErrorString;
+static VdpDeviceDestroy *VdpauDeviceDestroy;
+static VdpGenerateCSCMatrix *VdpauGenerateCSCMatrix;
+static VdpVideoSurfaceQueryCapabilities *VdpauVideoSurfaceQueryCapabilities;
+static VdpVideoSurfaceQueryGetPutBitsYCbCrCapabilities
+    *VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities;
+static VdpVideoSurfaceCreate *VdpauVideoSurfaceCreate;
+static VdpVideoSurfaceDestroy *VdpauVideoSurfaceDestroy;
+static VdpVideoSurfaceGetParameters *VdpauVideoSurfaceGetParameters;
+
+//static VdpVideoSurfaceGetBitsYCbCr * VdpauVideoSurfaceGetBitsYCbCr;
+static VdpVideoSurfacePutBitsYCbCr *VdpauVideoSurfacePutBitsYCbCr;
+
+static VdpOutputSurfaceCreate *VdpauOutputSurfaceCreate;
+static VdpOutputSurfaceDestroy *VdpauOutputSurfaceDestroy;
+
+static VdpOutputSurfacePutBitsNative *VdpauOutputSurfacePutBitsNative;
+
+static VdpBitmapSurfaceQueryCapabilities *VdpauBitmapSurfaceQueryCapabilities;
+static VdpBitmapSurfaceCreate *VdpauBitmapSurfaceCreate;
+static VdpBitmapSurfaceDestroy *VdpauBitmapSurfaceDestroy;
+
+static VdpBitmapSurfacePutBitsNative *VdpauBitmapSurfacePutBitsNative;
+
+static VdpOutputSurfaceRenderOutputSurface *
+    VdpauOutputSurfaceRenderOutputSurface;
+static VdpOutputSurfaceRenderBitmapSurface *
+    VdpauOutputSurfaceRenderBitmapSurface;
+
+static VdpDecoderQueryCapabilities *VdpauDecoderQueryCapabilities;
+static VdpDecoderCreate *VdpauDecoderCreate;
+static VdpDecoderDestroy *VdpauDecoderDestroy;
+
+static VdpVideoMixerQueryFeatureSupport *VdpauVideoMixerQueryFeatureSupport;
+static VdpVideoMixerCreate *VdpauVideoMixerCreate;
+static VdpVideoMixerSetFeatureEnables *VdpauVideoMixerSetFeatureEnables;
+static VdpVideoMixerSetAttributeValues *VdpauVideoMixerSetAttributeValues;
+
+static VdpVideoMixerDestroy *VdpauVideoMixerDestroy;
+static VdpVideoMixerRender *VdpauVideoMixerRender;
+static VdpPresentationQueueTargetDestroy *VdpauPresentationQueueTargetDestroy;
+static VdpPresentationQueueCreate *VdpauPresentationQueueCreate;
+static VdpPresentationQueueDestroy *VdpauPresentationQueueDestroy;
+static VdpPresentationQueueSetBackgroundColor
+    *VdpauPresentationQueueSetBackgroundColor;
+
+static VdpPresentationQueueGetTime *VdpauPresentationQueueGetTime;
+static VdpPresentationQueueDisplay *VdpauPresentationQueueDisplay;
+static VdpPresentationQueueBlockUntilSurfaceIdle *
+    VdpauPresentationQueueBlockUntilSurfaceIdle;
+static VdpPresentationQueueQuerySurfaceStatus *
+    VdpauPresentationQueueQuerySurfaceStatus;
+
+static VdpPresentationQueueTargetCreateX11
+    *VdpauPresentationQueueTargetCreateX11;
+///@}
+
+///
+///	Create surfaces for VDPAU decoder.
+///
+///	@param decoder	VDPAU decoder
+///	@param width	surface source/video width
+///	@param height	surface source/video height
+///
+static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
+{
+    int i;
+
+    Debug(3, "video/vdpau: %s %dx%d\n", __FUNCTION__, width, height);
+
+    // FIXME: allocate only the number of needed surfaces
+    decoder->SurfaceFreeN = CODEC_SURFACES_DEFAULT;
+    for (i = 0; i < decoder->SurfaceFreeN; ++i) {
+	VdpStatus status;
+
+	status =
+	    VdpauVideoSurfaceCreate(decoder->Device, decoder->ChromaType,
+	    width, height, decoder->SurfacesFree + i);
+	if (status != VDP_STATUS_OK) {
+	    Fatal(_("video/vdpau: can't create video surface: %s\n"),
+		VdpauGetErrorString(status));
+	    // FIXME: no fatal
+	}
+	Debug(4, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
+	    width, height, decoder->SurfacesFree[i]);
+    }
+}
+
+///
+///	Destroy surfaces of VDPAU decoder.
+///
+///	@param decoder	VDPAU decoder
+///
+static void VdpauDestroySurfaces(VdpauDecoder * decoder)
+{
+    int i;
+    VdpStatus status;
+
+    Debug(3, "video/vdpau: %s\n", __FUNCTION__);
+
+    for (i = 0; i < decoder->SurfaceFreeN; ++i) {
+	status = VdpauVideoSurfaceDestroy(decoder->SurfacesFree[i]);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+    }
+    for (i = 0; i < decoder->SurfaceUsedN; ++i) {
+	status = VdpauVideoSurfaceDestroy(decoder->SurfacesUsed[i]);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+    }
+    decoder->SurfaceFreeN = 0;
+    decoder->SurfaceUsedN = 0;
+}
+
+///
+///	Get a free surface.
+///
+///	@param decoder	VDPAU decoder
+///
+///	@returns the oldest free surface
+///
+static unsigned VdpauGetSurface(VdpauDecoder * decoder)
+{
+    VdpVideoSurface surface;
+    int i;
+
+    if (!decoder->SurfaceFreeN) {
+	Error(_("video/vdpau: out of surfaces\n"));
+
+	return VDP_INVALID_HANDLE;
+    }
+    // use oldest surface
+    surface = decoder->SurfacesFree[0];
+
+    decoder->SurfaceFreeN--;
+    for (i = 0; i < decoder->SurfaceFreeN; ++i) {
+	decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
+    }
+
+    // save as used
+    decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
+
+    return surface;
+}
+
+///
+///	Release a surface.
+///
+///	@param decoder	VDPAU decoder
+///	@param surface	surface no longer used
+///
+static void VdpauReleaseSurface(VdpauDecoder * decoder, unsigned surface)
+{
+    int i;
+
+    for (i = 0; i < decoder->SurfaceUsedN; ++i) {
+	if (decoder->SurfacesUsed[i] == surface) {
+	    // no problem, with last used
+	    decoder->SurfacesUsed[i] =
+		decoder->SurfacesUsed[--decoder->SurfaceUsedN];
+	    decoder->SurfacesFree[decoder->SurfaceFreeN++] = surface;
+	    return;
+	}
+    }
+    Error(_("video/vdpau: release surface %#x, which is not in use\n"),
+	surface);
+}
+
+///
+///	Debug VDPAU decoder frames drop...
+///
+///	@param decoder	VDPAU decoder
+///
+static void VdpauPrintFrames(const VdpauDecoder * decoder)
+{
+    Debug(3, "video/vdpau: %d missed, %d duped, %d dropped frames of %d\n",
+	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
+	decoder->FrameCounter);
+}
+
+///
+///	Create and setup VDPAU mixer.
+///
+///	@param decoder	VDPAU decoder
+///
+static void VdpauMixerSetup(VdpauDecoder * decoder)
+{
+    VdpStatus status;
+    int i;
+    VdpVideoMixerFeature features[13];
+    VdpBool enables[13];
+    int feature_n;
+    VdpVideoMixerParameter paramaters[10];
+    void const *values[10];
+    int parameter_n;
+    VdpChromaType chroma_type;
+    int layers;
+
+    //
+    //	Build feature table
+    //
+    feature_n = 0;
+    if (VdpauTemporal) {
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
+    }
+    if (VdpauTemporalSpatial) {
+	features[feature_n++] =
+	    VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL;
+    }
+    if (VdpauInverseTelecine) {
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
+    }
+    // FIXME:
+    // VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION
+    // VDP_VIDEO_MIXER_FEATURE_SHARPNESS
+    for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
+	i <= VdpauHqScalingMax; ++i) {
+	features[feature_n++] = i;
+    }
+
+    decoder->ChromaType = chroma_type = VDP_CHROMA_TYPE_420;
+
+    //
+    //	Setup parameter/value tables
+    //
+    paramaters[0] = VDP_VIDEO_MIXER_PARAMETER_VIDEO_SURFACE_WIDTH;
+    values[0] = &decoder->InputWidth;
+    paramaters[1] = VDP_VIDEO_MIXER_PARAMETER_VIDEO_SURFACE_HEIGHT;
+    values[1] = &decoder->InputHeight;
+    paramaters[2] = VDP_VIDEO_MIXER_PARAMETER_CHROMA_TYPE;
+    values[2] = &chroma_type;
+    layers = 0;
+    paramaters[3] = VDP_VIDEO_MIXER_PARAMETER_LAYERS;
+    values[3] = &layers;
+    parameter_n = 4;
+
+    status =
+	VdpauVideoMixerCreate(VdpauDevice, feature_n, features, parameter_n,
+	paramaters, values, &decoder->VideoMixer);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: can't create video mixer: %s\n"),
+	    VdpauGetErrorString(status));
+	// FIXME: no fatal errors
+    }
+    //
+    //	Build default enables table
+    //
+    feature_n = 0;
+    if (VdpauTemporal) {
+	enables[feature_n] = (VideoDeinterlace == VideoDeinterlaceTemporal
+	    || VideoDeinterlace ==
+	    VideoDeinterlaceTemporalSpatial) ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
+	Debug(3, "video/vdpau: temporal deinterlace %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauTemporalSpatial) {
+	enables[feature_n] =
+	    VideoDeinterlace ==
+	    VideoDeinterlaceTemporalSpatial ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] =
+	    VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL;
+	Debug(3, "video/vdpau: temporal spatial deinterlace %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauInverseTelecine) {
+	enables[feature_n] = VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
+	Debug(3, "video/vdpau: inverse telecine %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
+	i <= VdpauHqScalingMax; ++i) {
+	enables[feature_n] =
+	    VideoScaling == VideoScalingHQ ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = i;
+	Debug(3, "video/vdpau: high quality scaling %d %s\n",
+	    1 + i - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1,
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    VdpauVideoMixerSetFeatureEnables(decoder->VideoMixer, feature_n, features,
+	enables);
+
+    /*
+       FIXME:
+       VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
+       attributes, values);
+     */
+
+    //VdpColorStandard color_standard;
+    //color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
+    //VdpGenerateCSCMatrix(procamp, standard, &csc_matrix);
+}
+
+///
+///	Allocate new VDPAU decoder.
+///
+///	@returns a new prepared vdpau hardware decoder.
+///
+static VdpauDecoder *VdpauNewDecoder(void)
+{
+    VdpauDecoder *decoder;
+    int i;
+
+    if (VdpauDecoderN == 1) {
+	Fatal(_("video/vdpau: out of decoders\n"));
+    }
+
+    if (!(decoder = calloc(1, sizeof(*decoder)))) {
+	Fatal(_("video/vdpau: out of memory\n"));
+    }
+    decoder->Device = VdpauDevice;
+    decoder->Window = VideoWindow;
+
+    decoder->VideoMixer = VDP_INVALID_HANDLE;
+
+    //
+    // setup video surface ring buffer
+    //
+    atomic_set(&decoder->SurfacesFilled, 0);
+
+    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+	decoder->SurfacesRb[i] = VDP_INVALID_HANDLE;
+    }
+    // we advance before display, to loose no surface, we set it before
+    //decoder->SurfaceRead = VIDEO_SURFACES_MAX - 1;
+    //decoder->SurfaceField = 1;
+
+#ifdef DEBUG
+    if (VIDEO_SURFACES_MAX < 1 + 1 + 1 + 1) {
+	Fatal(_
+	    ("video/vdpau: need 1 future, 1 current, 1 back and 1 work surface\n"));
+    }
+#endif
+
+    decoder->OutputWidth = VideoWindowWidth;
+    decoder->OutputHeight = VideoWindowHeight;
+
+#ifdef noDEBUG
+    // FIXME: for play
+    decoder->OutputX = 40;
+    decoder->OutputY = 40;
+    decoder->OutputWidth -= 40 * 2;
+    decoder->OutputHeight -= 40 * 2;
+#endif
+
+    // FIXME: hack
+    VdpauDecoderN = 1;
+    VdpauDecoders[0] = decoder;
+
+    return decoder;
+}
+
+///
+///	Destroy a VDPAU decoder.
+///
+///	@param decoder	VDPAU decoder
+///
+static void VdpauDelDecoder(VdpauDecoder * decoder)
+{
+    // FIXME: more cleanup
+    VdpauDestroySurfaces(decoder);
+
+    VdpauPrintFrames(decoder);
+
+    free(decoder);
+}
+
+///
+///	Get the proc address.
+///
+///	@param id		VDP function id
+///	@param[out] addr	address of VDP function
+///	@param name		name of function for error message
+///
+static inline void VdpauGetProc(const VdpFuncId id, void *addr,
+    const char *name)
+{
+    VdpStatus status;
+
+    status = VdpauGetProcAddress(VdpauDevice, id, addr);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: Can't get function address of '%s': %s\n"), name,
+	    VdpauGetErrorString(status));
+    }
+}
+
+///
+///	VDPAU setup.
+///
+///	@param display_name	x11/xcb display name
+///
+static void VideoVdpauInit(const char *display_name)
+{
+    VdpStatus status;
+    VdpGetApiVersion *get_api_version;
+    uint32_t api_version;
+    VdpGetInformationString *get_information_string;
+    const char *information_string;
+    int i;
+    VdpBool flag;
+    uint32_t max_width;
+    uint32_t max_height;
+
+    status =
+	vdp_device_create_x11(XlibDisplay, DefaultScreen(XlibDisplay),
+	&VdpauDevice, &VdpauGetProcAddress);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: Can't create vdp device on display '%s'\n"),
+	    display_name);
+	VideoVdpauEnabled = 0;
+	return;
+    }
+    // get error function first, for better error messages
+    status =
+	VdpauGetProcAddress(VdpauDevice, VDP_FUNC_ID_GET_ERROR_STRING,
+	(void **)&VdpauGetErrorString);
+    if (status != VDP_STATUS_OK) {
+	Error(_
+	    ("video/vdpau: Can't get function address of 'GetErrorString'\n"));
+	VideoVdpauEnabled = 0;
+	// FIXME: destroy_x11 VdpauDeviceDestroy
+	return;
+    }
+    // get destroy device next, for cleaning up
+    VdpauGetProc(VDP_FUNC_ID_DEVICE_DESTROY, &VdpauDeviceDestroy,
+	"DeviceDestroy");
+
+    // get version
+    VdpauGetProc(VDP_FUNC_ID_GET_API_VERSION, &get_api_version,
+	"GetApiVersion");
+    VdpauGetProc(VDP_FUNC_ID_GET_INFORMATION_STRING, &get_information_string,
+	"VdpauGetProc");
+    status = get_api_version(&api_version);
+    // FIXME: check status
+    status = get_information_string(&information_string);
+    // FIXME: check status
+
+    Info(_("video/vdpau: VDPAU API version: %u\n"), api_version);
+    Info(_("video/vdpau: VDPAU information: %s\n"), information_string);
+
+    // FIXME: check if needed capabilities are available
+
+    VdpauGetProc(VDP_FUNC_ID_GENERATE_CSC_MATRIX, &VdpauGenerateCSCMatrix,
+	"GenerateCSCMatrix");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_QUERY_CAPABILITIES,
+	&VdpauVideoSurfaceQueryCapabilities, "VideoSurfaceQueryCapabilities");
+    VdpauGetProc
+	(VDP_FUNC_ID_VIDEO_SURFACE_QUERY_GET_PUT_BITS_Y_CB_CR_CAPABILITIES,
+	&VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities,
+	"VideoSurfaceQueryGetPutBitsYCbCrCapabilities");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_CREATE, &VdpauVideoSurfaceCreate,
+	"VideoSurfaceCreate");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_DESTROY, &VdpauVideoSurfaceDestroy,
+	"VideoSurfaceDestroy");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_GET_PARAMETERS,
+	&VdpauVideoSurfaceGetParameters, "VideoSurfaceGetParameters");
+    // VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_GET_BITS_Y_CB_CR, &VdpauVideoSurfaceGetBitsYCbCr, "VideoSurfaceGetBitsYCbCr");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_PUT_BITS_Y_CB_CR,
+	&VdpauVideoSurfacePutBitsYCbCr, "VideoSurfacePutBitsYCbCr");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_CAPABILITIES, &, "");
+    VdpauGetProc
+	(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_GET_PUT_BITS_NATIVE_CAPABILITIES, &,
+	"");
+    VdpauGetProc
+	(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_PUT_BITS_INDEXED_CAPABILITIES, &,
+	"");
+    VdpauGetProc
+	(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_PUT_BITS_Y_CB_CR_CAPABILITIES, &,
+	"");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_CREATE, &VdpauOutputSurfaceCreate,
+	"OutputSurfaceCreate");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_DESTROY,
+	&VdpauOutputSurfaceDestroy, "OutputSurfaceDestroy");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_PARAMETERS, &, "");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_BITS_NATIVE, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_PUT_BITS_NATIVE,
+	&VdpauOutputSurfacePutBitsNative, "OutputSurfacePutBitsNative");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_PUT_BITS_INDEXED, &, "");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_PUT_BITS_Y_CB_CR, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_BITMAP_SURFACE_QUERY_CAPABILITIES,
+	&VdpauBitmapSurfaceQueryCapabilities,
+	"BitmapSurfaceQueryCapabilities");
+    VdpauGetProc(VDP_FUNC_ID_BITMAP_SURFACE_CREATE, &VdpauBitmapSurfaceCreate,
+	"BitmapSurfaceCreate");
+    VdpauGetProc(VDP_FUNC_ID_BITMAP_SURFACE_DESTROY,
+	&VdpauBitmapSurfaceDestroy, "BitmapSurfaceDestroy");
+    // VdpauGetProc(VDP_FUNC_ID_BITMAP_SURFACE_GET_PARAMETERS, &VdpauBitmapSurfaceGetParameters, "BitmapSurfaceGetParameters");
+    VdpauGetProc(VDP_FUNC_ID_BITMAP_SURFACE_PUT_BITS_NATIVE,
+	&VdpauBitmapSurfacePutBitsNative, "BitmapSurfacePutBitsNative");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_RENDER_OUTPUT_SURFACE,
+	&VdpauOutputSurfaceRenderOutputSurface,
+	"OutputSurfaceRenderOutputSurface");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_RENDER_BITMAP_SURFACE,
+	&VdpauOutputSurfaceRenderBitmapSurface,
+	"OutputSurfaceRenderBitmapSurface");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_RENDER_VIDEO_SURFACE_LUMA, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_DECODER_QUERY_CAPABILITIES,
+	&VdpauDecoderQueryCapabilities, "DecoderQueryCapabilities");
+    VdpauGetProc(VDP_FUNC_ID_DECODER_CREATE, &VdpauDecoderCreate,
+	"DecoderCreate");
+    VdpauGetProc(VDP_FUNC_ID_DECODER_DESTROY, &VdpauDecoderDestroy,
+	"DecoderDestroy");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_DECODER_GET_PARAMETERS,
+	&VdpauDecoderGetParameters, "DecoderGetParameters");
+    VdpauGetProc(VDP_FUNC_ID_DECODER_RENDER, &VdpauDecoderRender,
+	"DecoderRender");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_FEATURE_SUPPORT,
+	&VdpauVideoMixerQueryFeatureSupport, "VideoMixerQueryFeatureSupport");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_PARAMETER_SUPPORT, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_ATTRIBUTE_SUPPORT, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_PARAMETER_VALUE_RANGE, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_ATTRIBUTE_VALUE_RANGE, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_CREATE, &VdpauVideoMixerCreate,
+	"VideoMixerCreate");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_SET_FEATURE_ENABLES,
+	&VdpauVideoMixerSetFeatureEnables, "VideoMixerSetFeatureEnables");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_SET_ATTRIBUTE_VALUES,
+	&VdpauVideoMixerSetAttributeValues, "VideoMixerSetAttributeValues");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_GET_FEATURE_SUPPORT, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_GET_FEATURE_ENABLES, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_GET_PARAMETER_VALUES, &, "");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_GET_ATTRIBUTE_VALUES, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_DESTROY, &VdpauVideoMixerDestroy,
+	"VideoMixerDestroy");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_RENDER, &VdpauVideoMixerRender,
+	"VideoMixerRender");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_TARGET_DESTROY,
+	&VdpauPresentationQueueTargetDestroy,
+	"PresentationQueueTargetDestroy");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_CREATE,
+	&VdpauPresentationQueueCreate, "PresentationQueueCreate");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_DESTROY,
+	&VdpauPresentationQueueDestroy, "PresentationQueueDestroy");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_SET_BACKGROUND_COLOR,
+	&VdpauPresentationQueueSetBackgroundColor,
+	"PresentationQueueSetBackgroundColor");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_GET_BACKGROUND_COLOR,
+	&VdpauPresentationQueueGetBackgroundColor,
+	"PresentationQueueGetBackgroundColor");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_GET_TIME,
+	&VdpauPresentationQueueGetTime, "PresentationQueueGetTime");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_DISPLAY,
+	&VdpauPresentationQueueDisplay, "PresentationQueueDisplay");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_BLOCK_UNTIL_SURFACE_IDLE,
+	&VdpauPresentationQueueBlockUntilSurfaceIdle,
+	"PresentationQueueBlockUntilSurfaceIdle");
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_QUERY_SURFACE_STATUS,
+	&VdpauPresentationQueueQuerySurfaceStatus,
+	"PresentationQueueQuerySurfaceStatus");
+#if 0
+    VdpauGetProc(VDP_FUNC_ID_PREEMPTION_CALLBACK_REGISTER,
+	&VdpauPreemptionCallback, "PreemptionCallback");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_TARGET_CREATE_X11,
+	&VdpauPresentationQueueTargetCreateX11,
+	"PresentationQueueTargetCreateX11");
+
+    // vdp_preemption_callback_register
+
+    //
+    //	Create presentation queue, only one queue pro window
+    //
+
+    status =
+	VdpauPresentationQueueTargetCreateX11(VdpauDevice, VideoWindow,
+	&VdpauQueueTarget);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: can't create presentation queue target: %s\n"),
+	    VdpauGetErrorString(status));
+	// FIXME: no fatal errors
+    }
+
+    status =
+	VdpauPresentationQueueCreate(VdpauDevice, VdpauQueueTarget,
+	&VdpauQueue);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: can't create presentation queue: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    VdpauBackgroundColor->red = 0.01;
+    VdpauBackgroundColor->green = 0.02;
+    VdpauBackgroundColor->blue = 0.03;
+    VdpauBackgroundColor->alpha = 1.00;
+
+    VdpauPresentationQueueSetBackgroundColor(VdpauQueue, VdpauBackgroundColor);
+
+    //
+    //	Look which levels of high quality scaling are supported
+    //
+    for (i = 0; i < 9; ++i) {
+	status =
+	    VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	    VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1 + i, &flag);
+	if (status != VDP_STATUS_OK) {
+	    Warning(_("video/vdpau: can't query feature '%s': %s\n"),
+		"high-quality-scaling", VdpauGetErrorString(status));
+	    break;
+	}
+	if (!flag) {
+	    break;
+	}
+	VdpauHqScalingMax =
+	    VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1 + i;
+    }
+
+    //
+    //	Cache some features
+    //
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "deinterlace-temporal", VdpauGetErrorString(status));
+    } else {
+	VdpauTemporal = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "deinterlace-temporal-spatial", VdpauGetErrorString(status));
+    } else {
+	VdpauTemporalSpatial = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "inverse-telecine", VdpauGetErrorString(status));
+    } else {
+	VdpauInverseTelecine = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "skip-chroma-deinterlace", VdpauGetErrorString(status));
+    } else {
+	VdpauSkipChroma = flag;
+    }
+
+    // VDP_VIDEO_MIXER_ATTRIBUTE_BACKGROUND_COLOR
+
+    Info(_("video/vdpau: highest supported high quality scaling %d\n"),
+	VdpauHqScalingMax - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1 +
+	1);
+    Info(_("video/vdpau: feature deinterlace temporal %s\n"),
+	VdpauTemporal ? _("supported") : _("unsupported"));
+    Info(_("video/vdpau: feature deinterlace temporal spatial %s\n"),
+	VdpauTemporal ? _("supported") : _("unsupported"));
+    Info(_("video/vdpau: attribute skip chroma deinterlace %s\n"),
+	VdpauTemporal ? _("supported") : _("unsupported"));
+
+    //
+    //	video formats
+    //
+    flag = VDP_FALSE;
+    status =
+	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_420,
+	&flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 4:2:0 chroma format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    flag = VDP_FALSE;
+    status =
+	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_422,
+	&flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 4:2:2 chroma format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    flag = VDP_FALSE;
+    status =
+	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_444,
+	&flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 4:4:4 chroma format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    // FIXME: does only check for chroma formats, but no action
+    status =
+	VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities(VdpauDevice,
+	VDP_CHROMA_TYPE_422, VDP_YCBCR_FORMAT_YUYV, &flag);
+    if (status != VDP_STATUS_OK || !flag) {
+	Error(_("video/vdpau: doesn't support yuvy video surface\n"));
+    }
+    status =
+	VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities(VdpauDevice,
+	VDP_CHROMA_TYPE_420, VDP_YCBCR_FORMAT_YV12, &flag);
+    if (status != VDP_STATUS_OK || !flag) {
+	Error(_("video/vdpau: doesn't support yv12 video surface\n"));
+    }
+    //FIXME: format support and size support
+    //VdpOutputSurfaceQueryCapabilities
+
+    //
+    //	Create display output surfaces
+    //
+    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	status =
+	    VdpauOutputSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
+	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb + i);
+	if (status != VDP_STATUS_OK) {
+	    Fatal(_("video/vdpau: can't create output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+    }
+}
+
+///
+///	VDPAU cleanup.
+///
+static void VideoVdpauExit(void)
+{
+    if (VdpauDecoders[0]) {
+	VdpauDelDecoder(VdpauDecoders[0]);
+    }
+
+    if (VdpauDevice) {
+	if (VdpauQueue) {
+	    VdpauPresentationQueueDestroy(VdpauQueue);
+	    VdpauQueue = 0;
+	}
+	if (VdpauQueueTarget) {
+	    VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	    VdpauQueueTarget = 0;
+	}
+	// FIXME: more VDPAU cleanups...
+	if (VdpauDeviceDestroy) {
+	    VdpauDeviceDestroy(VdpauDevice);
+	    VdpauDevice = 0;
+	}
+    }
+}
+
+///
+///	Check profile supported.
+///
+static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
+    VdpDecoderProfile profile)
+{
+    VdpStatus status;
+    VdpBool is_supported;
+    uint32_t max_level;
+    uint32_t max_macroblocks;
+    uint32_t max_width;
+    uint32_t max_height;
+
+    status =
+	VdpauDecoderQueryCapabilities(decoder->Device, profile, &is_supported,
+	&max_level, &max_macroblocks, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't queey decoder capabilities: %s\n"),
+	    VdpauGetErrorString(status));
+	return VDP_INVALID_HANDLE;
+    }
+    Debug(3,
+	"video/vdpau: profile %d with level %d, macro blocks %d, width %d, height %d %ssupported\n",
+	profile, max_level, max_macroblocks, max_width, max_height,
+	is_supported ? "" : "not ");
+    return is_supported ? profile : VDP_INVALID_HANDLE;
+}
+
+///
+///	Callback to negotiate the PixelFormat.
+///
+///	@param fmt	is the list of formats which are supported by the codec,
+///			it is terminated by -1 as 0 is a valid format, the
+///			formats are ordered by quality.
+///
+static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
+    AVCodecContext * video_ctx, const enum PixelFormat *fmt)
+{
+    VdpDecoderProfile profile;
+    int i;
+
+    Debug(3, "%s: %18p\n", __FUNCTION__, decoder);
+    if (getenv("NO_HW")) {
+	goto slow_path;
+    }
+#ifdef DEBUG
+#ifndef FF_API_GET_PIX_FMT_NAME
+    Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
+    for (i = 0; fmt[i] != PIX_FMT_NONE; ++i) {
+	Debug(3, "\t%#010x %s\n", fmt[i], avcodec_get_pix_fmt_name(fmt[i]));
+    }
+    Debug(3, "\n");
+#else
+    Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
+    for (i = 0; fmt[i] != PIX_FMT_NONE; ++i) {
+	Debug(3, "\t%#010x %s\n", fmt[i], av_get_pix_fmt_name(fmt[i]));
+    }
+    Debug(3, "\n");
+#endif
+#endif
+
+    // check profile
+    switch (video_ctx->codec_id) {
+	case CODEC_ID_MPEG2VIDEO:
+	    profile =
+		VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG2_MAIN);
+	    break;
+	case CODEC_ID_MPEG4:
+	case CODEC_ID_H263:
+	    /*
+	       p = VaapiFindProfile(profiles, profile_n,
+	       VAProfileMPEG4AdvancedSimple);
+	     */
+	    break;
+	case CODEC_ID_H264:
+	    /*
+	       // try more simple formats, fallback to better
+	       if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
+	       p = VaapiFindProfile(profiles, profile_n,
+	       VAProfileH264Baseline);
+	       if (p == -1) {
+	       p = VaapiFindProfile(profiles, profile_n,
+	       VAProfileH264Main);
+	       }
+	       } else if (video_ctx->profile == FF_PROFILE_H264_MAIN) {
+	       p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
+	       }
+	       if (p == -1) {
+	       p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
+	       }
+	     */
+	    break;
+	case CODEC_ID_WMV3:
+	    /*
+	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
+	     */
+	    break;
+	case CODEC_ID_VC1:
+	    /*
+	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
+	     */
+	    break;
+	default:
+	    goto slow_path;
+    }
+#if 0
+    //
+    //	prepare decoder
+    //
+    memset(&attrib, 0, sizeof(attrib));
+    attrib.type = VAConfigAttribRTFormat;
+    if (vaGetConfigAttributes(decoder->VaDisplay, p, e, &attrib, 1)) {
+	Error("codec: can't get attributes");
+	goto slow_path;
+    }
+    if (attrib.value & VA_RT_FORMAT_YUV420) {
+	Info(_("codec: YUV 420 supported\n"));
+    }
+    if (attrib.value & VA_RT_FORMAT_YUV422) {
+	Info(_("codec: YUV 422 supported\n"));
+    }
+    if (attrib.value & VA_RT_FORMAT_YUV444) {
+	Info(_("codec: YUV 444 supported\n"));
+    }
+    // only YUV420 supported
+    if (!(attrib.value & VA_RT_FORMAT_YUV420)) {
+	Warning("codec: YUV 420 not supported");
+	goto slow_path;
+    }
+    // create a configuration for the decode pipeline
+    if (vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1,
+	    &decoder->VaapiContext->config_id)) {
+	Error("codec: can't create config");
+	goto slow_path;
+    }
+
+    VaapiCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+
+    // bind surfaces to context
+    if (vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id,
+	    video_ctx->width, video_ctx->height, VA_PROGRESSIVE,
+	    decoder->SurfacesFree, decoder->SurfaceFreeN,
+	    &decoder->VaapiContext->context_id)) {
+	Error("codec: can't create context");
+	// FIXME: must cleanup
+	goto slow_path;
+    }
+
+    decoder->InputX = 0;
+    decoder->InputY = 0;
+    decoder->InputWidth = video_ctx->width;
+    decoder->InputHeight = video_ctx->height;
+
+    Debug(3, "\tpixel format %#010x\n", *fmt_idx);
+    return *fmt_idx;
+#endif
+    return *fmt;
+
+  slow_path:
+    // no accelerated format found
+    video_ctx->hwaccel_context = NULL;
+    return avcodec_default_get_format(video_ctx, fmt);
+}
+
+///
+///	Configure VDPAU for new video format.
+///
+///	@param decoder		vdpau decoder
+///	@param video_ctx	ffmpeg video codec context
+///
+static void VdpauSetup(VdpauDecoder * decoder,
+    const AVCodecContext * video_ctx)
+{
+    VdpStatus status;
+    VdpChromaType chroma_type;
+    uint32_t width;
+    uint32_t height;
+
+    // decoder->Input... already setup by caller
+
+    if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
+	VdpauVideoMixerDestroy(decoder->VideoMixer);
+	decoder->VideoMixer = VDP_INVALID_HANDLE;
+    }
+    VdpauMixerSetup(decoder);
+
+    if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
+	VdpauDestroySurfaces(decoder);
+    }
+    VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+
+    //	get real surface size
+    status =
+	VdpauVideoSurfaceGetParameters(decoder->SurfacesFree[0], &chroma_type,
+	&width, &height);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: can't get video surface parameters: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    // vdpau can choose different sizes, must use them for putbits
+    if (chroma_type != decoder->ChromaType
+	|| width != (uint32_t) video_ctx->width
+	|| height != (uint32_t) video_ctx->height) {
+	// FIXME: must rewrite the code to support this case
+	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
+    }
+    // FIXME: reset output ring buffer
+}
+
+/**
+**	Render a ffmpeg frame.
+**
+**	@param decoder		VDPAU decoder
+**	@param video_ctx	ffmpeg video codec context
+**	@param frame		frame to display
+*/
+static void VdpauRenderFrame(VdpauDecoder * decoder,
+    const AVCodecContext * video_ctx, const AVFrame * frame)
+{
+    VdpStatus status;
+    VdpVideoSurface surface;
+    VdpVideoSurface old;
+
+    //
+    // Hardware render
+    //
+    if (video_ctx->hwaccel_context) {
+	surface = (size_t) frame->data[3];
+
+	Debug(2, "video/vdpau: display surface %#x\n", surface);
+
+	// FIXME: should be done by init
+	if (decoder->Interlaced != frame->interlaced_frame
+	    || decoder->TopFieldFirst != frame->top_field_first) {
+	    Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
+		frame->interlaced_frame, frame->top_field_first);
+	    decoder->Interlaced = frame->interlaced_frame;
+	    decoder->TopFieldFirst = frame->top_field_first;
+	}
+	//
+	// VAImage render
+	//
+    } else {
+	void const *data[3];
+	uint32_t pitches[3];
+
+	//
+	//	Check image, format, size
+	//
+	if (decoder->PixFmt != video_ctx->pix_fmt
+	    || video_ctx->width != decoder->InputWidth
+	    || video_ctx->height != decoder->InputHeight) {
+
+	    decoder->PixFmt = video_ctx->pix_fmt;
+	    decoder->InputX = 0;
+	    decoder->InputY = 0;
+	    decoder->InputWidth = video_ctx->width;
+	    decoder->InputHeight = video_ctx->height;
+
+	    //
+	    //	detect interlaced input
+	    //
+	    Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
+		frame->interlaced_frame, frame->top_field_first);
+
+	    decoder->Interlaced = frame->interlaced_frame;
+	    decoder->TopFieldFirst = frame->top_field_first;
+	    // FIXME: I hope this didn't change in the middle of the stream
+
+	    VdpauSetup(decoder, video_ctx);
+	}
+	//
+	//	Copy data from frame to image
+	//
+	switch (video_ctx->pix_fmt) {
+	    case PIX_FMT_YUV420P:
+		break;
+	    case PIX_FMT_YUV422P:
+	    case PIX_FMT_YUV444P:
+	    default:
+		Fatal(_("video/vdpau: pixel format %d not supported\n"),
+		    video_ctx->pix_fmt);
+	}
+
+	// convert ffmpeg order to vdpau
+	data[0] = frame->data[0];
+	data[1] = frame->data[2];
+	data[2] = frame->data[1];
+	pitches[0] = frame->linesize[0];
+	pitches[1] = frame->linesize[2];
+	pitches[2] = frame->linesize[1];
+
+	surface = VdpauGetSurface(decoder);
+	status =
+	    VdpauVideoSurfacePutBitsYCbCr(surface, VDP_YCBCR_FORMAT_YV12, data,
+	    pitches);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't put video surface bits: %s\n"),
+		VdpauGetErrorString(status));
+	}
+    }
+
+    if (frame->interlaced_frame) {
+	++decoder->FrameCounter;
+    }
+    ++decoder->FrameCounter;
+
+    // place in output queue
+    // I place it here, for later thread support
+
+    if (0) {				// can't wait for output queue empty
+	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	    Warning(_
+		("video/vdpau: output buffer full, dropping frame (%d/%d)\n"),
+		++decoder->FramesDropped, decoder->FrameCounter);
+	    VdpauPrintFrames(decoder);
+	    // software surfaces only
+	    if (!video_ctx->hwaccel_context) {
+		VdpauReleaseSurface(decoder, surface);
+	    }
+	    return;
+	}
+#if 0
+    } else {				// wait for output queue empty
+	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	    VideoDisplayHandler();
+	}
+#endif
+    }
+
+    //
+    //	    Check and release, old surface
+    //
+    if ((old = decoder->SurfacesRb[decoder->SurfaceWrite])
+	!= VDP_INVALID_HANDLE) {
+
+	// now we can release the surface, software surfaces only
+	if (!video_ctx->hwaccel_context) {
+	    VdpauReleaseSurface(decoder, old);
+	}
+    }
+
+    Debug(4, "video: yy video surface %#x@%d ready\n", surface,
+	decoder->SurfaceWrite);
+
+    decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1)
+	% VIDEO_SURFACES_MAX;
+    atomic_inc(&decoder->SurfacesFilled);
+}
+
+#if 0
+
+///
+///	Render osd surface to output surface.
+///
+///	FIXME: must split render / upload / display
+///
+static void VdpauMixOsd(void)
+{
+    VdpOutputSurfaceRenderBlendState blend_state;
+    VdpRect source_rect;
+    VdpRect output_rect;
+    VdpStatus status;
+    static char *image;
+    void const *data[1];
+    uint32_t pitches[1];
+    static int count;
+    static int surface_index;
+    int i;
+
+#ifdef USE_BITMAP
+    static VdpBitmapSurface bitmap_surface[2];
+
+    if (!bitmap_surface[0]) {
+	for (i = 0; i < 2; ++i) {
+	    status =
+		VdpauBitmapSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
+		OsdWidth, OsdHeight, VDP_TRUE, bitmap_surface + i);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't create bitmap surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	}
+    }
+#else
+    static VdpOutputSurface output_surface[2];
+
+    if (!output_surface[0]) {
+	for (i = 0; i < 2; ++i) {
+	    status =
+		VdpauOutputSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
+		OsdWidth, OsdHeight, output_surface + i);
+	    if (status != VDP_STATUS_OK) {
+		Fatal(_("video/vdpau: can't create output surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	}
+    }
+#endif
+    if (!image) {
+	image = calloc(4, OsdWidth * OsdHeight);
+    }
+    if (1 || count < 10) {
+	memset(image, 0x00, 4 * OsdWidth * OsdHeight);
+	//GfxConvert(image, 0, OsdWidth * 4);
+
+	//
+	//  upload changed osd image (99ms for a 1920x1080 !frequently_accessed)
+	//  (5ms - 10ms with frequently_accessed = true)
+	//
+	if (0) {
+	    count++;
+	    source_rect.x0 = 0;
+	    source_rect.y0 = (OsdHeight * (count & 7)) / 8;
+	    source_rect.x1 = source_rect.x0 + OsdWidth;
+	    source_rect.y1 = source_rect.y0 + OsdHeight / 8;
+	    data[0] = image + ((OsdHeight * (count & 7)) / 8) * OsdWidth * 4;
+	} else {
+	    source_rect.x0 = 0;
+	    source_rect.y0 = 0;
+	    source_rect.x1 = source_rect.x0 + OsdWidth;
+	    source_rect.y1 = source_rect.y0 + OsdHeight;
+	    data[0] = image;
+	}
+
+	pitches[0] = OsdWidth * 4;
+	uint32_t start = GetMsTicks();
+
+#ifdef USE_BITMAP
+	status =
+	    VdpauBitmapSurfacePutBitsNative(bitmap_surface[surface_index],
+	    data, pitches, &source_rect);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: bitmap surface put bits failed: %s\n"),
+		VdpauGetErrorString(status));
+	}
+#else
+	status =
+	    VdpauOutputSurfacePutBitsNative(output_surface[surface_index],
+	    data, pitches, &source_rect);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: output surface put bits failed: %s\n"),
+		VdpauGetErrorString(status));
+	}
+#endif
+	uint32_t end = GetMsTicks();
+
+	Debug(3, "upload %d ms\n", end - start);
+    }
+    //
+    //	blend overlay over output
+    //
+    blend_state.struct_version = VDP_OUTPUT_SURFACE_RENDER_BLEND_STATE_VERSION;
+    blend_state.blend_factor_source_color =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ONE;
+    blend_state.blend_factor_source_alpha =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ONE;
+    blend_state.blend_factor_destination_color =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend_state.blend_factor_destination_alpha =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend_state.blend_equation_color =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD;
+    blend_state.blend_equation_alpha =
+	VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD;
+
+    source_rect.x0 = 0;
+    source_rect.y0 = 0;
+    source_rect.x1 = OsdWidth;
+    source_rect.y1 = OsdHeight;
+
+    output_rect.x0 = 0;
+    output_rect.y0 = 0;
+    output_rect.x1 = VideoWindowWidth;
+    output_rect.y1 = VideoWindowHeight;
+
+    uint32_t start = GetMsTicks();
+
+#ifdef USE_BITMAP
+    status =
+	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
+	[VdpauSurfaceIndex], &output_rect, bitmap_surface[!surface_index],
+	&source_rect, NULL, &blend_state, VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't render bitmap surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+#else
+    status
+	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
+	[VdpauSurfaceIndex], &output_rect, output_surface[!surface_index],
+	&source_rect, NULL, &blend_state, VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't render output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+#endif
+    uint32_t end = GetMsTicks();
+
+    Debug(3, "render %d ms\n", end - start);
+
+    surface_index = !surface_index;
+}
+
+#endif
+
+///
+///	Render video surface to output surface.
+///
+///	@param decoder		VDPAU decoder
+///
+static void VdpauMixVideo(VdpauDecoder * decoder)
+{
+    VdpVideoSurface current;
+    VdpRect video_src_rect;
+    VdpRect dst_rect;
+    VdpRect dst_video_rect;
+    VdpStatus status;
+
+    dst_rect.x0 = 0;			// window output (clip)
+    dst_rect.y0 = 0;
+    dst_rect.x1 = VideoWindowWidth;
+    dst_rect.y1 = VideoWindowHeight;
+
+    video_src_rect.x0 = decoder->InputX;	// video source (crop)
+    video_src_rect.y0 = decoder->InputY;
+    video_src_rect.x1 = decoder->InputX + decoder->InputWidth;
+    video_src_rect.y1 = decoder->InputY + decoder->InputHeight;
+
+    dst_video_rect.x0 = decoder->OutputX;	// video output (scale)
+    dst_video_rect.y0 = decoder->OutputY;
+    dst_video_rect.x1 = decoder->OutputX + decoder->OutputWidth;
+    dst_video_rect.y1 = decoder->OutputY + decoder->OutputHeight;
+
+    if (decoder->Interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
+	//
+	//	Build deinterlace structures
+	//
+	VdpVideoMixerPictureStructure cps;
+	VdpVideoSurface past[2];
+	VdpVideoSurface future[2];
+
+#ifdef DEBUG
+	if (atomic_read(&decoder->SurfacesFilled) < 3) {
+	    Debug(3, "only %d\n", atomic_read(&decoder->SurfacesFilled));
+	    abort();
+	}
+#endif
+
+	// FIXME: wrong for bottom-field first
+	// read: past: B0 T0 current T1 future B1 T2 (0 1 2)
+	// read: past: T1 B0 current B1 future T2 B2 (0 1 2)
+	if (decoder->TopFieldFirst != decoder->SurfaceField) {
+	    cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD;
+
+	    past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+	    past[0] = past[1];
+	    current = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		% VIDEO_SURFACES_MAX];
+	    future[0] = current;
+	    future[1] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
+		% VIDEO_SURFACES_MAX];
+	    // FIXME: can support 1 future more
+	} else {
+	    cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_BOTTOM_FIELD;
+
+	    // FIXME: can support 1 past more
+	    past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+	    past[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		% VIDEO_SURFACES_MAX];
+	    current = past[0];
+	    future[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
+		% VIDEO_SURFACES_MAX];
+	    future[1] = future[0];
+	}
+
+	Debug(4, " %02d	 %02d(%c%02d) %02d  %02d\n", past[1], past[0],
+	    cps == VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD ? 'T' : 'B',
+	    current, future[0], future[1]);
+
+	status =
+	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
+	    NULL, cps, 2, past, current, 2, future, &video_src_rect,
+	    VdpauSurfacesRb[VdpauSurfaceIndex], &dst_rect, &dst_video_rect, 0,
+	    NULL);
+    } else {
+	current = decoder->SurfacesRb[decoder->SurfaceRead];
+
+	status =
+	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
+	    NULL, VDP_VIDEO_MIXER_PICTURE_STRUCTURE_FRAME, 0, NULL, current, 0,
+	    NULL, &video_src_rect, VdpauSurfacesRb[VdpauSurfaceIndex],
+	    &dst_rect, &dst_video_rect, 0, NULL);
+    }
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't render mixer: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    Debug(4, "video: yy video surface %#x@%d displayed\n", current,
+	decoder->SurfaceRead);
+}
+
+///
+///	Display a video frame.
+///
+static void VdpauDisplayFrame(void)
+{
+    uint32_t now;
+    uint32_t end;
+    static uint32_t last_frame_tick;
+    VdpStatus status;
+    VdpTime first_time;
+    static VdpTime last_time;
+    int i;
+
+    now = GetMsTicks();
+    //Debug(3, "video/vdpau: tick %d\n", now - last_frame_tick);
+
+    //
+    //	wait for surface visible (blocks max ~5ms)
+    //
+    status =
+	VdpauPresentationQueueBlockUntilSurfaceIdle(VdpauQueue,
+	VdpauSurfacesRb[VdpauSurfaceIndex], &first_time);
+    end = GetMsTicks();
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't block queue: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    // check if surface was displayed for more than 1 frame
+    if (last_time && first_time > last_time + 21 * 1000 * 1000) {
+	Debug(3, "video/vdpau: %ld display time %ld - %d ms\n", first_time,
+	    (first_time - last_time) / 1000, end - now);
+	// FIXME: can be more than 1 frame long shown
+	for (i = 0; i < VdpauDecoderN; ++i) {
+	    VdpauDecoders[i]->FramesMissed++;
+	    VdpauPrintFrames(VdpauDecoders[i]);
+	}
+    }
+    last_time = first_time;
+    last_frame_tick = now;
+
+    //
+    //	Render videos into output
+    //
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	int filled;
+	VdpauDecoder *decoder;
+
+	decoder = VdpauDecoders[i];
+
+	filled = atomic_read(&decoder->SurfacesFilled);
+	// need 1 frame for progressive, 3 frames for interlaced
+	if (filled < 1 + 2 * decoder->Interlaced) {
+	    // FIXME: render black surface
+	    continue;
+	}
+
+	VdpauMixVideo(decoder);
+
+	// next field
+	if (decoder->Interlaced) {
+	    decoder->SurfaceField ^= 1;
+	}
+	// next surface, if complete frame is displayed
+	if (!decoder->SurfaceField) {
+	    // check decoder, if new surface is available
+	    // need 2 frames for progressive
+	    // need 4 frames for interlaced
+	    if (filled <= 1 + 2 * decoder->Interlaced) {
+		// keep use of last surface
+		++decoder->FramesDuped;
+		VdpauPrintFrames(decoder);
+		decoder->SurfaceField = decoder->Interlaced;
+	    } else {
+		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX;
+		atomic_dec(&decoder->SurfacesFilled);
+	    }
+	}
+    }
+
+#if 0
+    if (OsdShow) {
+	VdpauMixOsd();
+    }
+#endif
+
+    //
+    //	place surface in presentation queue
+    //
+    status =
+	VdpauPresentationQueueDisplay(VdpauQueue,
+	VdpauSurfacesRb[VdpauSurfaceIndex], 0, 0, 0);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't queue display: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    VdpauSurfaceIndex = (VdpauSurfaceIndex + 1) % OUTPUT_SURFACES_MAX;
+
+    xcb_flush(Connection);
+}
+
+///
+///	Sync and display surface.
+///
+///	@param decoder	vdpau decoder
+///
+static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
+{
+    VdpauDisplayFrame();
+#if 0
+    int filled;
+    int64_t audio_clock;
+    int64_t video_clock;
+
+    if (!decoder->DupNextFrame && (!Video60HzMode
+	    || decoder->FramesDisplayed % 6)) {
+	VaapiAdvanceFrame();
+    }
+    // debug duplicate frames
+    filled = atomic_read(&decoder->SurfacesFilled);
+    if (filled == 1) {
+	decoder->FramesDuped++;
+	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
+	    decoder->FramesDuped, decoder->FrameCounter);
+	if (!(decoder->FramesDisplayed % 333)) {
+	    VaapiPrintFrames(decoder);
+	}
+    }
+
+    VaapiDisplayFrame();
+
+    //
+    //	audio/video sync
+    //
+    audio_clock = AudioGetClock();
+    video_clock = VideoGetClock();
+    // FIXME: audio not known assume 333ms delay
+
+    if (decoder->DupNextFrame) {
+	decoder->DupNextFrame = 0;
+    } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
+	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
+	// both clocks are known
+
+	if (abs(video_clock - audio_clock) > 5000 * 90) {
+	    Debug(3, "video: pts difference too big\n");
+	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
+	    Debug(3, "video: slow down video\n");
+	    decoder->DupNextFrame = 1;
+	} else if (audio_clock + VideoAudioDelay > video_clock + 50 * 90
+	    && filled > 1) {
+	    Debug(3, "video: speed up video\n");
+	    decoder->DropNextFrame = 1;
+	}
+    }
+
+    if (decoder->DupNextFrame || decoder->DropNextFrame
+	|| !(decoder->FramesDisplayed % (50 * 10))) {
+	static int64_t last_video_clock;
+
+	Debug(3,
+	    "video: %09" PRIx64 "-%09" PRIx64 " %4" PRId64 " pts %+dms %"
+	    PRId64 "\n", audio_clock, video_clock,
+	    video_clock - last_video_clock,
+	    (int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
+
+	last_video_clock = video_clock;
+    }
+#endif
+}
+
+///
+///	Sync and render a ffmpeg frame
+///
+///	@param decoder		vdpau decoder
+///	@param video_ctx	ffmpeg video codec context
+///	@param frame		frame to display
+///
+static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
+    const AVCodecContext * video_ctx, const AVFrame * frame)
+{
+    if (!atomic_read(&decoder->SurfacesFilled)) {
+	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
+    }
+
+    if (decoder->DropNextFrame) {	// drop frame requested
+	++decoder->FramesDropped;
+	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
+	    decoder->FrameCounter);
+	if (!(decoder->FramesDisplayed % 100)) {
+	    VdpauPrintFrames(decoder);
+	}
+	decoder->DropNextFrame = 0;
+	return;
+    }
+    // if video output buffer is full, wait and display surface.
+    // loop for interlace
+    while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	struct timespec abstime;
+
+	abstime = decoder->FrameTime;
+	abstime.tv_nsec += 14 * 1000 * 1000;
+	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
+	    // avoid overflow
+	    abstime.tv_sec++;
+	    abstime.tv_nsec -= 1000 * 1000 * 1000;
+	}
+
+	VideoPollEvent();
+
+	// give osd some time slot
+	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
+		&abstime) != ETIMEDOUT) {
+	    // SIGUSR1
+	    Debug(3, "video/vdpau: pthread_cond_timedwait error\n");
+	}
+
+	VdpauSyncDisplayFrame(decoder);
+    }
+
+    VdpauRenderFrame(decoder, video_ctx, frame);
+}
+
+#ifdef USE_VIDEO_THREAD
+
+/**
+**	Handle a VDPAU display.
+**
+**	@todo FIXME: only a single decoder supported.
+*/
+static void VdpauDisplayHandlerThread(void)
+{
+    int err;
+    int filled;
+    struct timespec nowtime;
+    VdpauDecoder *decoder;
+
+    decoder = VdpauDecoders[0];
+
+    //
+    // fill frame output ring buffer
+    //
+    filled = atomic_read(&decoder->SurfacesFilled);
+    err = 1;
+    if (filled < VIDEO_SURFACES_MAX) {
+	// FIXME: hot polling
+	pthread_mutex_lock(&VideoLockMutex);
+	// fetch+decode or reopen
+	err = VideoDecode();
+	pthread_mutex_unlock(&VideoLockMutex);
+    }
+    if (err) {
+	// FIXME: sleep on wakeup
+	usleep(5 * 1000);		// nothing buffered
+    }
+
+    filled = atomic_read(&decoder->SurfacesFilled);
+    clock_gettime(CLOCK_REALTIME, &nowtime);
+    // time for one frame over?
+    if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
+	15 * 1000 * 1000) {
+	return;
+    }
+
+    pthread_mutex_lock(&VideoLockMutex);
+    VdpauSyncDisplayFrame(decoder);
+    pthread_mutex_unlock(&VideoLockMutex);
+}
+
+#endif
 
 #endif
 
@@ -3068,11 +5043,6 @@ void VideoPollEvent(void)
 
 #ifdef USE_VIDEO_THREAD
 
-static pthread_t VideoThread;		///< video decode thread
-static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
-static pthread_mutex_t VideoMutex;	///< video condition mutex
-static pthread_mutex_t VideoLockMutex;	///< video lock mutex
-
 #ifdef USE_GLX
 static GLXContext GlxThreadContext;	///< our gl context for the thread
 #endif
@@ -3094,73 +5064,6 @@ static void VideoThreadUnlock(void)
 {
     if (pthread_mutex_unlock(&VideoLockMutex)) {
 	Error(_("video: can't unlock thread\n"));
-    }
-}
-
-/**
-**	Display and sync surface.
-**
-**	@param decoder	VA-API decoder
-*/
-static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
-{
-    int filled;
-    int64_t audio_clock;
-    int64_t video_clock;
-
-    if (!decoder->DupNextFrame && (!Video60HzMode
-	    || decoder->FramesDisplayed % 6)) {
-	VaapiAdvanceFrame();
-    }
-    // debug duplicate frames
-    filled = atomic_read(&decoder->SurfacesFilled);
-    if (filled == 1) {
-	decoder->FramesDuped++;
-	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
-	    decoder->FramesDuped, decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 333)) {
-	    VaapiPrintFrames(decoder);
-	}
-    }
-
-    VaapiDisplayFrame();
-
-    //
-    //	audio/video sync
-    //
-    audio_clock = AudioGetClock();
-    video_clock = VideoGetClock();
-    // FIXME: audio not known assume 333ms delay
-
-    if (decoder->DupNextFrame) {
-	decoder->DupNextFrame = 0;
-    } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
-	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
-	// both clocks are known
-
-	if (abs(video_clock - audio_clock) > 5000 * 90) {
-	    Debug(3, "video: pts difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
-	    Debug(3, "video: slow down video\n");
-	    decoder->DupNextFrame = 1;
-	} else if (audio_clock + VideoAudioDelay > video_clock + 50 * 90
-	    && filled > 1) {
-	    Debug(3, "video: speed up video\n");
-	    decoder->DropNextFrame = 1;
-	}
-    }
-
-    if (decoder->DupNextFrame || decoder->DropNextFrame
-	|| !(decoder->FramesDisplayed % (50 * 10))) {
-	static int64_t last_video_clock;
-
-	Debug(3,
-	    "video: %09" PRIx64 "-%09" PRIx64 " %4" PRId64 " pts %+dms %"
-	    PRId64 "\n", audio_clock, video_clock,
-	    video_clock - last_video_clock,
-	    (int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
-
-	last_video_clock = video_clock;
     }
 }
 
@@ -3191,145 +5094,28 @@ static void *VideoDisplayHandlerThread(void *dummy)
 #endif
 
     for (;;) {
-	int err;
-	int filled;
-	struct timespec nowtime;
-	VaapiDecoder *decoder;
-
-	decoder = VaapiDecoders[0];
-
 	VideoPollEvent();
 
-	//
-	// fill frame output ring buffer
-	//
-	filled = atomic_read(&decoder->SurfacesFilled);
-	err = 1;
-	if (filled <= 2) {
-	    // FIXME: hot polling
-	    pthread_mutex_lock(&VideoLockMutex);
-	    // fetch+decode or reopen
-	    err = VideoDecode();
-	    pthread_mutex_unlock(&VideoLockMutex);
-	}
-	if (err) {
-	    // FIXME: sleep on wakeup
-	    usleep(5 * 1000);		// nothing buffered
-	}
-
-	filled = atomic_read(&decoder->SurfacesFilled);
-	clock_gettime(CLOCK_REALTIME, &nowtime);
-	// time for one frame over
-	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
-	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		decoder->FrameTime.tv_nsec) < 15 * 1000 * 1000) {
-	    continue;
-	}
-
-	pthread_mutex_lock(&VideoLockMutex);
-	VaapiSyncDisplayFrame(decoder);
-	pthread_mutex_unlock(&VideoLockMutex);
-
-#if 0
-	audio_clock = AudioGetClock();
-	video_clock = audio_clock;
-	if ((uint64_t) audio_clock != AV_NOPTS_VALUE
-	    && (uint64_t) decoder->PTS != AV_NOPTS_VALUE) {
-	    video_clock = decoder->PTS - (decoder->Interlaced ? 40 : 20) * 90;
-	}
-	// default video delay, if audio delay isn't known yet
-	delay = 1 * 500L * 1000 * 1000;
-	clock_gettime(CLOCK_REALTIME, &nowtime);
-
-	// wait until we got any surface
-	if (!atomic_read(&decoder->SurfacesFilled)
-	    || video_clock < audio_clock
-	    || ((uint64_t) ((nowtime.tv_sec - decoder->StartTime.tv_sec)
-		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-			decoder->StartTime.tv_nsec)) > delay)) {
-
-	    if (!(decoder->FramesDisplayed % (50 * 10))) {
-		static int64_t last_video_clock;
-
-		Debug(3,
-		    "video: %09" PRIx64 "-%09" PRIx64 " %4" PRId64
-		    " pts %+dms %" PRId64 "\n", audio_clock, video_clock,
-		    video_clock - last_video_clock,
-		    (int)(audio_clock - video_clock) / 90,
-		    AudioGetDelay() / 90);
-		last_video_clock = video_clock;
-	    }
-	    if (0 && audio_clock < video_clock + 2000) {
-		err = 1;
-	    } else {
-		// FIXME: hot polling
-		pthread_mutex_lock(&VideoLockMutex);
-		// fetch or reopen
-		err = VideoDecode();
-		pthread_mutex_unlock(&VideoLockMutex);
-	    }
-	    if (err) {
-		// FIXME: sleep on wakeup
-		usleep(5 * 1000);	// nothing buffered
-	    }
-	} else {
-	    Debug(3, "video/vaapi: waiting %9lu ms\n",
-		((nowtime.tv_sec - decoder->StartTime.tv_sec)
-		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-			decoder->StartTime.tv_nsec)) / (1000 * 1000));
-	    Debug(3,
-		"video: %#012" PRIx64 "-%#012" PRIx64 " pts %+d ms %" PRId64
-		"\n", audio_clock, video_clock,
-		(int)(audio_clock - video_clock) / 90, AudioGetDelay() / 90);
-
-	    abstime = nowtime;
-	    abstime.tv_nsec += 8 * 1000 * 1000;
-	    if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
-		// avoid overflow
-		abstime.tv_sec++;
-		abstime.tv_nsec -= 1000 * 1000 * 1000;
-	    }
-
-	    pthread_mutex_lock(&VideoLockMutex);
-	    // give osd some time slot
-	    while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
-		    &abstime) != ETIMEDOUT) {
-		// SIGUSR1
-		Debug(3, "video/vaapi: pthread_cond_timedwait error\n");
-	    }
-	    pthread_mutex_unlock(&VideoLockMutex);
-	}
-
-	filled = atomic_read(&decoder->SurfacesFilled);
-	clock_gettime(CLOCK_REALTIME, &nowtime);
-	// time for one frame over
-	if (filled <= 2 && (nowtime.tv_sec - decoder->FrameTime.tv_sec)
-	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		decoder->FrameTime.tv_nsec) < 15 * 1000 * 1000) {
-	    continue;
-	}
-
-	if (!filled) {
-	    pthread_mutex_lock(&VideoLockMutex);
-	    VaapiBlackSurface(decoder);
-	    pthread_mutex_unlock(&VideoLockMutex);
-	} else if (filled == 1 || (Fix60Hz && !(decoder->FramesDisplayed % 6))) {
-	    decoder->FramesDuped++;
-	    ++decoder->FrameCounter;
-	    Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
-		decoder->FramesDuped, decoder->FrameCounter);
-	    if (!(decoder->FramesDisplayed % 333)) {
-		VaapiPrintFrames(decoder);
-	    }
-	}
-
-	if (filled) {
-	    pthread_mutex_lock(&VideoLockMutex);
-	    VideoDisplayFrame();
-	    pthread_mutex_unlock(&VideoLockMutex);
+#ifdef USE_VAAPI
+	if (VideoVaapiEnabled) {
+	    VaapiDisplayHandlerThread();
 	}
 #endif
+#ifdef USE_VDPAU
+	if (VideoVdpauEnabled) {
+	    VdpauDisplayHandlerThread();
+	}
+#endif
+#if !defined(USE_VAAPI) && !defined(USE_VDPAU)
+	// avoid 100% cpu use
+	if (1) {
+	    XEvent event;
 
+	    XPeekEvent(XlibDisplay, &event);
+	} else {
+	    usleep(10 * 1000);
+	}
+#endif
     }
 
     return dummy;
@@ -3445,6 +5231,7 @@ unsigned VideoGetSurface(VideoHwDecoder * decoder)
 	return VdpauGetSurface(&decoder->Vdpau);
     }
 #endif
+    (void)decoder;
     return -1;
 }
 
@@ -3467,6 +5254,8 @@ void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
 	return VdpauReleaseSurface(&decoder->Vdpau, surface);
     }
 #endif
+    (void)decoder;
+    (void)surface;
 }
 
 ///
@@ -3489,7 +5278,54 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 	return Vdpau_get_format(&decoder->Vdpau, video_ctx, fmt);
     }
 #endif
+    (void)decoder;
+    (void)video_ctx;
+    (void)fmt;
     return fmt[0];
+}
+
+///
+///	Update video pts.
+///
+///	@param pts_p		pointer to pts
+///	@param interlaced	interlaced flag (frame isn't right)
+///	@param frame		frame to display
+///
+static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
+{
+    int64_t pts;
+
+    if (interlaced != frame->interlaced_frame) {
+	Debug(3, "video: can't use frame->interlaced_frame\n");
+    }
+    // update video clock
+    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	*pts_p += interlaced ? 40 * 90 : 20 * 90;
+    }
+    //pts = frame->best_effort_timestamp;
+    pts = frame->pkt_pts;
+    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
+	// libav: 0.8pre didn't set pts
+	pts = frame->pkt_dts;
+    }
+    if (!pts) {
+	pts = AV_NOPTS_VALUE;
+    }
+    // build a monotonic pts
+    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	if (pts - *pts_p < -10 * 90) {
+	    pts = AV_NOPTS_VALUE;
+	}
+    }
+    // libav: sets only pkt_dts which can be 0
+    if ((uint64_t) pts != AV_NOPTS_VALUE) {
+	if (*pts_p != pts) {
+	    Debug(3,
+		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",
+		*pts_p, pts, pts - *pts_p);
+	    *pts_p = pts;
+	}
+    }
 }
 
 ///
@@ -3502,97 +5338,26 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
     AVFrame * frame)
 {
-    int64_t pts;
-
-    // FIXME: move into vaapi module
-
-    // update video clock
-    if ((uint64_t) decoder->Vaapi.PTS != AV_NOPTS_VALUE) {
-	decoder->Vaapi.PTS += decoder->Vaapi.Interlaced ? 40 * 90 : 20 * 90;
-    }
-    //pts = frame->best_effort_timestamp;
-    pts = frame->pkt_pts;
-    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
-	// libav: 0.8pre didn't set pts
-	pts = frame->pkt_dts;
-    }
-    if (!pts) {
-	pts = AV_NOPTS_VALUE;
-    }
-    // build a monotonic pts
-    if ((uint64_t) decoder->Vaapi.PTS != AV_NOPTS_VALUE) {
-	if (pts - decoder->Vaapi.PTS < -10 * 90) {
-	    pts = AV_NOPTS_VALUE;
-	}
-    }
-    // libav: sets only pkt_dts which can be 0
-    if ((uint64_t) pts != AV_NOPTS_VALUE) {
-	if (decoder->Vaapi.PTS != pts) {
-	    Debug(3,
-		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",
-		decoder->Vaapi.PTS, pts, pts - decoder->Vaapi.PTS);
-	    decoder->Vaapi.PTS = pts;
-	}
-    }
-
-    if (!atomic_read(&decoder->Vaapi.SurfacesFilled)) {
-	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
-    }
-
-    if (decoder->Vaapi.DropNextFrame) {	// drop frame requested
-	++decoder->Vaapi.FramesDropped;
-	Warning(_("video: dropping frame (%d/%d)\n"),
-	    decoder->Vaapi.FramesDropped, decoder->Vaapi.FrameCounter);
-	if (!(decoder->Vaapi.FramesDisplayed % 100)) {
-	    VaapiPrintFrames(&decoder->Vaapi);
-	}
-	decoder->Vaapi.DropNextFrame = 0;
-	return;
-    }
-    // if video output buffer is full, wait and display surface.
-    // loop for interlace
-    while (atomic_read(&decoder->Vaapi.SurfacesFilled) >= VIDEO_SURFACES_MAX) {
-	struct timespec abstime;
-
-	abstime = decoder->Vaapi.FrameTime;
-	abstime.tv_nsec += 14 * 1000 * 1000;
-	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
-	    // avoid overflow
-	    abstime.tv_sec++;
-	    abstime.tv_nsec -= 1000 * 1000 * 1000;
-	}
-
-	VideoPollEvent();
-
-	// give osd some time slot
-	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
-		&abstime) != ETIMEDOUT) {
-	    // SIGUSR1
-	    Debug(3, "video/vaapi: pthread_cond_timedwait error\n");
-	}
-
-	VaapiSyncDisplayFrame(&decoder->Vaapi);
-    }
-
     if (frame->repeat_pict) {
-	Warning("video/vaapi: repeated pict found, but not handle\n");
+	Warning("video: repeated pict found, but not handled\n");
     }
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	VaapiRenderFrame(&decoder->Vaapi, video_ctx, frame);
+	VideoSetPts(&decoder->Vaapi.PTS, decoder->Vaapi.Interlaced, frame);
+	VaapiSyncRenderFrame(&decoder->Vaapi, video_ctx, frame);
 	return;
     }
 #endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
-	VdpauRenderFrame(&decoder->Vdpau, video_ctx, frame);
+	VideoSetPts(&decoder->Vdpau.PTS, decoder->Vdpau.Interlaced, frame);
+	VdpauSyncRenderFrame(&decoder->Vdpau, video_ctx, frame);
 	return;
     }
 #endif
     (void)decoder;
     (void)video_ctx;
     (void)frame;
-    //Error(_("video: unsupported %p %p %p\n"), decoder, video_ctx, frame);
 }
 
 ///
@@ -3607,6 +5372,7 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 	return decoder->Vaapi.VaapiContext;
     }
 #endif
+    (void)decoder;
     Error(_("video/vaapi: get vaapi context, without vaapi enabled\n"));
     return NULL;
 }
@@ -3661,6 +5427,8 @@ int64_t VideoGetClock(void)
 {
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
+	// FIXME: VaapiGetClock();
+
 	// pts is the timestamp of the latest decoded frame
 	if ((uint64_t) VaapiDecoders[0]->PTS == AV_NOPTS_VALUE) {
 	    return AV_NOPTS_VALUE;
@@ -3904,14 +5672,18 @@ void VideoInit(const char *display_name)
     //
     //	prepare hardware decoder VA-API/VDPAU
     //
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VideoVaapiInit(display_name);
-    }
-#endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VideoVdpauInit(display_name);
+	// disable va-api, if vdpau succeeded
+	if (VideoVdpauEnabled) {
+	    VideoVaapiEnabled = 0;
+	}
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoVaapiEnabled) {
+	VideoVaapiInit(display_name);
     }
 #endif
 

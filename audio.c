@@ -903,8 +903,10 @@ void AudioInit(void)
     int chan;
 
 #ifndef DEBUG
-    // display alsa error messages
+    // disable display alsa error messages
     snd_lib_error_set_handler(AlsaNoopCallback);
+#else
+    (void)AlsaNoopCallback;
 #endif
     AlsaRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
 

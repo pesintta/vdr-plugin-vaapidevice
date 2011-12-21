@@ -740,8 +740,10 @@ static void CodecNoopCallback( __attribute__ ((unused))
 void CodecInit(void)
 {
 #ifndef DEBUG
-    // display ffmpeg error messages
+    // disable display ffmpeg error messages
     av_log_set_callback(CodecNoopCallback);
+#else
+    (void)CodecNoopCallback;
 #endif
     avcodec_register_all();		// register all formats and codecs
 }

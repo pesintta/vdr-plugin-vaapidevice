@@ -15,12 +15,18 @@ PLUGIN = softhddevice
 
 VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | awk '{ print $$7 }' | sed -e 's/[";]//g')
 
+### Configuration (edit this for your needs)
+
+CONFIG := -DDEBUG
+CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
+CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
+
 ### The C++ compiler and options:
 
 CXX      ?= g++
-CXXFLAGS ?= -g -O3 -W -Wall -Wextra -Woverloaded-virtual -fPIC
+CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Woverloaded-virtual -fPIC
 override CXXFLAGS += $(DEFINES) $(INCLUDES)
-CFLAGS   ?=	-g -O3 -W -Wall -Wextra -Winit-self \
+CFLAGS   ?=	-g -O2 -W -Wall -Wextra -Winit-self \
 		-Wdeclaration-after-statement -fPIC
 #CFLAGS	+=	-Werror
 override CFLAGS   +=	$(DEFINES) $(INCLUDES) \
@@ -60,7 +66,7 @@ PACKAGE = vdr-$(ARCHIVE)
 
 INCLUDES += -I$(VDRDIR)/include
 
-DEFINES += -D_GNU_SOURCE -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
+DEFINES += $(CONFIG) -D_GNU_SOURCE -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 
 ### The object files (add further files here):
 

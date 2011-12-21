@@ -42,8 +42,6 @@
 #include "video.h"
 #include "codec.h"
 
-#define DEBUG
-
 static char BrokenThreadsAndPlugins;	///< broken vdr threads and plugins
 
 //////////////////////////////////////////////////////////////////////////////
@@ -246,7 +244,6 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
     avpkt = &VideoPacketRb[VideoPacketWrite];
     if (!avpkt->stream_index) {		// add pts only for first added
 	avpkt->pts = pts;
-	avpkt->dts = pts;
     }
     if (avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE >=
 	avpkt->size) {
@@ -257,10 +254,12 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 	av_grow_packet(avpkt,
 	    ((size + FF_INPUT_BUFFER_PADDING_SIZE + VIDEO_BUFFER_SIZE / 2)
 		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
+#ifdef DEBUG
 	if (avpkt->size <
 	    avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE) {
 	    abort();
 	}
+#endif
     }
 #ifdef xxDEBUG
     if (!avpkt->stream_index) {		// debug save time of first packet
@@ -542,7 +541,21 @@ int PlayVideo(const uint8_t * data, int size)
 	pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
+#ifdef DEBUG
 	//Debug(3, "video: pts %#012" PRIx64 "\n", pts);
+	if (data[13] != (((pts & 0x7F) << 1) | 1)) {
+	    abort();
+	}
+	if (data[12] != ((pts >> 7) & 0xFF)) {
+	    abort();
+	}
+	if (data[11] != ((((pts >> 15) & 0x7F) << 1) | 1)) {
+	    abort();
+	}
+	if (data[10] != ((pts >> 22) & 0xFF)) {
+	    abort();
+	}
+#endif
     }
     // FIXME: no valid mpeg2/h264 detection yet
 
@@ -627,6 +640,7 @@ void SetPlayMode(void)
 void Clear(void)
 {
     VideoClearBuffers = 1;
+    // FIXME: avcodec_flush_buffers
     // FIXME: flush audio buffers
 }
 
