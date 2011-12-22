@@ -4595,9 +4595,9 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    || decoder->FramesDisplayed % 6)) {
 	VdpauAdvanceFrame();
     }
+    filled = atomic_read(&decoder->SurfacesFilled);
 #if 0
     // debug duplicate frames (done by VdpauAdvanceFrame)
-    filled = atomic_read(&decoder->SurfacesFilled);
     if (filled == 1) {
 	decoder->FramesDuped++;
 	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
