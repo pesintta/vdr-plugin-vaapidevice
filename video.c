@@ -2786,7 +2786,7 @@ static void VaapiDisplayHandlerThread(void)
     //
     filled = atomic_read(&decoder->SurfacesFilled);
     err = 1;
-    if (filled <= 2) {
+    if (filled < VIDEO_SURFACES_MAX) {
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
@@ -2798,7 +2798,6 @@ static void VaapiDisplayHandlerThread(void)
 	usleep(5 * 1000);		// nothing buffered
     }
 
-    filled = atomic_read(&decoder->SurfacesFilled);
     clock_gettime(CLOCK_REALTIME, &nowtime);
     // time for one frame over?
     if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
@@ -3486,6 +3485,8 @@ static void VdpauCleanup(VdpauDecoder * decoder)
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
 
+    decoder->SurfaceField = 0;
+
     decoder->PTS = AV_NOPTS_VALUE;
 }
 
@@ -3714,7 +3715,6 @@ static void VideoVdpauInit(const char *display_name)
     //
     //	Create presentation queue, only one queue pro window
     //
-
     status =
 	VdpauPresentationQueueTargetCreateX11(VdpauDevice, VideoWindow,
 	&VdpauQueueTarget);
@@ -3889,6 +3889,7 @@ static void VideoVdpauExit(void)
 {
     if (VdpauDecoders[0]) {
 	VdpauDelDecoder(VdpauDecoders[0]);
+	VdpauDecoders[0] = NULL;
     }
 
     if (VdpauDevice) {
@@ -3903,8 +3904,8 @@ static void VideoVdpauExit(void)
 	// FIXME: more VDPAU cleanups...
 	if (VdpauDeviceDestroy) {
 	    VdpauDeviceDestroy(VdpauDevice);
-	    VdpauDevice = 0;
 	}
+	VdpauDevice = 0;
     }
 }
 
@@ -4081,6 +4082,8 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 ///	@param decoder		VDPAU hw decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///
+///	@todo FIXME: use VdpauCleanup
+///
 static void VdpauSetup(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx)
 {
@@ -4133,6 +4136,7 @@ static void VdpauSetup(VdpauDecoder * decoder,
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
 
+    decoder->SurfaceField = 0;
     //
     //	When window output size changes update VdpauSurfacesRb
     //
@@ -4167,9 +4171,10 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 		frame->interlaced_frame, frame->top_field_first);
 	    decoder->Interlaced = frame->interlaced_frame;
 	    decoder->TopFieldFirst = frame->top_field_first;
+	    decoder->SurfaceField = 0;
 	}
 	//
-	// VAImage render
+	// PutBitsYCbCr render
 	//
     } else {
 	void const *data[3];
@@ -4473,7 +4478,12 @@ static void VdpauAdvanceFrame(void)
 	    if (filled <= 1 + 2 * decoder->Interlaced) {
 		// keep use of last surface
 		++decoder->FramesDuped;
-		VdpauPrintFrames(decoder);
+		Warning(_
+		    ("video: display buffer empty, duping frame (%d/%d)\n"),
+		    decoder->FramesDuped, decoder->FrameCounter);
+		if (!(decoder->FramesDisplayed % 333)) {
+		    VdpauPrintFrames(decoder);
+		}
 		decoder->SurfaceField = decoder->Interlaced;
 	    } else {
 		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
@@ -4498,7 +4508,7 @@ static void VdpauDisplayFrame(void)
     int i;
 
     now = GetMsTicks();
-    //Debug(3, "video/vdpau: tick %d\n", now - last_frame_tick);
+    Debug(4, "video/vdpau: tick %d\n", now - last_frame_tick);
 
     //
     //	wait for surface visible (blocks max ~5ms)
@@ -4561,6 +4571,10 @@ static void VdpauDisplayFrame(void)
 	    VdpauGetErrorString(status));
     }
 
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	clock_gettime(CLOCK_REALTIME, &VdpauDecoders[i]->FrameTime);
+    }
+
     VdpauSurfaceIndex = (VdpauSurfaceIndex + 1) % OUTPUT_SURFACES_MAX;
 
     xcb_flush(Connection);
@@ -4581,7 +4595,8 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    || decoder->FramesDisplayed % 6)) {
 	VdpauAdvanceFrame();
     }
-    // debug duplicate frames
+#if 0
+    // debug duplicate frames (done by VdpauAdvanceFrame)
     filled = atomic_read(&decoder->SurfacesFilled);
     if (filled == 1) {
 	decoder->FramesDuped++;
@@ -4591,6 +4606,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    VdpauPrintFrames(decoder);
 	}
     }
+#endif
 
     VdpauDisplayFrame();
 
@@ -4739,7 +4755,6 @@ static void VdpauDisplayHandlerThread(void)
 	usleep(5 * 1000);		// nothing buffered
     }
 
-    filled = atomic_read(&decoder->SurfacesFilled);
     clock_gettime(CLOCK_REALTIME, &nowtime);
     // time for one frame over?
     if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
