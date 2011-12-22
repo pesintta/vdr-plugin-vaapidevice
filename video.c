@@ -158,7 +158,7 @@ typedef enum _video_scaling_modes_
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
-#define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
+#define OUTPUT_SURFACES_MAX	2	///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
 //	Variables
@@ -770,7 +770,6 @@ struct _vaapi_decoder_
     int DropNextFrame;			///< flag drop next frame
     int DupNextFrame;			///< flag duplicate next frame
     struct timespec FrameTime;		///< time of last display
-    struct timespec StartTime;		///< decoder start time
     int64_t PTS;			///< video PTS clock
 
     int FramesDuped;			///< number of frames duplicated
@@ -1085,11 +1084,11 @@ static VaapiDecoder *VaapiNewDecoder(void)
     return decoder;
 }
 
-/**
-**	Cleanup VA-API.
-**
-**	@param decoder	va-api hw decoder
-*/
+///
+///	Cleanup VA-API.
+///
+///	@param decoder	va-api hw decoder
+///
 static void VaapiCleanup(VaapiDecoder * decoder)
 {
     int filled;
@@ -1152,7 +1151,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     }
 
     decoder->PTS = AV_NOPTS_VALUE;
-    clock_gettime(CLOCK_REALTIME, &decoder->StartTime);
 }
 
 ///
@@ -3046,7 +3044,6 @@ typedef struct _vdpau_decoder_
     int DropNextFrame;			///< flag drop next frame
     int DupNextFrame;			///< flag duplicate next frame
     struct timespec FrameTime;		///< time of last display
-    struct timespec StartTime;		///< decoder start time
     int64_t PTS;			///< video PTS clock
 
     int FramesDuped;			///< number of frames duplicated
@@ -3078,7 +3075,6 @@ static int VdpauSkipChroma;		///< skip chroma deint. supported
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
 static int VdpauSurfaceIndex;		///< current display surface
-static int VdpauSurfaceNotStart;	///< not the first surface
 
 static int VdpauOsdWidth;		///< width of osd surface
 static int VdpauOsdHeight;		///< height of osd surface
@@ -3160,7 +3156,7 @@ static VdpPresentationQueueTargetCreateX11
 ///
 ///	Create surfaces for VDPAU decoder.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///	@param width	surface source/video width
 ///	@param height	surface source/video height
 ///
@@ -3191,7 +3187,7 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 ///
 ///	Destroy surfaces of VDPAU decoder.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 {
@@ -3221,7 +3217,7 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 ///
 ///	Get a free surface.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 ///	@returns the oldest free surface
 ///
@@ -3252,7 +3248,7 @@ static unsigned VdpauGetSurface(VdpauDecoder * decoder)
 ///
 ///	Release a surface.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///	@param surface	surface no longer used
 ///
 static void VdpauReleaseSurface(VdpauDecoder * decoder, unsigned surface)
@@ -3275,7 +3271,7 @@ static void VdpauReleaseSurface(VdpauDecoder * decoder, unsigned surface)
 ///
 ///	Debug VDPAU decoder frames drop...
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static void VdpauPrintFrames(const VdpauDecoder * decoder)
 {
@@ -3287,7 +3283,7 @@ static void VdpauPrintFrames(const VdpauDecoder * decoder)
 ///
 ///	Create and setup VDPAU mixer.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static void VdpauMixerSetup(VdpauDecoder * decoder)
 {
@@ -3458,14 +3454,49 @@ static VdpauDecoder *VdpauNewDecoder(void)
 }
 
 ///
+///	Cleanup VDPAU.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauCleanup(VdpauDecoder * decoder)
+{
+    VdpStatus status;
+    int i;
+
+    if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
+	status = VdpauVideoMixerDestroy(decoder->VideoMixer);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy video mixer: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	decoder->VideoMixer = VDP_INVALID_HANDLE;
+    }
+
+    if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
+	VdpauDestroySurfaces(decoder);
+    }
+    //
+    // reset video surface ring buffer
+    //
+    atomic_set(&decoder->SurfacesFilled, 0);
+
+    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+	decoder->SurfacesRb[i] = VDP_INVALID_HANDLE;
+    }
+    decoder->SurfaceRead = 0;
+    decoder->SurfaceWrite = 0;
+
+    decoder->PTS = AV_NOPTS_VALUE;
+}
+
+///
 ///	Destroy a VDPAU decoder.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static void VdpauDelDecoder(VdpauDecoder * decoder)
 {
-    // FIXME: more cleanup
-    VdpauDestroySurfaces(decoder);
+    VdpauCleanup(decoder);
 
     VdpauPrintFrames(decoder);
 
@@ -3919,6 +3950,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     int i;
 
     Debug(3, "%s: %18p\n", __FUNCTION__, decoder);
+    Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
+    VdpauCleanup(decoder);
+
     if (getenv("NO_HW")) {
 	goto slow_path;
     }
@@ -4044,7 +4078,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 ///
 ///	Configure VDPAU for new video format.
 ///
-///	@param decoder		vdpau decoder
+///	@param decoder		VDPAU hw decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///
 static void VdpauSetup(VdpauDecoder * decoder,
@@ -4052,13 +4086,18 @@ static void VdpauSetup(VdpauDecoder * decoder,
 {
     VdpStatus status;
     VdpChromaType chroma_type;
+    int i;
     uint32_t width;
     uint32_t height;
 
     // decoder->Input... already setup by caller
 
     if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
-	VdpauVideoMixerDestroy(decoder->VideoMixer);
+	status = VdpauVideoMixerDestroy(decoder->VideoMixer);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy video mixer: %s\n"),
+		VdpauGetErrorString(status));
+	}
 	decoder->VideoMixer = VDP_INVALID_HANDLE;
     }
     VdpauMixerSetup(decoder);
@@ -4083,13 +4122,26 @@ static void VdpauSetup(VdpauDecoder * decoder,
 	// FIXME: must rewrite the code to support this case
 	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
     }
-    // FIXME: reset output ring buffer
+    //
+    // reset video surface ring buffer
+    //
+    atomic_set(&decoder->SurfacesFilled, 0);
+
+    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+	decoder->SurfacesRb[i] = VDP_INVALID_HANDLE;
+    }
+    decoder->SurfaceRead = 0;
+    decoder->SurfaceWrite = 0;
+
+    //
+    //	When window output size changes update VdpauSurfacesRb
+    //
 }
 
 ///
 ///	Render a ffmpeg frame.
 ///
-///	@param decoder		VDPAU decoder
+///	@param decoder		VDPAU hw decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///	@param frame		frame to display
 ///
@@ -4272,7 +4324,7 @@ static void VdpauMixOsd(void)
     VdpauOsdSurfaceIndex = 1;
 #ifdef USE_BITMAP
     status =
-	VdpauOutputSurfaceRenderBitmapSurface(dpauSurfacesRb
+	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
 	VdpauOsdBitmapSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
 	&blend_state, VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
@@ -4301,7 +4353,7 @@ static void VdpauMixOsd(void)
 ///
 ///	Render video surface to output surface.
 ///
-///	@param decoder		VDPAU decoder
+///	@param decoder		VDPAU hw decoder
 ///
 static void VdpauMixVideo(VdpauDecoder * decoder)
 {
@@ -4517,7 +4569,7 @@ static void VdpauDisplayFrame(void)
 ///
 ///	Sync and display surface.
 ///
-///	@param decoder	vdpau decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 {
@@ -4584,7 +4636,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 ///
 ///	Sync and render a ffmpeg frame
 ///
-///	@param decoder		vdpau decoder
+///	@param decoder		VDPAU hw decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///	@param frame		frame to display
 ///
@@ -4636,7 +4688,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 ///
 ///	Get VDPAU decoder video clock.
 ///
-///	@param decoder	VDPAU decoder
+///	@param decoder	VDPAU hw decoder
 ///
 static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 {
@@ -5857,10 +5909,12 @@ void VideoInit(const char *display_name)
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VideoVdpauInit(display_name);
+#ifdef USE_VAAPI
 	// disable va-api, if vdpau succeeded
 	if (VideoVdpauEnabled) {
 	    VideoVaapiEnabled = 0;
 	}
+#endif
     }
 #endif
 #ifdef USE_VAAPI
