@@ -2448,9 +2448,9 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
     }
 }
 
-/**
-**	Advance displayed frame.
-*/
+///
+///	Advance displayed frame.
+///
 static void VaapiAdvanceFrame(void)
 {
     int i;
@@ -2703,12 +2703,12 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 
 #if 0
 
-/**
-**	Update video pts.
-**
-**	@param decoder	VA-API decoder
-**	@param frame		frame to display
-*/
+///
+///	Update video pts.
+///
+///	@param decoder	VA-API decoder
+///	@param frame	frame to display
+///
 static void VaapiSetPts(VaapiDecoder * decoder, const AVFrame * frame)
 {
     int64_t pts;
@@ -2745,6 +2745,27 @@ static void VaapiSetPts(VaapiDecoder * decoder, const AVFrame * frame)
 }
 
 #endif
+
+///
+///	Get VA-API decoder video clock.
+///
+///	@param decoder	VA-API decoder
+///
+static int64_t VaapiGetClock(const VaapiDecoder * decoder)
+{
+    // pts is the timestamp of the latest decoded frame
+    if ((uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+	return AV_NOPTS_VALUE;
+    }
+    // subtract buffered decoded frames
+    if (decoder->Interlaced) {
+	return decoder->PTS -
+	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField);
+    }
+    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) -
+	1);
+}
 
 #ifdef USE_VIDEO_THREAD
 
@@ -2998,6 +3019,7 @@ typedef struct _vdpau_decoder_
     int InputY;				///< input y
     int InputWidth;			///< input width
     int InputHeight;			///< input height
+    AVRational InputAspect;		///< input aspect ratio
 
 #ifdef noyetUSE_GLX
     GLuint GlTexture[2];		///< gl texture for VDPAU
@@ -4165,7 +4187,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     // place in output queue
     // I place it here, for later thread support
 
-    if (0) {				// can't wait for output queue empty
+    if (1) {				// can't wait for output queue empty
 	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	    Warning(_
 		("video/vdpau: output buffer full, dropping frame (%d/%d)\n"),
@@ -4374,6 +4396,43 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 }
 
 ///
+///	Advance displayed frame.
+///
+static void VdpauAdvanceFrame(void)
+{
+    int i;
+
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	int filled;
+	VdpauDecoder *decoder;
+
+	decoder = VdpauDecoders[i];
+
+	// next field
+	if (decoder->Interlaced) {
+	    decoder->SurfaceField ^= 1;
+	}
+	// next surface, if complete frame is displayed
+	if (!decoder->SurfaceField) {
+	    // check decoder, if new surface is available
+	    // need 2 frames for progressive
+	    // need 4 frames for interlaced
+	    filled = atomic_read(&decoder->SurfacesFilled);
+	    if (filled <= 1 + 2 * decoder->Interlaced) {
+		// keep use of last surface
+		++decoder->FramesDuped;
+		VdpauPrintFrames(decoder);
+		decoder->SurfaceField = decoder->Interlaced;
+	    } else {
+		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX;
+		atomic_dec(&decoder->SurfacesFilled);
+	    }
+	}
+    }
+}
+
+///
 ///	Display a video frame.
 ///
 static void VdpauDisplayFrame(void)
@@ -4421,36 +4480,17 @@ static void VdpauDisplayFrame(void)
 	VdpauDecoder *decoder;
 
 	decoder = VdpauDecoders[i];
+	decoder->FramesDisplayed++;
 
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// need 1 frame for progressive, 3 frames for interlaced
 	if (filled < 1 + 2 * decoder->Interlaced) {
 	    // FIXME: render black surface
+	    // FIXME: or rewrite MixVideo to support less surfaces
 	    continue;
 	}
 
 	VdpauMixVideo(decoder);
-
-	// next field
-	if (decoder->Interlaced) {
-	    decoder->SurfaceField ^= 1;
-	}
-	// next surface, if complete frame is displayed
-	if (!decoder->SurfaceField) {
-	    // check decoder, if new surface is available
-	    // need 2 frames for progressive
-	    // need 4 frames for interlaced
-	    if (filled <= 1 + 2 * decoder->Interlaced) {
-		// keep use of last surface
-		++decoder->FramesDuped;
-		VdpauPrintFrames(decoder);
-		decoder->SurfaceField = decoder->Interlaced;
-	    } else {
-		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
-		    % VIDEO_SURFACES_MAX;
-		atomic_dec(&decoder->SurfacesFilled);
-	    }
-	}
     }
 
     //
@@ -4481,15 +4521,13 @@ static void VdpauDisplayFrame(void)
 ///
 static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 {
-    VdpauDisplayFrame();
-#if 0
     int filled;
     int64_t audio_clock;
     int64_t video_clock;
 
     if (!decoder->DupNextFrame && (!Video60HzMode
 	    || decoder->FramesDisplayed % 6)) {
-	VaapiAdvanceFrame();
+	VdpauAdvanceFrame();
     }
     // debug duplicate frames
     filled = atomic_read(&decoder->SurfacesFilled);
@@ -4498,11 +4536,11 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
 	    decoder->FramesDuped, decoder->FrameCounter);
 	if (!(decoder->FramesDisplayed % 333)) {
-	    VaapiPrintFrames(decoder);
+	    VdpauPrintFrames(decoder);
 	}
     }
 
-    VaapiDisplayFrame();
+    VdpauDisplayFrame();
 
     //
     //	audio/video sync
@@ -4541,7 +4579,6 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 
 	last_video_clock = video_clock;
     }
-#endif
 }
 
 ///
@@ -4594,6 +4631,27 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     }
 
     VdpauRenderFrame(decoder, video_ctx, frame);
+}
+
+///
+///	Get VDPAU decoder video clock.
+///
+///	@param decoder	VDPAU decoder
+///
+static int64_t VdpauGetClock(const VdpauDecoder * decoder)
+{
+    // pts is the timestamp of the latest decoded frame
+    if ((uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+	return AV_NOPTS_VALUE;
+    }
+    // subtract buffered decoded frames
+    if (decoder->Interlaced) {
+	return decoder->PTS -
+	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField);
+    }
+    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) -
+	1);
 }
 
 #ifdef USE_VIDEO_THREAD
@@ -5557,29 +5615,18 @@ void VideoDisplayHandler(void)
 **
 **	@note this isn't monoton, decoding reorders frames,
 **	setter keeps it monotonic
+**	@todo we have multiple clocks, for multiple stream
 */
 int64_t VideoGetClock(void)
 {
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	// FIXME: VaapiGetClock();
-
-	// pts is the timestamp of the latest decoded frame
-	if ((uint64_t) VaapiDecoders[0]->PTS == AV_NOPTS_VALUE) {
-	    return AV_NOPTS_VALUE;
-	}
-	if (VaapiDecoders[0]->Interlaced) {
-	    return VaapiDecoders[0]->PTS -
-		20 * 90 * (2 * atomic_read(&VaapiDecoders[0]->SurfacesFilled)
-		- VaapiDecoders[0]->SurfaceField);
-	}
-	return VaapiDecoders[0]->PTS -
-	    20 * 90 * (atomic_read(&VaapiDecoders[0]->SurfacesFilled) - 1);
+	return VaapiGetClock(VaapiDecoders[0]);
     }
 #endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
-	return 0L;
+	return VdpauGetClock(VdpauDecoders[0]);
     }
 #endif
     return 0L;
