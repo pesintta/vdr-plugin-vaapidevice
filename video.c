@@ -5677,13 +5677,12 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 ///	@param interlaced	interlaced flag (frame isn't right)
 ///	@param frame		frame to display
 ///
+///	@note frame->interlaced_frame can't be used for interlace detection
+///
 static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 {
     int64_t pts;
 
-    if (interlaced != frame->interlaced_frame) {
-	Debug(3, "video: can't use frame->interlaced_frame\n");
-    }
     // update video clock
     if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
 	*pts_p += interlaced ? 40 * 90 : 20 * 90;
