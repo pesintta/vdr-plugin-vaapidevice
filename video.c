@@ -4335,7 +4335,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 
 		decoder->Interlaced = interlaced;
 		decoder->TopFieldFirst = frame->top_field_first;
-		decoder->SurfaceField = 1;
+		decoder->SurfaceField = 0;
 
 	    }
 	    VdpauQueueSurface(decoder, surface, 0);
@@ -4347,6 +4347,8 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     } else {
 	void const *data[3];
 	uint32_t pitches[3];
+
+	// FIXME: aspect change not supported!
 
 	//
 	//	Check image, format, size
@@ -4369,6 +4371,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 
 	    decoder->Interlaced = frame->interlaced_frame;
 	    decoder->TopFieldFirst = frame->top_field_first;
+	    decoder->SurfaceField = 0;
 	    // FIXME: I hope this didn't change in the middle of the stream
 
 	    VdpauSetup(decoder, video_ctx);
