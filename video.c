@@ -107,6 +107,7 @@
 
 #ifdef USE_VDPAU
 #include <vdpau/vdpau_x11.h>
+#include <libavcodec/vdpau.h>
 #endif
 
 #include <libavcodec/avcodec.h>
@@ -930,6 +931,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
 	decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
     }
+    decoder->SurfacesFree[i] = VA_INVALID_ID;
 
     // save as used
     decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
@@ -1043,6 +1045,11 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->DeintImages[2].image_id = VA_INVALID_ID;
 
     decoder->Image->image_id = VA_INVALID_ID;
+
+    for (i = 0; i < CODEC_SURFACES_MAX; ++i) {
+	decoder->SurfacesUsed[i] = VA_INVALID_ID;
+	decoder->SurfacesFree[i] = VA_INVALID_ID;
+    }
 
     // setup video surface ring buffer
     atomic_set(&decoder->SurfacesFilled, 0);
@@ -1314,11 +1321,11 @@ static void VideoVaapiExit(void)
     }
 }
 
-/**
-**	Update output for new size or aspect ratio.
-**
-**	@param decoder	VA-API decoder
-*/
+///
+///	Update output for new size or aspect ratio.
+///
+///	@param decoder	VA-API decoder
+///
 static void VaapiUpdateOutput(VaapiDecoder * decoder)
 {
     AVRational input_aspect_ratio;
@@ -1336,7 +1343,7 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 	decoder->InputWidth * input_aspect_ratio.num,
 	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
 
-    Debug(3, "video: aspect %d : %d\n", display_aspect_ratio.num,
+    Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
 	display_aspect_ratio.den);
 
     // FIXME: store different positions for the ratios
@@ -1570,20 +1577,20 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 		decoder->GlTexture[0], &decoder->GlxSurface[0])
 	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video: can't create glx surfaces"));
+	    Fatal(_("video/glx: can't create glx surfaces"));
 	}
 	// FIXME: this isn't usable with vdpau-backend
 	/*
 	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 	   decoder->GlTexture[1], &decoder->GlxSurface[1])
 	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video: can't create glx surfaces"));
+	   Fatal(_("video/glx: can't create glx surfaces"));
 	   }
 	 */
     }
 #endif
 
-    Debug(3, "\tpixel format %#010x\n", *fmt_idx);
+    Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
     return *fmt_idx;
 
   slow_path:
@@ -1668,7 +1675,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 
 	    if (vaQuerySurfaceStatus(VaDisplay, surface,
 		    &status) != VA_STATUS_SUCCESS) {
-		Error(_("video: vaQuerySurface failed\n"));
+		Error(_("video/vaapi: vaQuerySurface failed\n"));
 	    }
 	    Debug(3, "video/vaapi: %2d %d\n", i, status);
 	    usleep(1 * 1000);
@@ -1755,7 +1762,7 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     start = GetMsTicks();
     if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurface[0], surface,
 	    type | decoder->SurfaceFlags) != VA_STATUS_SUCCESS) {
-	Error(_("video: vaCopySurfaceGLX failed\n"));
+	Error(_("video/glx: vaCopySurfaceGLX failed\n"));
 	return;
     }
     copy = GetMsTicks();
@@ -1836,13 +1843,13 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
     return 0;
 }
 
-/**
-**	Configure VA-API for new video format.
-**
-**	@param decoder	VA-API decoder
-**
-**	@note called only for software decoder.
-*/
+///
+///	Configure VA-API for new video format.
+///
+///	@param decoder	VA-API decoder
+///
+///	@note called only for software decoder.
+///
 static void VaapiSetup(VaapiDecoder * decoder,
     const AVCodecContext * video_ctx)
 {
@@ -1860,14 +1867,14 @@ static void VaapiSetup(VaapiDecoder * decoder,
     if (decoder->Image->image_id != VA_INVALID_ID) {
 	if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
 	    != VA_STATUS_SUCCESS) {
-	    Error("video: can't destroy image!\n");
+	    Error("video/vaapi: can't destroy image!\n");
 	}
     }
     VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
 
     if (vaCreateImage(VaDisplay, format, width, height,
 	    decoder->Image) != VA_STATUS_SUCCESS) {
-	Fatal("video: can't create image!\n");
+	Fatal("video/vaapi: can't create image!\n");
     }
     Debug(3,
 	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
@@ -1884,13 +1891,13 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 		decoder->GlTexture[0], &decoder->GlxSurface[0])
 	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video: can't create glx surfaces"));
+	    Fatal(_("video/glx: can't create glx surfaces"));
 	}
 	/*
 	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 	   decoder->GlTexture[1], &decoder->GlxSurface[1])
 	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video: can't create glx surfaces"));
+	   Fatal(_("video/glx: can't create glx surfaces"));
 	   }
 	 */
     }
@@ -3009,6 +3016,7 @@ typedef struct _vdpau_decoder_
     int OutputHeight;			///< output window height
 
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
+    int WrongInterlacedWarned;		///< warning about interlace flag issued
     int Interlaced;			///< ffmpeg interlaced flag
     int TopFieldFirst;			///< ffmpeg top field displayed first
 
@@ -3023,6 +3031,7 @@ typedef struct _vdpau_decoder_
     void *GlxSurface[2];		///< VDPAU/GLX surface
 #endif
 
+    VdpDecoder VideoDecoder;		///< vdp video decoder
     VdpVideoMixer VideoMixer;		///< vdp video mixer
     VdpChromaType ChromaType;		///< vdp video surface chroma format
 
@@ -3128,6 +3137,8 @@ static VdpDecoderQueryCapabilities *VdpauDecoderQueryCapabilities;
 static VdpDecoderCreate *VdpauDecoderCreate;
 static VdpDecoderDestroy *VdpauDecoderDestroy;
 
+static VdpDecoderRender *VdpauDecoderRender;
+
 static VdpVideoMixerQueryFeatureSupport *VdpauVideoMixerQueryFeatureSupport;
 static VdpVideoMixerCreate *VdpauVideoMixerCreate;
 static VdpVideoMixerSetFeatureEnables *VdpauVideoMixerSetFeatureEnables;
@@ -3163,7 +3174,8 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 {
     int i;
 
-    Debug(3, "video/vdpau: %s %dx%d\n", __FUNCTION__, width, height);
+    Debug(3, "video/vdpau: %s: %dx%d * %d\n", __FUNCTION__, width, height,
+	CODEC_SURFACES_DEFAULT);
 
     // FIXME: allocate only the number of needed surfaces
     decoder->SurfaceFreeN = CODEC_SURFACES_DEFAULT;
@@ -3178,7 +3190,7 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 		VdpauGetErrorString(status));
 	    // FIXME: no fatal
 	}
-	Debug(4, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
+	Debug(3, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
 	    width, height, decoder->SurfacesFree[i]);
     }
 }
@@ -3196,6 +3208,11 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
     Debug(3, "video/vdpau: %s\n", __FUNCTION__);
 
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
+#ifdef DEBUG
+	if (decoder->SurfacesFree[i] == VDP_INVALID_HANDLE) {
+	    Debug(3, "video/vdpau: invalid surface\n");
+	}
+#endif
 	status = VdpauVideoSurfaceDestroy(decoder->SurfacesFree[i]);
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
@@ -3203,6 +3220,11 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 	}
     }
     for (i = 0; i < decoder->SurfaceUsedN; ++i) {
+#ifdef DEBUG
+	if (decoder->SurfacesUsed[i] == VDP_INVALID_HANDLE) {
+	    Debug(3, "video/vdpau: invalid surface\n");
+	}
+#endif
 	status = VdpauVideoSurfaceDestroy(decoder->SurfacesUsed[i]);
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
@@ -3237,6 +3259,7 @@ static unsigned VdpauGetSurface(VdpauDecoder * decoder)
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
 	decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
     }
+    decoder->SurfacesFree[i] = VDP_INVALID_HANDLE;
 
     // save as used
     decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
@@ -3320,6 +3343,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     }
 
     decoder->ChromaType = chroma_type = VDP_CHROMA_TYPE_420;
+    // FIXME: use best chroma
 
     //
     //	Setup parameter/value tables
@@ -3413,7 +3437,13 @@ static VdpauDecoder *VdpauNewDecoder(void)
     decoder->Device = VdpauDevice;
     decoder->Window = VideoWindow;
 
+    decoder->VideoDecoder = VDP_INVALID_HANDLE;
     decoder->VideoMixer = VDP_INVALID_HANDLE;
+
+    for (i = 0; i < CODEC_SURFACES_MAX; ++i) {
+	decoder->SurfacesUsed[i] = VDP_INVALID_HANDLE;
+	decoder->SurfacesFree[i] = VDP_INVALID_HANDLE;
+    }
 
     //
     // setup video surface ring buffer
@@ -3650,9 +3680,9 @@ static void VideoVdpauInit(const char *display_name)
 #if 0
     VdpauGetProc(VDP_FUNC_ID_DECODER_GET_PARAMETERS,
 	&VdpauDecoderGetParameters, "DecoderGetParameters");
+#endif
     VdpauGetProc(VDP_FUNC_ID_DECODER_RENDER, &VdpauDecoderRender,
 	"DecoderRender");
-#endif
     VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_FEATURE_SUPPORT,
 	&VdpauVideoMixerQueryFeatureSupport, "VideoMixerQueryFeatureSupport");
 #if 0
@@ -3910,7 +3940,52 @@ static void VideoVdpauExit(void)
 }
 
 ///
+///	Update output for new size or aspect ratio.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauUpdateOutput(VdpauDecoder * decoder)
+{
+    AVRational input_aspect_ratio;
+    AVRational display_aspect_ratio;
+
+    input_aspect_ratio = decoder->InputAspect;
+    if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
+	input_aspect_ratio.num = 1;
+	input_aspect_ratio.den = 1;
+	Debug(3, "video: aspect defaults to %d:%d\n", input_aspect_ratio.num,
+	    input_aspect_ratio.den);
+    }
+
+    av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	decoder->InputWidth * input_aspect_ratio.num,
+	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
+
+    Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
+	display_aspect_ratio.den);
+
+    // FIXME: store different positions for the ratios
+
+    decoder->OutputX = 0;
+    decoder->OutputY = 0;
+    decoder->OutputWidth = (VideoWindowHeight * display_aspect_ratio.num)
+	/ display_aspect_ratio.den;
+    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.num)
+	/ display_aspect_ratio.den;
+    if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
+	decoder->OutputWidth = VideoWindowWidth;
+	decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
+    } else {
+	decoder->OutputHeight = VideoWindowHeight;
+	decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
+    }
+}
+
+///
 ///	Check profile supported.
+///
+///	@param decoder		VDPAU hw decoder
+///	@param profile		VDPAU profile requested
 ///
 static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
     VdpDecoderProfile profile)
@@ -3926,7 +4001,7 @@ static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
 	VdpauDecoderQueryCapabilities(decoder->Device, profile, &is_supported,
 	&max_level, &max_macroblocks, &max_width, &max_height);
     if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't queey decoder capabilities: %s\n"),
+	Error(_("video/vdpau: can't query decoder capabilities: %s\n"),
 	    VdpauGetErrorString(status));
 	return VDP_INVALID_HANDLE;
     }
@@ -3947,35 +4022,49 @@ static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
 static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
+    const enum PixelFormat *fmt_idx;
     VdpDecoderProfile profile;
-    int i;
+    VdpStatus status;
+    int max_refs;
 
-    Debug(3, "%s: %18p\n", __FUNCTION__, decoder);
     Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
     VdpauCleanup(decoder);
 
-    if (getenv("NO_HW")) {
+    if (getenv("NO_HW")) {		// FIXME: make config option
+	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
-#ifdef DEBUG
-#ifndef FF_API_GET_PIX_FMT_NAME
+    //
+    //	look through formats
+    //
     Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
-    for (i = 0; fmt[i] != PIX_FMT_NONE; ++i) {
-	Debug(3, "\t%#010x %s\n", fmt[i], avcodec_get_pix_fmt_name(fmt[i]));
+    for (fmt_idx = fmt; *fmt_idx != PIX_FMT_NONE; fmt_idx++) {
+	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
+	// check supported pixel format with entry point
+	switch (*fmt_idx) {
+	    case PIX_FMT_VDPAU_H264:
+	    case PIX_FMT_VDPAU_MPEG1:
+	    case PIX_FMT_VDPAU_MPEG2:
+	    case PIX_FMT_VDPAU_WMV3:
+	    case PIX_FMT_VDPAU_VC1:
+	    case PIX_FMT_VDPAU_MPEG4:
+		break;
+	    default:
+		continue;
+	}
+	break;
     }
-    Debug(3, "\n");
-#else
-    Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
-    for (i = 0; fmt[i] != PIX_FMT_NONE; ++i) {
-	Debug(3, "\t%#010x %s\n", fmt[i], av_get_pix_fmt_name(fmt[i]));
-    }
-    Debug(3, "\n");
-#endif
-#endif
 
+    if (*fmt_idx == PIX_FMT_NONE) {
+	Error(_("video/vdpau: no valid vdpau pixfmt found\n"));
+	goto slow_path;
+    }
+
+    max_refs = CODEC_SURFACES_DEFAULT;
     // check profile
     switch (video_ctx->codec_id) {
 	case CODEC_ID_MPEG2VIDEO:
+	    max_refs = 2;
 	    profile =
 		VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG2_MAIN);
 	    break;
@@ -3987,22 +4076,35 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	     */
 	    break;
 	case CODEC_ID_H264:
-	    /*
-	       // try more simple formats, fallback to better
-	       if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
-	       p = VaapiFindProfile(profiles, profile_n,
-	       VAProfileH264Baseline);
-	       if (p == -1) {
-	       p = VaapiFindProfile(profiles, profile_n,
-	       VAProfileH264Main);
-	       }
-	       } else if (video_ctx->profile == FF_PROFILE_H264_MAIN) {
-	       p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
-	       }
-	       if (p == -1) {
-	       p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
-	       }
-	     */
+	    // FIXME: can calculate level 4.1 limits
+	    max_refs = 16;
+	    // try more simple formats, fallback to better
+	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
+		profile =
+		    VdpauCheckProfile(decoder,
+		    VDP_DECODER_PROFILE_H264_BASELINE);
+		if (profile == VDP_INVALID_HANDLE) {
+		    profile =
+			VdpauCheckProfile(decoder,
+			VDP_DECODER_PROFILE_H264_MAIN);
+		}
+		if (profile == VDP_INVALID_HANDLE) {
+		    profile =
+			VdpauCheckProfile(decoder,
+			VDP_DECODER_PROFILE_H264_HIGH);
+		}
+	    } else if (video_ctx->profile == FF_PROFILE_H264_MAIN) {
+		profile =
+		    VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_H264_MAIN);
+		if (profile == VDP_INVALID_HANDLE) {
+		    profile =
+			VdpauCheckProfile(decoder,
+			VDP_DECODER_PROFILE_H264_HIGH);
+		}
+	    } else {
+		profile =
+		    VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_H264_MAIN);
+	    }
 	    break;
 	case CODEC_ID_WMV3:
 	    /*
@@ -4017,46 +4119,22 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	default:
 	    goto slow_path;
     }
-#if 0
-    //
-    //	prepare decoder
-    //
-    memset(&attrib, 0, sizeof(attrib));
-    attrib.type = VAConfigAttribRTFormat;
-    if (vaGetConfigAttributes(decoder->VaDisplay, p, e, &attrib, 1)) {
-	Error("codec: can't get attributes");
-	goto slow_path;
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV420) {
-	Info(_("codec: YUV 420 supported\n"));
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV422) {
-	Info(_("codec: YUV 422 supported\n"));
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV444) {
-	Info(_("codec: YUV 444 supported\n"));
-    }
-    // only YUV420 supported
-    if (!(attrib.value & VA_RT_FORMAT_YUV420)) {
-	Warning("codec: YUV 420 not supported");
-	goto slow_path;
-    }
-    // create a configuration for the decode pipeline
-    if (vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1,
-	    &decoder->VaapiContext->config_id)) {
-	Error("codec: can't create config");
+
+    if (profile == VDP_INVALID_HANDLE) {
+	Error(_("video/vdpau: no valid profile found\n"));
 	goto slow_path;
     }
 
-    VaapiCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+    Debug(3, "video/vdpau: create decoder profile=%d %dx%d #%d refs\n",
+	profile, video_ctx->width, video_ctx->height, max_refs);
 
-    // bind surfaces to context
-    if (vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id,
-	    video_ctx->width, video_ctx->height, VA_PROGRESSIVE,
-	    decoder->SurfacesFree, decoder->SurfaceFreeN,
-	    &decoder->VaapiContext->context_id)) {
-	Error("codec: can't create context");
-	// FIXME: must cleanup
+    status =
+	VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
+	video_ctx->height, max_refs, &decoder->VideoDecoder);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create decoder: %s\n"),
+	    VdpauGetErrorString(status));
+	abort();
 	goto slow_path;
     }
 
@@ -4064,11 +4142,17 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->InputY = 0;
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
+    decoder->InputAspect = video_ctx->sample_aspect_ratio;
+    VdpauUpdateOutput(decoder);
 
-    Debug(3, "\tpixel format %#010x\n", *fmt_idx);
+    VdpauMixerSetup(decoder);
+
+    // FIXME: need only to create and destroy surfaces for size changes!
+    VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+
+    Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
+
     return *fmt_idx;
-#endif
-    return *fmt;
 
   slow_path:
     // no accelerated format found
@@ -4082,32 +4166,18 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 ///	@param decoder		VDPAU hw decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///
-///	@todo FIXME: use VdpauCleanup
-///
 static void VdpauSetup(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx)
 {
     VdpStatus status;
     VdpChromaType chroma_type;
-    int i;
     uint32_t width;
     uint32_t height;
 
     // decoder->Input... already setup by caller
+    VdpauCleanup(decoder);
 
-    if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
-	status = VdpauVideoMixerDestroy(decoder->VideoMixer);
-	if (status != VDP_STATUS_OK) {
-	    Error(_("video/vdpau: can't destroy video mixer: %s\n"),
-		VdpauGetErrorString(status));
-	}
-	decoder->VideoMixer = VDP_INVALID_HANDLE;
-    }
     VdpauMixerSetup(decoder);
-
-    if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
-	VdpauDestroySurfaces(decoder);
-    }
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
     //	get real surface size
@@ -4115,7 +4185,7 @@ static void VdpauSetup(VdpauDecoder * decoder,
 	VdpauVideoSurfaceGetParameters(decoder->SurfacesFree[0], &chroma_type,
 	&width, &height);
     if (status != VDP_STATUS_OK) {
-	Fatal(_("video/vdpau: can't get video surface parameters: %s\n"),
+	Error(_("video/vdpau: can't get video surface parameters: %s\n"),
 	    VdpauGetErrorString(status));
     }
     // vdpau can choose different sizes, must use them for putbits
@@ -4126,20 +4196,65 @@ static void VdpauSetup(VdpauDecoder * decoder,
 	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
     }
     //
-    // reset video surface ring buffer
-    //
-    atomic_set(&decoder->SurfacesFilled, 0);
-
-    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
-	decoder->SurfacesRb[i] = VDP_INVALID_HANDLE;
-    }
-    decoder->SurfaceRead = 0;
-    decoder->SurfaceWrite = 0;
-
-    decoder->SurfaceField = 0;
-    //
     //	When window output size changes update VdpauSurfacesRb
     //
+}
+
+///
+///	Queue output surface.
+///
+///	@param decoder	VDPAU hw decoder
+///	@param surface	output surface
+///	@param softdec	software decoder
+///
+///	@note we can't mix software and hardware decoder surfaces
+///
+static void VdpauQueueSurface(VdpauDecoder * decoder, VdpVideoSurface surface,
+    int softdec)
+{
+    VdpVideoSurface old;
+
+    ++decoder->FrameCounter;
+
+    if (1) {				// can't wait for output queue empty
+	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	    Warning(_
+		("video/vdpau: output buffer full, dropping frame (%d/%d)\n"),
+		++decoder->FramesDropped, decoder->FrameCounter);
+	    VdpauPrintFrames(decoder);
+	    // software surfaces only
+	    if (softdec) {
+		VdpauReleaseSurface(decoder, surface);
+	    }
+	    return;
+	}
+#if 0
+    } else {				// wait for output queue empty
+	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	    VideoDisplayHandler();
+	}
+#endif
+    }
+
+    //
+    //	    Check and release, old surface
+    //
+    if ((old = decoder->SurfacesRb[decoder->SurfaceWrite])
+	!= VDP_INVALID_HANDLE) {
+
+	// now we can release the surface, software surfaces only
+	if (softdec) {
+	    VdpauReleaseSurface(decoder, old);
+	}
+    }
+
+    Debug(4, "video/vdpau: yy video surface %#x@%d ready\n", surface,
+	decoder->SurfaceWrite);
+
+    decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1)
+	% VIDEO_SURFACES_MAX;
+    atomic_inc(&decoder->SurfacesFilled);
 }
 
 ///
@@ -4154,25 +4269,78 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 {
     VdpStatus status;
     VdpVideoSurface surface;
-    VdpVideoSurface old;
 
     //
     // Hardware render
     //
-    if (video_ctx->hwaccel_context) {
-	surface = (size_t) frame->data[3];
+    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
+    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+	struct vdpau_render_state *vrs;
+	int interlaced;
 
-	Debug(2, "video/vdpau: display surface %#x\n", surface);
+	vrs = (struct vdpau_render_state *)frame->data[0];
+	surface = vrs->surface;
+	Debug(4, "video/vdpau: hw render hw surface %#x\n", surface);
 
-	// FIXME: should be done by init
-	if (decoder->Interlaced != frame->interlaced_frame
-	    || decoder->TopFieldFirst != frame->top_field_first) {
-	    Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
-		frame->interlaced_frame, frame->top_field_first);
-	    decoder->Interlaced = frame->interlaced_frame;
-	    decoder->TopFieldFirst = frame->top_field_first;
-	    decoder->SurfaceField = 0;
+	// FIXME: some tv-stations toggle interlace on/off
+	// frame->interlaced_frame isn't always correct set
+	interlaced = frame->interlaced_frame;
+	if (video_ctx->height == 720) {
+	    if (interlaced && !decoder->WrongInterlacedWarned) {
+		Debug(3, "video/vdpau: wrong interlace flag fixed\n");
+		decoder->WrongInterlacedWarned = 1;
+	    }
+	    interlaced = 0;
+	} else {
+	    if (!interlaced && !decoder->WrongInterlacedWarned) {
+		Debug(3, "video/vdpau: wrong interlace flag fixed\n");
+		decoder->WrongInterlacedWarned = 1;
+	    }
+	    interlaced = 1;
 	}
+
+	// update aspect ratio changes
+#ifdef still_to_detect_define
+	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	    Debug(3, "video/vdpau: aspect ratio changed\n");
+
+	    //decoder->InputWidth = video_ctx->width;
+	    //decoder->InputHeight = video_ctx->height;
+	    decoder->InputAspect = frame->sample_aspect_ratio;
+	    VdpauUpdateOutput(decoder);
+	}
+#else
+	if (av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
+	    Debug(3, "video/vdpau: aspect ratio changed\n");
+
+	    //decoder->InputWidth = video_ctx->width;
+	    //decoder->InputHeight = video_ctx->height;
+	    decoder->InputAspect = video_ctx->sample_aspect_ratio;
+	    VdpauUpdateOutput(decoder);
+	}
+#endif
+
+	if (VideoDeinterlace == VideoDeinterlaceSoftware && interlaced) {
+	    // FIXME: software deinterlace avpicture_deinterlace
+	    // FIXME: VdpauCpuDeinterlace(decoder, surface);
+	} else {
+	    // FIXME: should be done by init
+	    if (decoder->Interlaced != interlaced
+		|| decoder->TopFieldFirst != frame->top_field_first) {
+
+		Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
+		    interlaced, frame->top_field_first);
+
+		decoder->Interlaced = interlaced;
+		decoder->TopFieldFirst = frame->top_field_first;
+		decoder->SurfaceField = 1;
+
+	    }
+	    VdpauQueueSurface(decoder, surface, 0);
+	}
+
 	//
 	// PutBitsYCbCr render
 	//
@@ -4234,55 +4402,13 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    Error(_("video/vdpau: can't put video surface bits: %s\n"),
 		VdpauGetErrorString(status));
 	}
+
+	VdpauQueueSurface(decoder, surface, 1);
     }
 
     if (frame->interlaced_frame) {
 	++decoder->FrameCounter;
     }
-    ++decoder->FrameCounter;
-
-    // place in output queue
-    // I place it here, for later thread support
-
-    if (1) {				// can't wait for output queue empty
-	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
-	    Warning(_
-		("video/vdpau: output buffer full, dropping frame (%d/%d)\n"),
-		++decoder->FramesDropped, decoder->FrameCounter);
-	    VdpauPrintFrames(decoder);
-	    // software surfaces only
-	    if (!video_ctx->hwaccel_context) {
-		VdpauReleaseSurface(decoder, surface);
-	    }
-	    return;
-	}
-#if 0
-    } else {				// wait for output queue empty
-	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
-	    VideoDisplayHandler();
-	}
-#endif
-    }
-
-    //
-    //	    Check and release, old surface
-    //
-    if ((old = decoder->SurfacesRb[decoder->SurfaceWrite])
-	!= VDP_INVALID_HANDLE) {
-
-	// now we can release the surface, software surfaces only
-	if (!video_ctx->hwaccel_context) {
-	    VdpauReleaseSurface(decoder, old);
-	}
-    }
-
-    Debug(4, "video: yy video surface %#x@%d ready\n", surface,
-	decoder->SurfaceWrite);
-
-    decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1)
-	% VIDEO_SURFACES_MAX;
-    atomic_inc(&decoder->SurfacesFilled);
 }
 
 ///
@@ -4394,7 +4520,6 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 #ifdef DEBUG
 	if (atomic_read(&decoder->SurfacesFilled) < 3) {
 	    Debug(3, "only %d\n", atomic_read(&decoder->SurfacesFilled));
-	    abort();
 	}
 #endif
 
@@ -4448,7 +4573,7 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 	    VdpauGetErrorString(status));
     }
 
-    Debug(4, "video: yy video surface %#x@%d displayed\n", current,
+    Debug(4, "video/vdpau: yy video surface %#x@%d displayed\n", current,
 	decoder->SurfaceRead);
 }
 
@@ -5237,7 +5362,7 @@ static void VideoEvent(void)
 	    Debug(3, "video/event: ClientMessage\n");
 	    if (event.xclient.data.l[0] == (long)WmDeleteWindowAtom) {
 		// FIXME: wrong, kills recordings ...
-		Error(_("video: FIXME: wm-delete-message\n"));
+		Error(_("video/event: FIXME: wm-delete-message\n"));
 	    }
 	    break;
 
@@ -5264,7 +5389,8 @@ static void VideoEvent(void)
 	    }
 #endif
 	    if (keysym == NoSymbol) {
-		Warning(_("video: No symbol for %d\n"), event.xkey.keycode);
+		Warning(_("video/event: No symbol for %d\n"),
+		    event.xkey.keycode);
 	    }
 	    FeedKeyPress("XKeySym", XKeysymToString(keysym), 0, 0);
 	    /*
@@ -5635,6 +5761,37 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
     (void)decoder;
     Error(_("video/vaapi: get vaapi context, without vaapi enabled\n"));
     return NULL;
+}
+
+///
+///	Draw ffmpeg vdpau render state.
+///
+///	@param decoder	VDPAU decoder
+///	@param vrs	vdpau render state
+///
+void VideoDrawRenderState(VideoHwDecoder * decoder,
+    struct vdpau_render_state *vrs)
+{
+#ifdef USE_VDPAU
+    if (VideoVdpauEnabled) {
+	VdpStatus status;
+
+	Debug(4, "video/vdpau: decoder render to %#010x\n", vrs->surface);
+	status =
+	    VdpauDecoderRender(decoder->Vdpau.VideoDecoder, vrs->surface,
+	    (VdpPictureInfo const *)&vrs->info, vrs->bitstream_buffers_used,
+	    vrs->bitstream_buffers);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: decoder rendering failed: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	return;
+    }
+#endif
+    (void)decoder;
+    (void)vrs;
+    Error(_("video/vdpau: draw render state, without vdpau enabled\n"));
+    return;
 }
 
 #ifndef USE_VIDEO_THREAD

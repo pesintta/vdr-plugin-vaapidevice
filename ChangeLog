@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Release Version 0.1.1
+    Initial VDPAU decoder support.
+    Initial VDPAU output support.
     Configurable audio delay.
     Make pts monotonic.
     Support old libav and ffmpeg libs.

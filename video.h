@@ -60,6 +60,12 @@ extern struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder *);
     /// Callback to negotiate the PixelFormat.
 extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
     const enum PixelFormat *);
+
+#ifdef AVCODEC_VDPAU_H
+    /// Draw vdpau render state
+extern void VideoDrawRenderState(VideoHwDecoder *,
+    struct vdpau_render_state *);
+#endif
 #endif
 
     /// Display video TEST

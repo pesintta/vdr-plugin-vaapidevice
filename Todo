@@ -1,14 +1,15 @@
 missing:
     video out with xv
     video out with opengl
-    video out with vdpau
-    software decoder
-    vdpau decoder
+    software decoder for xv / opengl
     software deinterlace
     auto crop
     atmolight
     zoom/fit-zoom 4:3
     multistream handling
+
+vdpau:
+    1080i with temporal spatial too slow GT 520
 
 libva-intel-driver:
     intel still has hangups most with 1080i

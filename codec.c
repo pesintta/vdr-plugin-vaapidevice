@@ -40,6 +40,9 @@
 #include <alsa/iatomic.h>
 #include <libavcodec/avcodec.h>
 #include <libavcodec/vaapi.h>
+#ifdef USE_VDPAU
+#include <libavcodec/vdpau.h>
+#endif
 
 #ifdef MAIN_H
 #include MAIN_H
@@ -67,6 +70,7 @@ struct _video_decoder_
 {
     VideoHwDecoder *HwDecoder;		///< video hardware decoder
 
+    int GetFormatDone;			///< flag get format called!
     AVCodec *VideoCodec;		///< video codec
     AVCodecContext *VideoCtx;		///< video codec context
     AVFrame *Frame;			///< decoded video frame
@@ -75,8 +79,6 @@ struct _video_decoder_
 //----------------------------------------------------------------------------
 //	Call-backs
 //----------------------------------------------------------------------------
-
-static int CodecFfmpegOk;		///< check ffmpeg idiotics
 
 /**
 **	Callback to negotiate the PixelFormat.
@@ -92,7 +94,7 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
 
     decoder = video_ctx->opaque;
     Debug(3, "codec: %s: %18p\n", __FUNCTION__, decoder);
-    CodecFfmpegOk = 1;
+    decoder->GetFormatDone = 1;
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
 
@@ -106,10 +108,14 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
 */
 static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 {
-    if (!CodecFfmpegOk) {		// get_format missing
+    VideoDecoder *decoder;
+
+    decoder = video_ctx->opaque;
+    if (!decoder->GetFormatDone) {	// get_format missing
 	enum PixelFormat fmts[2];
 
 	fprintf(stderr, "codec: buggy ffmpeg\n");
+	Warning(_("codec: buggy ffmpeg\n"));
 	fmts[0] = video_ctx->pix_fmt;
 	fmts[1] = PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
@@ -118,11 +124,12 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
 	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
-	VideoDecoder *decoder;
 	unsigned surface;
+	struct vdpau_render_state *vrs;
 
-	decoder = video_ctx->opaque;
 	surface = VideoGetSurface(decoder->HwDecoder);
+	vrs = av_calloc(1, sizeof(struct vdpau_render_state));
+	vrs->surface = surface;
 
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
@@ -130,7 +137,11 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
 	frame->age = 256 * 256 * 256 * 64;
 #endif
-	frame->data[0] = (void *)(size_t) surface;
+	// render
+	frame->data[0] = (void *)vrs;
+	frame->data[1] = NULL;
+	frame->data[2] = NULL;
+	frame->data[3] = NULL;
 
 	// reordered frames
 	if (video_ctx->pkt) {
@@ -142,10 +153,8 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     }
     // VA-API:
     if (video_ctx->hwaccel_context) {
-	VideoDecoder *decoder;
 	unsigned surface;
 
-	decoder = video_ctx->opaque;
 	surface = VideoGetSurface(decoder->HwDecoder);
 
 	//Debug(3, "codec: use surface %#010x\n", surface);
@@ -184,15 +193,19 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
 	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
 	VideoDecoder *decoder;
+	struct vdpau_render_state *vrs;
 	unsigned surface;
 
 	decoder = video_ctx->opaque;
-	surface = (unsigned)(size_t) frame->data[0];
+	vrs = (struct vdpau_render_state *)frame->data[0];
+	surface = vrs->surface;
 
 	//Debug(3, "codec: release surface %#010x\n", surface);
 	VideoReleaseSurface(decoder->HwDecoder, surface);
 
-	frame->data[0] = NULL;
+	av_freep(&vrs->bitstream_buffers);
+	vrs->bitstream_buffers_allocated = 0;
+	av_freep(&frame->data[0]);
 
 	return;
     }
@@ -214,6 +227,45 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     }
     //Debug(3, "codec: fallback to default release_buffer\n");
     return avcodec_default_release_buffer(video_ctx, frame);
+}
+
+/**
+**	Draw a horizontal band.
+**
+**	@param video_ctx	Codec context
+**	@param frame		draw this frame
+**	@param y		y position of slice
+**	@param type		1->top field, 2->bottom field, 3->frame
+**	@param offset		offset into AVFrame.data from which slice
+**				should be read
+**	@param height		height of slice
+*/
+static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
+    const AVFrame * frame, __attribute__ ((unused))
+    int offset[AV_NUM_DATA_POINTERS], __attribute__ ((unused))
+    int y, __attribute__ ((unused))
+    int type, __attribute__ ((unused))
+    int height)
+{
+    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
+    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+	VideoDecoder *decoder;
+	struct vdpau_render_state *vrs;
+
+	//unsigned surface;
+
+	decoder = video_ctx->opaque;
+	vrs = (struct vdpau_render_state *)frame->data[0];
+	//surface = vrs->surface;
+
+	//Debug(3, "codec: draw slice surface %#010x\n", surface);
+	//Debug(3, "codec: %d references\n", vrs->info.h264.num_ref_frames);
+
+	VideoDrawRenderState(decoder->HwDecoder, vrs);
+    }
+    return;
 }
 
 //----------------------------------------------------------------------------
@@ -255,7 +307,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     //
     //	ffmpeg compatibility hack
     //
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,96,0)
+#if 1 || (LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,96,0))
     if (name) {
 	if (!strcmp(name, "h264video_vdpau")) {
 	    name = "h264_vdpau";
@@ -330,7 +382,11 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	decoder->VideoCtx->get_buffer = Codec_get_buffer;
 	decoder->VideoCtx->release_buffer = Codec_release_buffer;
 	decoder->VideoCtx->reget_buffer = Codec_get_buffer;
-	//decoder->VideoCtx->draw_horiz_band = Codec_draw_horiz_band;
+	decoder->VideoCtx->draw_horiz_band = Codec_draw_horiz_band;
+	decoder->VideoCtx->slice_flags =
+	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
+	decoder->VideoCtx->thread_count = 1;
+	decoder->VideoCtx->active_thread_type = 0;
     } else {
 	decoder->VideoCtx->hwaccel_context =
 	    VideoGetVaapiContext(decoder->HwDecoder);

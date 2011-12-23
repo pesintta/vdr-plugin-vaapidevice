@@ -44,6 +44,8 @@
 
 static char BrokenThreadsAndPlugins;	///< broken vdr threads and plugins
 
+static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
+
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
 //////////////////////////////////////////////////////////////////////////////
@@ -366,14 +368,16 @@ int VideoDecode(void)
 	case CODEC_ID_MPEG2VIDEO:
 	    if (last_codec_id != CODEC_ID_MPEG2VIDEO) {
 		last_codec_id = CODEC_ID_MPEG2VIDEO;
-		CodecVideoOpen(MyVideoDecoder, 0 ? "mpegvideo_vdpau" : NULL,
+		CodecVideoOpen(MyVideoDecoder,
+		    ConfigVdpauDecoder ? "mpegvideo_vdpau" : NULL,
 		    CODEC_ID_MPEG2VIDEO);
 	    }
 	    break;
 	case CODEC_ID_H264:
 	    if (last_codec_id != CODEC_ID_H264) {
 		last_codec_id = CODEC_ID_H264;
-		CodecVideoOpen(MyVideoDecoder, 0 ? "h264video_vdpau" : NULL,
+		CodecVideoOpen(MyVideoDecoder,
+		    ConfigVdpauDecoder ? "h264video_vdpau" : NULL,
 		    CODEC_ID_H264);
 	    }
 	    break;
