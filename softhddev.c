@@ -519,6 +519,7 @@ int PlayVideo(const uint8_t * data, int size)
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
 	// FIXME: hack to test results
 	if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+	    NewVideoStream = 0;
 	    return 0;
 	}
 	VideoNextPacket(CODEC_ID_NONE);
