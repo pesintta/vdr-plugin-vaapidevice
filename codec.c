@@ -93,7 +93,7 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
     VideoDecoder *decoder;
 
     decoder = video_ctx->opaque;
-    Debug(3, "codec: %s: %18p\n", __FUNCTION__, decoder);
+    //Debug(3, "codec: %s: %18p\n", __FUNCTION__, decoder);
     decoder->GetFormatDone = 1;
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
@@ -114,8 +114,8 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     if (!decoder->GetFormatDone) {	// get_format missing
 	enum PixelFormat fmts[2];
 
-	fprintf(stderr, "codec: buggy ffmpeg\n");
-	Warning(_("codec: buggy ffmpeg\n"));
+	fprintf(stderr, "codec: buggy ffmpeg/libav\n");
+	Warning(_("codec: buggy ffmpeg/libav\n"));
 	fmts[0] = video_ctx->pix_fmt;
 	fmts[1] = PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
@@ -417,6 +417,9 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     if (!(decoder->Frame = avcodec_alloc_frame())) {
 	Fatal(_("codec: can't allocate decoder frame\n"));
     }
+
+    // reset buggy ffmpeg/libav flag
+    decoder->GetFormatDone = 0;
 }
 
 /**
