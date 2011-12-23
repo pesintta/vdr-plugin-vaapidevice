@@ -128,7 +128,7 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	struct vdpau_render_state *vrs;
 
 	surface = VideoGetSurface(decoder->HwDecoder);
-	vrs = av_calloc(1, sizeof(struct vdpau_render_state));
+	vrs = av_mallocz(sizeof(struct vdpau_render_state));
 	vrs->surface = surface;
 
 	//Debug(3, "codec: use surface %#010x\n", surface);
@@ -228,6 +228,11 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     //Debug(3, "codec: fallback to default release_buffer\n");
     return avcodec_default_release_buffer(video_ctx, frame);
 }
+
+/// libav: compatibility hack
+#ifndef AV_NUM_DATA_POINTERS
+#define AV_NUM_DATA_POINTERS	4
+#endif
 
 /**
 **	Draw a horizontal band.
