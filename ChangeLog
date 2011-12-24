@@ -1,5 +1,12 @@
 User johns
-Date:
+Date: Sat Dec 24 15:26:27 CET 2011
+
+    Release Version 0.1.2
+    Fix wrong decoder->SurfaceField again.
+    Remove interlaced_frame debug, it can't be used.
+    Fix new video stream never resets, if buffers full.
+
+Date: Fri Dec 23 21:31:27 CET 2011
 
     Release Version 0.1.1
     Initial VDPAU decoder support.

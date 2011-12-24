@@ -17,7 +17,7 @@ VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | aw
 
 ### Configuration (edit this for your needs)
 
-CONFIG := -DDEBUG
+CONFIG := #-DDEBUG
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 

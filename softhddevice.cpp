@@ -39,7 +39,7 @@ extern "C" {
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.1.1";
+static const char *const VERSION = "0.1.2";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 

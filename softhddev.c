@@ -205,7 +205,6 @@ static char VideoClearBuffers;		///< clear video buffers
 
 #ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
-static uint32_t VideoStartTick;		///< video start tick
 #endif
 
 /**
@@ -221,13 +220,9 @@ static void VideoPacketInit(void)
     for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
 	avpkt = &VideoPacketRb[i];
 	// build a clean ffmpeg av packet
-	av_init_packet(avpkt);
-	avpkt->destruct = av_destruct_packet;
-	avpkt->data = av_malloc(VIDEO_BUFFER_SIZE);
-	if (!avpkt->data) {
+	if (av_new_packet(avpkt, VIDEO_BUFFER_SIZE)) {
 	    Fatal(_("[softhddev]: out of memory\n"));
 	}
-	avpkt->size = VIDEO_BUFFER_SIZE;
 	avpkt->priv = NULL;
     }
 
@@ -263,21 +258,15 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 	}
 #endif
     }
-#ifdef xxDEBUG
-    if (!avpkt->stream_index) {		// debug save time of first packet
-	avpkt->pos = GetMsTicks();
-    }
-#endif
-    if (!VideoStartTick) {		// tick of first valid packet
-	VideoStartTick = GetMsTicks();
-    }
 
     memcpy(avpkt->data + avpkt->stream_index, data, size);
     avpkt->stream_index += size;
+#ifdef DEBUG
     if (avpkt->stream_index > VideoMaxPacketSize) {
 	VideoMaxPacketSize = avpkt->stream_index;
 	Debug(3, "video: max used PES packet size: %d\n", VideoMaxPacketSize);
     }
+#endif
 }
 
 /**
@@ -401,70 +390,6 @@ int VideoDecode(void)
 
     return 0;
 }
-
-#if 0
-
-/**
-**	Flush video buffer.
-*/
-void VideoFlushInput(void)
-{
-    // flush all buffered packets
-    while (atomic_read(&VideoPacketsFilled)) {
-	VideoPacketRead = (VideoPacketRead + 1) % VIDEO_PACKET_MAX;
-	atomic_dec(&VideoPacketsFilled);
-    }
-    VideoStartTick = 0;
-}
-
-/**
-**	Wakeup video handler.
-*/
-void VideoWakeup(void)
-{
-    int filled;
-    uint32_t now;
-    uint64_t delay;
-
-    filled = atomic_read(&VideoPacketsFilled);
-    if (!filled) {
-	Debug(3, "video: wakeup no packets buffered\n");
-	return;
-    }
-
-    now = GetMsTicks();
-    if (filled < VIDEO_PACKET_MAX && VideoStartTick + 1000 > now) {
-	delay = AudioGetDelay() / 90;
-	if (delay < 100) {		// no audio delay known
-	    delay = 750;
-	}
-	delay -= 40;
-	if (VideoStartTick + delay > now) {
-	    Debug(3, "video: %d packets %u/%lu delayed\n", filled,
-		(unsigned)(now - VideoStartTick), delay);
-	    return;
-	}
-    }
-
-    VideoDecode();
-
-#if 0
-    AVPacket *avpkt;
-
-    while (filled) {
-	avpkt = &VideoPacketRb[VideoPacketRead];
-	now = GetMsTicks();
-	if (avpkt->pos + 500 > now) {
-	    Debug(3, "video: %d packets %u delayed\n", filled,
-		(unsigned)(now - avpkt->pos));
-	    return;
-	}
-	filled = atomic_read(&VideoPacketsFilled);
-    }
-#endif
-}
-
-#endif
 
 /**
 **	Try video start.
@@ -918,7 +843,9 @@ void Start(void)
 */
 void Stop(void)
 {
+#ifdef DEBUG
     Debug(3, "video: max used PES packet size: %d\n", VideoMaxPacketSize);
+#endif
 
     // FIXME:
     // don't let any thread enter our plugin, but can still crash, when
