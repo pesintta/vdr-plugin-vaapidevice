@@ -337,6 +337,8 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
 	Fatal(_("codec: can't allocate video codec context\n"));
     }
+    // FIXME: for software decoder use all cpus, otherwise 1
+    decoder->VideoCtx->thread_count = 1;
     // open codec
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
@@ -349,12 +351,6 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 #endif
 
     decoder->VideoCtx->opaque = decoder;	// our structure
-
-    /*
-       // FIXME: the number of cpu's should be configurable
-       // Today this makes no big sense H264 is broken with current streams.
-       avcodec_thread_init(decoder->VideoCtx, 2);	// support dual-cpu's
-     */
 
     Debug(3, "codec: video '%s'\n", decoder->VideoCtx->codec_name);
     if (codec_id == CODEC_ID_H264) {
