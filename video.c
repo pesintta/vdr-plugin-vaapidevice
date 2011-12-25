@@ -5819,15 +5819,23 @@ void VideoDrawRenderState(VideoHwDecoder * decoder,
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpStatus status;
+	uint32_t start;
+	uint32_t end;
 
 	Debug(4, "video/vdpau: decoder render to %#010x\n", vrs->surface);
+	start = GetMsTicks();
 	status =
 	    VdpauDecoderRender(decoder->Vdpau.VideoDecoder, vrs->surface,
 	    (VdpPictureInfo const *)&vrs->info, vrs->bitstream_buffers_used,
 	    vrs->bitstream_buffers);
+	end = GetMsTicks();
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: decoder rendering failed: %s\n"),
 		VdpauGetErrorString(status));
+	}
+	if (start - end > 35) {
+	    Debug(3, "video/vdpau: decoder render too slow %u ms\n",
+		start - end);
 	}
 	return;
     }
