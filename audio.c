@@ -60,6 +60,7 @@
 
 static const char *AudioPCMDevice;	///< alsa PCM device name
 static const char *AudioMixerDevice;	///< alsa mixer device name
+static const char *AudioMixerChannel;	///< alsa mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
 static int AudioPaused;			///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
@@ -589,6 +590,7 @@ void AudioSetVolume(int volume)
 static void AlsaInitMixer(void)
 {
     const char *device;
+    const char *channel;
     snd_mixer_t *alsa_mixer;
     snd_mixer_elem_t *alsa_mixer_elem;
     long alsa_mixer_elem_min;
@@ -599,13 +601,18 @@ static void AlsaInitMixer(void)
 	    device = "default";
 	}
     }
-    Debug(3, "audio/alsa: mixer open\n");
+    if (!(channel = AudioMixerChannel)) {
+	if (!(channel = getenv("ALSA_MIXER_CHANNEL"))) {
+	    channel = "PCM";
+	}
+    }
+    Debug(3, "audio/alsa: mixer %s - %s open\n", device, channel);
     snd_mixer_open(&alsa_mixer, 0);
     if (alsa_mixer && snd_mixer_attach(alsa_mixer, device) >= 0
 	&& snd_mixer_selem_register(alsa_mixer, NULL, NULL) >= 0
 	&& snd_mixer_load(alsa_mixer) >= 0) {
 
-	const char *const alsa_mixer_elem_name = "PCM";
+	const char *const alsa_mixer_elem_name = channel;
 
 	alsa_mixer_elem = snd_mixer_first_elem(alsa_mixer);
 	while (alsa_mixer_elem) {

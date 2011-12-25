@@ -57,6 +57,18 @@ Install:
 	cd vdr-softhddevice
 	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
 
+Setup:	environment
+	Following is supported:
+
+	DISPLAY=:0.0
+		x11 display name
+	ALSA_DEVICE=default
+		alsa PCM device name
+	ALSA_MIXER=default
+		alsa control device name
+	ALSA_MIXER_CHANNEL=PCM
+		alsa control channel name
+
 Setup: /etc/vdr/setup.conf
 	Following is supported:
 
