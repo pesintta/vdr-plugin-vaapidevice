@@ -137,7 +137,7 @@ typedef enum _video_deinterlace_modes_
 } VideoDeinterlaceModes;
 
 ///
-///	Video scalinng modes.
+///	Video scaleing modes.
 ///
 typedef enum _video_scaling_modes_
 {
@@ -146,6 +146,17 @@ typedef enum _video_scaling_modes_
     VideoScalingHQ,			///< high quality scaling
     VideoScalingAnamorphic,		///< anamorphic scaling
 } VideoScalingModes;
+
+///
+///	Video zoom modes.
+///
+typedef enum _video_zoom_modes_
+{
+    VideoNormal,			///< normal
+    VideoStretch,			///< stretch to all edges
+    VideoZoom,				///< zoom out
+    VideoAnamorphic,			///< anamorphic scaled (unsupported)
+} VideoZoomModes;
 
 //----------------------------------------------------------------------------
 //	Defines
@@ -183,6 +194,9 @@ static VideoScalingModes VideoScaling;
 
     /// Default audio/video delay
 static int VideoAudioDelay;
+
+    /// Default zoom mode
+static VideoZoomModes Video4to3ZoomMode;
 
 //static char VideoSoftStartSync;		///< soft start sync audio/video
 
@@ -1347,13 +1361,22 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 	display_aspect_ratio.den);
 
     // FIXME: store different positions for the ratios
+    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	switch (Video4to3ZoomMode) {
+	    case VideoNormal:
+	    case VideoStretch:
+	    case VideoZoom:
+	    case VideoAnamorphic:
+		break;
+	}
+    }
 
     decoder->OutputX = 0;
     decoder->OutputY = 0;
     decoder->OutputWidth = (VideoWindowHeight * display_aspect_ratio.num)
 	/ display_aspect_ratio.den;
-    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
+    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.den)
+	/ display_aspect_ratio.num;
     if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
 	decoder->OutputWidth = VideoWindowWidth;
 	decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
@@ -1361,6 +1384,8 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 	decoder->OutputHeight = VideoWindowHeight;
 	decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
     }
+    Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
+	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
 }
 
 /**
@@ -3190,7 +3215,7 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 		VdpauGetErrorString(status));
 	    // FIXME: no fatal
 	}
-	Debug(3, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
+	Debug(4, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
 	    width, height, decoder->SurfacesFree[i]);
     }
 }
@@ -3950,6 +3975,8 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
     AVRational display_aspect_ratio;
 
     input_aspect_ratio = decoder->InputAspect;
+    Debug(3, "video: input aspect %d:%d\n", input_aspect_ratio.num,
+	input_aspect_ratio.den);
     if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
 	input_aspect_ratio.num = 1;
 	input_aspect_ratio.den = 1;
@@ -3965,20 +3992,31 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
 	display_aspect_ratio.den);
 
     // FIXME: store different positions for the ratios
+    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	switch (Video4to3ZoomMode) {
+	    case VideoNormal:
+	    case VideoStretch:
+	    case VideoZoom:
+	    case VideoAnamorphic:
+		break;
+	}
+    }
 
     decoder->OutputX = 0;
     decoder->OutputY = 0;
     decoder->OutputWidth = (VideoWindowHeight * display_aspect_ratio.num)
 	/ display_aspect_ratio.den;
-    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
+    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.den)
+	/ display_aspect_ratio.num;
     if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
 	decoder->OutputWidth = VideoWindowWidth;
 	decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
-    } else {
+    } else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
 	decoder->OutputHeight = VideoWindowHeight;
 	decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
     }
+    Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
+	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
 }
 
 ///
@@ -4063,6 +4101,10 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     max_refs = CODEC_SURFACES_DEFAULT;
     // check profile
     switch (video_ctx->codec_id) {
+	case CODEC_ID_MPEG1VIDEO:
+	    max_refs = 2;
+	    profile = VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG1);
+	    break;
 	case CODEC_ID_MPEG2VIDEO:
 	    max_refs = 2;
 	    profile =

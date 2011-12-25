@@ -10,7 +10,6 @@ missing:
 
 vdpau:
     1080i with temporal spatial too slow GT 520
-    Dr. Dish H264 black picture
 
 libva-intel-driver:
     intel still has hangups most with 1080i
