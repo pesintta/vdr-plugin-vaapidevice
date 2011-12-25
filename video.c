@@ -5833,9 +5833,9 @@ void VideoDrawRenderState(VideoHwDecoder * decoder,
 	    Error(_("video/vdpau: decoder rendering failed: %s\n"),
 		VdpauGetErrorString(status));
 	}
-	if (start - end > 35) {
+	if (end - start > 35) {
 	    Debug(3, "video/vdpau: decoder render too slow %u ms\n",
-		start - end);
+		end - start);
 	}
 	return;
     }
