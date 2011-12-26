@@ -120,6 +120,7 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	fmts[1] = PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
     }
+#ifdef USE_VDPAU
     // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
     if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
@@ -151,6 +152,7 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	}
 	return 0;
     }
+#endif
     // VA-API:
     if (video_ctx->hwaccel_context) {
 	unsigned surface;
@@ -188,6 +190,7 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 */
 static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 {
+#ifdef USE_VDPAU
     // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
     if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
@@ -209,6 +212,7 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 
 	return;
     }
+#endif
     // VA-API
     if (video_ctx->hwaccel_context) {
 	VideoDecoder *decoder;
@@ -252,6 +256,7 @@ static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
     int type, __attribute__ ((unused))
     int height)
 {
+#ifdef USE_VDPAU
     // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
     if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
@@ -269,8 +274,12 @@ static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
 	//Debug(3, "codec: %d references\n", vrs->info.h264.num_ref_frames);
 
 	VideoDrawRenderState(decoder->HwDecoder, vrs);
+	return;
     }
-    return;
+#else
+    (void)video_ctx;
+    (void)frame;
+#endif
 }
 
 //----------------------------------------------------------------------------
@@ -547,8 +556,8 @@ struct _audio_decoder_
 
     /// audio parser to support wired dvb streaks
     AVCodecParserContext *AudioParser;
-    int SampleRate;			///< current sample rate
-    int Channels;			///< current channels
+    int SampleRate;			///< current stream sample rate
+    int Channels;			///< current stream channels
 
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
@@ -661,11 +670,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
     AVCodecContext *audio_ctx;
     int index;
 
-    if (!audio_decoder->AudioParser) {
-	Fatal(_("codec: internal error parser freeded while running\n"));
-    }
-#define spkt avpkt
-#if 0					// didn't fix crash in av_parser_parse2
+//#define spkt avpkt
+#if 1					// didn't fix crash in av_parser_parse2
     AVPacket spkt[1];
 
     // av_new_packet reserves FF_INPUT_BUFFER_PADDING_SIZE and clears it
@@ -677,6 +683,9 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
     spkt->pts = avpkt->pts;
     spkt->dts = avpkt->dts;
 #endif
+    if (!audio_decoder->AudioParser) {
+	Fatal(_("codec: internal error parser freeded while running\n"));
+    }
 
     audio_ctx = audio_decoder->AudioCtx;
     index = 0;
@@ -774,7 +783,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
 	index += n;
     }
 
-#if 0
+#if 1
     av_destruct_packet(spkt);
 #endif
 }
