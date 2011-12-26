@@ -213,11 +213,12 @@ static int VideoMaxPacketSize;		///< biggest used packet buffer
 static void VideoPacketInit(void)
 {
     int i;
-    AVPacket *avpkt;
 
     Debug(4, "[softhddev]: %s\n", __FUNCTION__);
 
     for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
+	AVPacket *avpkt;
+
 	avpkt = &VideoPacketRb[i];
 	// build a clean ffmpeg av packet
 	if (av_new_packet(avpkt, VIDEO_BUFFER_SIZE)) {
@@ -230,7 +231,31 @@ static void VideoPacketInit(void)
 }
 
 /**
+**	Cleanup video packet ringbuffer.
+*/
+static void VideoPacketExit(void)
+{
+    int i;
+
+    Debug(4, "[softhddev]: %s\n", __FUNCTION__);
+
+    atomic_set(&VideoPacketsFilled, 0);
+
+    for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
+	AVPacket *avpkt;
+
+	avpkt = &VideoPacketRb[i];
+	// build a clean ffmpeg av packet
+	av_free_packet(avpkt);
+    }
+}
+
+/**
 **	Place video data in packet ringbuffer.
+**
+**	@param pts	presentation timestamp of pes packet
+**	@param data	data of pes packet
+**	@param data	size of pes packet
 */
 static void VideoEnqueue(int64_t pts, const void *data, int size)
 {
@@ -242,18 +267,16 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
     if (!avpkt->stream_index) {		// add pts only for first added
 	avpkt->pts = pts;
     }
-    if (avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE >=
-	avpkt->size) {
+    if (avpkt->stream_index + size >= avpkt->size) {
 
 	Warning(_("video: packet buffer too small for %d\n"),
-	    avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE);
+	    avpkt->stream_index + size);
 
-	av_grow_packet(avpkt,
-	    ((size + FF_INPUT_BUFFER_PADDING_SIZE + VIDEO_BUFFER_SIZE / 2)
-		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
+	// new + grow reserves FF_INPUT_BUFFER_PADDING_SIZE
+	av_grow_packet(avpkt, ((size + VIDEO_BUFFER_SIZE / 2)
+	    / (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
 #ifdef DEBUG
-	if (avpkt->size <
-	    avpkt->stream_index + size + FF_INPUT_BUFFER_PADDING_SIZE) {
+	if (avpkt->size <= avpkt->stream_index + size ) {
 	    abort();
 	}
 #endif
@@ -444,6 +467,7 @@ int PlayVideo(const uint8_t * data, int size)
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
 	// FIXME: hack to test results
 	if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+	    Debug(3, "video: new video stream lost\n");
 	    NewVideoStream = 0;
 	    return 0;
 	}
@@ -452,7 +476,7 @@ int PlayVideo(const uint8_t * data, int size)
 	NewVideoStream = 0;
     }
     // must be a PES start code
-    if (size < 9 || data[0] || data[1] || data[2] != 0x01) {
+    if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
 	Error(_("[softhddev] invalid PES video packet\n"));
 	return size;
     }
@@ -867,6 +891,7 @@ void Stop(void)
     VideoExit();
     AudioExit();
     CodecExit();
+    VideoPacketExit();
 
     if (StartX11Server) {
 	Debug(3, "x-setup: Stop x11 server\n");
