@@ -10,6 +10,8 @@ missing:
 
 vdpau:
     1080i with temporal spatial too slow GT 520
+    VdpPreemptionCallback handling
+    Loose a surface
 
 libva-intel-driver:
     intel still has hangups most with 1080i

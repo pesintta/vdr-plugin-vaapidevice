@@ -3211,9 +3211,10 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 	    VdpauVideoSurfaceCreate(decoder->Device, decoder->ChromaType,
 	    width, height, decoder->SurfacesFree + i);
 	if (status != VDP_STATUS_OK) {
-	    Fatal(_("video/vdpau: can't create video surface: %s\n"),
+	    Error(_("video/vdpau: can't create video surface: %s\n"),
 		VdpauGetErrorString(status));
-	    // FIXME: no fatal
+	    decoder->SurfacesFree[i] = VDP_INVALID_HANDLE;
+	    // FIXME: better error handling
 	}
 	Debug(4, "video/vdpau: created video surface %dx%d with id 0x%08x\n",
 	    width, height, decoder->SurfacesFree[i]);
@@ -3238,11 +3239,14 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 	    Debug(3, "video/vdpau: invalid surface\n");
 	}
 #endif
+	Debug(4, "video/vdpau: destroy video surface with id 0x%08x\n",
+	    decoder->SurfacesFree[i]);
 	status = VdpauVideoSurfaceDestroy(decoder->SurfacesFree[i]);
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
 		VdpauGetErrorString(status));
 	}
+	decoder->SurfacesFree[i] = VDP_INVALID_HANDLE;
     }
     for (i = 0; i < decoder->SurfaceUsedN; ++i) {
 #ifdef DEBUG
@@ -3250,11 +3254,14 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 	    Debug(3, "video/vdpau: invalid surface\n");
 	}
 #endif
+	Debug(4, "video/vdpau: destroy video surface with id 0x%08x\n",
+	    decoder->SurfacesUsed[i]);
 	status = VdpauVideoSurfaceDestroy(decoder->SurfacesUsed[i]);
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: can't destroy video surface: %s\n"),
 		VdpauGetErrorString(status));
 	}
+	decoder->SurfacesUsed[i] = VDP_INVALID_HANDLE;
     }
     decoder->SurfaceFreeN = 0;
     decoder->SurfaceUsedN = 0;
@@ -3516,6 +3523,15 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 {
     VdpStatus status;
     int i;
+
+    if (decoder->VideoDecoder != VDP_INVALID_HANDLE) {
+	status = VdpauDecoderDestroy(decoder->VideoDecoder);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy video decoder: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	decoder->VideoDecoder = VDP_INVALID_HANDLE;
+    }
 
     if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
 	status = VdpauVideoMixerDestroy(decoder->VideoMixer);
@@ -3934,6 +3950,8 @@ static void VideoVdpauInit(const char *display_name)
 	    Fatal(_("video/vdpau: can't create output surface: %s\n"),
 		VdpauGetErrorString(status));
 	}
+	Debug(3, "video/vdpau: created output surface %dx%d with id 0x%08x\n",
+	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb[i]);
     }
 }
 
@@ -3942,12 +3960,15 @@ static void VideoVdpauInit(const char *display_name)
 ///
 static void VideoVdpauExit(void)
 {
+    int i;
+
     if (VdpauDecoders[0]) {
 	VdpauDelDecoder(VdpauDecoders[0]);
 	VdpauDecoders[0] = NULL;
     }
 
     if (VdpauDevice) {
+
 	if (VdpauQueue) {
 	    VdpauPresentationQueueDestroy(VdpauQueue);
 	    VdpauQueue = 0;
@@ -3956,7 +3977,24 @@ static void VideoVdpauExit(void)
 	    VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
 	    VdpauQueueTarget = 0;
 	}
+	//
+	//	destroy display output surfaces
+	//
+	for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	    VdpStatus status;
+
+	    Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
+		VdpauSurfacesRb[i]);
+	    status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't destroy output surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	    VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
+	}
+
 	// FIXME: more VDPAU cleanups...
+
 	if (VdpauDeviceDestroy) {
 	    VdpauDeviceDestroy(VdpauDevice);
 	}
@@ -5071,6 +5109,7 @@ static void VdpauOsdInit(int width, int height)
 
     if (!VdpauDevice) {
 	Debug(3, "video/vdpau: vdpau not setup\n");
+	return;
     }
 
     VdpauOsdWidth = width;
@@ -5089,6 +5128,9 @@ static void VdpauOsdInit(int width, int height)
 		Error(_("video/vdpau: can't create bitmap surface: %s\n"),
 		    VdpauGetErrorString(status));
 	    }
+	    Debug(4,
+		"video/vdpau: created bitmap surface %dx%d with id 0x%08x\n",
+		width, height, VdpauOsdBitmapSurface[i]);
 	}
     }
 #else
@@ -5101,6 +5143,9 @@ static void VdpauOsdInit(int width, int height)
 		Error(_("video/vdpau: can't create output surface: %s\n"),
 		    VdpauGetErrorString(status));
 	    }
+	    Debug(4,
+		"video/vdpau: created osd output surface %dx%d with id 0x%08x\n",
+		width, height, VdpauOsdOutputSurface[i]);
 	}
     }
 #endif
@@ -5108,6 +5153,14 @@ static void VdpauOsdInit(int width, int height)
     Debug(3, "video/vdpau: osd surfaces created\n");
 
     VdpauOsdClear();
+}
+
+/**
+**	Cleanup osd.
+*/
+static void VdpauOsdExit(void)
+{
+    Debug(3, "FIXME: %s\n", __FUNCTION__);
 }
 
 #endif
@@ -5259,6 +5312,25 @@ void VideoOsdInit(void)
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpauOsdInit(OsdWidth, OsdHeight);
+	return;
+    }
+#endif
+}
+
+/**
+**	Cleanup OSD.
+*/
+void VideoOsdExit(void)
+{
+#ifdef USE_VAAPI
+    if (VideoVaapiEnabled) {
+	// FIXME: VaapiOsdExit();
+	return;
+    }
+#endif
+#ifdef USE_VDPAU
+    if (VideoVdpauEnabled) {
+	VdpauOsdExit();
 	return;
     }
 #endif

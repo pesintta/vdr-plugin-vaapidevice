@@ -274,9 +274,9 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 
 	// new + grow reserves FF_INPUT_BUFFER_PADDING_SIZE
 	av_grow_packet(avpkt, ((size + VIDEO_BUFFER_SIZE / 2)
-	    / (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
+		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
 #ifdef DEBUG
-	if (avpkt->size <= avpkt->stream_index + size ) {
+	if (avpkt->size <= avpkt->stream_index + size) {
 	    abort();
 	}
 #endif
@@ -888,6 +888,7 @@ void Stop(void)
 	MyAudioDecoder = NULL;
     }
 
+    VideoOsdExit();
     VideoExit();
     AudioExit();
     CodecExit();
