@@ -1,6 +1,8 @@
 User johns
-Date:
+Date: Thu Dec 29 19:44:43 CET 2011
 
+    Release Version 0.1.4
+    Prepared vdpau noise reduction support.
     Vdpau also displays a black surface, when no video is available.
     Fix bug: CodecVideoDecode destroys avpkt.
 

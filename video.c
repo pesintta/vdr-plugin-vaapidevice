@@ -3103,6 +3103,7 @@ static int VdpauHqScalingMax;		///< highest supported scaling level
 static int VdpauTemporal;		///< temporal deinterlacer supported
 static int VdpauTemporalSpatial;	///< temporal spatial deint. supported
 static int VdpauInverseTelecine;	///< inverse telecine deint. supported
+static int VdpauNoiseReduction;		///< noise reduction supported
 static int VdpauSkipChroma;		///< skip chroma deint. supported
 
     /// display surface ring buffer
@@ -3343,8 +3344,8 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 {
     VdpStatus status;
     int i;
-    VdpVideoMixerFeature features[13];
-    VdpBool enables[13];
+    VdpVideoMixerFeature features[14];
+    VdpBool enables[14];
     int feature_n;
     VdpVideoMixerParameter paramaters[10];
     void const *values[10];
@@ -3366,8 +3367,9 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     if (VdpauInverseTelecine) {
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
     }
-    // FIXME:
-    // VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION
+    if (VdpauNoiseReduction) {
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
+    }
     // VDP_VIDEO_MIXER_FEATURE_SHARPNESS
     for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
 	i <= VdpauHqScalingMax; ++i) {
@@ -3426,6 +3428,12 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	Debug(3, "video/vdpau: inverse telecine %s\n",
 	    enables[feature_n - 1] ? "enabled" : "disabled");
     }
+    if (VdpauNoiseReduction) {
+	enables[feature_n] = VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
+	Debug(3, "video/vdpau: noise reduction %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
     for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
 	i <= VdpauHqScalingMax; ++i) {
 	enables[feature_n] =
@@ -3439,9 +3447,14 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	enables);
 
     /*
-       FIXME:
-       VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
-       attributes, values);
+	FIXME:
+	VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL
+	VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL
+	VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
+	VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
+	VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE
+	VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
+	attributes, values);
      */
 
     //VdpColorStandard color_standard;
@@ -3860,6 +3873,16 @@ static void VideoVdpauInit(const char *display_name)
 	    "inverse-telecine", VdpauGetErrorString(status));
     } else {
 	VdpauInverseTelecine = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "noise-reduction", VdpauGetErrorString(status));
+    } else {
+	VdpauNoiseReduction = flag;
     }
 
     status =
