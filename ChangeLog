@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Vdpau also displays a black surface, when no video is available.
     Fix bug: CodecVideoDecode destroys avpkt.
 
 Date: Thu Dec 29 00:55:57 CET 2011

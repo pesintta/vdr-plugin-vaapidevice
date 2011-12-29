@@ -4661,6 +4661,44 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 }
 
 ///
+///	Create and display a black empty surface.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauBlackSurface(VdpauDecoder * decoder)
+{
+    VdpStatus status;
+    void *image;
+    void const *data[1];
+    uint32_t pitches[1];
+    VdpRect dst_rect;
+
+    Debug(3, "video/vdpau: black surface\n");
+
+    // FIXME: clear video window area
+    (void)decoder;
+
+    image = calloc(4, VideoWindowWidth * VideoWindowHeight);
+
+    dst_rect.x0 = 0;
+    dst_rect.y0 = 0;
+    dst_rect.x1 = dst_rect.x0 + VideoWindowWidth;
+    dst_rect.y1 = dst_rect.y0 + VideoWindowHeight;
+    data[0] = image;
+    pitches[0] = VideoWindowWidth * 4;
+
+    status =
+	VdpauOutputSurfacePutBitsNative(VdpauSurfacesRb[VdpauSurfaceIndex],
+	data, pitches, &dst_rect);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: output surface put bits failed: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    free(image);
+}
+
+///
 ///	Advance displayed frame.
 ///
 static void VdpauAdvanceFrame(void)
@@ -4755,8 +4793,8 @@ static void VdpauDisplayFrame(void)
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// need 1 frame for progressive, 3 frames for interlaced
 	if (filled < 1 + 2 * decoder->Interlaced) {
-	    // FIXME: render black surface
-	    // FIXME: or rewrite MixVideo to support less surfaces
+	    // FIXME: rewrite MixVideo to support less surfaces
+	    VdpauBlackSurface(decoder);
 	    continue;
 	}
 
