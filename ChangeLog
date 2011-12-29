@@ -1,4 +1,17 @@
 User johns
+Date:
+
+    Fix bug: CodecVideoDecode destroys avpkt.
+
+Date: Thu Dec 29 00:55:57 CET 2011
+
+    Release Version 0.1.3
+    Add missing VdpauDecoderDestroy.
+    Cleanup video packet ringbuffer.
+    Allow build without VDPAU.
+    Fix bug: swapped end and start.
+    Support other than "PCM" alsa mixer channels.
+
 Date: Sat Dec 24 15:26:27 CET 2011
 
     Release Version 0.1.2

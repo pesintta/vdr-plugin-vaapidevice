@@ -47,7 +47,7 @@ extern void CodecVideoOpen(VideoDecoder *, const char *, int);
 extern void CodecVideoClose(VideoDecoder *);
 
     /// Decode a video packet
-extern void CodecVideoDecode(VideoDecoder *, AVPacket * pkt);
+extern void CodecVideoDecode(VideoDecoder *, const AVPacket * pkt);
 
     /// Allocate a new audio decoder context.
 extern AudioDecoder *CodecAudioNewDecoder(void);
@@ -59,7 +59,7 @@ extern void CodecAudioOpen(AudioDecoder *, const char *, int);
 extern void CodecAudioClose(AudioDecoder *);
 
     /// Decode an audio packet
-extern void CodecAudioDecode(AudioDecoder *, AVPacket * pkt);
+extern void CodecAudioDecode(AudioDecoder *, const AVPacket * pkt);
 
     /// Setup and initialize codec module.
 extern void CodecInit(void);

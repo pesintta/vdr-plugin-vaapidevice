@@ -11,7 +11,6 @@ missing:
 vdpau:
     1080i with temporal spatial too slow GT 520
     VdpPreemptionCallback handling
-    Loose a surface
 
 libva-intel-driver:
     intel still has hangups most with 1080i
@@ -36,7 +35,7 @@ x11:
 
 audio/alsa:
     video/audio asyncron
-    random crash in av_parser_parse2, when switching channels
+    FIXED? random crash in av_parser_parse2, when switching channels
 
     playback of >2 channels on 2 channel hardware
 	    done?
@@ -48,6 +47,9 @@ playback of recording
     play back is too fast
 
 setup:
-    Setup menu parameters aren't automatic loaded?
+    Setup of decoder type.
+    Setup of output type.
+    Setup of display type.
+    Setup 4:3 zoom type
     Setup parameters are not used until restart.
 	Can a notice be added to the setup menu?

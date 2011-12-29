@@ -44,7 +44,11 @@
 
 static char BrokenThreadsAndPlugins;	///< broken vdr threads and plugins
 
+#ifdef USE_VDPAU
 static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
+#else
+#define ConfigVdpauDecoder 0		///< no vdpau decoder configured
+#endif
 
 //////////////////////////////////////////////////////////////////////////////
 //	Audio

@@ -483,32 +483,28 @@ void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
 **
 **	@param decoder	video decoder data
 **	@param avpkt	video packet
-**
-**	@note this version destroys avpkt!!
 */
-void CodecVideoDecode(VideoDecoder * decoder, AVPacket * avpkt)
+void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 {
     AVCodecContext *video_ctx;
     AVFrame *frame;
     int used;
     int got_frame;
+    AVPacket pkt[1];
 
     video_ctx = decoder->VideoCtx;
     frame = decoder->Frame;
+    *pkt = *avpkt;			// use copy
 
   next_part:
     // FIXME: this function can crash with bad packets
-    used = avcodec_decode_video2(video_ctx, frame, &got_frame, avpkt);
-    Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, avpkt->data, avpkt->size,
-	used, got_frame);
+    used = avcodec_decode_video2(video_ctx, frame, &got_frame, pkt);
+    Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, pkt->data, pkt->size, used,
+	got_frame);
 
     if (got_frame) {			// frame completed
 	//DisplayPts(video_ctx, frame);
-	if (video_ctx->hwaccel_context) {
-	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-	} else {
-	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-	}
+	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
     } else {
 	// some frames are needed for references, interlaced frames ...
 	// could happen with h264 dvb streams, just drop data.
@@ -516,23 +512,18 @@ void CodecVideoDecode(VideoDecoder * decoder, AVPacket * avpkt)
 	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used\n",
 	    video_ctx->frame_number, used);
     }
-    if (used != avpkt->size) {
-	if (used == 0) {
-	    goto next_part;
-	}
+    if (used != pkt->size) {
 	if (used >= 0) {
 	    // some tv channels, produce this
 	    Debug(4,
 		"codec: ooops didn't use complete video packet used %d of %d\n",
-		used, avpkt->size);
-	    avpkt->data += used;
-	    avpkt->size -= used;
+		used, pkt->size);
+	    pkt->data += used;
+	    pkt->size -= used;
 	    goto next_part;
 	}
 	Debug(3, "codec: bad frame %d\n", used);
     }
-
-    return;
 }
 
 //----------------------------------------------------------------------------
@@ -663,7 +654,7 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 **	@param audio_decoder	audio_Decoder data
 **	@param avpkt		audio packet
 */
-void CodecAudioDecode(AudioDecoder * audio_decoder, AVPacket * avpkt)
+void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
 	FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
