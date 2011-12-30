@@ -3447,14 +3447,14 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	enables);
 
     /*
-	FIXME:
-	VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL
-	VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL
-	VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
-	VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
-	VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE
-	VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
-	attributes, values);
+       FIXME:
+       VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL
+       VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL
+       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
+       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
+       VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE
+       VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
+       attributes, values);
      */
 
     //VdpColorStandard color_standard;
@@ -5941,6 +5941,7 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
     return NULL;
 }
 
+#ifdef USE_VDPAU
 ///
 ///	Draw ffmpeg vdpau render state.
 ///
@@ -5950,7 +5951,6 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 void VideoDrawRenderState(VideoHwDecoder * decoder,
     struct vdpau_render_state *vrs)
 {
-#ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpStatus status;
 	uint32_t start;
@@ -5973,12 +5973,12 @@ void VideoDrawRenderState(VideoHwDecoder * decoder,
 	}
 	return;
     }
-#endif
     (void)decoder;
     (void)vrs;
     Error(_("video/vdpau: draw render state, without vdpau enabled\n"));
     return;
 }
+#endif
 
 #ifndef USE_VIDEO_THREAD
 
