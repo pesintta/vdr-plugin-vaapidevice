@@ -445,7 +445,9 @@ static void AudioInitThread(void)
     pthread_mutex_init(&AudioMutex, NULL);
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
+    pthread_setname_np(AudioThread, "softhddev audio");
     //pthread_detach(AudioThread);
+    // wait until thread has opened and is ready
     do {
 	pthread_yield();
     } while (!AlsaPCMHandle);

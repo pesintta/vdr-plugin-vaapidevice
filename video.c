@@ -5709,6 +5709,7 @@ void VideoDisplayHandler(void)
 	pthread_mutex_init(&VideoLockMutex, NULL);
 	pthread_cond_init(&VideoWakeupCond, NULL);
 	pthread_create(&VideoThread, NULL, VideoDisplayHandlerThread, NULL);
+	pthread_setname_np(VideoThread, "softhddev video");
 	//pthread_detach(VideoThread);
     }
 }
