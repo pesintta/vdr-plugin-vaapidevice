@@ -21,6 +21,7 @@ CONFIG := #-DDEBUG
 #CONFIG += -DHAVE_PTHREAD_NAME
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
+CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
 
 ### The C++ compiler and options:
 
@@ -31,14 +32,27 @@ CFLAGS   ?=	-g -O2 -W -Wall -Wextra -Winit-self \
 		-Wdeclaration-after-statement -fPIC
 #CFLAGS	+=	-Werror
 override CFLAGS   +=	$(DEFINES) $(INCLUDES) \
-		$(shell pkg-config --cflags alsa libavcodec libavformat)
+	$(shell pkg-config --cflags libavcodec libavformat) \
+	`pkg-config --cflags x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
+		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
+	`pkg-config --cflags gl glu` \
+	$(if $(findstring USE_VDPAU,$(CONFIG)), \
+	            `pkg-config --cflags vdpau`) \
+	$(if $(findstring USE_VAAPI,$(CONFIG)), \
+	            `pkg-config --cflags libva-x11 libva-glx libva`) \
+	$(if $(findstring USE_ALSA,$(CONFIG)), \
+	            `pkg-config --cflags alsa`)
 override LDFLAGS  += -lrt \
-	$(shell pkg-config --libs alsa libavcodec libavformat) \
+	$(shell pkg-config --libs libavcodec libavformat) \
 	`pkg-config --libs x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
 		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
 	`pkg-config --libs gl glu` \
-	`pkg-config --libs vdpau` \
-	`pkg-config --libs libva-x11 libva-glx libva`
+	$(if $(findstring USE_VDPAU,$(CONFIG)), \
+	            `pkg-config --libs vdpau`) \
+	$(if $(findstring USE_VAAPI,$(CONFIG)), \
+	            `pkg-config --libs libva-x11 libva-glx libva`) \
+	$(if $(findstring USE_ALSA,$(CONFIG)), \
+	            `pkg-config --libs alsa`)
 
 ### The directory environment:
 

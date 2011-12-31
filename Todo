@@ -9,6 +9,8 @@ missing:
     multistream handling
     audio out with oss/oss4
     HDMI/SPDIF Passthrough
+    disable screensaver
+    disable window cursor
 
 vdpau:
     1080i with temporal spatial too slow GT 520

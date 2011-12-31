@@ -167,7 +167,11 @@ typedef enum _video_zoom_modes_
 //----------------------------------------------------------------------------
 
 #define CODEC_SURFACES_MAX	31	///< maximal of surfaces
+
 #define CODEC_SURFACES_DEFAULT	(21+4)	///< default of surfaces
+// FIXME: video-xvba only supports 14
+#define xCODEC_SURFACES_DEFAULT	14	///< default of surfaces
+
 #define CODEC_SURFACES_MPEG2	3	///< 1 decode, up to  2 references
 #define CODEC_SURFACES_MPEG4	3	///< 1 decode, up to  2 references
 #define CODEC_SURFACES_H264	21	///< 1 decode, up to 20 references
@@ -760,6 +764,7 @@ struct _vaapi_decoder_
 
     struct vaapi_context VaapiContext[1];	///< ffmpeg VA-API context
 
+    int SurfacesNeeded;			///< number of surface to request
     int SurfaceUsedN;			///< number of used surfaces
     /// used surface ids
     VASurfaceID SurfacesUsed[CODEC_SURFACES_MAX];
@@ -819,11 +824,16 @@ static void VaapiBlackSurface(VaapiDecoder * decoder);
 ///
 static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 {
+#ifdef DEBUG
+    if (!decoder->SurfacesNeeded) {
+	Error(_("video/vaapi: surface needed not set\n"));
+	decoder->SurfacesNeeded = 3 + VIDEO_SURFACES_MAX;
+    }
+#endif
     Debug(3, "video/vaapi: %s: %dx%d * %d\n", __FUNCTION__, width, height,
-	CODEC_SURFACES_DEFAULT);
+	decoder->SurfacesNeeded);
 
-    // FIXME: allocate only the number of needed surfaces
-    decoder->SurfaceFreeN = CODEC_SURFACES_DEFAULT;
+    decoder->SurfaceFreeN = decoder->SurfacesNeeded;
     // VA_RT_FORMAT_YUV420 VA_RT_FORMAT_YUV422 VA_RT_FORMAT_YUV444
     if (vaCreateSurfaces(decoder->VaDisplay, width, height,
 	    VA_RT_FORMAT_YUV420, decoder->SurfaceFreeN,
@@ -872,7 +882,7 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
 	for (i = 0; i < decoder->SurfaceFreeN; ++i) {
-	    Debug(3, "video/vaapi: associate %08x\n",
+	    Debug(4, "video/vaapi: associate %#010x surface\n",
 		decoder->SurfacesFree[i]);
 	}
     }
@@ -1483,14 +1493,19 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     // check profile
     switch (video_ctx->codec_id) {
 	case CODEC_ID_MPEG2VIDEO:
+	    decoder->SurfacesNeeded =
+		CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG2Main);
 	    break;
 	case CODEC_ID_MPEG4:
 	case CODEC_ID_H263:
+	    decoder->SurfacesNeeded =
+		CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX;
 	    p = VaapiFindProfile(profiles, profile_n,
 		VAProfileMPEG4AdvancedSimple);
 	    break;
 	case CODEC_ID_H264:
+	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX;
 	    // try more simple formats, fallback to better
 	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
 		p = VaapiFindProfile(profiles, profile_n,
@@ -1507,9 +1522,11 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	    }
 	    break;
 	case CODEC_ID_WMV3:
+	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
 	    break;
 	case CODEC_ID_VC1:
+	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
 	    break;
 	default:
@@ -1624,6 +1641,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 
   slow_path:
     // no accelerated format found
+    decoder->SurfacesNeeded = 1 + VIDEO_SURFACES_MAX;
     video_ctx->hwaccel_context = NULL;
     return avcodec_default_get_format(video_ctx, fmt);
 }
@@ -2035,7 +2053,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	% VIDEO_SURFACES_MAX;
     atomic_inc(&decoder->SurfacesFilled);
 
-    Debug(4, "video/vaapi: yy video surface %#x ready\n", surface);
+    Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
 }
 
 #if 0
@@ -2103,7 +2121,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	start = GetMsTicks();
     }
 
-    Debug(4, "video/vaapi: yy black video surface %#x displayed\n",
+    Debug(4, "video/vaapi: yy black video surface %#010x displayed\n",
 	decoder->BlackSurface);
     sync = GetMsTicks();
     xcb_flush(Connection);
@@ -2243,7 +2261,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 		vaPutImage(decoder->VaDisplay, surface, image->image_id, 0, 0,
 		    image->width, image->height, 0, 0, image->width,
 		    image->height)) != VA_STATUS_SUCCESS) {
-	    Fatal("video/vaapi: can't put image %d!\n", status);
+	    Error("video/vaapi: can't put image %d!\n", status);
 	}
     }
 
@@ -2301,7 +2319,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
     if (vaPutImage(VaDisplay, out1, img2->image_id, 0, 0, img2->width,
 	    img2->height, 0, 0, img2->width,
 	    img2->height) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't put image!\n");
+	Error("video/vaapi: can't put image!\n");
     }
     VaapiQueueSurface(decoder, out1, 1);
     if (0 && vaSyncSurface(decoder->VaDisplay, out1) != VA_STATUS_SUCCESS) {
@@ -2312,7 +2330,7 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
     if (vaPutImage(VaDisplay, out2, img3->image_id, 0, 0, img3->width,
 	    img3->height, 0, 0, img3->width,
 	    img3->height) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't put image!\n");
+	Error("video/vaapi: can't put image!\n");
     }
     VaapiQueueSurface(decoder, out2, 1);
     if (0 && vaSyncSurface(decoder->VaDisplay, out2) != VA_STATUS_SUCCESS) {
@@ -2433,6 +2451,9 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 	    VaapiSetup(decoder, video_ctx);
 
+	    // FIXME: bad interlace like hw-part
+	    // FIXME: aspect ratio
+
 	    //
 	    //	detect interlaced input
 	    //
@@ -2451,7 +2472,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	//
 	if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data)
 	    != VA_STATUS_SUCCESS) {
-	    Fatal("video/vaapi: can't map the image!\n");
+	    Error(_("video/vaapi: can't map the image!\n"));
 	}
 	for (i = 0; (unsigned)i < decoder->Image->num_planes; ++i) {
 	    picture->data[i] = va_image_data + decoder->Image->offsets[i];
@@ -2462,16 +2483,19 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    width, height);
 
 	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
-	    Fatal("video/vaapi: can't unmap the image!\n");
+	    Error(_("video/vaapi: can't unmap the image!\n"));
 	}
 	// get a free surface and upload the image
 	surface = VaapiGetSurface(decoder);
+	Debug(4, "video/vaapi: video surface %#010x displayed\n", surface);
+	Debug(4, "video/vaapi: buffer %dx%d <- %dx%d\n", decoder->Image->width,
+	    decoder->Image->height, width, height);
 
 	// FIXME: intel didn't support put image.
 	if ((i = vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0,
 		    width, height, 0, 0, width, height)
 	    ) != VA_STATUS_SUCCESS) {
-	    Fatal("video/vaapi: can't put image %d!\n", i);
+	    Error(_("video/vaapi: can't put image err:%d!\n"), i);
 	}
 
 	VaapiQueueSurface(decoder, surface, 1);
@@ -2563,7 +2587,7 @@ static void VaapiDisplayFrame(void)
 	if (surface == VA_INVALID_ID) {
 	    printf(_("video/vaapi: invalid surface in ringbuffer\n"));
 	}
-	Debug(4, "video/vaapi: yy video surface %#x displayed\n", surface);
+	Debug(4, "video/vaapi: yy video surface %#010x displayed\n", surface);
 #endif
 
 	start = GetMsTicks();

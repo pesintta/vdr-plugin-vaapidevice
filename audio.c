@@ -32,6 +32,8 @@
 ///
 
 #define USE_AUDIO_THREAD
+//#define USE_ALSA			///< enable alsa support
+//#define USE_OSS			///< enable oss support
 
 #include <stdio.h>
 #include <stdint.h>
@@ -41,7 +43,9 @@
 #define _(str) gettext(str)		///< gettext shortcut
 #define _N(str) str			///< gettext_noop shortcut
 
+#ifdef USE_ALSA
 #include <alsa/asoundlib.h>
+#endif
 
 #ifdef USE_AUDIO_THREAD
 #ifndef __USE_GNU
