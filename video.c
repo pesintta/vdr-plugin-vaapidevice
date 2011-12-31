@@ -68,6 +68,10 @@
 #endif
 #include <pthread.h>
 #include <time.h>
+#ifndef HAVE_PTHREAD_NAME
+    /// only available with newer glibc
+#define pthread_setname_np(thread, name)
+#endif
 #endif
 
 #ifdef USE_XLIB_XCB

@@ -48,6 +48,10 @@
 #define __USE_GNU
 #endif
 #include <pthread.h>
+#ifndef HAVE_PTHREAD_NAME
+    /// only available with newer glibc
+#define pthread_setname_np(thread, name)
+#endif
 #endif
 
 #include "ringbuffer.h"
