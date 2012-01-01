@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.c	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -60,6 +60,122 @@ static enum CodecID AudioCodecID;	///< current codec id
 extern void AudioTest(void);		// FIXME:
 
 /**
+**	mpeg bitrate table.
+**
+**	BitRateTable[Version][Layer][Index]
+*/
+static const uint16_t BitRateTable[2][4][16] = {
+    // MPEG Version 1
+    {{},
+	{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448,
+	    0},
+	{0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
+	{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0}},
+    // MPEG Version 2 & 2.5
+    {{},
+	{0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0},
+	{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0},
+	{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
+	}
+};
+
+/**
+**	mpeg samperate table.
+*/
+static const uint16_t SampleRateTable[4] = {
+    44100, 48000, 32000, 0
+};
+
+/**
+**	Find sync in audio packet.
+**
+**	@param avpkt	audio packet
+**
+**	From: http://www.mpgedit.org/mpgedit/mpeg_format/mpeghdr.htm
+**
+**	AAAAAAAA AAABBCCD EEEEFFGH IIJJKLMM
+**
+**	o a 11x	frame sync
+**	o b 2x	mpeg audio version (2.5, reserved, 2, 1)
+**	o c 2x	layer (reserved, III, II, I)
+**	o e 2x	BitRate index
+**	o f 2x	SampleRate index
+**	o g 1x	Paddding bit
+**	o ..	doesn't care
+**
+**	frame length:
+**	Layer I:
+**		FrameLengthInBytes = (12 * BitRate / SampleRate + Padding) * 4
+**	Layer II & III:
+**		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
+*/
+static int FindAudioSync(const AVPacket * avpkt)
+{
+    int i;
+    const uint8_t *data;
+
+    i = 0;
+    data = avpkt->data;
+    while (i < avpkt->size - 4) {
+	if (data[i] == 0xFF && (data[i + 1] & 0xFC) == 0xFC) {
+	    int mpeg2;
+	    int mpeg25;
+	    int layer;
+	    int bit_rate_index;
+	    int sample_rate_index;
+	    int padding;
+	    int bit_rate;
+	    int sample_rate;
+	    int frame_size;
+
+	    mpeg2 = !(data[i + 1] & 0x08) && (data[i + 1] & 0x10);
+	    mpeg25 = !(data[i + 1] & 0x08) && !(data[i + 1] & 0x10);
+	    layer = 4 - ((data[i + 1] >> 1) & 0x03);
+	    bit_rate_index = (data[i + 2] >> 4) & 0x0F;
+	    sample_rate_index = (data[i + 2] >> 2) & 0x03;
+	    padding = (data[i + 2] >> 1) & 0x01;
+
+	    sample_rate = SampleRateTable[sample_rate_index];
+	    if (!sample_rate) {		// no valid sample rate try next
+		i++;
+		continue;
+	    }
+	    sample_rate >>= mpeg2;	// mpeg 2 half rate
+	    sample_rate >>= mpeg25;	// mpeg 2.5 quarter rate
+
+	    bit_rate = BitRateTable[mpeg2 | mpeg25][layer][bit_rate_index];
+	    bit_rate *= 1000;
+	    switch (layer) {
+		case 1:
+		    frame_size = (12 * bit_rate) / sample_rate;
+		    frame_size = (frame_size + padding) * 4;
+		    break;
+		case 2:
+		case 3:
+		default:
+		    frame_size = (144 * bit_rate) / sample_rate;
+		    frame_size = frame_size + padding;
+		    break;
+	    }
+	    Debug(3,
+		"audio: mpeg%s layer%d bitrate=%d samplerate=%d %d bytes\n",
+		mpeg25 ? "2.5" : mpeg2 ? "2" : "1", layer, bit_rate,
+		sample_rate, frame_size);
+	    if (i + frame_size < avpkt->size - 4) {
+		if (data[i + frame_size] == 0xFF
+		    && (data[i + frame_size + 1] & 0xFC) == 0xFC) {
+		    Debug(3, "audio: mpeg1/2 found at %d\n", i);
+		    return i;
+		}
+	    }
+	    // no valid frame size or no continuation, try next
+	}
+	i++;
+    }
+    return -1;
+}
+
+/**
 **	Play audio packet.
 **
 **	@param data	data of exactly one complete PES packet
@@ -74,13 +190,10 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (BrokenThreadsAndPlugins) {
 	return;
     }
-    // PES header 0x00 0x00 0x01 ID
-    // ID 0xBD 0xC0-0xCF
-
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
-    // Detect audio code
-    // MPEG-PS mp2 MPEG1, MPEG2, AC3
+    // PES header 0x00 0x00 0x01 ID
+    // ID 0xBD 0xC0-0xCF
 
     if (size < 9) {
 	Error(_("[softhddev] invalid audio packet\n"));
@@ -111,6 +224,9 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	Error(_("[softhddev] invalid audio packet\n"));
 	return;
     }
+    // Detect audio code
+    // MPEG-PS mp2 MPEG1, MPEG2, AC3
+
     // Syncword - 0x0B77
     if (data[0] == 0x0B && data[1] == 0x77) {
 	if (!MyAudioDecoder) {
@@ -141,9 +257,23 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
 	// no start package
 	// FIXME: Nick/Viva sends this shit, need to find sync in packet
 	// FIXME: otherwise it takes too long until sound appears
+
 	if (AudioCodecID == CODEC_ID_NONE) {
 	    Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
-	    return;
+	    avpkt->data = (void *)data;
+	    avpkt->size = size;
+	    n = FindAudioSync(avpkt);
+	    if (n < 0) {
+		return;
+	    }
+	    if (!MyAudioDecoder) {
+		MyAudioDecoder = CodecAudioNewDecoder();
+	    }
+
+	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
+	    AudioCodecID = CODEC_ID_MP2;
+	    data += n;
+	    size -= n;
 	}
     }
 
