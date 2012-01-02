@@ -1,7 +1,7 @@
 ///
 ///	@file misc.h	@brief Misc function header file
 ///
-///	Copyright (c) 2009 - 2011 by Lutz Sammer.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Lutz Sammer.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///		Copied from uwm.
@@ -46,24 +46,28 @@ extern int SysLogLevel;			///< how much information wanted
 //	Prototypes
 //////////////////////////////////////////////////////////////////////////////
 
-static inline void Debug(const int, const char *format, ...)
+static inline void Syslog(const int, const char *format, ...)
     __attribute__ ((format(printf, 2, 3)));
 
 //////////////////////////////////////////////////////////////////////////////
 //	Inlines
 //////////////////////////////////////////////////////////////////////////////
 
+#ifdef DEBUG
 #define DebugLevel 4			/// private debug level
+#else
+#define DebugLevel 0			/// private debug level
+#endif
 
 /**
-**	Debug output function.
+**	Syslog output function.
 **
 **	- 0	fatal errors and errors
 **	- 1	warnings
 **	- 2	info
 **	- 3	important debug and fixme's
 */
-static inline void Debug(const int level, const char *format, ...)
+static inline void Syslog(const int level, const char *format, ...)
 {
     if (SysLogLevel > level || DebugLevel > level) {
 	va_list ap;
@@ -77,7 +81,7 @@ static inline void Debug(const int level, const char *format, ...)
 /**
 **	Show error.
 */
-#define Error(fmt...)	Debug(0, fmt)
+#define Error(fmt...)	Syslog(0, fmt)
 
 /**
 **	Show fatal error.
@@ -87,12 +91,21 @@ static inline void Debug(const int level, const char *format, ...)
 /**
 **	Show warning.
 */
-#define Warning(fmt...)	Debug(1, fmt)
+#define Warning(fmt...)	Syslog(1, fmt)
 
 /**
 **	Show info.
 */
-#define Info(fmt...)	Debug(2, fmt)
+#define Info(fmt...)	Syslog(2, fmt)
+
+/**
+**	Show debug.
+*/
+#ifdef DEBUG
+#define Debug(level, fmt...)	Syslog(level, fmt)
+#else
+#define Debug(level, fmt...)		/* disabled */
+#endif
 
 /**
 **	Get ticks in ms.
