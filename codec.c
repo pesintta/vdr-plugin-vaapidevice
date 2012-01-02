@@ -1,7 +1,7 @@
 ///
 ///	@file codec.c	@brief Codec functions
 ///
-///	Copyright (c) 2009 - 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -26,6 +26,14 @@
 ///		This module contains all decoder and codec functions.
 ///		It is uses ffmpeg (http://ffmpeg.org) as backend.
 ///
+///		It may work with libav (http://libav.org), but the tests show
+///		many bugs and incompatiblity in it.  Don't use this shit.
+///
+
+    /**
+    **	use av_parser to support insane dvb audio streams.
+    */
+#define USE_AVPARSER
 
 #include <stdio.h>
 #include <unistd.h>
@@ -44,6 +52,11 @@
 #include <libavcodec/vdpau.h>
 #endif
 
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
+#include <pthread.h>
+
 #ifdef MAIN_H
 #include MAIN_H
 #endif
@@ -51,6 +64,18 @@
 #include "video.h"
 #include "audio.h"
 #include "codec.h"
+
+//----------------------------------------------------------------------------
+//	Global
+//----------------------------------------------------------------------------
+
+      ///
+      ///	ffmpeg lock mutex
+      ///
+      ///	new ffmpeg dislikes simultanous open/close
+      ///	this breaks our code, until this is fixed use lock.
+      ///
+static pthread_mutex_t CodecLockMutex;
 
 //----------------------------------------------------------------------------
 //	Video
@@ -348,16 +373,20 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     }
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
+    pthread_mutex_lock(&CodecLockMutex);
     // open codec
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open video codec!\n"));
     }
 #else
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open video codec!\n"));
     }
 #endif
+    pthread_mutex_unlock(&CodecLockMutex);
 
     decoder->VideoCtx->opaque = decoder;	// our structure
 
@@ -436,7 +465,9 @@ void CodecVideoClose(VideoDecoder * video_decoder)
     // FIXME: play buffered data
     av_freep(&video_decoder->Frame);
     if (video_decoder->VideoCtx) {
+	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(video_decoder->VideoCtx);
+	pthread_mutex_unlock(&CodecLockMutex);
 	av_freep(&video_decoder->VideoCtx);
     }
 }
@@ -446,9 +477,9 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 /**
 **	Display pts...
 **
-**	ffmpeg 0.9 pts always AV_NOPTS_VALUE
-**	ffmpeg 0.9 pkt_pts nice monotonic (only with HD)
-**	ffmpeg 0.9 pkt_dts wild jumping -160 - 340 ms
+**	ffmpeg-0.9 pts always AV_NOPTS_VALUE
+**	ffmpeg-0.9 pkt_pts nice monotonic (only with HD)
+**	ffmpeg-0.9 pkt_dts wild jumping -160 - 340 ms
 **
 **	libav 0.8_pre20111116 pts always AV_NOPTS_VALUE
 **	libav 0.8_pre20111116 pkt_pts always 0 (could be fixed?)
@@ -545,7 +576,7 @@ struct _audio_decoder_
     AVCodec *AudioCodec;		///< audio codec
     AVCodecContext *AudioCtx;		///< audio codec context
 
-    /// audio parser to support wired dvb streaks
+    /// audio parser to support insane dvb streaks
     AVCodecParserContext *AudioParser;
     int SampleRate;			///< current stream sample rate
     int Channels;			///< current stream channels
@@ -597,16 +628,20 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     if (!(audio_decoder->AudioCtx = avcodec_alloc_context3(audio_codec))) {
 	Fatal(_("codec: can't allocate audio codec context\n"));
     }
+    pthread_mutex_lock(&CodecLockMutex);
     // open codec
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(audio_decoder->AudioCtx, audio_codec) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #else
     if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, NULL) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #endif
+    pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCtx->codec_name);
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
@@ -641,17 +676,21 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 	audio_decoder->AudioParser = NULL;
     }
     if (audio_decoder->AudioCtx) {
+	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(audio_decoder->AudioCtx);
+	pthread_mutex_unlock(&CodecLockMutex);
 	av_freep(&audio_decoder->AudioCtx);
     }
 }
+
+#ifdef USE_AVPARSER
 
 /**
 **	Decode an audio packet.
 **
 **	PTS must be handled self.
 **
-**	@param audio_decoder	audio_Decoder data
+**	@param audio_decoder	audio decoder data
 **	@param avpkt		audio packet
 */
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
@@ -699,7 +738,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    buf_sz = sizeof(buf);
 	    l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, dpkt);
 	    if (l < 0) {		// no audio frame could be decompressed
-		Error(_("codec: error audio data\n"));
+		Error(_("codec: error audio data at %d\n"), index);
 		break;
 	    }
 #ifdef notyetFF_API_OLD_DECODE_AUDIO
@@ -732,8 +771,10 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		if ((err =
 			AudioSetup(&audio_decoder->HwSampleRate,
 			    &audio_decoder->HwChannels))) {
-		    Debug(3, "codec/audio: resample %d -> %d\n",
-			audio_ctx->channels, audio_decoder->HwChannels);
+		    Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
+			audio_ctx->sample_rate, audio_ctx->channels,
+			audio_decoder->HwSampleRate,
+			audio_decoder->HwChannels);
 
 		    if (err == 1) {
 			audio_decoder->ReSample =
@@ -741,10 +782,18 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 			    audio_ctx->channels, audio_decoder->HwSampleRate,
 			    audio_ctx->sample_rate, audio_ctx->sample_fmt,
 			    audio_ctx->sample_fmt, 16, 10, 0, 0.8);
+			// libav-0.8_pre didn't support 6 -> 2 channels
+			if (!audio_decoder->ReSample) {
+			    Error(_("codec/audio: resample setup error\n"));
+			    audio_decoder->HwChannels = 0;
+			    audio_decoder->HwSampleRate = 0;
+			}
 		    } else {
+			Debug(3, "codec/audio: audio setup error\n");
 			// FIXME: handle errors
 			audio_decoder->HwChannels = 0;
 			audio_decoder->HwSampleRate = 0;
+			break;
 		    }
 		}
 	    }
@@ -757,10 +806,25 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 			__attribute__ ((aligned(16)));
 		    int outlen;
 
+		    // FIXME: libav-0.7.2 crash here
 		    outlen =
 			audio_resample(audio_decoder->ReSample, outbuf, buf,
 			buf_sz);
-		    AudioEnqueue(outbuf, outlen);
+#ifdef DEBUG
+		    if (outlen != buf_sz) {
+			Debug(3, "codec/audio: possible fixed ffmpeg\n");
+		    }
+#endif
+		    if (outlen) {
+			// outlen seems to be wrong in ffmpeg-0.9
+			outlen /= audio_decoder->Channels *
+			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
+			outlen *=
+			    audio_decoder->HwChannels *
+			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
+			Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
+			AudioEnqueue(outbuf, outlen);
+		    }
 		} else {
 		    AudioEnqueue(buf, buf_sz);
 		}
@@ -775,9 +839,166 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     }
 
 #if 1
+    // or av_free_packet, make no difference here
     av_destruct_packet(spkt);
 #endif
 }
+
+#else
+
+/**
+**	Decode an audio packet.
+**
+**	PTS must be handled self.
+**
+**	@param audio_decoder	audio decoder data
+**	@param avpkt		audio packet
+*/
+void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
+{
+    int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
+	FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
+    AVCodecContext *audio_ctx;
+    int index;
+
+//#define spkt avpkt
+#if 1
+    AVPacket spkt[1];
+
+    // av_new_packet reserves FF_INPUT_BUFFER_PADDING_SIZE and clears it
+    if (av_new_packet(spkt, avpkt->size)) {
+	Error(_("codec: out of memory\n"));
+	return;
+    }
+    memcpy(spkt->data, avpkt->data, avpkt->size);
+    spkt->pts = avpkt->pts;
+    spkt->dts = avpkt->dts;
+#endif
+    audio_ctx = audio_decoder->AudioCtx;
+    index = 0;
+    while (spkt->size > index) {
+	int n;
+	int buf_sz;
+	AVPacket dpkt[1];
+
+	av_init_packet(dpkt);
+	dpkt->data = spkt->data + index;
+	dpkt->size = spkt->size - index;
+
+	buf_sz = sizeof(buf);
+	n = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, dpkt);
+	if (n < 0) {			// no audio frame could be decompressed
+	    Error(_("codec: error audio data at %d\n"), index);
+	    break;
+	}
+#ifdef DEBUG
+	Debug(4, "codec/audio: -> %d\n", buf_sz);
+	if ((unsigned)buf_sz > sizeof(buf)) {
+	    abort();
+	}
+#endif
+#ifdef notyetFF_API_OLD_DECODE_AUDIO
+	// FIXME: ffmpeg git comeing
+	int got_frame;
+
+	avcodec_decode_audio4(audio_ctx, frame, &got_frame, dpkt);
+#else
+#endif
+	if (buf_sz > 0) {		// something decoded
+	    // Update audio clock
+	    if ((uint64_t) spkt->pts != AV_NOPTS_VALUE) {
+		AudioSetClock(spkt->pts);
+		spkt->pts = AV_NOPTS_VALUE;
+	    }
+	    // FIXME: must first play remainings bytes, than change and play new.
+	    if (audio_decoder->SampleRate != audio_ctx->sample_rate
+		|| audio_decoder->Channels != audio_ctx->channels) {
+		int err;
+
+		if (audio_decoder->ReSample) {
+		    audio_resample_close(audio_decoder->ReSample);
+		    audio_decoder->ReSample = NULL;
+		}
+
+		audio_decoder->SampleRate = audio_ctx->sample_rate;
+		audio_decoder->HwSampleRate = audio_ctx->sample_rate;
+		audio_decoder->Channels = audio_ctx->channels;
+		audio_decoder->HwChannels = audio_ctx->channels;
+
+		// channels not support?
+		if ((err =
+			AudioSetup(&audio_decoder->HwSampleRate,
+			    &audio_decoder->HwChannels))) {
+		    Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
+			audio_ctx->sample_rate, audio_ctx->channels,
+			audio_decoder->HwSampleRate,
+			audio_decoder->HwChannels);
+
+		    if (err == 1) {
+			audio_decoder->ReSample =
+			    av_audio_resample_init(audio_decoder->HwChannels,
+			    audio_ctx->channels, audio_decoder->HwSampleRate,
+			    audio_ctx->sample_rate, audio_ctx->sample_fmt,
+			    audio_ctx->sample_fmt, 16, 10, 0, 0.8);
+			// libav-0.8_pre didn't support 6 -> 2 channels
+			if (!audio_decoder->ReSample) {
+			    Error(_("codec/audio: resample setup error\n"));
+			    audio_decoder->HwChannels = 0;
+			    audio_decoder->HwSampleRate = 0;
+			}
+		    } else {
+			// FIXME: handle errors
+			Debug(3, "codec/audio: audio setup error\n");
+			audio_decoder->HwChannels = 0;
+			audio_decoder->HwSampleRate = 0;
+			break;
+		    }
+		}
+	    }
+
+	    if (audio_decoder->HwSampleRate && audio_decoder->HwChannels) {
+		// need to resample audio
+		if (audio_decoder->ReSample) {
+		    int16_t outbuf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
+			FF_INPUT_BUFFER_PADDING_SIZE]
+			__attribute__ ((aligned(16)));
+		    int outlen;
+
+		    // FIXME: libav-0.7.2 crash here
+		    outlen =
+			audio_resample(audio_decoder->ReSample, outbuf, buf,
+			buf_sz);
+#ifdef DEBUG
+		    if (outlen != buf_sz) {
+			Debug(3, "codec/audio: possible fixed ffmpeg\n");
+		    }
+#endif
+		    if (outlen) {
+			// outlen seems to be wrong in ffmpeg-0.9
+			outlen /= audio_ctx->channels *
+			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
+			outlen *=
+			    audio_decoder->HwChannels *
+			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
+			Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
+			AudioEnqueue(outbuf, outlen);
+		    }
+		} else {
+		    AudioEnqueue(buf, buf_sz);
+		}
+	    }
+	}
+
+	index += n;
+    }
+
+#if 1
+    // or av_free_packet, make no difference here
+    av_destruct_packet(spkt);
+#endif
+}
+
+#endif
 
 //----------------------------------------------------------------------------
 //	Codec
@@ -798,6 +1019,7 @@ static void CodecNoopCallback( __attribute__ ((unused))
 */
 void CodecInit(void)
 {
+    pthread_mutex_init(&CodecLockMutex, NULL);
 #ifndef DEBUG
     // disable display ffmpeg error messages
     av_log_set_callback(CodecNoopCallback);
@@ -812,4 +1034,5 @@ void CodecInit(void)
 */
 void CodecExit(void)
 {
+    pthread_mutex_destroy(&CodecLockMutex);
 }
