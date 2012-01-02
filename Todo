@@ -1,3 +1,23 @@
+@file Todo		@brief A software HD output device for VDR
+
+Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
+
+Contributor(s):
+
+License: AGPLv3
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+$Id: $
+
 missing:
     video out with xv
     video out with opengl
@@ -13,7 +33,8 @@ missing:
     disable window cursor
 
 vdpau:
-    1080i with temporal spatial too slow GT 520
+    1080i with temporal spatial and level 1 scaling too slow with GT 520
+    1080i with temporal spatial too slow with GT 520 on some channels
     VdpPreemptionCallback handling
 
 libva-intel-driver:
@@ -28,7 +49,6 @@ libva-vdpau-driver:
 	-> vaDestroyContext -> pthread_rwlock_wrlock)
 
 libva-xvba-driver:
-    mpeg1/2 needs software decoder fixed
 
 x11:
     support resize of x11 window
@@ -38,14 +58,19 @@ x11:
     disable cursor
 
 audio/alsa:
-    video/audio asyncron
-    FIXED? random crash in av_parser_parse2, when switching channels
+    done? video/audio asyncron
+    random crashes in av_parser_parse2, when switching channels
+    sometimes alsa hangs
 
-    playback of >2 channels on 2 channel hardware
-	    done?
+    better downmix of >2 channels on 2 channel hardware
+    remix support of unsupported sample rates
+    libav supports only resample of mono to 2 channels
+    ffmpeg didn't support resample of 5 to 2 channels
+    CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
+    insufficient thread locking around avcodec_open/close()
 
-    on some channels it takes long time until sound can be heared.
-    this channels has packet start not at the beginning of the start packet
+audio/oss:
+    add and write oss support
 
 playback of recording
     play back is too fast

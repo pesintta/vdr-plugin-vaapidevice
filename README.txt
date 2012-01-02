@@ -1,6 +1,6 @@
 @file README.txt		@brief A software HD output device for VDR
 
-Copyright (c) 2011 by Johns.  All Rights Reserved.
+Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
 
 Contributor(s):
 
@@ -20,14 +20,20 @@ $Id$
 
 A software and GPU emulated HD output device plugin for VDR.
 
-    o Video VA-API/VA-API
+    o Video VA-API/VA-API (with intel, nvidia and amd backend supported)
+    o Video CPU/VA-API
+    o Video VDPAU/VDPAU
+    o Video CPU/VDPAU
     o planned: Video VA-API/Opengl
+    o planned: Video VDPAU/Opengl
     o planned: Video CPU/Xv
     o planned: Video CPU/Opengl
     o planned: Software Deinterlacer
+    o planned: Video XvBA/XvBA
     o Audio FFMpeg/Analog
     o Audio FFMpeg/Digital
     o planned: HDMI/SPDIF Passthrough
+    o planned: OSS support
 
 To compile you must have the 'requires' installed.
 
@@ -58,23 +64,31 @@ Install:
 	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
 
 Setup:	environment
+------
 	Following is supported:
 
 	DISPLAY=:0.0
 		x11 display name
+    only if alsa is configured
 	ALSA_DEVICE=default
 		alsa PCM device name
 	ALSA_MIXER=default
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
 		alsa control channel name
+    only if oss is configured
+	OSS_AUDIODEV=/dev/dsp
+		oss dsp device name
+	OSS_MIXERDEV=/dev/mixer
+		oss mixer device name
 
 Setup: /etc/vdr/setup.conf
+------
 	Following is supported:
 
 	softhddevice.Deinterlace = 0
 	0 = bob, 1 = weave, 2 = temporal, 3 = temporal_spatial, 4 = software
-	(only 0, 1 supported)
+	(only 0, 1 supported with vaapi)
 
 	softhddevice.MakePrimary = 1
 	0 = no change, 1 make softhddevice primary at start
@@ -85,9 +99,13 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.AudioDelay = 0
 	+n or -n ms
 
+Warning:
+--------
+	libav is not supported, expect many bugs with it.
+
 Requires:
 ---------
-	media-video/ffmpeg
+	media-video/ffmpeg (version >=0.7)
 		Complete solution to record, convert and stream audio and
 		video. Includes libavcodec.
 		http://ffmpeg.org
@@ -104,7 +122,7 @@ Requires:
 	x11-libs/vdpau-video
 		VDPAU Backend for Video Acceleration (VA) API
 		http://www.freedesktop.org/wiki/Software/vaapi
-    or untested
+    or
 	x11-libs/xvba-video
 		XVBA Backend for Video Acceleration (VA) API
 		http://www.freedesktop.org/wiki/Software/vaapi
@@ -116,7 +134,7 @@ Requires:
 	x11-libs/xcb-util-keysyms
 		X C-language Bindings library
 		http://xcb.freedesktop.org
-		Only versions >= 0.3.8 are supported
+		Only versions >= 0.3.8 are good supported
 
 	x11-libs/libX11
 		X.Org X11 library
