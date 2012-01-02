@@ -1,7 +1,7 @@
 ///
 ///	@file softhddevice.cpp	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -39,7 +39,7 @@ extern "C" {
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.1.4";
+static const char *const VERSION = "0.1.5";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
