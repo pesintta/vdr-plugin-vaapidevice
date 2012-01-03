@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    New audio driver oss.
     Fix bug: needed down sampling of 3/5/6 to 2 channels not reported.
     Search audio sync inside PES packets, for insane dvb streams.
     Use only the needed number of surfaces.

@@ -35,6 +35,7 @@
 #include "softhddevice.h"
 extern "C" {
     #include "video.h"
+    extern void AudioPoller(void);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -332,6 +333,9 @@ class cSoftHdDevice:public cDevice
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
     //virtual int PlayTsVideo(const uchar *, int);
+#ifdef USE_OSS			// FIXME: testing only oss
+    virtual int PlayTsAudio(const uchar *, int);
+#endif
     virtual void SetAudioChannelDevice(int);
     virtual int GetAudioChannelDevice(void);
     virtual void SetDigitalAudioDevice(bool);
@@ -566,6 +570,20 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 int cSoftHdDevice::PlayTsVideo(const uchar * Data, int Length)
 {
     // many code to repeat
+}
+#endif
+
+#ifdef USE_OSS			// FIXME: testing only oss
+///
+///	Play a TS audio packet.
+///
+///	misuse this function as audio poller
+///
+int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
+{
+    AudioPoller();
+
+    return cDevice::PlayTsAudio(data,length);
 }
 #endif
 

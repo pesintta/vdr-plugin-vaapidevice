@@ -30,10 +30,11 @@ A software and GPU emulated HD output device plugin for VDR.
     o planned: Video CPU/Opengl
     o planned: Software Deinterlacer
     o planned: Video XvBA/XvBA
-    o Audio FFMpeg/Analog
-    o Audio FFMpeg/Digital
-    o planned: HDMI/SPDIF Passthrough
-    o planned: OSS support
+    o Audio FFMpeg/Alsa/Analog
+    o Audio FFMpeg/Alsa/Digital
+    o Audio FFMpeg/OSS/Analog
+    o planned: Alsa HDMI/SPDIF Passthrough
+    o planned: OSS HDMI/SPDIF Passthrough
 
 To compile you must have the 'requires' installed.
 
@@ -62,6 +63,9 @@ Install:
 	tar vxf vdr-softhddevice-*.tar.bz2
 	cd vdr-softhddevice
 	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
+
+	You can edit Makefile to enable/disable VDPAU / VA-API / Alsa / OSS
+	support.
 
 Setup:	environment
 ------
@@ -99,6 +103,11 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.AudioDelay = 0
 	+n or -n ms
 
+Commandline:
+------------
+
+	Use vdr -h to see the command line arguments support by the plugin.
+
 Warning:
 --------
 	libav is not supported, expect many bugs with it.
@@ -112,6 +121,9 @@ Requires:
 	media-libs/alsa-lib
 		Advanced Linux Sound Architecture Library
 		http://www.alsa-project.org
+    or
+	kernel support for oss/oss4 or alsa oss emulation
+
 	x11-libs/libva
 		Video Acceleration (VA) API for Linux
 		http://www.freedesktop.org/wiki/Software/vaapi

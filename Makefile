@@ -19,9 +19,10 @@ VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | aw
 
 CONFIG := #-DDEBUG
 #CONFIG += -DHAVE_PTHREAD_NAME
-CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
+CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
+#CONFIG += -DUSE_OSS
 
 ### The C++ compiler and options:
 

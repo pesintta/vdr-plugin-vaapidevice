@@ -27,7 +27,6 @@ missing:
     atmolight
     zoom/fit-zoom 4:3
     multistream handling
-    audio out with oss/oss4
     HDMI/SPDIF Passthrough
     disable screensaver
     disable window cursor
@@ -67,10 +66,8 @@ audio/alsa:
     libav supports only resample of mono to 2 channels
     ffmpeg didn't support resample of 5 to 2 channels
     CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
-    insufficient thread locking around avcodec_open/close()
 
 audio/oss:
-    add and write oss support
 
 playback of recording
     play back is too fast
