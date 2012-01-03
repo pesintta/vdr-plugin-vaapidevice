@@ -54,6 +54,7 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 //	Audio
 //////////////////////////////////////////////////////////////////////////////
 
+static volatile char NewAudioStream;	///< new audio stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 
@@ -192,6 +193,12 @@ void PlayAudio(const uint8_t * data, int size, uint8_t id)
     }
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
+    if (NewAudioStream) {
+	// FIXME: does this clear the audio ringbuffer?
+	CodecAudioClose(MyAudioDecoder);
+	AudioCodecID = CODEC_ID_NONE;
+	NewAudioStream = 0;
+    }
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
@@ -318,13 +325,13 @@ void SetVolumeDevice(int volume)
 
 #include <alsa/iatomic.h>		// portable atomic_t
 
-uint32_t VideoSwitch;
-static int NewVideoStream;		///< new video stream
+uint32_t VideoSwitch;			///< debug video switch ticks
+static volatile char NewVideoStream;	///< new video stream
 static VideoDecoder *MyVideoDecoder;	///< video decoder
 static enum CodecID VideoCodecID;	///< current codec id
 
 static const char *X11DisplayName;	///< x11 display name
-static volatile int Usr1Signal;		///< true got usr1 signal
+static volatile char Usr1Signal;	///< true got usr1 signal
 
     /// video PES buffer default size
 #define VIDEO_BUFFER_SIZE (512 * 1024)
@@ -334,8 +341,8 @@ static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
 static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
-static char VideoFreezed;		///< video freezed
-static char VideoClearBuffers;		///< clear video buffers
+static volatile char VideoFreezed;	///< video freezed
+static volatile char VideoClearBuffers;	///< clear video buffers
 
 #ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -411,6 +418,9 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
 #ifdef DEBUG
 	if (avpkt->size <= avpkt->stream_index + size) {
+	    fprintf(stderr, "%d %d %d\n", avpkt->size, avpkt->stream_index,
+		size);
+	    fflush(stderr);
 	    abort();
 	}
 #endif
@@ -510,6 +520,7 @@ int VideoDecode(void)
 		CodecVideoClose(MyVideoDecoder);
 		goto skip;
 	    }
+	    goto skip;
 	    break;
 	case CODEC_ID_MPEG2VIDEO:
 	    if (last_codec_id != CODEC_ID_MPEG2VIDEO) {
@@ -568,6 +579,44 @@ static void StartVideo(void)
     VideoPacketInit();
 }
 
+#ifdef DEBUG
+
+/**
+**	Validate mpeg video packet.
+**
+**	Function to validate a mpeg packet, not needed.
+*/
+static int ValidateMpeg(const uint8_t * data, int size)
+{
+    int pes_l;
+
+    do {
+	if (size < 9) {
+	    return -1;
+	}
+	if (data[0] || data[1] || data[2] != 0x01) {
+	    printf("%02x: %02x %02x %02x %02x %02x\n", data[-1], data[0],
+		data[1], data[2], data[3], data[4]);
+	    return -1;
+	}
+
+	pes_l = (data[4] << 8) | data[5];
+	if (!pes_l) {			// contains unknown length
+	    return 1;
+	}
+
+	if (6 + pes_l > size) {
+	    return -1;
+	}
+
+	data += 6 + pes_l;
+	size -= 6 + pes_l;
+    } while (size);
+
+    return 0;
+}
+#endif
+
 /**
 **	Play video packet.
 **
@@ -597,7 +646,7 @@ int PlayVideo(const uint8_t * data, int size)
     if (!MyVideoDecoder) {		// no x11 video started
 	return size;
     }
-    if (NewVideoStream) {
+    if (NewVideoStream) {		// channel switched
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
 	// FIXME: hack to test results
 	if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
@@ -616,13 +665,15 @@ int PlayVideo(const uint8_t * data, int size)
     }
     n = data[8];			// header size
     // wrong size
-    if (size < 9 + n) {
+    if (size < 9 + n + 4) {
 	Error(_("[softhddev] invalid video packet\n"));
 	return size;
     }
-    check = data + 9 + n;
-
-    // FIXME: get pts/dts, when we need it
+    // FIXME: hack to test results
+    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+	return 0;
+    }
+    // get pts/dts
 
     pts = AV_NOPTS_VALUE;
     if (data[7] & 0x80) {
@@ -630,6 +681,10 @@ int PlayVideo(const uint8_t * data, int size)
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
 #ifdef DEBUG
+	if (!(data[13] & 1) || !(data[11] & 1) || !(data[9] & 1)) {
+	    Error(_("[softhddev] invalid pts in video packet\n"));
+	    return size;
+	}
 	//Debug(3, "video: pts %#012" PRIx64 "\n", pts);
 	if (data[13] != (((pts & 0x7F) << 1) | 1)) {
 	    abort();
@@ -643,35 +698,36 @@ int PlayVideo(const uint8_t * data, int size)
 	if (data[10] != ((pts >> 22) & 0xFF)) {
 	    abort();
 	}
+	if ((data[9] & 0x0F) != (((pts >> 30) << 1) | 1)) {
+	    abort();
+	}
 #endif
     }
     // FIXME: no valid mpeg2/h264 detection yet
 
+    check = data + 9 + n;
     if (0) {
 	printf("%02x: %02x %02x %02x %02x %02x\n", data[6], check[0], check[1],
 	    check[2], check[3], check[4]);
     }
     // PES_VIDEO_STREAM 0xE0 or PES start code
-    if ((data[6] & 0xC0) != 0x80 || (!check[0] && !check[1]
-	    && check[2] == 0x1)) {
+    //(data[6] & 0xC0) != 0x80 ||
+    if ((!check[0] && !check[1] && check[2] == 0x1)) {
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
-	    // FIXME: hack to test results
-	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
-		return 0;
-	    }
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	} else {
-	    Debug(3, "video: mpeg2 detected\n");
+	    Debug(3, "video: mpeg2 detected ID %02x\n", check[3]);
 	    VideoCodecID = CODEC_ID_MPEG2VIDEO;
 	}
+#ifdef DEBUG
+	if (ValidateMpeg(data, size)) {
+	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
+	}
+#endif
 	// Access Unit Delimiter
-    } else if (!check[0] && !check[1] && !check[2] && check[3] == 0x1
-	&& check[4] == 0x09) {
+    } else if ((data[6] & 0xC0) == 0x80 && !check[0] && !check[1]
+	&& !check[2] && check[3] == 0x1 && check[4] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
-	    // FIXME: hack to test results
-	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
-		return 0;
-	    }
 	    VideoNextPacket(CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
@@ -684,11 +740,8 @@ int PlayVideo(const uint8_t * data, int size)
 	    return size;
 	}
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
-	    // mpeg codec supports incomplete packages
-	    // FIXME: hack to test results
-	    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
-		return 0;
-	    }
+	    // mpeg codec supports incomplete packets
+	    // waiting for a full complete packages, increases needed delays
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	}
     }
@@ -716,9 +769,7 @@ void SetPlayMode(void)
 	}
     }
     if (MyAudioDecoder) {
-	// FIXME: does this clear the audio ringbuffer?
-	CodecAudioClose(MyAudioDecoder);
-	AudioCodecID = CODEC_ID_NONE;
+	NewAudioStream = 1;
     }
 }
 
@@ -1015,10 +1066,12 @@ void Stop(void)
     // no it doesn't do a good thread cleanup
     if (MyVideoDecoder) {
 	CodecVideoClose(MyVideoDecoder);
+	// FIXME: CodecDelVideoDecoder(MyVideoDecoder);
 	MyVideoDecoder = NULL;
     }
     if (MyAudioDecoder) {
 	CodecAudioClose(MyAudioDecoder);
+	// FIXME: CodecDelAudioDecoder(MyAudioDecoder);
 	MyAudioDecoder = NULL;
     }
 
