@@ -85,6 +85,8 @@ Setup:	environment
 		oss dsp device name
 	OSS_MIXERDEV=/dev/mixer
 		oss mixer device name
+	OSS_MIXER_CHANNEL=pcm
+		oss mixer channel name
 
 Setup: /etc/vdr/setup.conf
 ------

@@ -96,9 +96,9 @@
 //	Variables
 //----------------------------------------------------------------------------
 
-static const char *AudioPCMDevice;	///< alsa PCM device name
-static const char *AudioMixerDevice;	///< alsa mixer device name
-static const char *AudioMixerChannel;	///< alsa mixer channel name
+static const char *AudioPCMDevice;	///< alsa/oss PCM device name
+static const char *AudioMixerDevice;	///< alsa/oss mixer device name
+static const char *AudioMixerChannel;	///< alsa/oss mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
 static int AudioPaused;			///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
@@ -635,7 +635,7 @@ static void AlsaInitMixer(void)
 	AlsaMixer = alsa_mixer;
 	AlsaMixerElem = alsa_mixer_elem;
     } else {
-	Error(_("audio/alsa: can't open alsa mixer '%s'\n"), device);
+	Error(_("audio/alsa: can't open mixer '%s'\n"), device);
     }
 }
 
@@ -854,10 +854,14 @@ static int AlsaSetup(int *freq, int *channels)
 
     AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
     // min 333ms
-    if (AlsaStartThreshold < (*freq * *channels * 2U) / 3) {
-	AlsaStartThreshold = (*freq * *channels * 2U) / 3;
+    if (AlsaStartThreshold < (*freq * *channels * AudioBytesProSample) / 3U) {
+	AlsaStartThreshold = (*freq * *channels * AudioBytesProSample) / 3U;
     }
-    Debug(3, "audio/alsa: delay %u ms\n", (AlsaStartThreshold * 1000)
+    // no bigger, than the buffer
+    if (AlsaStartThreshold > RingBufferFreeBytes(AlsaRingBuffer)) {
+	AlsaStartThreshold = RingBufferFreeBytes(AlsaRingBuffer);
+    }
+    Info(_("audio/alsa: delay %u ms\n"), (AlsaStartThreshold * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample));
 
     return ret;
@@ -926,6 +930,7 @@ static void AlsaExit(void)
 
 static int OssPcmFildes = -1;		///< pcm file descriptor
 static int OssMixerFildes = -1;		///< mixer file descriptor
+static int OssMixerChannel;		///< mixer channel index
 static RingBuffer *OssRingBuffer;	///< audio ring buffer
 static unsigned OssStartThreshold;	///< start play, if filled
 
@@ -995,8 +1000,8 @@ static int OssPlayRingbuffer(void)
 	if (n < bi.bytes) {		// not enough bytes in ring buffer
 	    bi.bytes = n;
 	}
-	if (!bi.bytes) {		// full or buffer empty
-	    break;
+	if (bi.bytes <= 0) {		// full or buffer empty
+	    break;			// bi.bytes could become negative!
 	}
 
 	n = write(OssPcmFildes, p, bi.bytes);
@@ -1076,12 +1081,91 @@ static void OssInitPCM(void)
 	}
     }
     if ((fildes = open(device, O_WRONLY)) < 0) {
-	Error(_("audio/oss: can't open device '%s': %s\n"), device,
+	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
 	    strerror(errno));
 	return;
     }
 
     OssPcmFildes = fildes;
+}
+
+//----------------------------------------------------------------------------
+//	OSS Mixer
+//----------------------------------------------------------------------------
+
+/**
+**	Set oss mixer volume (0-100)
+**
+**	@param volume	volume (0 .. 100)
+*/
+static void OssSetVolume(int volume)
+{
+    int v;
+
+    if (OssMixerFildes != -1) {
+	v = (volume * 255) / 100;
+	v &= 0xff;
+	v = (v << 8) | v;
+	if (ioctl(OssMixerFildes, MIXER_WRITE(OssMixerChannel), &v) < 0) {
+	    Error(_("audio/oss: ioctl(MIXER_WRITE): %s\n"), strerror(errno));
+	}
+    }
+}
+
+/**
+**	Mixer channel name table.
+*/
+static const char *OssMixerChannelNames[SOUND_MIXER_NRDEVICES] =
+    SOUND_DEVICE_NAMES;
+
+/**
+**	Initialize oss mixer.
+*/
+static void OssInitMixer(void)
+{
+    const char *device;
+    const char *channel;
+    int fildes;
+    int devmask;
+    int i;
+
+    if (!(device = AudioMixerDevice)) {
+	if (!(device = getenv("OSS_MIXERDEV"))) {
+	    device = "/dev/mixer";
+	}
+    }
+    if (!(channel = AudioMixerChannel)) {
+	if (!(channel = getenv("OSS_MIXER_CHANNEL"))) {
+	    channel = "pcm";
+	}
+    }
+    Debug(3, "audio/oss: mixer %s - %s open\n", device, channel);
+
+    if ((fildes = open(device, O_RDWR)) < 0) {
+	Error(_("audio/oss: can't open mixer device '%s': %s\n"), device,
+	    strerror(errno));
+	return;
+    }
+    // search channel name
+    if (ioctl(fildes, SOUND_MIXER_READ_DEVMASK, &devmask) < 0) {
+	Error(_("audio/oss: ioctl(SOUND_MIXER_READ_DEVMASK): %s\n"),
+	    strerror(errno));
+	close(fildes);
+	return;
+    }
+    for (i = 0; i < SOUND_MIXER_NRDEVICES; ++i) {
+	if (!strcasecmp(OssMixerChannelNames[i], channel)) {
+	    if (devmask & (1 << i)) {
+		OssMixerFildes = fildes;
+		OssMixerChannel = i;
+		return;
+	    }
+	    Error(_("audio/oss: channel '%s' not supported\n"), channel);
+	    break;
+	}
+    }
+    Error(_("audio/oss: channel '%s' not found\n"), channel);
+    close(fildes);
 }
 
 //----------------------------------------------------------------------------
@@ -1120,8 +1204,10 @@ static uint64_t OssGetDelay(void)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
     pts += ((uint64_t) RingBufferUsedBytes(OssRingBuffer) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
-    Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
-	RingBufferUsedBytes(OssRingBuffer), pts / 90);
+    if (pts > 600 * 90) {
+	Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
+	    RingBufferUsedBytes(OssRingBuffer), pts / 90);
+    }
 
     return pts;
 }
@@ -1211,7 +1297,7 @@ static int OssSetup(int *freq, int *channels)
 	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
 		strerror(errno));
 	} else {
-	    Info(_("audio/oss: %d bytes buffered\n"), bi.bytes);
+	    Debug(3, "audio/oss: %d bytes buffered\n", bi.bytes);
 	}
 
 	tmp = -1;
@@ -1226,8 +1312,16 @@ static int OssSetup(int *freq, int *channels)
 	}
 	// start when enough bytes for initial write
 	OssStartThreshold = bi.bytes + tmp;
+	// min 333ms
+	if (OssStartThreshold < (*freq * *channels * AudioBytesProSample) / 3U) {
+	    OssStartThreshold = (*freq * *channels * AudioBytesProSample) / 3U;
+	}
+	// no bigger, than the buffer
+	if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
+	    OssStartThreshold = RingBufferFreeBytes(OssRingBuffer);
+	}
 
-	Debug(3, "audio/alsa: delay %u ms\n", (OssStartThreshold * 1000)
+	Info(_("audio/oss: delay %u ms\n"), (OssStartThreshold * 1000)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
     }
 
@@ -1242,7 +1336,7 @@ static void OssInit(void)
     OssRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
 
     OssInitPCM();
-    // OssInitMixer();
+    OssInitMixer();
 }
 
 /**
@@ -1429,7 +1523,7 @@ void AudioSetVolume(int volume)
     AlsaSetVolume(volume);
 #endif
 #ifdef USE_OSS
-#warning "AudioSetVolume not written"
+    OssSetVolume(volume);
 #endif
     (void)volume;
 }

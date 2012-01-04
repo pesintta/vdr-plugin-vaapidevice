@@ -68,6 +68,8 @@ audio/alsa:
     CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
 
 audio/oss:
+    alsa oss emulation mixer "pcm" not working
+    ring buffer overflow with alsa oss emulation
 
 playback of recording
     play back is too fast
