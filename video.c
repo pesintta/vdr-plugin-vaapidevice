@@ -1002,6 +1002,9 @@ static void VaapiPrintFrames(const VaapiDecoder * decoder)
     Debug(3, "video/vaapi: %d missed, %d duped, %d dropped frames of %d\n",
 	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
 	decoder->FrameCounter);
+#ifndef DEBUG
+    (void)decoder;
+#endif
 }
 
 ///
@@ -1972,7 +1975,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	    ++decoder->FramesDropped;
 	    Warning(_("video: output buffer full, dropping frame (%d/%d)\n"),
 		decoder->FramesDropped, decoder->FrameCounter);
-	    if (!(decoder->FramesDisplayed % 100)) {
+	    if (!(decoder->FramesDisplayed % 300)) {
 		VaapiPrintFrames(decoder);
 	    }
 	    if (softdec) {		// software surfaces only
@@ -2661,7 +2664,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	decoder->FramesDuped++;
 	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
 	    decoder->FramesDuped, decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 333)) {
+	if (!(decoder->FramesDisplayed % 300)) {
 	    VaapiPrintFrames(decoder);
 	}
     }
@@ -2725,7 +2728,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	++decoder->FramesDropped;
 	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
 	    decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 100)) {
+	if (!(decoder->FramesDisplayed % 300)) {
 	    VaapiPrintFrames(decoder);
 	}
 	decoder->DropNextFrame = 0;
@@ -3361,6 +3364,9 @@ static void VdpauPrintFrames(const VdpauDecoder * decoder)
     Debug(3, "video/vdpau: %d missed, %d duped, %d dropped frames of %d\n",
 	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
 	decoder->FrameCounter);
+#ifndef DEBUG
+    (void)decoder;
+#endif
 }
 
 ///
@@ -4352,7 +4358,9 @@ static void VdpauQueueSurface(VdpauDecoder * decoder, VdpVideoSurface surface,
 	    Warning(_
 		("video/vdpau: output buffer full, dropping frame (%d/%d)\n"),
 		++decoder->FramesDropped, decoder->FrameCounter);
-	    VdpauPrintFrames(decoder);
+	    if (!(decoder->FramesDisplayed % 300)) {
+		VdpauPrintFrames(decoder);
+	    }
 	    // software surfaces only
 	    if (softdec) {
 		VdpauReleaseSurface(decoder, surface);
@@ -4778,7 +4786,7 @@ static void VdpauAdvanceFrame(void)
 		Warning(_
 		    ("video: display buffer empty, duping frame (%d/%d)\n"),
 		    decoder->FramesDuped, decoder->FrameCounter);
-		if (!(decoder->FramesDisplayed % 333)) {
+		if (!(decoder->FramesDisplayed % 300)) {
 		    VdpauPrintFrames(decoder);
 		}
 		decoder->SurfaceField = decoder->Interlaced;
@@ -4825,7 +4833,12 @@ static void VdpauDisplayFrame(void)
 	// FIXME: can be more than 1 frame long shown
 	for (i = 0; i < VdpauDecoderN; ++i) {
 	    VdpauDecoders[i]->FramesMissed++;
-	    VdpauPrintFrames(VdpauDecoders[i]);
+	    Warning(_("video: missed frame (%d/%d)\n"),
+		VdpauDecoders[i]->FramesMissed,
+		VdpauDecoders[i]->FrameCounter);
+	    if (!(VdpauDecoders[i]->FramesDisplayed % 300)) {
+		VdpauPrintFrames(VdpauDecoders[i]);
+	    }
 	}
     }
     last_time = first_time;
@@ -4899,7 +4912,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	decoder->FramesDuped++;
 	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
 	    decoder->FramesDuped, decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 333)) {
+	if (!(decoder->FramesDisplayed % 300)) {
 	    VdpauPrintFrames(decoder);
 	}
     }
@@ -4964,7 +4977,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	++decoder->FramesDropped;
 	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
 	    decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 100)) {
+	if (!(decoder->FramesDisplayed % 300)) {
 	    VdpauPrintFrames(decoder);
 	}
 	decoder->DropNextFrame = 0;
@@ -5996,7 +6009,8 @@ void VideoDrawRenderState(VideoHwDecoder * decoder,
 		VdpauGetErrorString(status));
 	}
 	if (end - start > 35) {
-	    Debug(3, "video/vdpau: decoder render too slow %u ms\n",
+	    // report this
+	    Info(_("video/vdpau: decoder render too slow %u ms\n"),
 		end - start);
 	}
 	return;

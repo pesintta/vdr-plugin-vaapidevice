@@ -183,7 +183,8 @@ static int FindAudioSync(const AVPacket * avpkt)
 **	@param size	size of PES packet
 **	@param id	PES packet type
 */
-void PlayAudio(const uint8_t * data, int size, uint8_t id)
+void PlayAudio(const uint8_t * data, int size,
+    __attribute__ ((unused)) uint8_t id)
 {
     int n;
     AVPacket avpkt[1];
