@@ -1146,6 +1146,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 {
     int filled;
     VASurfaceID surface;
+    int i;
 
     // flush output queue, only 1-2 frames buffered, no big loss
     while ((filled = atomic_read(&decoder->SurfacesFilled))) {
@@ -1167,6 +1168,11 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
 	abort();
+    }
+
+    // clear ring buffer
+    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
 
     decoder->WrongInterlacedWarned = 0;
