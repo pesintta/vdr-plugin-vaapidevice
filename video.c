@@ -179,7 +179,7 @@ typedef enum _video_zoom_modes_
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
-#define OUTPUT_SURFACES_MAX	2	///< output surfaces for flip page
+#define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
 //	Variables
@@ -3105,6 +3105,7 @@ typedef struct _vdpau_decoder_
     VdpDecoder VideoDecoder;		///< vdp video decoder
     VdpVideoMixer VideoMixer;		///< vdp video mixer
     VdpChromaType ChromaType;		///< vdp video surface chroma format
+    VdpProcamp Procamp;			///< vdp procamp parameterization data
 
     int SurfaceUsedN;			///< number of used video surfaces
     /// used video surface ids
@@ -3406,14 +3407,16 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     VdpVideoMixerParameter paramaters[4];
     void const *value_ptrs[4];
     int parameter_n;
-    VdpVideoMixerAttribute attributes[3];
-    void const *attribute_value_ptrs[3];
+    VdpVideoMixerAttribute attributes[4];
+    void const *attribute_value_ptrs[4];
     int attribute_n;
     uint8_t skip_chroma_value;
     float noise_reduction_level;
     float sharpness_level;
     VdpChromaType chroma_type;
     int layers;
+    VdpColorStandard color_standard;
+    VdpCSCMatrix csc_matrix[1];
 
     //
     //	Build feature table
@@ -3515,11 +3518,14 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     }
     VdpauVideoMixerSetFeatureEnables(decoder->VideoMixer, feature_n, features,
 	enables);
+    // FIXME: check status
+
+    //
+    //	build attributes table
+    //
 
     /*
        FIXME:
-       VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL
-       VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
      */
@@ -3548,12 +3554,29 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	Debug(3, "video/vdpau: sharpness level %+1.3f\n", sharpness_level);
     }
 
+    if (decoder->InputWidth > 1280 || decoder->InputHeight > 576) {
+	// HDTV
+	color_standard = VDP_COLOR_STANDARD_ITUR_BT_709;
+	Debug(3, "video/vdpau: color space ITU-R BT.709\n");
+    } else {
+	// SDTV
+	color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
+	Debug(3, "video/vdpau: color space ITU-R BT.601\n");
+    }
+
+    status =
+	VdpauGenerateCSCMatrix(&decoder->Procamp, color_standard, csc_matrix);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't generate CSC matrix: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    attributes[attribute_n] = VDP_VIDEO_MIXER_ATTRIBUTE_CSC_MATRIX;
+    attribute_value_ptrs[attribute_n++] = csc_matrix;
+
     VdpauVideoMixerSetAttributeValues(decoder->VideoMixer, attribute_n,
 	attributes, attribute_value_ptrs);
-
-    //VdpColorStandard color_standard;
-    //color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
-    //VdpGenerateCSCMatrix(procamp, standard, &csc_matrix);
+    // FIXME: check status
 }
 
 ///
@@ -3605,6 +3628,13 @@ static VdpauDecoder *VdpauNewDecoder(void)
 
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
+
+    // Procamp operation parameterization data
+    decoder->Procamp.struct_version = VDP_PROCAMP_VERSION;
+    decoder->Procamp.brightness = 0.0;
+    decoder->Procamp.contrast = 1.0;
+    decoder->Procamp.saturation = 1.0;
+    decoder->Procamp.hue = 0.0;		// default values
 
 #ifdef noDEBUG
     // FIXME: for play

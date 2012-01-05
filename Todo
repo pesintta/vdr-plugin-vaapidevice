@@ -33,8 +33,8 @@ missing:
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
 
 vdpau:
-    1080i with temporal spatial and level 1 scaling too slow with GT 520
-    1080i with temporal spatial too slow with GT 520 on some channels
+    1080i with temporal spatial and level 1 scaling too slow with my GT 520
+    1080i with temporal spatial too slow with my GT 520 on some channels
     SkipChromaDeinterlace improves performance
     Improve OSD handling, show only what is used. Big OSD costs performance
     VdpPreemptionCallback handling

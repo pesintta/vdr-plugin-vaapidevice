@@ -1,6 +1,7 @@
 User johns
 Data:
 
+    VDPAU: Add color standard support.
     VDPAU: Add denoise and sharpness support.
     VDPAU: Add skip chroma deinterlace support.
     VDPAU: Show OSD only if something is to display, improves performance.
