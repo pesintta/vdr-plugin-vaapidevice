@@ -1,7 +1,7 @@
 ///
 ///	@file video.h	@brief Video module header file
 ///
-///	Copyright (c) 2009 - 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -83,8 +83,17 @@ extern int VideoSetGeometry(const char *);
     /// set deinterlace
 extern void VideoSetDeinterlace(int);
 
+    /// set skip chroma deinterlace
+extern void VideoSetSkipChromaDeinterlace(int);
+
     /// set scaling
 extern void VideoSetScaling(int);
+
+    /// set denoise
+extern void VideoSetDenoise(int);
+
+    /// set sharpen
+extern void VideoSetSharpen(int);
 
     /// set audio delay
 extern void VideoSetAudioDelay(int);

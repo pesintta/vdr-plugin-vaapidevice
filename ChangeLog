@@ -1,5 +1,12 @@
 User johns
-Date:
+Data:
+
+    VDPAU: Add denoise and sharpness support.
+    VDPAU: Add skip chroma deinterlace support.
+    VDPAU: Show OSD only if something is to display, improves performance.
+    VDPAU: Add deinterlace with only 4 surfaces.
+
+Date: Thu Jan 4 17:00:00 CET 2012
 
     Release Version 0.1.5
     Adds OSS mixer support.

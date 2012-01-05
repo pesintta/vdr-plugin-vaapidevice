@@ -30,11 +30,18 @@ missing:
     HDMI/SPDIF Passthrough
     disable screensaver
     disable window cursor
+    ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
 
 vdpau:
     1080i with temporal spatial and level 1 scaling too slow with GT 520
     1080i with temporal spatial too slow with GT 520 on some channels
+    SkipChromaDeinterlace improves performance
+    Improve OSD handling, show only what is used. Big OSD costs performance
     VdpPreemptionCallback handling
+    hard channel switch
+
+libva:
+    hard channel switch
 
 libva-intel-driver:
     intel still has hangups most with 1080i
@@ -73,6 +80,7 @@ audio/oss:
 
 playback of recording
     play back is too fast
+    pause is not reset, when replay exit
 
 setup:
     Setup of decoder type.

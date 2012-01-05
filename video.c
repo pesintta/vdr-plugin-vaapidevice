@@ -1,7 +1,7 @@
 ///
 ///	@file video.c	@brief Video module
 ///
-///	Copyright (c) 2009 - 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -37,6 +37,7 @@
 ///
 
 #define USE_XLIB_XCB
+#define noUSE_GRAB
 #define noUSE_GLX
 #define noUSE_DOUBLEBUFFER
 
@@ -196,6 +197,20 @@ static unsigned VideoWindowHeight;	///< video output window height
 
     /// Default deinterlace mode
 static VideoDeinterlaceModes VideoDeinterlace;
+
+    /// Default number of deinterlace surfaces
+static const int VideoDeinterlaceSurfaces = 4;
+
+    /// Default skip chroma deinterlace flag (VDPAU only)
+static int VideoSkipChromaDeinterlace = 1;
+
+    /// Default amount of noise reduction algorithm to apply (0 .. 1000).
+static int VideoDenoise;
+
+    /// Default amount of of sharpening, or blurring, to apply (-1000 .. 1000).
+static int VideoSharpen;
+
+// FIXME: color space
 
     /// Default scaling mode
 static VideoScalingModes VideoScaling;
@@ -3135,6 +3150,7 @@ static int VdpauTemporal;		///< temporal deinterlacer supported
 static int VdpauTemporalSpatial;	///< temporal spatial deint. supported
 static int VdpauInverseTelecine;	///< inverse telecine deint. supported
 static int VdpauNoiseReduction;		///< noise reduction supported
+static int VdpauSharpness;		///< sharpness supported
 static int VdpauSkipChroma;		///< skip chroma deint. supported
 
     /// display surface ring buffer
@@ -3143,6 +3159,7 @@ static int VdpauSurfaceIndex;		///< current display surface
 
 static int VdpauOsdWidth;		///< width of osd surface
 static int VdpauOsdHeight;		///< height of osd surface
+static int VdpauShowOsd;		///< flag show osd
 
 #ifdef USE_BITMAP
     /// bitmap surfaces for osd
@@ -3165,13 +3182,12 @@ static VdpGetErrorString *VdpauGetErrorString;
 static VdpDeviceDestroy *VdpauDeviceDestroy;
 static VdpGenerateCSCMatrix *VdpauGenerateCSCMatrix;
 static VdpVideoSurfaceQueryCapabilities *VdpauVideoSurfaceQueryCapabilities;
-static VdpVideoSurfaceQueryGetPutBitsYCbCrCapabilities
-    *VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities;
+static VdpVideoSurfaceQueryGetPutBitsYCbCrCapabilities *
+    VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities;
 static VdpVideoSurfaceCreate *VdpauVideoSurfaceCreate;
 static VdpVideoSurfaceDestroy *VdpauVideoSurfaceDestroy;
 static VdpVideoSurfaceGetParameters *VdpauVideoSurfaceGetParameters;
-
-//static VdpVideoSurfaceGetBitsYCbCr * VdpauVideoSurfaceGetBitsYCbCr;
+static VdpVideoSurfaceGetBitsYCbCr *VdpauVideoSurfaceGetBitsYCbCr;
 static VdpVideoSurfacePutBitsYCbCr *VdpauVideoSurfacePutBitsYCbCr;
 
 static VdpOutputSurfaceCreate *VdpauOutputSurfaceCreate;
@@ -3185,10 +3201,10 @@ static VdpBitmapSurfaceDestroy *VdpauBitmapSurfaceDestroy;
 
 static VdpBitmapSurfacePutBitsNative *VdpauBitmapSurfacePutBitsNative;
 
-static VdpOutputSurfaceRenderOutputSurface *
-    VdpauOutputSurfaceRenderOutputSurface;
-static VdpOutputSurfaceRenderBitmapSurface *
-    VdpauOutputSurfaceRenderBitmapSurface;
+static VdpOutputSurfaceRenderOutputSurface
+    *VdpauOutputSurfaceRenderOutputSurface;
+static VdpOutputSurfaceRenderBitmapSurface
+    *VdpauOutputSurfaceRenderBitmapSurface;
 
 static VdpDecoderQueryCapabilities *VdpauDecoderQueryCapabilities;
 static VdpDecoderCreate *VdpauDecoderCreate;
@@ -3197,6 +3213,9 @@ static VdpDecoderDestroy *VdpauDecoderDestroy;
 static VdpDecoderRender *VdpauDecoderRender;
 
 static VdpVideoMixerQueryFeatureSupport *VdpauVideoMixerQueryFeatureSupport;
+static VdpVideoMixerQueryAttributeSupport
+    *VdpauVideoMixerQueryAttributeSupport;
+
 static VdpVideoMixerCreate *VdpauVideoMixerCreate;
 static VdpVideoMixerSetFeatureEnables *VdpauVideoMixerSetFeatureEnables;
 static VdpVideoMixerSetAttributeValues *VdpauVideoMixerSetAttributeValues;
@@ -3206,18 +3225,18 @@ static VdpVideoMixerRender *VdpauVideoMixerRender;
 static VdpPresentationQueueTargetDestroy *VdpauPresentationQueueTargetDestroy;
 static VdpPresentationQueueCreate *VdpauPresentationQueueCreate;
 static VdpPresentationQueueDestroy *VdpauPresentationQueueDestroy;
-static VdpPresentationQueueSetBackgroundColor
-    *VdpauPresentationQueueSetBackgroundColor;
+static VdpPresentationQueueSetBackgroundColor *
+    VdpauPresentationQueueSetBackgroundColor;
 
 static VdpPresentationQueueGetTime *VdpauPresentationQueueGetTime;
 static VdpPresentationQueueDisplay *VdpauPresentationQueueDisplay;
-static VdpPresentationQueueBlockUntilSurfaceIdle *
-    VdpauPresentationQueueBlockUntilSurfaceIdle;
-static VdpPresentationQueueQuerySurfaceStatus *
-    VdpauPresentationQueueQuerySurfaceStatus;
+static VdpPresentationQueueBlockUntilSurfaceIdle
+    *VdpauPresentationQueueBlockUntilSurfaceIdle;
+static VdpPresentationQueueQuerySurfaceStatus
+    *VdpauPresentationQueueQuerySurfaceStatus;
 
-static VdpPresentationQueueTargetCreateX11
-    *VdpauPresentationQueueTargetCreateX11;
+static VdpPresentationQueueTargetCreateX11 *
+    VdpauPresentationQueueTargetCreateX11;
 ///@}
 
 ///
@@ -3374,16 +3393,25 @@ static void VdpauPrintFrames(const VdpauDecoder * decoder)
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
+///	@note don't forget to update features, paramaters, attributes table
+///	size, if more is add.
+///
 static void VdpauMixerSetup(VdpauDecoder * decoder)
 {
     VdpStatus status;
     int i;
-    VdpVideoMixerFeature features[14];
-    VdpBool enables[14];
+    VdpVideoMixerFeature features[15];
+    VdpBool enables[15];
     int feature_n;
-    VdpVideoMixerParameter paramaters[10];
-    void const *values[10];
+    VdpVideoMixerParameter paramaters[4];
+    void const *value_ptrs[4];
     int parameter_n;
+    VdpVideoMixerAttribute attributes[3];
+    void const *attribute_value_ptrs[3];
+    int attribute_n;
+    uint8_t skip_chroma_value;
+    float noise_reduction_level;
+    float sharpness_level;
     VdpChromaType chroma_type;
     int layers;
 
@@ -3404,7 +3432,9 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     if (VdpauNoiseReduction) {
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
     }
-    // VDP_VIDEO_MIXER_FEATURE_SHARPNESS
+    if (VdpauSharpness) {
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_SHARPNESS;
+    }
     for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
 	i <= VdpauHqScalingMax; ++i) {
 	features[feature_n++] = i;
@@ -3417,19 +3447,19 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     //	Setup parameter/value tables
     //
     paramaters[0] = VDP_VIDEO_MIXER_PARAMETER_VIDEO_SURFACE_WIDTH;
-    values[0] = &decoder->InputWidth;
+    value_ptrs[0] = &decoder->InputWidth;
     paramaters[1] = VDP_VIDEO_MIXER_PARAMETER_VIDEO_SURFACE_HEIGHT;
-    values[1] = &decoder->InputHeight;
+    value_ptrs[1] = &decoder->InputHeight;
     paramaters[2] = VDP_VIDEO_MIXER_PARAMETER_CHROMA_TYPE;
-    values[2] = &chroma_type;
+    value_ptrs[2] = &chroma_type;
     layers = 0;
     paramaters[3] = VDP_VIDEO_MIXER_PARAMETER_LAYERS;
-    values[3] = &layers;
+    value_ptrs[3] = &layers;
     parameter_n = 4;
 
     status =
 	VdpauVideoMixerCreate(VdpauDevice, feature_n, features, parameter_n,
-	paramaters, values, &decoder->VideoMixer);
+	paramaters, value_ptrs, &decoder->VideoMixer);
     if (status != VDP_STATUS_OK) {
 	Fatal(_("video/vdpau: can't create video mixer: %s\n"),
 	    VdpauGetErrorString(status));
@@ -3441,8 +3471,8 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     feature_n = 0;
     if (VdpauTemporal) {
 	enables[feature_n] = (VideoDeinterlace == VideoDeinterlaceTemporal
-	    || VideoDeinterlace ==
-	    VideoDeinterlaceTemporalSpatial) ? VDP_TRUE : VDP_FALSE;
+	    || (VideoDeinterlace == VideoDeinterlaceTemporalSpatial
+		&& !VdpauTemporalSpatial)) ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
 	Debug(3, "video/vdpau: temporal deinterlace %s\n",
 	    enables[feature_n - 1] ? "enabled" : "disabled");
@@ -3463,9 +3493,15 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    enables[feature_n - 1] ? "enabled" : "disabled");
     }
     if (VdpauNoiseReduction) {
-	enables[feature_n] = VDP_FALSE;
-	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
+	enables[feature_n] = VideoDenoise ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
 	Debug(3, "video/vdpau: noise reduction %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauSharpness) {
+	enables[feature_n] = VideoSharpen ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_SHARPNESS;
+	Debug(3, "video/vdpau: sharpness %s\n",
 	    enables[feature_n - 1] ? "enabled" : "disabled");
     }
     for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
@@ -3486,10 +3522,34 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
        VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
-       VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE
-       VdpVideoMixerSetAttributeValues(decoder->Mixer, attribute_n,
-       attributes, values);
      */
+    attribute_n = 0;
+    if (VdpauSkipChroma) {
+	skip_chroma_value = VideoSkipChromaDeinterlace;
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE;
+	attribute_value_ptrs[attribute_n++] = &skip_chroma_value;
+	Debug(3, "video/vdpau: skip chroma deinterlace %s\n",
+	    skip_chroma_value ? "enabled" : "disabled");
+    }
+    if (VdpauNoiseReduction) {
+	noise_reduction_level = VideoDenoise / 1000.0;
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL;
+	attribute_value_ptrs[attribute_n++] = &noise_reduction_level;
+	Debug(3, "video/vdpau: noise reduction level %1.3f\n",
+	    noise_reduction_level);
+    }
+    if (VdpauSharpness) {
+	sharpness_level = VideoSharpen / 1000.0;
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL;
+	attribute_value_ptrs[attribute_n++] = &sharpness_level;
+	Debug(3, "video/vdpau: sharpness level %+1.3f\n", sharpness_level);
+    }
+
+    VdpauVideoMixerSetAttributeValues(decoder->VideoMixer, attribute_n,
+	attributes, attribute_value_ptrs);
 
     //VdpColorStandard color_standard;
     //color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
@@ -3711,7 +3771,8 @@ static void VideoVdpauInit(const char *display_name)
 	"VideoSurfaceDestroy");
     VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_GET_PARAMETERS,
 	&VdpauVideoSurfaceGetParameters, "VideoSurfaceGetParameters");
-    // VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_GET_BITS_Y_CB_CR, &VdpauVideoSurfaceGetBitsYCbCr, "VideoSurfaceGetBitsYCbCr");
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_GET_BITS_Y_CB_CR,
+	&VdpauVideoSurfaceGetBitsYCbCr, "VideoSurfaceGetBitsYCbCr");
     VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_PUT_BITS_Y_CB_CR,
 	&VdpauVideoSurfacePutBitsYCbCr, "VideoSurfacePutBitsYCbCr");
 #if 0
@@ -3775,7 +3836,11 @@ static void VideoVdpauInit(const char *display_name)
 	&VdpauVideoMixerQueryFeatureSupport, "VideoMixerQueryFeatureSupport");
 #if 0
     VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_PARAMETER_SUPPORT, &, "");
-    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_ATTRIBUTE_SUPPORT, &, "");
+#endif
+    VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_ATTRIBUTE_SUPPORT,
+	&VdpauVideoMixerQueryAttributeSupport,
+	"VideoMixerQueryAttributeSupport");
+#if 0
     VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_PARAMETER_VALUE_RANGE, &, "");
     VdpauGetProc(VDP_FUNC_ID_VIDEO_MIXER_QUERY_ATTRIBUTE_VALUE_RANGE, &, "");
 #endif
@@ -3921,6 +3986,16 @@ static void VideoVdpauInit(const char *display_name)
 
     status =
 	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_FEATURE_SHARPNESS, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"), "sharpness",
+	    VdpauGetErrorString(status));
+    } else {
+	VdpauSharpness = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryAttributeSupport(VdpauDevice,
 	VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE, &flag);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't query feature '%s': %s\n"),
@@ -3937,9 +4012,9 @@ static void VideoVdpauInit(const char *display_name)
     Info(_("video/vdpau: feature deinterlace temporal %s\n"),
 	VdpauTemporal ? _("supported") : _("unsupported"));
     Info(_("video/vdpau: feature deinterlace temporal spatial %s\n"),
-	VdpauTemporal ? _("supported") : _("unsupported"));
+	VdpauTemporalSpatial ? _("supported") : _("unsupported"));
     Info(_("video/vdpau: attribute skip chroma deinterlace %s\n"),
-	VdpauTemporal ? _("supported") : _("unsupported"));
+	VdpauSkipChroma ? _("supported") : _("unsupported"));
 
     //
     //	video formats
@@ -4338,6 +4413,69 @@ static void VdpauSetup(VdpauDecoder * decoder,
 }
 
 ///
+///	Grab video surface.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauGrabSurface(VdpauDecoder * decoder)
+{
+    VdpVideoSurface surface;
+    VdpStatus status;
+    VdpChromaType chroma_type;
+    uint32_t size;
+    uint32_t width;
+    uint32_t height;
+    void *base;
+    void *data[3];
+    uint32_t pitches[3];
+    VdpYCbCrFormat format;
+
+    // FIXME: test function to grab output surface content
+    // for screen shots, atom light and auto crop.
+
+    surface = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+	% VIDEO_SURFACES_MAX];
+
+    //	get real surface size
+    status =
+	VdpauVideoSurfaceGetParameters(surface, &chroma_type, &width, &height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface parameters: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+    switch (chroma_type) {
+	case VDP_CHROMA_TYPE_420:
+	case VDP_CHROMA_TYPE_422:
+	case VDP_CHROMA_TYPE_444:
+	    size = width * height + ((width + 1) / 2) * ((height + 1) / 2)
+		+ ((width + 1) / 2) * ((height + 1) / 2);
+	    base = malloc(size);
+	    if (!base) {
+		Error(_("video/vdpau: out of memory\n"));
+		return;
+	    }
+	    pitches[0] = width;
+	    pitches[1] = width / 2;
+	    pitches[2] = width / 2;
+	    data[0] = base;
+	    data[1] = base + width * height;
+	    data[2] = base + width * height + width * height / 4;
+	    format = VDP_YCBCR_FORMAT_YV12;
+	    break;
+    }
+    status = VdpauVideoSurfaceGetBitsYCbCr(surface, format, data, pitches);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface bits: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+    // 0x10 0x80 0x80 black
+
+    free(base);
+}
+
+///
 ///	Queue output surface.
 ///
 ///	@param decoder	VDPAU hw decoder
@@ -4562,8 +4700,9 @@ static void VdpauMixOsd(void)
     VdpRect source_rect;
     VdpRect output_rect;
     VdpStatus status;
-    uint32_t start;
-    uint32_t end;
+
+    //uint32_t start;
+    //uint32_t end;
 
     //
     //	blend overlay over output
@@ -4592,7 +4731,7 @@ static void VdpauMixOsd(void)
     output_rect.x1 = VideoWindowWidth;
     output_rect.y1 = VideoWindowHeight;
 
-    start = GetMsTicks();
+    //start = GetMsTicks();
 
     VdpauOsdSurfaceIndex = 1;
 #ifdef USE_BITMAP
@@ -4616,7 +4755,7 @@ static void VdpauMixOsd(void)
 	    VdpauGetErrorString(status));
     }
 #endif
-    end = GetMsTicks();
+    //end = GetMsTicks();
 
     //Debug(3, "video:/vdpau: osd render %d ms\n", end - start);
 
@@ -4651,56 +4790,99 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     dst_video_rect.x1 = decoder->OutputX + decoder->OutputWidth;
     dst_video_rect.y1 = decoder->OutputY + decoder->OutputHeight;
 
+#ifdef USE_GRAB
+    VdpauGrabSurface(decoder);
+#endif
+
     if (decoder->Interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
 	//
 	//	Build deinterlace structures
 	//
 	VdpVideoMixerPictureStructure cps;
-	VdpVideoSurface past[2];
-	VdpVideoSurface future[2];
+	VdpVideoSurface past[3];
+	int past_n;
+	VdpVideoSurface future[3];
+	int future_n;
 
 #ifdef DEBUG
 	if (atomic_read(&decoder->SurfacesFilled) < 3) {
 	    Debug(3, "only %d\n", atomic_read(&decoder->SurfacesFilled));
 	}
 #endif
+	// FIXME: can use VDP_INVALID_HANDLE to support less surface on start
 
-	// FIXME: wrong for bottom-field first
-	// read: past: B0 T0 current T1 future B1 T2 (0 1 2)
-	// read: past: T1 B0 current B1 future T2 B2 (0 1 2)
-	if (decoder->TopFieldFirst != decoder->SurfaceField) {
-	    cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD;
+	if (VideoDeinterlaceSurfaces == 5) {
+	    past_n = 2;
+	    future_n = 2;
 
-	    past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
-	    past[0] = past[1];
-	    current = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
-		% VIDEO_SURFACES_MAX];
-	    future[0] = current;
-	    future[1] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
-		% VIDEO_SURFACES_MAX];
-	    // FIXME: can support 1 future more
+	    // FIXME: wrong for bottom-field first
+	    // read: past: B0 T0 current T1 future B1 T2 (0 1 2)
+	    // read: past: T1 B0 current B1 future T2 B2 (0 1 2)
+	    if (decoder->TopFieldFirst != decoder->SurfaceField) {
+		cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD;
+
+		past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+		past[0] = past[1];
+		current = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX];
+		future[0] = current;
+		future[1] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
+		    % VIDEO_SURFACES_MAX];
+		// FIXME: can support 1 future more
+	    } else {
+		cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_BOTTOM_FIELD;
+
+		// FIXME: can support 1 past more
+		past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+		past[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX];
+		current = past[0];
+		future[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
+		    % VIDEO_SURFACES_MAX];
+		future[1] = future[0];
+	    }
+
+	} else if (VideoDeinterlaceSurfaces == 4) {
+	    past_n = 2;
+	    future_n = 1;
+
+	    // FIXME: wrong for bottom-field first
+	    // read: past: B0 T0 current T1 future B1 (0 1 2)
+	    // read: past: T1 B0 current B1 future T2 (0 1 2)
+	    if (decoder->TopFieldFirst != decoder->SurfaceField) {
+		cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD;
+
+		past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+		past[0] = past[1];
+		current = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX];
+		future[0] = current;
+	    } else {
+		cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_BOTTOM_FIELD;
+
+		past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
+		past[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		    % VIDEO_SURFACES_MAX];
+		current = past[0];
+		future[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
+		    % VIDEO_SURFACES_MAX];
+	    }
+
 	} else {
-	    cps = VDP_VIDEO_MIXER_PICTURE_STRUCTURE_BOTTOM_FIELD;
-
-	    // FIXME: can support 1 past more
-	    past[1] = decoder->SurfacesRb[decoder->SurfaceRead];
-	    past[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
-		% VIDEO_SURFACES_MAX];
-	    current = past[0];
-	    future[0] = decoder->SurfacesRb[(decoder->SurfaceRead + 2)
-		% VIDEO_SURFACES_MAX];
-	    future[1] = future[0];
+	    Error(_("video/vdpau: %d surface deinterlace unsupported\n"),
+		VideoDeinterlaceSurfaces);
 	}
 
+	// FIXME: past_n, future_n here:
 	Debug(4, " %02d	 %02d(%c%02d) %02d  %02d\n", past[1], past[0],
 	    cps == VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD ? 'T' : 'B',
 	    current, future[0], future[1]);
 
 	status =
 	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
-	    NULL, cps, 2, past, current, 2, future, &video_src_rect,
-	    VdpauSurfacesRb[VdpauSurfaceIndex], &dst_rect, &dst_video_rect, 0,
-	    NULL);
+	    NULL, cps, past_n, past, current, future_n, future,
+	    &video_src_rect, VdpauSurfacesRb[VdpauSurfaceIndex], &dst_rect,
+	    &dst_video_rect, 0, NULL);
     } else {
 	current = decoder->SurfacesRb[decoder->SurfaceRead];
 
@@ -4804,16 +4986,10 @@ static void VdpauAdvanceFrame(void)
 ///
 static void VdpauDisplayFrame(void)
 {
-    uint32_t now;
-    uint32_t end;
-    static uint32_t last_frame_tick;
     VdpStatus status;
     VdpTime first_time;
     static VdpTime last_time;
     int i;
-
-    now = GetMsTicks();
-    Debug(4, "video/vdpau: tick %d\n", now - last_frame_tick);
 
     //
     //	wait for surface visible (blocks max ~5ms)
@@ -4821,15 +4997,14 @@ static void VdpauDisplayFrame(void)
     status =
 	VdpauPresentationQueueBlockUntilSurfaceIdle(VdpauQueue,
 	VdpauSurfacesRb[VdpauSurfaceIndex], &first_time);
-    end = GetMsTicks();
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't block queue: %s\n"),
 	    VdpauGetErrorString(status));
     }
     // check if surface was displayed for more than 1 frame
     if (last_time && first_time > last_time + 21 * 1000 * 1000) {
-	Debug(3, "video/vdpau: %ld display time %ld - %d ms\n", first_time,
-	    (first_time - last_time) / 1000, end - now);
+	Debug(3, "video/vdpau: %ld display time %ld\n", first_time / 1000,
+	    (first_time - last_time) / 1000);
 	// FIXME: can be more than 1 frame long shown
 	for (i = 0; i < VdpauDecoderN; ++i) {
 	    VdpauDecoders[i]->FramesMissed++;
@@ -4842,7 +5017,6 @@ static void VdpauDisplayFrame(void)
 	}
     }
     last_time = first_time;
-    last_frame_tick = now;
 
     //
     //	Render videos into output
@@ -4868,8 +5042,9 @@ static void VdpauDisplayFrame(void)
     //
     //	add osd to surface
     //
-    VdpauMixOsd();
-
+    if (VdpauShowOsd) {			// showing costs performance
+	VdpauMixOsd();
+    }
     //
     //	place surface in presentation queue
     //
@@ -4906,17 +5081,6 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	VdpauAdvanceFrame();
     }
     filled = atomic_read(&decoder->SurfacesFilled);
-#if 0
-    // debug duplicate frames (done by VdpauAdvanceFrame)
-    if (filled == 1) {
-	decoder->FramesDuped++;
-	Warning(_("video: display buffer empty, duping frame (%d/%d)\n"),
-	    decoder->FramesDuped, decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 300)) {
-	    VdpauPrintFrames(decoder);
-	}
-    }
-#endif
 
     VdpauDisplayFrame();
 
@@ -4944,7 +5108,8 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    decoder->DropNextFrame = 1;
 	}
     }
-
+#ifdef DEBUG
+    // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
 	static int64_t last_video_clock;
@@ -4957,6 +5122,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 
 	last_video_clock = video_clock;
     }
+#endif
 }
 
 ///
@@ -4969,9 +5135,11 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+#ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
+#endif
 
     if (decoder->DropNextFrame) {	// drop frame requested
 	++decoder->FramesDropped;
@@ -5067,7 +5235,8 @@ static void VdpauDisplayHandlerThread(void)
 
     clock_gettime(CLOCK_REALTIME, &nowtime);
     // time for one frame over?
-    if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+    if (				//filled<VIDEO_SURFACES_MAX &&
+	(nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
 	15 * 1000 * 1000) {
 	return;
@@ -5138,6 +5307,7 @@ static void VdpauOsdClear(void)
 #endif
 
     free(image);
+    VdpauShowOsd = 0;
 }
 
 ///
@@ -5196,6 +5366,7 @@ static void VdpauUploadImage(int x, int y, int width, int height,
 	    VdpauGetErrorString(status));
     }
 #endif
+    VdpauShowOsd = 1;
 }
 
 ///
@@ -6189,6 +6360,30 @@ int VideoSetGeometry(const char *geometry)
 void VideoSetDeinterlace(int mode)
 {
     VideoDeinterlace = mode;
+}
+
+/**
+**	Set skip chroma deinterlace on/off.
+*/
+void VideoSetSkipChromaDeinterlace(int onoff)
+{
+    VideoSkipChromaDeinterlace = onoff;
+}
+
+/**
+**	Set denoise level (0 .. 1000).
+*/
+void VideoSetDenoise(int level)
+{
+    VideoDenoise = level;
+}
+
+/**
+**	Set sharpness level (-1000 .. 1000).
+*/
+void VideoSetSharpen(int level)
+{
+    VideoSharpen = level;
 }
 
 /**

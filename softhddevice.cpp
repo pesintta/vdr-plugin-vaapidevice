@@ -49,11 +49,14 @@ static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
 
-static char ConfigMakePrimary;			///< config primary wanted
-static char ConfigVideoDeinterlace;		///< config deinterlace
-static char ConfigVideoScaling;			///< config scaling
-static int ConfigVideoAudioDelay;		///< config audio delay
-static char DoMakePrimary;			///< flag switch primary
+static char ConfigMakePrimary;		///< config primary wanted
+static char ConfigVideoDeinterlace;	///< config deinterlace
+static char ConfigVideoSkipChromaDeinterlace;	///< config skip chroma
+static int ConfigVideoDenoise;		///< config denoise
+static int ConfigVideoSharpen;		///< config sharpen
+static char ConfigVideoScaling;		///< config scaling
+static int ConfigVideoAudioDelay;	///< config audio delay
+static char DoMakePrimary;		///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -226,7 +229,7 @@ class cSoftOsdProvider:public cOsdProvider
     cSoftOsdProvider(void);
 };
 
-cOsd *cSoftOsdProvider::Osd;			///< single osd
+cOsd *cSoftOsdProvider::Osd;		///< single osd
 
 /**
 **	Create a new OSD.
@@ -262,6 +265,9 @@ class cMenuSetupSoft:public cMenuSetupPage
   protected:
     int MakePrimary;
     int Deinterlace;
+    int SkipChromaDeinterlace;
+    int Denoise;
+    int Sharpen;
     int Scaling;
     int AudioDelay;
   protected:
@@ -275,10 +281,12 @@ class cMenuSetupSoft:public cMenuSetupPage
 */
 cMenuSetupSoft::cMenuSetupSoft(void)
 {
-    static const char * const deinterlace[] = {
-	"Bob", "Weave", "Temporal", "TemporalSpatial", "Software" };
-    static const char * const scaling[] = {
-	"Normal", "Fast", "HQ", "Anamorphic" };
+    static const char *const deinterlace[] = {
+	"Bob", "Weave", "Temporal", "TemporalSpatial", "Software"
+    };
+    static const char *const scaling[] = {
+	"Normal", "Fast", "HQ", "Anamorphic"
+    };
 
     // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
     // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
@@ -286,11 +294,22 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
 	    tr("no"), tr("yes")));
     Deinterlace = ConfigVideoDeinterlace;
-    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5, deinterlace));
+    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5,
+	    deinterlace));
+    SkipChromaDeinterlace = ConfigVideoSkipChromaDeinterlace;
+    Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
+	    &SkipChromaDeinterlace, tr("no"), tr("yes")));
+    Denoise = ConfigVideoDenoise;
+    Add(new cMenuEditIntItem(tr("Denoise (vdpau 0..1000)"), &Denoise, 0,
+	    1000));
+    Sharpen = ConfigVideoSharpen;
+    Add(new cMenuEditIntItem(tr("Sharpen (vdpau -1000..1000)"), &Sharpen,
+	    -1000, 1000));
     Scaling = ConfigVideoScaling;
     Add(new cMenuEditStraItem(tr("Scaling"), &Scaling, 4, scaling));
     AudioDelay = ConfigVideoAudioDelay;
-    Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000, 1000));
+    Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000,
+	    1000));
 }
 
 /**
@@ -301,6 +320,13 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("Deinterlace", ConfigVideoDeinterlace = Deinterlace);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
+    SetupStore("SkipChromaDeinterlace", ConfigVideoSkipChromaDeinterlace =
+	SkipChromaDeinterlace);
+    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
+    SetupStore("Denoise", ConfigVideoDenoise = Denoise);
+    VideoSetDenoise(ConfigVideoDenoise);
+    SetupStore("Sharpen", ConfigVideoSharpen = Sharpen);
+    VideoSetSharpen(ConfigVideoSharpen);
     SetupStore("Scaling", ConfigVideoScaling = Scaling);
     VideoSetScaling(ConfigVideoScaling);
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
@@ -333,7 +359,7 @@ class cSoftHdDevice:public cDevice
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
     //virtual int PlayTsVideo(const uchar *, int);
-#ifdef USE_OSS			// FIXME: testing only oss
+#ifdef USE_OSS				// FIXME: testing only oss
     virtual int PlayTsAudio(const uchar *, int);
 #endif
     virtual void SetAudioChannelDevice(int);
@@ -436,7 +462,7 @@ int64_t cSoftHdDevice::GetSTC(void)
 {
     // dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    return ::VideoGetClock();
+    return::VideoGetClock();
 }
 
 void cSoftHdDevice::TrickSpeed(int Speed)
@@ -496,7 +522,7 @@ bool cSoftHdDevice::Poll(
 {
     // dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
 
-    return ::Poll(timeout_ms);
+    return::Poll(timeout_ms);
 }
 
 bool cSoftHdDevice::Flush(int timeout_ms)
@@ -560,7 +586,7 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {
     //dsyslog("[softhddev]%s: %p %d\n", __FUNCTION__, data, length);
 
-    return ::PlayVideo(data, length);
+    return::PlayVideo(data, length);
 }
 
 #if 0
@@ -573,7 +599,7 @@ int cSoftHdDevice::PlayTsVideo(const uchar * Data, int Length)
 }
 #endif
 
-#ifdef USE_OSS			// FIXME: testing only oss
+#ifdef USE_OSS				// FIXME: testing only oss
 ///
 ///	Play a TS audio packet.
 ///
@@ -583,7 +609,7 @@ int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
     AudioPoller();
 
-    return cDevice::PlayTsAudio(data,length);
+    return cDevice::PlayTsAudio(data, length);
 }
 #endif
 
@@ -784,6 +810,19 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcmp(name, "Deinterlace")) {
 	VideoSetDeinterlace(ConfigVideoDeinterlace = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "SkipChromaDeinterlace")) {
+	VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace =
+	    atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "Denoise")) {
+	VideoSetDenoise(ConfigVideoDenoise = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "Sharpen")) {
+	VideoSetSharpen(ConfigVideoSharpen = atoi(value));
 	return true;
     }
     if (!strcmp(name, "Scaling")) {
