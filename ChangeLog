@@ -1,6 +1,7 @@
 User johns
 Data:
 
+    Show transparent cursor to hide cursor.
     VDPAU: Add color standard support.
     VDPAU: Add denoise and sharpness support.
     VDPAU: Add skip chroma deinterlace support.

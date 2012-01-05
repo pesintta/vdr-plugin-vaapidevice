@@ -6291,12 +6291,18 @@ int64_t VideoGetClock(void)
 
 /**
 **	Create main window.
+**
+**	@param parent	parent of new window
+**	@param visual	visual of parent
+**	@param depth	depth of parent
 */
 static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
     uint8_t depth)
 {
     uint32_t values[4];
     xcb_intern_atom_reply_t *reply;
+    xcb_pixmap_t pixmap;
+    xcb_cursor_t cursor;
 
     Debug(3, "video: visual %#0x depth %d\n", visual, depth);
 
@@ -6361,11 +6367,21 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 	}
     }
 
-    values[0] = XCB_NONE;
+    xcb_map_window(Connection, VideoWindow);
+
+    //
+    //	hide cursor
+    //
+    pixmap = xcb_generate_id(Connection);
+    xcb_create_pixmap(Connection, 1, pixmap, parent, 1, 1);
+    cursor = xcb_generate_id(Connection);
+    xcb_create_cursor(Connection, cursor, pixmap, pixmap, 0, 0, 0, 0, 0, 0, 1,
+	1);
+
+    values[0] = cursor;
     xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
 	values);
-
-    xcb_map_window(Connection, VideoWindow);
+    // FIXME: free cursor/pixmap needed?
 }
 
 /**
