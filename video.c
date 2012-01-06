@@ -189,6 +189,7 @@ static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
 static xcb_window_t VideoWindow;	///< video window
+static xcb_cursor_t VideoBlankCursor;	///< empty invisible cursor
 
 static int VideoWindowX;		///< video output window x coordinate
 static int VideoWindowY;		///< video outout window y coordinate
@@ -733,6 +734,103 @@ static void GlxExit(void)
 #endif
 
 //----------------------------------------------------------------------------
+//	auto-crop
+//----------------------------------------------------------------------------
+
+///
+///	avfilter_vf_cropdetect
+///
+typedef struct _video_auto_crop_ctx_
+{
+    int x1;				///< detected left border
+    int x2;				///< detected right border
+    int y1;				///< detected top border
+    int y2;				///< detected bottom border
+} VideoAutoCropCtx;
+
+#define YBLACK 0x20			///< below is black
+#define UVBLACK 0x80			///< around is black
+#define M64 UINT64_C(0x0101010101010101)	///< 64bit multiplicator
+
+///
+///	Detect black line Y.
+///
+///	@param data	Y plane data
+///	@param length	number of pixel to check
+///	@param stride	offset of pixels
+///
+///	@note 8 pixel are checked at once, all values must be 8 aligned
+///
+static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
+{
+    int n;
+    int o;
+    uint64_t r;
+    const uint64_t *p;
+
+#ifdef DEBUG
+    if (data & 0x7 || length & 0x7 || stride & 0x7) {
+	abort();
+    }
+#endif
+    p = (const uint64_t *)data;
+    n = length / 8;			// FIXME: can remove n
+    o = stride / 8;
+
+    r = 0;
+    while (--n >= 0) {
+	r |= *p;
+	p += o;
+    }
+
+    // below YBLACK(0x20) is black
+    return r & (~(YBLACK - 1) * M64);
+}
+
+/**
+**	Auto detect black borders and crop them.
+*/
+static void AutoCropDetect(int width, int height, void *data[3],
+    uint32_t pitches[3])
+{
+    const void *data_y;
+    unsigned length_y;
+    int x;
+    int y;
+    int x1;
+    int x2;
+    int y1;
+    int y2;
+
+    //
+    //	ignore top+bottom 4 lines and left+right 8 pixels
+    //
+    x1 = 0;
+    y1 = 0;
+    x2 = width;
+    y2 = height;
+
+    data_y = data[0];
+    length_y = pitches[0];
+
+    //
+    //	search top
+    //
+
+    //
+    //	search bottom
+    //
+
+    //
+    //	search left
+    //
+
+    //
+    //	search right
+    //
+}
+
+//----------------------------------------------------------------------------
 //	VA-API
 //----------------------------------------------------------------------------
 
@@ -787,11 +885,14 @@ struct _vaapi_decoder_
     /// free surface ids
     VASurfaceID SurfacesFree[CODEC_SURFACES_MAX];
 
-    int InputX;				///< input x
-    int InputY;				///< input y
-    int InputWidth;			///< input width
-    int InputHeight;			///< input height
-    AVRational InputAspect;		///< input aspect ratio
+    int InputWidth;			///< video input width
+    int InputHeight;			///< video input height
+    AVRational InputAspect;		///< video input aspect ratio
+
+    int CropX;				///< video crop x
+    int CropY;				///< video crop y
+    int CropWidth;			///< video crop width
+    int CropHeight;			///< video crop height
 
 #ifdef USE_GLX
     GLuint GlTexture[2];		///< gl texture for VA-API
@@ -1169,7 +1270,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
 	abort();
     }
-
     // clear ring buffer
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
@@ -1377,6 +1477,8 @@ static void VideoVaapiExit(void)
 ///	Update output for new size or aspect ratio.
 ///
 ///	@param decoder	VA-API decoder
+///
+///	@todo combine VaapiUpdateOutput and VdpauUpdateOutput
 ///
 static void VaapiUpdateOutput(VaapiDecoder * decoder)
 {
@@ -1633,8 +1735,11 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	goto slow_path;
     }
 
-    decoder->InputX = 0;
-    decoder->InputY = 0;
+    decoder->CropX = 0;
+    decoder->CropY = 0;
+    decoder->CropWidth = video_ctx->width;
+    decoder->CropHeight = video_ctx->height;
+
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -1709,8 +1814,8 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     xcb_flush(Connection);
     if ((status = vaPutSurface(decoder->VaDisplay, surface, decoder->Window,
 		// decoder src
-		decoder->InputX, decoder->InputY, decoder->InputWidth,
-		decoder->InputHeight,
+		decoder->CropX, decoder->CropY, decoder->CropWidth,
+		decoder->CropHeight,
 		// video dst
 		decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
 		decoder->OutputHeight, NULL, 0,
@@ -2468,8 +2573,11 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    || height != decoder->InputHeight) {
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
-	    decoder->InputX = 0;
-	    decoder->InputY = 0;
+	    decoder->CropX = 0;
+	    decoder->CropY = 0;
+	    decoder->CropWidth = video_ctx->width;
+	    decoder->CropHeight = video_ctx->height;
+
 	    decoder->InputWidth = width;
 	    decoder->InputHeight = height;
 
@@ -3097,11 +3205,14 @@ typedef struct _vdpau_decoder_
     int Interlaced;			///< ffmpeg interlaced flag
     int TopFieldFirst;			///< ffmpeg top field displayed first
 
-    int InputX;				///< input x
-    int InputY;				///< input y
-    int InputWidth;			///< input width
-    int InputHeight;			///< input height
-    AVRational InputAspect;		///< input aspect ratio
+    int InputWidth;			///< video input width
+    int InputHeight;			///< video input height
+    AVRational InputAspect;		///< video input aspect ratio
+
+    int CropX;				///< video crop x
+    int CropY;				///< video crop y
+    int CropWidth;			///< video crop width
+    int CropHeight;			///< video crop height
 
 #ifdef noyetUSE_GLX
     GLuint GlTexture[2];		///< gl texture for VDPAU
@@ -4175,6 +4286,8 @@ static void VideoVdpauExit(void)
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
+///	@todo combine VaapiUpdateOutput and VdpauUpdateOutput
+///
 static void VdpauUpdateOutput(VdpauDecoder * decoder)
 {
     AVRational input_aspect_ratio;
@@ -4386,8 +4499,11 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	goto slow_path;
     }
 
-    decoder->InputX = 0;
-    decoder->InputY = 0;
+    decoder->CropX = 0;
+    decoder->CropY = 0;
+    decoder->CropWidth = video_ctx->width;
+    decoder->CropHeight = video_ctx->height;
+
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -4506,7 +4622,8 @@ static void VdpauGrabSurface(VdpauDecoder * decoder)
 	    VdpauGetErrorString(status));
 	return;
     }
-    // 0x10 0x80 0x80 black
+
+    AutoCropDetect(width, height, data, pitches);
 
     free(base);
 }
@@ -4671,8 +4788,11 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    || video_ctx->height != decoder->InputHeight) {
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
-	    decoder->InputX = 0;
-	    decoder->InputY = 0;
+	    decoder->CropX = 0;
+	    decoder->CropY = 0;
+	    decoder->CropWidth = video_ctx->width;
+	    decoder->CropHeight = video_ctx->height;
+
 	    decoder->InputWidth = video_ctx->width;
 	    decoder->InputHeight = video_ctx->height;
 
@@ -4816,10 +4936,10 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     dst_rect.x1 = VideoWindowWidth;
     dst_rect.y1 = VideoWindowHeight;
 
-    video_src_rect.x0 = decoder->InputX;	// video source (crop)
-    video_src_rect.y0 = decoder->InputY;
-    video_src_rect.x1 = decoder->InputX + decoder->InputWidth;
-    video_src_rect.y1 = decoder->InputY + decoder->InputHeight;
+    video_src_rect.x0 = decoder->CropX;	// video source (crop)
+    video_src_rect.y0 = decoder->CropY;
+    video_src_rect.x1 = decoder->CropX + decoder->CropWidth;
+    video_src_rect.y1 = decoder->CropY + decoder->CropHeight;
 
     dst_video_rect.x0 = decoder->OutputX;	// video output (scale)
     dst_video_rect.y0 = decoder->OutputY;
@@ -5794,6 +5914,9 @@ static void VideoEvent(void)
 
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify\n");
+	    // µwn workaround
+	    xcb_change_window_attributes(Connection, VideoWindow,
+		XCB_CW_CURSOR, &VideoBlankCursor);
 	    break;
 	case Expose:
 	    Debug(3, "video/event: Expose\n");
@@ -6387,6 +6510,7 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
     values[0] = cursor;
     xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
 	values);
+    VideoBlankCursor = cursor;
     // FIXME: free cursor/pixmap needed?
 }
 
