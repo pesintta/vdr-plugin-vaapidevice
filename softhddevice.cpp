@@ -33,14 +33,15 @@
 
 #include "softhddev.h"
 #include "softhddevice.h"
-extern "C" {
-    #include "video.h"
+extern "C"
+{
+#include "video.h"
     extern void AudioPoller(void);
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.1.5";
+static const char *const VERSION = "0.2.0";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -56,7 +57,7 @@ static int ConfigVideoDenoise;		///< config denoise
 static int ConfigVideoSharpen;		///< config sharpen
 static char ConfigVideoScaling;		///< config scaling
 static int ConfigVideoAudioDelay;	///< config audio delay
-static char DoMakePrimary;		///< flag switch primary
+static volatile char DoMakePrimary;	///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -129,7 +130,7 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 
 cSoftOsd::~cSoftOsd(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     SetActive(false);
 
     OsdClose();
@@ -206,8 +207,10 @@ void cSoftOsd::Flush(void)
 	w = pm->ViewPort().Width();
 	h = pm->ViewPort().Height();
 
-	dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h, x,
-	    y, pm->Data());
+	/*
+	   dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h, x,
+	   y, pm->Data());
+	 */
 
 	OsdDrawARGB(x, y, w, h, pm->Data());
 
@@ -236,7 +239,7 @@ cOsd *cSoftOsdProvider::Osd;		///< single osd
 */
 cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
-    dsyslog("[softhddev]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
+    //dsyslog("[softhddev]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
 
     Osd = new cSoftOsd(left, top, level);
     return Osd;
@@ -253,7 +256,7 @@ bool cSoftOsdProvider::ProvidesTrueColor(void)
 cSoftOsdProvider::cSoftOsdProvider(void)
 :  cOsdProvider()
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -386,14 +389,14 @@ class cSoftHdDevice:public cDevice
 
 cSoftHdDevice::cSoftHdDevice(void)
 {
-    dsyslog("[softhddev]%s\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s\n", __FUNCTION__);
 
     spuDecoder = NULL;
 }
 
 cSoftHdDevice::~cSoftHdDevice(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
 void cSoftHdDevice::MakePrimaryDevice(bool on)
@@ -409,7 +412,7 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
 int cSoftHdDevice::ProvidesCa(
     __attribute__ ((unused)) const cChannel * channel) const
 {
-    dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
+    //dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
 
     return 0;
 }
@@ -505,7 +508,7 @@ void cSoftHdDevice::Mute(void)
 
 void cSoftHdDevice::SetVolumeDevice(int volume)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
+    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
 
     ::SetVolumeDevice(volume);
 }
@@ -558,22 +561,23 @@ int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
 void cSoftHdDevice::SetAudioTrackDevice(
     __attribute__ ((unused)) eTrackType type)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
-void cSoftHdDevice::SetDigitalAudioDevice(bool on)
+void cSoftHdDevice::SetDigitalAudioDevice( __attribute__ ((unused)) bool on)
 {
-    dsyslog("[softhddev]%s: %s\n", __FUNCTION__, on ? "true" : "false");
+    //dsyslog("[softhddev]%s: %s\n", __FUNCTION__, on ? "true" : "false");
 }
 
-void cSoftHdDevice::SetAudioChannelDevice(int audio_channel)
+void cSoftHdDevice::SetAudioChannelDevice( __attribute__ ((unused))
+    int audio_channel)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, audio_channel);
+    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, audio_channel);
 }
 
 int cSoftHdDevice::GetAudioChannelDevice(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     return 0;
 }
 
@@ -652,13 +656,13 @@ cPluginSoftHdDevice::cPluginSoftHdDevice(void)
     // Initialize any member variables here.
     // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
     // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
 cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
 {
     // Clean up after yourself!
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     ::SoftHdDeviceExit();
 }
@@ -686,7 +690,7 @@ const char *cPluginSoftHdDevice::CommandLineHelp(void)
 */
 bool cPluginSoftHdDevice::ProcessArgs(int argc, char *argv[])
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     return::ProcessArgs(argc, argv);
 }
@@ -694,7 +698,7 @@ bool cPluginSoftHdDevice::ProcessArgs(int argc, char *argv[])
 bool cPluginSoftHdDevice::Initialize(void)
 {
     // Start any background activities the plugin shall perform.
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     MyDevice = new cSoftHdDevice();
 
@@ -706,7 +710,7 @@ bool cPluginSoftHdDevice::Start(void)
     const cDevice *primary;
 
     // Start any background activities the plugin shall perform.
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     primary = cDevice::PrimaryDevice();
     if (MyDevice != primary) {
@@ -729,7 +733,7 @@ bool cPluginSoftHdDevice::Start(void)
 
 void cPluginSoftHdDevice::Stop(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     ::Stop();
 }
@@ -743,7 +747,7 @@ void cPluginSoftHdDevice::Housekeeping(void)
 
 const char *cPluginSoftHdDevice::MainMenuEntry(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     return tr(MAINMENUENTRY);
     return NULL;
 }
@@ -756,7 +760,7 @@ const char *cPluginSoftHdDevice::MainMenuEntry(void)
 */
 void cPluginSoftHdDevice::MainThreadHook(void)
 {
-    // dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     if (DoMakePrimary && MyDevice) {
 	dsyslog("[softhddev]%s: switching primary device\n", __FUNCTION__);
@@ -791,7 +795,7 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 */
 cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     return new cMenuSetupSoft;
 }
@@ -801,7 +805,7 @@ cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
 */
 bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 {
-    dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
+    //dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
     // FIXME: handle the values
     if (!strcmp(name, "MakePrimary")) {

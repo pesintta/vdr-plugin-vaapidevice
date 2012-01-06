@@ -1,6 +1,7 @@
 User johns
 Data:
 
+    Fix bug: broken device plugin stop and exit.
     Show transparent cursor to hide cursor.
     VDPAU: Add color standard support.
     VDPAU: Add denoise and sharpness support.

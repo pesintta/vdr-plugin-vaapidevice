@@ -42,13 +42,17 @@
 #include "video.h"
 #include "codec.h"
 
-static char BrokenThreadsAndPlugins;	///< broken vdr threads and plugins
+//////////////////////////////////////////////////////////////////////////////
+//	Variables
+//////////////////////////////////////////////////////////////////////////////
 
 #ifdef USE_VDPAU
 static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #else
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
+
+static const char DeviceStopped = 1;	///< flag device stopped
 
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
@@ -189,9 +193,6 @@ void PlayAudio(const uint8_t * data, int size,
     int n;
     AVPacket avpkt[1];
 
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
     if (NewAudioStream) {
@@ -301,9 +302,6 @@ void PlayAudio(const uint8_t * data, int size,
 */
 void Mute(void)
 {
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     AudioSetVolume(0);
 }
 
@@ -314,9 +312,6 @@ void Mute(void)
 */
 void SetVolumeDevice(int volume)
 {
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     AudioSetVolume((volume * 100) / 255);
 }
 
@@ -439,6 +434,8 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 
 /**
 **	Finish current packet advance to next.
+**
+**	@param codec_id	codec id of packet (MPEG/H264)
 */
 static void VideoNextPacket(int codec_id)
 {
@@ -637,9 +634,6 @@ int PlayVideo(const uint8_t * data, int size)
     int64_t pts;
     int n;
 
-    if (BrokenThreadsAndPlugins) {
-	return size;
-    }
     if (Usr1Signal) {			// x11 server ready
 	Usr1Signal = 0;
 	StartVideo();
@@ -760,9 +754,6 @@ int PlayVideo(const uint8_t * data, int size)
 */
 void SetPlayMode(void)
 {
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     if (MyVideoDecoder) {
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
@@ -850,9 +841,6 @@ void GetOsdSize(int *width, int *height, double *aspect)
 */
 void OsdClose(void)
 {
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     VideoOsdClear();
 }
 
@@ -861,9 +849,6 @@ void OsdClose(void)
 */
 void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 {
-    if (BrokenThreadsAndPlugins) {
-	return;
-    }
     VideoOsdDrawARGB(x, y, height, width, argb);
 }
 
@@ -1030,39 +1015,6 @@ static void StartXServer(void)
 */
 void SoftHdDeviceExit(void)
 {
-}
-
-/**
-**	Prepare plugin.
-*/
-void Start(void)
-{
-    if (StartX11Server) {
-	StartXServer();
-    }
-    CodecInit();
-    // FIXME: AudioInit for HDMI after X11 startup
-    AudioInit();
-    if (!StartX11Server) {
-	StartVideo();
-    }
-}
-
-/**
-**	Stop plugin.
-*/
-void Stop(void)
-{
-#ifdef DEBUG
-    Debug(3, "video: max used PES packet size: %d\n", VideoMaxPacketSize);
-#endif
-
-    // FIXME:
-    // don't let any thread enter our plugin, but can still crash, when
-    // a thread has called any function, while Stop is called.
-    BrokenThreadsAndPlugins = 1;
-    usleep(2 * 1000);
-
     // lets hope that vdr does a good thead cleanup
     // no it doesn't do a good thread cleanup
     if (MyVideoDecoder) {
@@ -1092,9 +1044,39 @@ void Stop(void)
 }
 
 /**
+**	Prepare plugin.
+*/
+void Start(void)
+{
+    if (StartX11Server) {
+	StartXServer();
+    }
+    CodecInit();
+    // FIXME: AudioInit for HDMI after X11 startup
+    AudioInit();
+    if (!StartX11Server) {
+	StartVideo();
+    }
+}
+
+/**
+**	Stop plugin.
+**
+**	@note stop everything, but don't cleanup, module is still called.
+*/
+void Stop(void)
+{
+#ifdef DEBUG
+    Debug(3, "video: max used PES packet size: %d\n", VideoMaxPacketSize);
+#endif
+}
+
+/**
 **	Main thread hook, periodic called from main thread.
 */
 void MainThreadHook(void)
 {
-    VideoDisplayHandler();
+    if (!DeviceStopped) {
+	VideoDisplayHandler();
+    }
 }
