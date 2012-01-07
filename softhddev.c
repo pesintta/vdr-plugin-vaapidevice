@@ -62,8 +62,6 @@ static volatile char NewAudioStream;	///< new audio stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 
-extern void AudioTest(void);		// FIXME:
-
 /**
 **	mpeg bitrate table.
 **
@@ -351,8 +349,6 @@ static void VideoPacketInit(void)
 {
     int i;
 
-    Debug(4, "[softhddev]: %s\n", __FUNCTION__);
-
     for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
 	AVPacket *avpkt;
 
@@ -374,16 +370,10 @@ static void VideoPacketExit(void)
 {
     int i;
 
-    Debug(4, "[softhddev]: %s\n", __FUNCTION__);
-
     atomic_set(&VideoPacketsFilled, 0);
 
     for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
-	AVPacket *avpkt;
-
-	avpkt = &VideoPacketRb[i];
-	// build a clean ffmpeg av packet
-	av_free_packet(avpkt);
+	av_free_packet(&VideoPacketRb[i]);
     }
 }
 
@@ -466,13 +456,13 @@ static void VideoNextPacket(int codec_id)
     VideoPacketWrite = (VideoPacketWrite + 1) % VIDEO_PACKET_MAX;
     atomic_inc(&VideoPacketsFilled);
 
+    VideoDisplayWakeup();
+
     // intialize next package to use
     avpkt = &VideoPacketRb[VideoPacketWrite];
     avpkt->stream_index = 0;
     avpkt->pts = AV_NOPTS_VALUE;
     avpkt->dts = AV_NOPTS_VALUE;
-
-    VideoDisplayHandler();
 }
 
 /**
@@ -819,7 +809,9 @@ int Poll(int timeout)
 */
 void GetOsdSize(int *width, int *height, double *aspect)
 {
+#ifdef DEBUG
     static char done;
+#endif
 
     // FIXME: should be configured!
     *width = 1920;
@@ -829,11 +821,13 @@ void GetOsdSize(int *width, int *height, double *aspect)
 
     *aspect = 16.0 / 9.0 / (double)*width * (double)*height;
 
+#ifdef DEBUG
     if (!done) {
 	Debug(3, "[softhddev]%s: %dx%d %g\n", __FUNCTION__, *width, *height,
 	    *aspect);
 	done = 1;
     }
+#endif
 }
 
 /**
@@ -1076,7 +1070,4 @@ void Stop(void)
 */
 void MainThreadHook(void)
 {
-    if (!DeviceStopped) {
-	VideoDisplayHandler();
-    }
 }

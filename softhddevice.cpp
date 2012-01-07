@@ -135,6 +135,9 @@ cSoftOsd::~cSoftOsd(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     SetActive(false);
 
+    if (vidWin.bpp) {
+	VideoSetOutputPosition(0, 0, 1920, 1080);
+    }
     OsdClose();
 }
 
@@ -148,7 +151,17 @@ void cSoftOsd::Flush(void)
     if (!Active()) {
 	return;
     }
-    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    // support yaepghd, video window
+    if (vidWin.bpp) {
+	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__,
+	    vidWin.Width(), vidWin.Height(), vidWin.x1, vidWin.y2 );
+
+	// FIXME: vidWin is OSD relative not video window.
+	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
+	    vidWin.Width(), vidWin.Height());
+    }
+
     if (!IsTrueColor()) {
 	static char warned;
 	cBitmap *bitmap;
@@ -255,6 +268,9 @@ bool cSoftOsdProvider::ProvidesTrueColor(void)
     return true;
 }
 
+/**
+**	Create cOsdProvider class.
+*/
 cSoftOsdProvider::cSoftOsdProvider(void)
 :  cOsdProvider()
 {

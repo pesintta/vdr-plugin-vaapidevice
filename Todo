@@ -79,6 +79,7 @@ audio/oss:
 
 HDMI/SPDIF Passthrough:
     only AC-3 written
+    Channels are wrong setup, if changing setting during operation.
 
 playback of recording
     play back is too fast

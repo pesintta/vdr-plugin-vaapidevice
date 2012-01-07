@@ -1,5 +1,9 @@
 User johns
-Data: Sat Jan  7 13:20:07 CET 2012
+Date:
+
+    Support yaepghd video picture output position change.
+
+Date: Sat Jan  7 13:20:07 CET 2012
 
     Release Version 0.2.0
     Add support for ac3 audio pass through.
