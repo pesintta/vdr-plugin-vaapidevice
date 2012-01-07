@@ -43,6 +43,8 @@
 #endif
 //#define USE_ALSA			///< enable alsa support
 //#define USE_OSS			///< enable oss support
+#define noSEARCH_HDMI_BUG
+#define noSEARCH_HDMI_BUG2
 
 #include <stdio.h>
 #include <stdint.h>
@@ -88,6 +90,8 @@
 #endif
 #endif
 
+#include <alsa/iatomic.h>		// portable atomic_t
+
 #include "ringbuffer.h"
 #include "misc.h"
 #include "audio.h"
@@ -108,6 +112,95 @@ static int64_t AudioPTS;		///< audio pts clock
 
 #ifdef USE_AUDIO_THREAD
 static pthread_cond_t AudioStartCond;	///< condition variable
+#endif
+
+#ifdef SEARCH_HDMI_BUG2
+
+//----------------------------------------------------------------------------
+//	ring buffer
+//----------------------------------------------------------------------------
+
+// FIXME: use this code, to combine alsa&oss ring buffers
+
+#define AUDIO_RING_MAX 8		///< number of audio ring buffers
+
+/**
+**	Audio ring buffer.
+*/
+typedef struct _audio_ring_ring_
+{
+    char FlushBuffers;			///< flag: flush buffers
+    unsigned SampleRate;		///< sample rate in hz
+    unsigned Channels;			///< number of channels
+} AudioRingRing;
+
+    /// ring of audio ring buffers
+static AudioRingRing AudioRing[AUDIO_RING_MAX];
+static int AudioRingWrite;		///< audio ring write pointer
+static int AudioRingRead;		///< audio ring read pointer
+static atomic_t AudioRingFilled;	///< how many of the ring is used
+
+/**
+**	Add sample rate, number of channel change to ring.
+**
+**	@param freq	sample frequency
+**	@param channels	number of channels
+*/
+static int AudioRingAdd(int freq, int channels)
+{
+    int filled;
+
+    filled = atomic_read(&AudioRingFilled);
+    if (filled == AUDIO_RING_MAX) {	// no free slot
+	// FIXME: can wait for ring buffer empty
+	Error(_("audio: out of ring buffers\n"));
+	return -1;
+    }
+    AudioRing[AudioRingWrite].FlushBuffers = 1;
+    AudioRing[AudioRingWrite].SampleRate = freq;
+    AudioRing[AudioRingWrite].Channels = channels;
+
+    AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
+    atomic_inc(&AudioRingFilled);
+
+#ifdef USE_AUDIO_THREAD
+    // tell thread, that something todo
+    AudioRunning = 1;
+    pthread_cond_signal(&AudioStartCond);
+#endif
+
+    return 0;
+}
+
+/**
+**	Setup audio ring.
+*/
+static void AudioRingInit(void)
+{
+    int i;
+
+    for (i = 0; i < AUDIO_RING_MAX; ++i) {
+	// FIXME:
+	//AlsaRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
+    }
+    // one slot always reservered
+    AudioRingWrite = 1;
+    atomic_set(&AudioRingFilled, 1);
+}
+
+/**
+**	Cleanup audio ring.
+*/
+static void AudioRingExit(void)
+{
+    int i;
+
+    for (i = 0; i < AUDIO_RING_MAX; ++i) {
+	// FIXME:
+	//RingBufferDel(AlsaRingBuffer);
+    }
+}
+
 #endif
 
 #ifdef USE_ALSA
@@ -152,6 +245,7 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
     if (n != count) {
 	Error(_("audio/alsa: can't place %d samples in ring buffer\n"), count);
 	// too many bytes are lost
+	// FIXME: should skip more, longer skip, but less often?
     }
     // Update audio clock
     AudioPTS +=
@@ -207,7 +301,19 @@ static int AlsaPlayRingbuffer(void)
 		snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 	    break;
 	}
+#ifdef SEARCH_HDMI_BUG
+	{
+	    uint16_t buf[8192];
+	    unsigned u;
 
+	    for (u = 0; u < sizeof(buf) / 2; u++) {
+		buf[u] = random() & 0xffff;
+	    }
+
+	    n = sizeof(buf);
+	    p = buf;
+	}
+#else
 	n = RingBufferGetReadPointer(AlsaRingBuffer, &p);
 	if (!n) {			// ring buffer empty
 	    if (first) {		// only error on first loop
@@ -215,6 +321,7 @@ static int AlsaPlayRingbuffer(void)
 	    }
 	    return 0;
 	}
+#endif
 	if (n < avail) {		// not enough bytes in ring buffer
 	    avail = n;
 	}
@@ -229,7 +336,7 @@ static int AlsaPlayRingbuffer(void)
 	} else {
 	    err = snd_pcm_writei(AlsaPCMHandle, p, frames);
 	}
-	Debug(4, "audio/alsa: wrote %d/%d frames\n", err, frames);
+	//Debug(3, "audio/alsa: wrote %d/%d frames\n", err, frames);
 	if (err != frames) {
 	    if (err < 0) {
 		if (err == -EAGAIN) {
@@ -253,6 +360,19 @@ static int AlsaPlayRingbuffer(void)
     }
 
     return 0;
+}
+
+/**
+**	Flush alsa buffers.
+*/
+static void AlsaFlushBuffers(void)
+{
+    int err;
+
+    RingBufferReadAdvance(AlsaRingBuffer, RingBufferUsedBytes(AlsaRingBuffer));
+    if ((err = snd_pcm_drop(AlsaPCMHandle))) {
+	Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
+    }
 }
 
 #if 0
@@ -462,16 +582,10 @@ static void AlsaThread(void)
 	if (AlsaFlushBuffer) {
 	    // we can flush too many, but wo cares
 	    Debug(3, "audio/alsa: flushing buffers\n");
-	    RingBufferReadAdvance(AlsaRingBuffer,
-		RingBufferUsedBytes(AlsaRingBuffer));
-#if 1
-	    if ((err = snd_pcm_drop(AlsaPCMHandle))) {
-		Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
-	    }
+	    AlsaFlushBuffers();
 	    if ((err = snd_pcm_prepare(AlsaPCMHandle))) {
 		Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
 	    }
-#endif
 	    AlsaFlushBuffer = 0;
 	    break;
 	}
@@ -499,8 +613,9 @@ static void AlsaThread(void)
 */
 static void AlsaEnqueue(const void *samples, int count)
 {
-    if (!AlsaRingBuffer || !AlsaPCMHandle) {
-	Debug(3, "audio/alsa: not ready\n");
+    if (!AlsaRingBuffer || !AlsaPCMHandle || !AudioSampleRate) {
+	printf("%p %p %d\n", AlsaRingBuffer, AlsaPCMHandle, AudioSampleRate);
+	Debug(3, "audio/alsa: enqueue not ready\n");
 	return;
     }
     if (AlsaAddToRingbuffer(samples, count)) {
@@ -518,34 +633,47 @@ static void AlsaEnqueue(const void *samples, int count)
 #endif
 
 /**
-**	Initialize alsa pcm device.
-**
-**	@see AudioPCMDevice
+**	Open alsa pcm device.
 */
-static void AlsaInitPCM(void)
+static snd_pcm_t *AlsaOpenPCM(void)
 {
     const char *device;
     snd_pcm_t *handle;
-    snd_pcm_hw_params_t *hw_params;
     int err;
-    snd_pcm_uframes_t buffer_size;
 
     if (!(device = AudioPCMDevice)) {
 	if (!(device = getenv("ALSA_DEVICE"))) {
 	    device = "default";
 	}
     }
-    // FIXME: must set alsa error output to /dev/null
     if ((err =
 	    snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK,
 		SND_PCM_NONBLOCK)) < 0) {
-	Fatal(_("audio/alsa: playback open '%s' error: %s\n"), device,
+	Error(_("audio/alsa: playback open '%s' error: %s\n"), device,
 	    snd_strerror(err));
-	// FIXME: no fatal error for plugins!
+	return NULL;
     }
 
     if ((err = snd_pcm_nonblock(handle, 0)) < 0) {
 	Error(_("audio/alsa: can't set block mode: %s\n"), snd_strerror(err));
+    }
+    return handle;
+}
+
+/**
+**	Initialize alsa pcm device.
+**
+**	@see AudioPCMDevice
+*/
+static void AlsaInitPCM(void)
+{
+    snd_pcm_t *handle;
+    snd_pcm_hw_params_t *hw_params;
+    int err;
+    snd_pcm_uframes_t buffer_size;
+
+    if (!(handle = AlsaOpenPCM())) {
+	return;
     }
 
     snd_pcm_hw_params_alloca(&hw_params);
@@ -556,8 +684,7 @@ static void AlsaInitPCM(void)
 	    snd_strerror(err));
     }
     AlsaCanPause = snd_pcm_hw_params_can_pause(hw_params);
-    Info(_("audio/alsa: hw '%s' supports pause: %s\n"), device,
-	AlsaCanPause ? "yes" : "no");
+    Info(_("audio/alsa: supports pause: %s\n"), AlsaCanPause ? "yes" : "no");
     snd_pcm_hw_params_get_buffer_size_max(hw_params, &buffer_size);
     Info(_("audio/alsa: max buffer size %lu\n"), buffer_size);
 
@@ -656,7 +783,7 @@ static uint64_t AlsaGetDelay(void)
     snd_pcm_sframes_t delay;
     uint64_t pts;
 
-    if (!AlsaPCMHandle) {
+    if (!AlsaPCMHandle || !AudioSampleRate) {
 	return 0UL;
     }
     // FIXME: thread safe? __assert_fail_base in snd_pcm_delay
@@ -702,12 +829,14 @@ static int AlsaSetup(int *freq, int *channels)
     snd_pcm_uframes_t period_size;
     int err;
     int ret;
+    snd_pcm_t *handle;
 
     if (!AlsaPCMHandle) {		// alsa not running yet
 	return -1;
     }
 #if 1
     // flush any buffered data
+#ifndef SEARCH_HDMI_BUG2
 #ifdef USE_AUDIO_THREAD
     if (AudioRunning) {
 	while (AudioRunning) {
@@ -718,10 +847,20 @@ static int AlsaSetup(int *freq, int *channels)
     } else
 #endif
     {
-	RingBufferReadAdvance(AlsaRingBuffer,
-	    RingBufferUsedBytes(AlsaRingBuffer));
+	AlsaFlushBuffers();
     }
+#endif
     AudioPTS = INT64_C(0x8000000000000000);
+
+    if (1) {				// close+open to fix hdmi no sound bugs
+	handle = AlsaPCMHandle;
+	AlsaPCMHandle = NULL;
+	snd_pcm_close(handle);
+	if (!(handle = AlsaOpenPCM())) {
+	    return -1;
+	}
+	AlsaPCMHandle = handle;
+    }
 
     ret = 0;
   try_again:
@@ -844,6 +983,41 @@ static int AlsaSetup(int *freq, int *channels)
     // FIXME: use hw_params for buffer_size period_size
 #endif
 
+#if 1
+    if (0) {				// no underruns allowed, play silence
+	snd_pcm_sw_params_t *sw_params;
+	snd_pcm_uframes_t boundary;
+
+	snd_pcm_sw_params_alloca(&sw_params);
+	err = snd_pcm_sw_params_current(AlsaPCMHandle, sw_params);
+	if (err < 0) {
+	    Error(_("audio: snd_pcm_sw_params_current failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err = snd_pcm_sw_params_get_boundary(sw_params, &boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_get_boundary failed: %s\n"),
+		snd_strerror(err));
+	}
+	Debug(4, "audio/alsa: boundary %lu frames\n", boundary);
+	if ((err =
+		snd_pcm_sw_params_set_stop_threshold(AlsaPCMHandle, sw_params,
+		    boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err =
+		snd_pcm_sw_params_set_silence_size(AlsaPCMHandle, sw_params,
+		    boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err = snd_pcm_sw_params(AlsaPCMHandle, sw_params)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params failed: %s\n"),
+		snd_strerror(err));
+	}
+    }
+#endif
+
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
@@ -954,6 +1128,7 @@ static int OssAddToRingbuffer(const void *samples, int count)
     if (n != count) {
 	Error(_("audio/oss: can't place %d samples in ring buffer\n"), count);
 	// too many bytes are lost
+	// FIXME: should skip more, longer skip, but less often?
     }
     // Update audio clock
     AudioPTS +=
@@ -1375,11 +1550,58 @@ static void *AudioPlayHandlerThread(void *dummy)
 	Debug(3, "audio: wait on start condition\n");
 	pthread_mutex_lock(&AudioMutex);
 	AudioRunning = 0;
+#ifndef SEARCH_HDMI_BUG
 	do {
 	    pthread_cond_wait(&AudioStartCond, &AudioMutex);
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
+#else
+	usleep(1 * 1000);
+	AudioRunning = 1;
+#endif
 	pthread_mutex_unlock(&AudioMutex);
+
+#ifdef SEARCH_HDMI_BUG2
+	if (atomic_read(&AudioRingFilled) > 1) {
+	    int sample_rate;
+	    int channels;
+
+	    // skip all sample changes between
+	    while (atomic_read(&AudioRingFilled) > 1) {
+		Debug(3, "audio: skip ring buffer\n");
+		AudioRingRead = (AudioRingRead + 1) % AUDIO_RING_MAX;
+		atomic_dec(&AudioRingFilled);
+	    }
+
+#ifdef USE_ALSA
+	    // FIXME: flush only if there is something to flush
+	    AlsaFlushBuffers();
+
+	    sample_rate = AudioRing[AudioRingRead].SampleRate;
+	    channels = AudioRing[AudioRingRead].Channels;
+	    Debug(3, "audio: thread channels %d sample-rate %d hz\n", channels,
+		sample_rate);
+
+	    if (AlsaSetup(&sample_rate, &channels)) {
+		Error(_("audio: can't set channels %d sample-rate %d hz\n"),
+		    channels, sample_rate);
+	    }
+	    Debug(3, "audio: thread channels %d sample-rate %d hz\n",
+		AudioChannels, AudioSampleRate);
+	    if (1) {
+		int16_t buf[6144 / 2];
+
+		buf[0] = htole16(0xF872);	// iec 61937 sync word
+		buf[1] = htole16(0x4E1F);
+		buf[2] = htole16((7 << 5) << 8 | 0x00);
+		buf[3] = htole16(0x0000);
+		memset(buf + 4, 0, 6144 - 8);
+
+		AlsaEnqueue(buf, 6144);
+	    }
+#endif
+	}
+#endif
 
 	Debug(3, "audio: play start\n");
 #ifdef USE_ALSA
@@ -1406,6 +1628,8 @@ static void AudioInitThread(void)
 	pthread_yield();
     } while (!AlsaPCMHandle);
 #endif
+    pthread_yield();
+    usleep(5 * 1000);
 }
 
 /**
@@ -1550,6 +1774,10 @@ int AudioSetup(int *freq, int *channels)
 	// FIXME: set flag invalid setup
 	return -1;
     }
+#if defined(SEARCH_HDMI_BUG) || defined(SEARCH_HDMI_BUG2)
+    // FIXME: need to store possible combination and report this
+    return AudioRingAdd(*freq, *channels);
+#endif
 #ifdef USE_ALSA
     return AlsaSetup(freq, channels);
 #endif
@@ -1577,6 +1805,9 @@ void AudioInit(void)
     int freq;
     int chan;
 
+#ifdef SEARCH_HDMI_BUG2
+    AudioRingInit();
+#endif
 #ifdef USE_ALSA
     AlsaInit();
 #endif
@@ -1608,6 +1839,9 @@ void AudioExit(void)
 #endif
 #ifdef USE_OSS
     OssExit();
+#endif
+#ifdef SEARCH_HDMI_BUG2
+    AudioRingExit();
 #endif
 }
 
