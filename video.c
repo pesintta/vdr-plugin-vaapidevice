@@ -769,7 +769,7 @@ static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
     const uint64_t *p;
 
 #ifdef DEBUG
-    if (data & 0x7 || length & 0x7 || stride & 0x7) {
+    if ((size_t) data & 0x7 || length & 0x7 || stride & 0x7) {
 	abort();
     }
 #endif
