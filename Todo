@@ -41,6 +41,7 @@ vdpau:
 
 libva:
     hard channel switch
+    yaepghd (VaapiSetOutputPosition) support
 
 libva-intel-driver:
     intel still has hangups most with 1080i

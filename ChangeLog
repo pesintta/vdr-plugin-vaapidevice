@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix build with vdr without yaepg support.
     Support yaepghd video picture output position change.
 
 Date: Sat Jan  7 13:20:07 CET 2012

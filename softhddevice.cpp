@@ -135,9 +135,11 @@ cSoftOsd::~cSoftOsd(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     SetActive(false);
 
+#ifdef USE_YAEPG
     if (vidWin.bpp) {
 	VideoSetOutputPosition(0, 0, 1920, 1080);
     }
+#endif
     OsdClose();
 }
 
@@ -153,6 +155,7 @@ void cSoftOsd::Flush(void)
     }
 
     // support yaepghd, video window
+#ifdef USE_YAEPG
     if (vidWin.bpp) {
 	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__,
 	    vidWin.Width(), vidWin.Height(), vidWin.x1, vidWin.y2 );
@@ -161,6 +164,7 @@ void cSoftOsd::Flush(void)
 	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
 	    vidWin.Width(), vidWin.Height());
     }
+#endif
 
     if (!IsTrueColor()) {
 	static char warned;
