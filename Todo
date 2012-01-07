@@ -27,7 +27,6 @@ missing:
     atmolight
     zoom/fit-zoom 4:3
     multistream handling
-    HDMI/SPDIF Passthrough
     disable screensaver
     disable window cursor
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
@@ -77,6 +76,9 @@ audio/alsa:
 audio/oss:
     alsa oss emulation mixer "pcm" not working
     ring buffer overflow with alsa oss emulation
+
+HDMI/SPDIF Passthrough:
+    only AC-3 written
 
 playback of recording
     play back is too fast

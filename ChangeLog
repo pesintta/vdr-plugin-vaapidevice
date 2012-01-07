@@ -1,6 +1,7 @@
 User johns
-Data:
+Data: Sat Jan  7 13:20:07 CET 2012
 
+    Release Version 0.2.0
     Add support for ac3 audio pass through.
     Add workaround for alsa not playing hdmi sound.
     Fix bug: broken device plugin stop and exit.
