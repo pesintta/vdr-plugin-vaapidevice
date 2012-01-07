@@ -1,6 +1,8 @@
 User johns
 Data:
 
+    Add support for ac3 audio pass through.
+    Add workaround for alsa not playing hdmi sound.
     Fix bug: broken device plugin stop and exit.
     Show transparent cursor to hide cursor.
     VDPAU: Add color standard support.

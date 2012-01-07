@@ -37,6 +37,7 @@ extern "C"
 {
 #include "video.h"
     extern void AudioPoller(void);
+    extern void CodecSetAudioPassthrough(int);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -57,6 +58,7 @@ static int ConfigVideoDenoise;		///< config denoise
 static int ConfigVideoSharpen;		///< config sharpen
 static char ConfigVideoScaling;		///< config scaling
 static int ConfigVideoAudioDelay;	///< config audio delay
+static int ConfigAudioPassthrough;	///< config audio pass-through
 static volatile char DoMakePrimary;	///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
@@ -273,6 +275,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen;
     int Scaling;
     int AudioDelay;
+    int AudioPassthrough;
   protected:
      virtual void Store(void);
   public:
@@ -289,6 +292,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     };
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
+    };
+    static const char *const passthrough[] = {
+	"None", "AC-3"
     };
 
     // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
@@ -313,6 +319,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioDelay = ConfigVideoAudioDelay;
     Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000,
 	    1000));
+    AudioPassthrough = ConfigAudioPassthrough;
+    Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough, 2,
+	    passthrough));
 }
 
 /**
@@ -334,6 +343,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetScaling(ConfigVideoScaling);
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
     VideoSetAudioDelay(ConfigVideoAudioDelay);
+    SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
+    CodecSetAudioPassthrough(ConfigAudioPassthrough);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -835,6 +846,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "AudioPassthrough")) {
+	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
 	return true;
     }
 

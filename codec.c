@@ -35,8 +35,12 @@
     */
 #define USE_AVPARSER
 
+    /// compile with passthrough support (experimental)
+#define USE_PASSTHROUGH
+
 #include <stdio.h>
 #include <unistd.h>
+#include <endian.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -585,7 +589,16 @@ struct _audio_decoder_
     int HwChannels;			///< hw channels
 
     ReSampleContext *ReSample;		///< audio resampling context
+
 };
+
+#ifdef USE_PASSTHROUGH
+//static char CodecPassthroughPCM;	///< pass pcm through (unsupported)
+static char CodecPassthroughAC3;	///< pass ac3 through
+
+//static char CodecPassthroughDTS;	///< pass dts through (unsupported)
+//static char CodecPassthroughMPA;	///< pass mpa through (unsupported)
+#endif
 
 /**
 **	Allocate a new audio decoder context.
@@ -683,6 +696,18 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
     }
 }
 
+/**
+**	Set audio pass-through.
+*/
+void CodecSetAudioPassthrough(int mask)
+{
+#ifdef USE_PASSTHROUGH
+    CodecPassthroughAC3 = mask & 1 ? 1 : 0;
+#endif
+    // FIXME: must update audio decoder (nr. of channels wrong)
+    (void)mask;
+}
+
 #ifdef USE_AVPARSER
 
 /**
@@ -730,6 +755,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    !index ? (uint64_t) spkt->pts : AV_NOPTS_VALUE,
 	    !index ? (uint64_t) spkt->dts : AV_NOPTS_VALUE, -1);
 
+	// FIXME: make this a function for both #ifdef cases
 	if (dpkt->size) {
 	    int buf_sz;
 
@@ -765,7 +791,15 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		audio_decoder->SampleRate = audio_ctx->sample_rate;
 		audio_decoder->HwSampleRate = audio_ctx->sample_rate;
 		audio_decoder->Channels = audio_ctx->channels;
-		audio_decoder->HwChannels = audio_ctx->channels;
+#ifdef USE_PASSTHROUGH
+		// SPDIF/HDMI passthrough
+		if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+		    audio_decoder->HwChannels = 2;
+		} else
+#endif
+		{
+		    audio_decoder->HwChannels = audio_ctx->channels;
+		}
 
 		// channels not support?
 		if ((err =
@@ -826,6 +860,81 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 			AudioEnqueue(outbuf, outlen);
 		    }
 		} else {
+#ifdef USE_PASSTHROUGH
+		    // SPDIF/HDMI passthrough
+		    if (CodecPassthroughAC3
+			&& audio_ctx->codec_id == CODEC_ID_AC3) {
+			// build SPDIF header and append A52 audio to it
+			// dpkt is the original data
+			buf_sz = 6144;
+			if (buf_sz < dpkt->size + 8) {
+			    Error(_
+				("codec/audio: decoded data smaller than encoded\n"));
+			    break;
+			}
+			// copy original data for output
+			// FIXME: not 100% sure, if endian is correct
+			buf[0] = htole16(0xF872);	// iec 61937 sync word
+			buf[1] = htole16(0x4E1F);
+			buf[2] = htole16(0x01 | (dpkt->data[5] & 0x07) << 8);
+			buf[3] = htole16(dpkt->size * 8);
+			swab(dpkt->data, buf + 4, dpkt->size);
+			memset(buf + 4 + dpkt->size / 2, 0,
+			    buf_sz - 8 - dpkt->size);
+		    }
+#if 0
+		    //
+		    //	old experimental code
+		    //
+		    if (1) {
+			// FIXME: need to detect dts
+			// copy original data for output
+			// FIXME: buf is sint
+			buf[0] = 0x72;
+			buf[1] = 0xF8;
+			buf[2] = 0x1F;
+			buf[3] = 0x4E;
+			buf[4] = 0x00;
+			switch (dpkt->size) {
+			    case 512:
+				buf[5] = 0x0B;
+				break;
+			    case 1024:
+				buf[5] = 0x0C;
+				break;
+			    case 2048:
+				buf[5] = 0x0D;
+				break;
+			    default:
+				Debug(3,
+				    "codec/audio: dts sample burst not supported\n");
+				buf[5] = 0x00;
+				break;
+			}
+			buf[6] = (dpkt->size * 8);
+			buf[7] = (dpkt->size * 8) >> 8;
+			//buf[8] = 0x0B;
+			//buf[9] = 0x77;
+			//printf("%x %x\n", dpkt->data[0],dpkt->data[1]);
+			// swab?
+			memcpy(buf + 8, dpkt->data, dpkt->size);
+			memset(buf + 8 + dpkt->size, 0,
+			    buf_sz - 8 - dpkt->size);
+		    } else if (1) {
+			// FIXME: need to detect mp2
+			// FIXME: mp2 passthrough
+			// see softhddev.c version/layer
+			// 0x04 mpeg1 layer1
+			// 0x05 mpeg1 layer23
+			// 0x06 mpeg2 ext
+			// 0x07 mpeg2.5 layer 1
+			// 0x08 mpeg2.5 layer 2
+			// 0x09 mpeg2.5 layer 3
+		    }
+		    // DTS HD?
+		    // True HD?
+#endif
+#endif
 		    AudioEnqueue(buf, buf_sz);
 		}
 	    }
@@ -904,90 +1013,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	avcodec_decode_audio4(audio_ctx, frame, &got_frame, dpkt);
 #else
 #endif
-	if (buf_sz > 0) {		// something decoded
-	    // Update audio clock
-	    if ((uint64_t) spkt->pts != AV_NOPTS_VALUE) {
-		AudioSetClock(spkt->pts);
-		spkt->pts = AV_NOPTS_VALUE;
-	    }
-	    // FIXME: must first play remainings bytes, than change and play new.
-	    if (audio_decoder->SampleRate != audio_ctx->sample_rate
-		|| audio_decoder->Channels != audio_ctx->channels) {
-		int err;
-
-		if (audio_decoder->ReSample) {
-		    audio_resample_close(audio_decoder->ReSample);
-		    audio_decoder->ReSample = NULL;
-		}
-
-		audio_decoder->SampleRate = audio_ctx->sample_rate;
-		audio_decoder->HwSampleRate = audio_ctx->sample_rate;
-		audio_decoder->Channels = audio_ctx->channels;
-		audio_decoder->HwChannels = audio_ctx->channels;
-
-		// channels not support?
-		if ((err =
-			AudioSetup(&audio_decoder->HwSampleRate,
-			    &audio_decoder->HwChannels))) {
-		    Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
-			audio_ctx->sample_rate, audio_ctx->channels,
-			audio_decoder->HwSampleRate,
-			audio_decoder->HwChannels);
-
-		    if (err == 1) {
-			audio_decoder->ReSample =
-			    av_audio_resample_init(audio_decoder->HwChannels,
-			    audio_ctx->channels, audio_decoder->HwSampleRate,
-			    audio_ctx->sample_rate, audio_ctx->sample_fmt,
-			    audio_ctx->sample_fmt, 16, 10, 0, 0.8);
-			// libav-0.8_pre didn't support 6 -> 2 channels
-			if (!audio_decoder->ReSample) {
-			    Error(_("codec/audio: resample setup error\n"));
-			    audio_decoder->HwChannels = 0;
-			    audio_decoder->HwSampleRate = 0;
-			}
-		    } else {
-			// FIXME: handle errors
-			Debug(3, "codec/audio: audio setup error\n");
-			audio_decoder->HwChannels = 0;
-			audio_decoder->HwSampleRate = 0;
-			break;
-		    }
-		}
-	    }
-
-	    if (audio_decoder->HwSampleRate && audio_decoder->HwChannels) {
-		// need to resample audio
-		if (audio_decoder->ReSample) {
-		    int16_t outbuf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
-			FF_INPUT_BUFFER_PADDING_SIZE]
-			__attribute__ ((aligned(16)));
-		    int outlen;
-
-		    // FIXME: libav-0.7.2 crash here
-		    outlen =
-			audio_resample(audio_decoder->ReSample, outbuf, buf,
-			buf_sz);
-#ifdef DEBUG
-		    if (outlen != buf_sz) {
-			Debug(3, "codec/audio: possible fixed ffmpeg\n");
-		    }
-#endif
-		    if (outlen) {
-			// outlen seems to be wrong in ffmpeg-0.9
-			outlen /= audio_ctx->channels *
-			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
-			outlen *=
-			    audio_decoder->HwChannels *
-			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
-			Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
-			AudioEnqueue(outbuf, outlen);
-		    }
-		} else {
-		    AudioEnqueue(buf, buf_sz);
-		}
-	    }
-	}
+	// FIXME: see above, old code removed
 
 	index += n;
     }

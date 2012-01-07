@@ -115,6 +115,10 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.AudioDelay = 0
 	+n or -n ms
 
+	softhddevice.AudioPassthrough = 0
+	0 = none, 1 = AC-3
+
+
 Commandline:
 ------------
 
