@@ -4,7 +4,7 @@
 
 EAPI="3"
 
-inherit vdr-plugin
+inherit eutils vdr-plugin
 
 if [[ ${PV} == "9999" ]] ; then
 		inherit git-2
@@ -21,7 +21,7 @@ SRC_URI=""
 LICENSE="AGPL-3"
 SLOT="0"
 KEYWORDS="~x86 ~amd64"
-IUSE="vaapi vdpau alsa oss"
+IUSE="vaapi vdpau alsa oss yaepg"
 
 DEPEND=">=x11-libs/libxcb-1.7
 		x11-libs/xcb-util
@@ -30,8 +30,12 @@ DEPEND=">=x11-libs/libxcb-1.7
 		x11-libs/xcb-util-keysyms
 		x11-libs/xcb-util-renderutil
 		x11-libs/libX11
+		>=media-video/ffmpeg-0.7
 		sys-devel/gettext
 		sys-devel/make
+		dev-util/pkgconfig
+		yaepg? ( >=media-video/vdr-1.7[yaepg] )
+		!yaepg? ( >=media-video/vdr-1.7 )
 		vdpau? ( x11-libs/libvdpau )
 		vaapi? ( x11-libs/libva )
 		alsa? ( media-libs/alsa-lib )
@@ -51,13 +55,17 @@ src_compile() {
 		use oss && myconf="${myconf} -DUSE_OSS"
 
 		emake all CC="$(tc-getCC)" CFLAGS="${CFLAGS}" \
-			LDFLAGS="${LDFLAGS}" CONFIG="${myconf}" LIBDIR="."
+			LDFLAGS="${LDFLAGS}" CONFIG="${myconf}" LIBDIR="." || die
 }
 
 src_install() {
 		vdr-plugin_src_install
 
 		dodir /etc/vdr/plugins || die
+
 		insinto /etc/vdr/plugins
 		fowners -R vdr:vdr /etc/vdr || die
+
+		#insinto /etc/conf.d
+		#doins vdr.softhddevice
 }
