@@ -59,6 +59,7 @@ static const char DeviceStopped = 1;	///< flag device stopped
 //////////////////////////////////////////////////////////////////////////////
 
 static volatile char NewAudioStream;	///< new audio stream
+static volatile char SkipAudio;		///< skip audio stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 
@@ -185,10 +186,11 @@ static int FindAudioSync(const AVPacket * avpkt)
 **	@param size	size of PES packet
 **	@param id	PES packet type
 */
-void PlayAudio(const uint8_t * data, int size,
+int PlayAudio(const uint8_t * data, int size,
     __attribute__ ((unused)) uint8_t id)
 {
     int n;
+    int osize;
     AVPacket avpkt[1];
 
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
@@ -199,12 +201,19 @@ void PlayAudio(const uint8_t * data, int size,
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
     }
+    if (SkipAudio) {
+	return size;
+    }
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
     if (size < 9) {
 	Error(_("[softhddev] invalid audio packet\n"));
-	return;
+	return size;
+    }
+    // Don't overrun audio buffers on replay
+    if (AudioFreeBytes() < 3072 * 8 * 8) {	// 8 channels 8 packets
+	return 0;
     }
 
     n = data[8];			// header size
@@ -225,11 +234,12 @@ void PlayAudio(const uint8_t * data, int size,
 	}
     }
 
+    osize = size;
     data += 9 + n;
     size -= 9 + n;			// skip pes header
     if (size <= 0) {
 	Error(_("[softhddev] invalid audio packet\n"));
-	return;
+	return osize;
     }
     // Detect audio code
     // MPEG-PS mp2 MPEG1, MPEG2, AC3
@@ -271,7 +281,7 @@ void PlayAudio(const uint8_t * data, int size,
 	    avpkt->size = size;
 	    n = FindAudioSync(avpkt);
 	    if (n < 0) {
-		return;
+		return osize;
 	    }
 	    if (!MyAudioDecoder) {
 		MyAudioDecoder = CodecAudioNewDecoder();
@@ -286,13 +296,15 @@ void PlayAudio(const uint8_t * data, int size,
 
     // no decoder or codec known
     if (!MyAudioDecoder || AudioCodecID == CODEC_ID_NONE) {
-	return;
+	return osize;
     }
 
     avpkt->data = (void *)data;
     avpkt->size = size;
     //memset(avpkt->data + avpkt->size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
     CodecAudioDecode(MyAudioDecoder, avpkt);
+
+    return osize;
 }
 
 /**
@@ -300,6 +312,7 @@ void PlayAudio(const uint8_t * data, int size,
 */
 void Mute(void)
 {
+    SkipAudio = 1;
     AudioSetVolume(0);
 }
 
@@ -480,6 +493,10 @@ int VideoDecode(void)
     }
     if (VideoClearBuffers) {
 	atomic_set(&VideoPacketsFilled, 0);
+	VideoPacketRead = VideoPacketWrite;
+	if (MyVideoDecoder) {
+	    CodecVideoFlushBuffers(MyVideoDecoder);
+	}
 	VideoClearBuffers = 0;
 	return 1;
     }
@@ -751,8 +768,12 @@ void SetPlayMode(void)
 	}
     }
     if (MyAudioDecoder) {
-	NewAudioStream = 1;
+	if (AudioCodecID != CODEC_ID_NONE) {
+	    NewAudioStream = 1;
+	}
     }
+    VideoFreezed = 0;
+    SkipAudio = 0;
 }
 
 /**
@@ -760,9 +781,16 @@ void SetPlayMode(void)
 */
 void Clear(void)
 {
+    int i;
+
+    VideoNextPacket(VideoCodecID);	// terminate work
     VideoClearBuffers = 1;
     // FIXME: avcodec_flush_buffers
-    // FIXME: flush audio buffers
+    AudioFlushBuffers();
+
+    for (i = 0; VideoClearBuffers && i < 20; ++i) {
+	usleep(1 * 1000);
+    }
 }
 
 /**
@@ -771,6 +799,7 @@ void Clear(void)
 void Play(void)
 {
     VideoFreezed = 0;
+    SkipAudio = 0;
     // FIXME: restart audio
 }
 
@@ -781,16 +810,33 @@ void Freeze(void)
 {
     VideoFreezed = 1;
     // FIXME: freeze audio
+    AudioFlushBuffers();
+}
+
+/**
+**	Display the given I-frame as a still picture.
+*/
+void StillPicture(const uint8_t * data, int size)
+{
+    // must be a PES start code
+    if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
+	Error(_("[softhddev] invalid PES video packet\n"));
+	return;
+    }
+    PlayVideo(data, size);
+    PlayVideo(data, size);
+    VideoNextPacket(VideoCodecID);	// terminate work
 }
 
 /**
 **	Poll if device is ready.  Called by replay.
+**
+**	@param timeout	timeout to become ready in ms
 */
 int Poll(int timeout)
 {
     // buffers are too full
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
-	Debug(3, "replay: poll %d\n", timeout);
 	if (timeout) {
 	    // let display thread work
 	    usleep(timeout * 1000);
@@ -798,6 +844,22 @@ int Poll(int timeout)
 	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX / 2;
     }
     return 0;
+}
+
+/**
+**	Flush the device output buffers.
+**
+**	@param timeout	timeout to flush in ms
+*/
+int Flush(int timeout)
+{
+    if (atomic_read(&VideoPacketsFilled)) {
+	if (timeout) {			// let display thread work
+	    usleep(timeout * 1000);
+	}
+	return !atomic_read(&VideoPacketsFilled);
+    }
+    return 1;
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -6245,6 +6245,7 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 {
     int64_t pts;
+    int64_t delta;
 
     // update video clock
     if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
@@ -6259,14 +6260,16 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
     if (!pts) {
 	pts = AV_NOPTS_VALUE;
     }
-    // build a monotonic pts
-    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
-	if (pts - *pts_p < -10 * 90) {
-	    pts = AV_NOPTS_VALUE;
-	}
-    }
     // libav: sets only pkt_dts which can be 0
     if ((uint64_t) pts != AV_NOPTS_VALUE) {
+	// build a monotonic pts
+	if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	    delta = pts - *pts_p;
+	    // ignore negative jumps
+	    if (delta > -300 * 90 && delta < -15 * 90) {
+		return;
+	    }
+	}
 	if (*pts_p != pts) {
 	    Debug(3,
 		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",

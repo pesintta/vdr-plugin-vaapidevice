@@ -1,7 +1,7 @@
 ///
 ///	@file audio.h		@brief Audio module headerfile
 ///
-///	Copyright (c) 2009 - 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -28,12 +28,14 @@
 //----------------------------------------------------------------------------
 
 extern void AudioEnqueue(const void *, int);	///< buffer audio samples
+extern void AudioFlushBuffers(void);	///< flush audio buffers
+extern void AudioPoller(void);		///< poll audio events/handling
 
-//extern int AudioFreeBytes(void);	///< free bytes in audio output
+extern int AudioFreeBytes(void);	///< free bytes in audio output
+
 //extern int AudioUsedBytes(void);	///< used bytes in audio output
 extern void AudioSetClock(int64_t);	///< set audio clock base
 extern int64_t AudioGetClock();		///< get current audio clock
-
 extern uint64_t AudioGetDelay(void);	///< get current audio delay
 
 extern int AudioSetup(int *, int *);	///< setup audio output

@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.h	@brief software HD device plugin header file.
 ///
-///	Copyright (c) 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -36,7 +36,7 @@ extern "C"
     extern void OsdDrawARGB(int, int, int, int, const uint8_t *);
 
     /// C plugin play audio packet
-    extern void PlayAudio(const uint8_t *, int, uint8_t);
+    extern int PlayAudio(const uint8_t *, int, uint8_t);
     /// C plugin mute audio
     extern void Mute(void);
     /// C plugin set audio volume
@@ -55,8 +55,12 @@ extern "C"
     extern void Play(void);
     /// C plugin sets the device into "freeze frame" mode
     extern void Freeze(void);
+    /// C plugin display I-frame as a still picture.
+    extern void StillPicture(const uint8_t *, int);
     /// C plugin poll if ready
     extern int Poll(int);
+    /// C plugin flush output buffers
+    extern int Flush(int);
 
     /// C plugin command line help
     extern const char *CommandLineHelp(void);

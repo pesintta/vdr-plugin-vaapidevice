@@ -342,6 +342,11 @@ static int AlsaPlayRingbuffer(void)
 		if (err == -EAGAIN) {
 		    goto again;
 		}
+		/*
+		   if (err == -EBADFD) {
+		   goto again;
+		   }
+		 */
 		Error(_("audio/alsa: underrun error?\n"));
 		err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 		if (err >= 0) {
@@ -370,9 +375,13 @@ static void AlsaFlushBuffers(void)
     int err;
 
     RingBufferReadAdvance(AlsaRingBuffer, RingBufferUsedBytes(AlsaRingBuffer));
-    if ((err = snd_pcm_drop(AlsaPCMHandle))) {
+    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
 	Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
     }
+    if ((err = snd_pcm_prepare(AlsaPCMHandle)) < 0) {
+	Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+    }
+    AudioPTS = INT64_C(0x8000000000000000);
 }
 
 #if 0
@@ -567,8 +576,20 @@ static void AlsaThread(void)
     for (;;) {
 	int err;
 
-	Debug(4, "audio: play loop\n");
 	pthread_testcancel();
+	if (AlsaFlushBuffer) {
+	    // we can flush too many, but wo cares
+	    Debug(3, "audio/alsa: flushing buffers\n");
+	    AlsaFlushBuffers();
+	    /*
+	       if ((err = snd_pcm_prepare(AlsaPCMHandle))) {
+	       Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+	       }
+	     */
+	    AlsaFlushBuffer = 0;
+	    break;
+	}
+	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 100)) < 0) {
 	    Error(_("audio/alsa: wait underrun error?\n"));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
@@ -580,14 +601,7 @@ static void AlsaThread(void)
 	    continue;
 	}
 	if (AlsaFlushBuffer) {
-	    // we can flush too many, but wo cares
-	    Debug(3, "audio/alsa: flushing buffers\n");
-	    AlsaFlushBuffers();
-	    if ((err = snd_pcm_prepare(AlsaPCMHandle))) {
-		Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
-	    }
-	    AlsaFlushBuffer = 0;
-	    break;
+	    continue;
 	}
 	if ((err = AlsaPlayRingbuffer())) {	// empty / error
 	    snd_pcm_state_t state;
@@ -600,7 +614,8 @@ static void AlsaThread(void)
 		Debug(3, "audio/alsa: stopping play\n");
 		break;
 	    }
-	    usleep(20 * 1000);
+	    pthread_yield();
+	    usleep(20 * 1000);		// let fill the buffers
 	}
     }
 }
@@ -1195,6 +1210,21 @@ static int OssPlayRingbuffer(void)
     return 0;
 }
 
+/**
+**	Flush oss buffers.
+*/
+static void OssFlushBuffers(void)
+{
+    RingBufferReadAdvance(OssRingBuffer, RingBufferUsedBytes(OssRingBuffer));
+    // flush kernel buffers
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_HALT_OUTPUT, NULL) < 0) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s\n"),
+	    strerror(errno));
+	return;
+    }
+    AudioPTS = INT64_C(0x8000000000000000);
+}
+
 //----------------------------------------------------------------------------
 //	OSS pcm polled
 //----------------------------------------------------------------------------
@@ -1410,14 +1440,7 @@ static int OssSetup(int *freq, int *channels)
     // flush any buffered data
     {
 	AudioRunning = 0;
-	RingBufferReadAdvance(OssRingBuffer,
-	    RingBufferUsedBytes(OssRingBuffer));
-	// flush kernel buffers
-	if (ioctl(OssPcmFildes, SNDCTL_DSP_HALT_OUTPUT, NULL) == -1) {
-	    Error(_("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s\n"),
-		strerror(errno));
-	    return -1;
-	}
+	OssFlushBuffers();
     }
     AudioPTS = INT64_C(0x8000000000000000);
 
@@ -1673,6 +1696,30 @@ void AudioEnqueue(const void *samples, int count)
 }
 
 /**
+**	Flush audio buffers.
+*/
+void AudioFlushBuffers(void)
+{
+#ifdef USE_ALSA
+#ifdef USE_AUDIO_THREAD
+    if (AudioRunning) {
+	while (AudioRunning) {
+	    AlsaFlushBuffer = 1;
+	    usleep(1 * 1000);
+	}
+	AlsaFlushBuffer = 0;
+    } else
+#endif
+    {
+	AlsaFlushBuffers();
+    }
+#endif
+#ifdef USE_OSS
+    OssFlushBuffers();
+#endif
+}
+
+/**
 **	Call back to play audio polled.
 */
 void AudioPoller(void)
@@ -1685,6 +1732,20 @@ void AudioPoller(void)
     OssPoller();
 #endif
 #endif
+}
+
+/**
+**	Get free bytes in audio output.
+*/
+int AudioFreeBytes(void)
+{
+#ifdef USE_ALSA
+    return RingBufferFreeBytes(AlsaRingBuffer);
+#endif
+#ifdef USE_OSS
+    return RingBufferFreeBytes(OssRingBuffer);
+#endif
+    return -1;
 }
 
 /**

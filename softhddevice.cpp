@@ -499,9 +499,14 @@ int64_t cSoftHdDevice::GetSTC(void)
     return::VideoGetClock();
 }
 
-void cSoftHdDevice::TrickSpeed(int Speed)
+/**
+**	Set trick play speed.
+**
+**	@param speed	trick speed
+*/
+void cSoftHdDevice::TrickSpeed(int speed)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, Speed);
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, speed);
 }
 
 void cSoftHdDevice::Clear(void)
@@ -533,24 +538,37 @@ void cSoftHdDevice::Mute(void)
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Mute();
-
     ::Mute();
 }
 
 void cSoftHdDevice::SetVolumeDevice(int volume)
 {
-    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
 
     ::SetVolumeDevice(volume);
 }
 
-void cSoftHdDevice::StillPicture(
-    __attribute__ ((unused)) const uchar * data, __attribute__ ((unused))
-    int length)
+/**
+**	Display the given I-frame as a still picture.
+*/
+void cSoftHdDevice::StillPicture(const uchar * data, int length)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    if ( data[0] == 0x47 ) {		// ts sync
+	cDevice::StillPicture(data, length);
+	return;
+    }
+
+    ::StillPicture(data, length);
 }
 
+/**
+**	Check if the device is ready for further action.
+**
+**	@param poller		file handles (unused)
+**	@param timeout_ms	timeout in ms to become ready
+*/
 bool cSoftHdDevice::Poll(
     __attribute__ ((unused)) cPoller & poller, int timeout_ms)
 {
@@ -559,11 +577,16 @@ bool cSoftHdDevice::Poll(
     return::Poll(timeout_ms);
 }
 
+/**
+**	Flush the device output buffers.
+**
+**	@param timeout_ms	timeout in ms to become ready
+*/
 bool cSoftHdDevice::Flush(int timeout_ms)
 {
     dsyslog("[softhddev]%s: %d ms\n", __FUNCTION__, timeout_ms);
 
-    return true;
+    return::Flush(timeout_ms);
 }
 
 // ----------------------------------------------------------------------------
@@ -580,13 +603,14 @@ void cSoftHdDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 
 // ----------------------------------------------------------------------------
 
+/**
+**	Play a audio packet.
+*/
 int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
     //dsyslog("[softhddev]%s: %p %p %d %d\n", __FUNCTION__, this, data, length, id);
 
-    ::PlayAudio(data, length, id);
-
-    return length;
+    return::PlayAudio(data, length, id);
 }
 
 void cSoftHdDevice::SetAudioTrackDevice(

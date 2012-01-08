@@ -83,8 +83,8 @@ HDMI/SPDIF Passthrough:
     Channels are wrong setup, if changing setting during operation.
 
 playback of recording
-    play back is too fast
     pause is not reset, when replay exit
+    replay/pause need 100% cpu
 
 setup:
     Setup of decoder type.

@@ -1,7 +1,7 @@
 ///
 ///	@file codec.h	@brief Codec module headerfile
 ///
-///	Copyright (c) 2009 - 2011 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -40,26 +40,32 @@ typedef struct _audio_decoder_ AudioDecoder;
     /// Allocate a new video decoder context.
 extern VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder *);
 
-    /// Open video codec
+    /// Open video codec.
 extern void CodecVideoOpen(VideoDecoder *, const char *, int);
 
-    /// Close video codec
+    /// Close video codec.
 extern void CodecVideoClose(VideoDecoder *);
 
-    /// Decode a video packet
-extern void CodecVideoDecode(VideoDecoder *, const AVPacket * pkt);
+    /// Decode a video packet.
+extern void CodecVideoDecode(VideoDecoder *, const AVPacket *);
+
+    /// Flush video buffers.
+extern void CodecVideoFlushBuffers(VideoDecoder *);
 
     /// Allocate a new audio decoder context.
 extern AudioDecoder *CodecAudioNewDecoder(void);
 
-    /// Open audio codec
+    /// Open audio codec.
 extern void CodecAudioOpen(AudioDecoder *, const char *, int);
 
-    /// Close audio codec
+    /// Close audio codec.
 extern void CodecAudioClose(AudioDecoder *);
 
-    /// Decode an audio packet
-extern void CodecAudioDecode(AudioDecoder *, const AVPacket * pkt);
+    /// Decode an audio packet.
+extern void CodecAudioDecode(AudioDecoder *, const AVPacket *);
+
+    /// Flush audio buffers.
+extern void CodecAudioFlushBuffers(AudioDecoder *);
 
     /// Setup and initialize codec module.
 extern void CodecInit(void);

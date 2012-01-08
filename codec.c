@@ -561,6 +561,16 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
     }
 }
 
+/**
+**	Flush the video decoder.
+**
+**	@param decoder	video decoder data
+*/
+void CodecVideoFlushBuffers(VideoDecoder * decoder)
+{
+    avcodec_flush_buffers(decoder->VideoCtx);
+}
+
 //----------------------------------------------------------------------------
 //	Audio
 //----------------------------------------------------------------------------
@@ -738,9 +748,11 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     spkt->pts = avpkt->pts;
     spkt->dts = avpkt->dts;
 #endif
+#ifdef DEBUG
     if (!audio_decoder->AudioParser) {
 	Fatal(_("codec: internal error parser freeded while running\n"));
     }
+#endif
 
     audio_ctx = audio_decoder->AudioCtx;
     index = 0;
@@ -1025,6 +1037,17 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 }
 
 #endif
+
+/**
+**	Flush the audio decoder.
+**
+**	@param decoder	audio decoder data
+*/
+void CodecAudioFlushBuffers(AudioDecoder * decoder)
+{
+    // FIXME: reset audio parser
+    avcodec_flush_buffers(decoder->AudioCtx);
+}
 
 //----------------------------------------------------------------------------
 //	Codec
