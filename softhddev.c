@@ -818,14 +818,19 @@ void Freeze(void)
 */
 void StillPicture(const uint8_t * data, int size)
 {
+    int i;
+
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
 	Error(_("[softhddev] invalid PES video packet\n"));
 	return;
     }
-    PlayVideo(data, size);
-    PlayVideo(data, size);
-    VideoNextPacket(VideoCodecID);	// terminate work
+    Clear();				// flush video buffers
+    // +1 future for deinterlace
+    for (i = -1; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
+	PlayVideo(data, size);		// reference frames
+    }
+    VideoNextPacket(VideoCodecID);	// terminate last packet
 }
 
 /**
@@ -917,10 +922,10 @@ static char StartX11Server;		///< flag start the x11 server
 */
 const char *CommandLineHelp(void)
 {
-    return "  -a device\talsa audio device (fe. hw:0,0)\n"
-	"  -d display\tdisplay of x11 server (f.e :0.0)\n"
+    return "  -a device\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
+	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
-	"  -x\tstart x11 server\n";
+	"  -x\t\tstart x11 server\n";
 }
 
 /**

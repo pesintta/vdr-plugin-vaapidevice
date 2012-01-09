@@ -95,22 +95,26 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.MakePrimary = 1
 	0 = no change, 1 make softhddevice primary at start
 
-	softhddevice.Deinterlace = 0
+	<res> of the next parameters is 567i, 720p, 1080i_fake or 1080i.
+	1080i_fake is 1280x1080 or 1440x1080
+	1080i is "real" 1920x1080
+
+	softhddevice.<res>.Scaling = 0
+	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
+
+	softhddevice.<res>.Deinterlace = 0
 	0 = bob, 1 = weave, 2 = temporal, 3 = temporal_spatial, 4 = software
 	(only 0, 1 supported with vaapi)
 
-	softhddevice.SkipChromaDeinterlace = 0
+	softhddevice.<res>.SkipChromaDeinterlace = 0
 	0 = disabled, 1 = enabled (for slower cards, poor qualität)
 
-	softhddevice.Denoise = 0
+	softhddevice.<res>.Denoise = 0
 	0 .. 1000 noise reduction level (0 off, 1000 max)
 
-	softhddevice.Sharpness = 0
+	softhddevice.<res>.Sharpness = 0
 	-1000 .. 1000 noise reduction level (0 off, -1000 max blur,
 	    1000 max sharp)
-
-	softhddevice.Scaling = 0
-	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
 
 	softhddevice.AudioDelay = 0
 	+n or -n ms

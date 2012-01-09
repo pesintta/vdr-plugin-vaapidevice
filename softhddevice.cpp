@@ -51,14 +51,32 @@ static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
 
+#define RESOLUTIONS 4			///< number of resolutions
+
+static const char *const Resolution[RESOLUTIONS] = {
+    "576i", "720p", "1080i_fake", "1080i"
+};
+
 static char ConfigMakePrimary;		///< config primary wanted
-static char ConfigVideoDeinterlace;	///< config deinterlace
-static char ConfigVideoSkipChromaDeinterlace;	///< config skip chroma
-static int ConfigVideoDenoise;		///< config denoise
-static int ConfigVideoSharpen;		///< config sharpen
-static char ConfigVideoScaling;		///< config scaling
+
+    /// config deinterlace
+static int ConfigVideoDeinterlace[RESOLUTIONS];
+
+    /// config skip chroma
+static int ConfigVideoSkipChromaDeinterlace[RESOLUTIONS];
+
+    /// config denoise
+static int ConfigVideoDenoise[RESOLUTIONS];
+
+    /// config sharpen
+static int ConfigVideoSharpen[RESOLUTIONS];
+
+    /// config scaling
+static int ConfigVideoScaling[RESOLUTIONS];
+
 static int ConfigVideoAudioDelay;	///< config audio delay
 static int ConfigAudioPassthrough;	///< config audio pass-through
+
 static volatile char DoMakePrimary;	///< flag switch primary
 
 //////////////////////////////////////////////////////////////////////////////
@@ -153,12 +171,11 @@ void cSoftOsd::Flush(void)
     if (!Active()) {
 	return;
     }
-
     // support yaepghd, video window
 #ifdef USE_YAEPG
     if (vidWin.bpp) {
-	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__,
-	    vidWin.Width(), vidWin.Height(), vidWin.x1, vidWin.y2 );
+	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__, vidWin.Width(),
+	    vidWin.Height(), vidWin.x1, vidWin.y2);
 
 	// FIXME: vidWin is OSD relative not video window.
 	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
@@ -289,11 +306,11 @@ class cMenuSetupSoft:public cMenuSetupPage
 {
   protected:
     int MakePrimary;
-    int Deinterlace;
-    int SkipChromaDeinterlace;
-    int Denoise;
-    int Sharpen;
-    int Scaling;
+    int Scaling[RESOLUTIONS];
+    int Deinterlace[RESOLUTIONS];
+    int SkipChromaDeinterlace[RESOLUTIONS];
+    int Denoise[RESOLUTIONS];
+    int Sharpen[RESOLUTIONS];
     int AudioDelay;
     int AudioPassthrough;
   protected:
@@ -301,6 +318,19 @@ class cMenuSetupSoft:public cMenuSetupPage
   public:
      cMenuSetupSoft(void);
 };
+
+/**
+**	Create a seperator item.
+*/
+static inline cOsdItem *SeparatorItem(const char *label)
+{
+    cOsdItem *item;
+
+    item = new cOsdItem(cString::sprintf("* %s: ", label));
+    item->SetSelectable(false);
+
+    return item;
+}
 
 /**
 **	Constructor setup menu.
@@ -316,26 +346,41 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     static const char *const passthrough[] = {
 	"None", "AC-3"
     };
+    static const char *const resolution[RESOLUTIONS] = {
+	"576i", "720p", "fake 1080i", "1080i"
+    };
+    int i;
 
     // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
     // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
     MakePrimary = ConfigMakePrimary;
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
 	    tr("no"), tr("yes")));
-    Deinterlace = ConfigVideoDeinterlace;
-    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace, 5,
-	    deinterlace));
-    SkipChromaDeinterlace = ConfigVideoSkipChromaDeinterlace;
-    Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
-	    &SkipChromaDeinterlace, tr("no"), tr("yes")));
-    Denoise = ConfigVideoDenoise;
-    Add(new cMenuEditIntItem(tr("Denoise (vdpau 0..1000)"), &Denoise, 0,
-	    1000));
-    Sharpen = ConfigVideoSharpen;
-    Add(new cMenuEditIntItem(tr("Sharpen (vdpau -1000..1000)"), &Sharpen,
-	    -1000, 1000));
-    Scaling = ConfigVideoScaling;
-    Add(new cMenuEditStraItem(tr("Scaling"), &Scaling, 4, scaling));
+    //
+    //	video
+    //
+    Add(SeparatorItem(tr("Video")));
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	Add(SeparatorItem(resolution[i]));
+	Scaling[i] = ConfigVideoScaling[i];
+	Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4, scaling));
+	Deinterlace[i] = ConfigVideoDeinterlace[i];
+	Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], 5,
+		deinterlace));
+	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
+	Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
+		&SkipChromaDeinterlace[i], tr("no"), tr("yes")));
+	Denoise[i] = ConfigVideoDenoise[i];
+	Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"), &Denoise[i],
+		0, 1000));
+	Sharpen[i] = ConfigVideoSharpen[i];
+	Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
+		&Sharpen[i], -1000, 1000));
+    }
+    //
+    //	audio
+    //
+    Add(SeparatorItem(tr("Audio")));
     AudioDelay = ConfigVideoAudioDelay;
     Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000,
 	    1000));
@@ -349,18 +394,32 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 */
 void cMenuSetupSoft::Store(void)
 {
+    int i;
+
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
-    SetupStore("Deinterlace", ConfigVideoDeinterlace = Deinterlace);
-    VideoSetDeinterlace(ConfigVideoDeinterlace);
-    SetupStore("SkipChromaDeinterlace", ConfigVideoSkipChromaDeinterlace =
-	SkipChromaDeinterlace);
-    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
-    SetupStore("Denoise", ConfigVideoDenoise = Denoise);
-    VideoSetDenoise(ConfigVideoDenoise);
-    SetupStore("Sharpen", ConfigVideoSharpen = Sharpen);
-    VideoSetSharpen(ConfigVideoSharpen);
-    SetupStore("Scaling", ConfigVideoScaling = Scaling);
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	char buf[128];
+
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Scaling");
+	SetupStore(buf, ConfigVideoScaling[i] = Scaling[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Deinterlace");
+	SetupStore(buf, ConfigVideoDeinterlace[i] = Deinterlace[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i],
+	    "SkipChromaDeinterlace");
+	SetupStore(buf, ConfigVideoSkipChromaDeinterlace[i] =
+	    SkipChromaDeinterlace[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
+	SetupStore(buf, ConfigVideoDenoise[i] = Denoise[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
+	SetupStore(buf, ConfigVideoSharpen[i] = Sharpen[i]);
+    }
     VideoSetScaling(ConfigVideoScaling);
+    VideoSetDeinterlace(ConfigVideoDeinterlace);
+    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
+    VideoSetDenoise(ConfigVideoDenoise);
+    VideoSetSharpen(ConfigVideoSharpen);
+
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
@@ -553,9 +612,10 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 */
 void cSoftHdDevice::StillPicture(const uchar * data, int length)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    dsyslog("[softhddev]%s: %s\n", __FUNCTION__,
+	data[0] == 0x47 ? "ts" : "pes");
 
-    if ( data[0] == 0x47 ) {		// ts sync
+    if (data[0] == 0x47) {		// ts sync
 	cDevice::StillPicture(data, length);
 	return;
     }
@@ -860,33 +920,48 @@ cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
 */
 bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 {
-    //dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
+    int i;
+    char buf[128];
+
+    dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
     // FIXME: handle the values
     if (!strcmp(name, "MakePrimary")) {
 	ConfigMakePrimary = atoi(value);
 	return true;
     }
-    if (!strcmp(name, "Deinterlace")) {
-	VideoSetDeinterlace(ConfigVideoDeinterlace = atoi(value));
-	return true;
-    }
-    if (!strcmp(name, "SkipChromaDeinterlace")) {
-	VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace =
-	    atoi(value));
-	return true;
-    }
-    if (!strcmp(name, "Denoise")) {
-	VideoSetDenoise(ConfigVideoDenoise = atoi(value));
-	return true;
-    }
-    if (!strcmp(name, "Sharpen")) {
-	VideoSetSharpen(ConfigVideoSharpen = atoi(value));
-	return true;
-    }
-    if (!strcmp(name, "Scaling")) {
-	VideoSetScaling(ConfigVideoScaling = atoi(value));
-	return true;
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Scaling");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoScaling[i] = atoi(value);
+	    VideoSetScaling(ConfigVideoScaling);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Deinterlace");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoDeinterlace[i] = atoi(value);
+	    VideoSetDeinterlace(ConfigVideoDeinterlace);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i],
+	    "SkipChromaDeinterlace");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoSkipChromaDeinterlace[i] = atoi(value);
+	    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoDenoise[i] = atoi(value);
+	    VideoSetDenoise(ConfigVideoDenoise);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoSharpen[i] = atoi(value);
+	    VideoSetSharpen(ConfigVideoSharpen);
+	    return true;
+	}
     }
     if (!strcmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));

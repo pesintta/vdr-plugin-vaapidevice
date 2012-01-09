@@ -77,19 +77,19 @@ extern int VideoSetGeometry(const char *);
 extern void VideoSetOutputPosition(int, int, int, int);
 
     /// Set deinterlace.
-extern void VideoSetDeinterlace(int);
+extern void VideoSetDeinterlace(int[]);
 
     /// Set skip chroma deinterlace.
-extern void VideoSetSkipChromaDeinterlace(int);
+extern void VideoSetSkipChromaDeinterlace(int[]);
 
     /// Set scaling.
-extern void VideoSetScaling(int);
+extern void VideoSetScaling(int[]);
 
     /// Set denoise.
-extern void VideoSetDenoise(int);
+extern void VideoSetDenoise(int[]);
 
     /// Set sharpen.
-extern void VideoSetSharpen(int);
+extern void VideoSetSharpen(int[]);
 
     /// Set audio delay.
 extern void VideoSetAudioDelay(int);

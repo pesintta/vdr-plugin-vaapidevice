@@ -130,6 +130,18 @@
 //----------------------------------------------------------------------------
 
 ///
+///	Video resolutions selector.
+///
+typedef enum _video_resolutions_
+{
+    VideoResolution567i,		///< ...x567 interlaced
+    VideoResolution720p,		///< ...x720 progressive
+    VideoResolutionFake1080i,		///< 1280x1080 1440x1080 interlaced
+    VideoResolution1080i,		///< 1920x1080 interlaced
+    VideoResolutionMax			///< number of resolution indexs
+} VideoResolutions;
+
+///
 ///	Video deinterlace modes.
 ///
 typedef enum _video_deinterlace_modes_
@@ -196,25 +208,25 @@ static int VideoWindowY;		///< video outout window y coordinate
 static unsigned VideoWindowWidth;	///< video output window width
 static unsigned VideoWindowHeight;	///< video output window height
 
-    /// Default deinterlace mode
-static VideoDeinterlaceModes VideoDeinterlace;
+    /// Default deinterlace mode.
+static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
     /// Default number of deinterlace surfaces
 static const int VideoDeinterlaceSurfaces = 4;
 
     /// Default skip chroma deinterlace flag (VDPAU only)
-static int VideoSkipChromaDeinterlace = 1;
+static int VideoSkipChromaDeinterlace[VideoResolutionMax];
 
     /// Default amount of noise reduction algorithm to apply (0 .. 1000).
-static int VideoDenoise;
+static int VideoDenoise[VideoResolutionMax];
 
     /// Default amount of of sharpening, or blurring, to apply (-1000 .. 1000).
-static int VideoSharpen;
+static int VideoSharpen[VideoResolutionMax];
 
-// FIXME: color space
+// FIXME: color space / studio levels
 
     /// Default scaling mode
-static VideoScalingModes VideoScaling;
+static VideoScalingModes VideoScaling[VideoResolutionMax];
 
     /// Default audio/video delay
 static int VideoAudioDelay;
@@ -734,6 +746,38 @@ static void GlxExit(void)
 #endif
 
 //----------------------------------------------------------------------------
+//	common functions
+//----------------------------------------------------------------------------
+
+///
+///	Calculate resolution group.
+///
+///	@param width		video picture raw width
+///	@param height		video picture raw height
+///	@param interlace	flag interlaced video picture
+///
+///	@note interlace isn't used yet and probably wrong set by caller.
+///
+static VideoResolutions VideoResolutionGroup(int width, int height,
+    __attribute__ ((unused))
+    int interlace)
+{
+    if (height <= 567) {
+	return VideoResolution567i;
+    }
+    if (height <= 720) {
+	return VideoResolution720p;
+    }
+    if (height < 1080) {
+	return VideoResolutionFake1080i;
+    }
+    if (width < 1920) {
+	return VideoResolutionFake1080i;
+    }
+    return VideoResolution1080i;
+}
+
+//----------------------------------------------------------------------------
 //	auto-crop
 //----------------------------------------------------------------------------
 
@@ -862,13 +906,16 @@ typedef struct _vaapi_decoder_ VaapiDecoder;
 struct _vaapi_decoder_
 {
     VADisplay *VaDisplay;		///< VA-API display
-    unsigned SurfaceFlags;		///< flags for put surface
 
     xcb_window_t Window;		///< output window
     int OutputX;			///< output window x
     int OutputY;			///< output window y
     int OutputWidth;			///< output window width
     int OutputHeight;			///< output window height
+
+    /// flags for put surface for different resolutions groups
+    unsigned SurfaceFlagsTable[VideoResolutionMax];
+    unsigned SurfaceFlags;		///< current flags for put surface
 
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
@@ -892,6 +939,7 @@ struct _vaapi_decoder_
     int InputWidth;			///< video input width
     int InputHeight;			///< video input height
     AVRational InputAspect;		///< video input aspect ratio
+    VideoResolutions Resolution;	///< resolution group
 
     int CropX;				///< video crop x
     int CropY;				///< video crop y
@@ -1128,6 +1176,63 @@ static void VaapiPrintFrames(const VaapiDecoder * decoder)
 }
 
 ///
+///	Initialize surface flags.
+///
+///	@param decoder	video hardware decoder
+///
+static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
+{
+    int i;
+
+    for (i = 0; i < VideoResolutionMax; ++i) {
+	decoder->SurfaceFlagsTable[i] = VA_CLEAR_DRAWABLE;
+	// FIXME: color space conversion none, ITU-R BT.601, ITU-R BT.709
+	decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
+
+	// scaling flags FAST, HQ, NL_ANAMORPHIC
+	// FIXME: need to detect the backend to choose the parameter
+	switch (VideoScaling[i]) {
+	    case VideoScalingNormal:
+		decoder->SurfaceFlagsTable[i] |= VA_FILTER_SCALING_DEFAULT;
+		break;
+	    case VideoScalingFast:
+		decoder->SurfaceFlagsTable[i] |= VA_FILTER_SCALING_FAST;
+		break;
+	    case VideoScalingHQ:
+		// vdpau backend supports only VA_FILTER_SCALING_HQ
+		// vdpau backend with advanced deinterlacer and my GT-210
+		// is too slow
+		decoder->SurfaceFlagsTable[i] |= VA_FILTER_SCALING_HQ;
+		break;
+	    case VideoScalingAnamorphic:
+		// intel backend supports only VA_FILTER_SCALING_NL_ANAMORPHIC;
+		// don't use it, its for 4:3 -> 16:9 scaling
+		decoder->SurfaceFlagsTable[i] |=
+		    VA_FILTER_SCALING_NL_ANAMORPHIC;
+		break;
+	}
+
+	// deinterlace flags (not yet supported by libva)
+	switch (VideoDeinterlace[i]) {
+	    case VideoDeinterlaceBob:
+		break;
+	    case VideoDeinterlaceWeave:
+		break;
+	    case VideoDeinterlaceTemporal:
+		//FIXME: private hack
+		//decoder->SurfaceFlagsTable[i] |= 0x00002000;
+		break;
+	    case VideoDeinterlaceTemporalSpatial:
+		//FIXME: private hack
+		//decoder->SurfaceFlagsTable[i] |= 0x00006000;
+		break;
+	    case VideoDeinterlaceSoftware:
+		break;
+	}
+    }
+}
+
+///
 ///	Allocate new VA-API decoder.
 ///
 ///	@returns a new prepared va-api hardware decoder.
@@ -1147,49 +1252,8 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->VaDisplay = VaDisplay;
     decoder->Window = VideoWindow;
 
-    decoder->SurfaceFlags = VA_CLEAR_DRAWABLE;
-    // color space conversion none, ITU-R BT.601, ITU-R BT.709
-    decoder->SurfaceFlags |= VA_SRC_BT601;
-
-    // scaling flags FAST, HQ, NL_ANAMORPHIC
-    // FIXME: need to detect the backend to choose the parameter
-    switch (VideoScaling) {
-	case VideoScalingNormal:
-	    decoder->SurfaceFlags |= VA_FILTER_SCALING_DEFAULT;
-	    break;
-	case VideoScalingFast:
-	    decoder->SurfaceFlags |= VA_FILTER_SCALING_FAST;
-	    break;
-	case VideoScalingHQ:
-	    // vdpau backend supports only VA_FILTER_SCALING_HQ
-	    // vdpau backend with advanced deinterlacer and my GT-210
-	    // is too slow
-	    decoder->SurfaceFlags |= VA_FILTER_SCALING_HQ;
-	    break;
-	case VideoScalingAnamorphic:
-	    // intel backend supports only VA_FILTER_SCALING_NL_ANAMORPHIC;
-	    // don't use it, its for 4:3 -> 16:9 scaling
-	    decoder->SurfaceFlags |= VA_FILTER_SCALING_NL_ANAMORPHIC;
-	    break;
-    }
-
-    // deinterlace flags (not yet supported by libva)
-    switch (VideoDeinterlace) {
-	case VideoDeinterlaceBob:
-	    break;
-	case VideoDeinterlaceWeave:
-	    break;
-	case VideoDeinterlaceTemporal:
-	    //FIXME: private hack
-	    //decoder->SurfaceFlags |= 0x00002000;
-	    break;
-	case VideoDeinterlaceTemporalSpatial:
-	    //FIXME: private hack
-	    //decoder->SurfaceFlags |= 0x00006000;
-	    break;
-	case VideoDeinterlaceSoftware:
-	    break;
-    }
+    VaapiInitSurfaceFlags(decoder);
+    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[0];
 
     decoder->DeintImages[0].image_id = VA_INVALID_ID;
     decoder->DeintImages[1].image_id = VA_INVALID_ID;
@@ -1719,7 +1783,13 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	Error(_("codec: can't create config"));
 	goto slow_path;
     }
-    // FIXME: need only to create and destroy surfaces for size changes!
+    // FIXME: interlaced not valid here?
+    decoder->Resolution =
+	VideoResolutionGroup(video_ctx->width, video_ctx->height,
+	decoder->Interlaced);
+    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[decoder->Resolution];
+    // FIXME: need only to create and destroy surfaces for size changes
+    //		or when number of needed surfaces changed!
     VaapiCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
     // bind surfaces to context
@@ -1789,7 +1859,8 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     VAStatus status;
 
     // deinterlace
-    if (interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
+    if (interlaced
+	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
@@ -1914,7 +1985,8 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     uint32_t end;
 
     // deinterlace
-    if (interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
+    if (interlaced
+	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
@@ -2052,6 +2124,10 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
 	width, height, decoder->Image->image_id, decoder->Image->buf);
 
+    // FIXME: interlaced not valid here?
+    decoder->Resolution =
+	VideoResolutionGroup(width, height, decoder->Interlaced);
+    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[decoder->Resolution];
     VaapiCreateSurfaces(decoder, width, height);
 
 #ifdef USE_GLX
@@ -2529,7 +2605,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	}
 #endif
 
-	if (VideoDeinterlace == VideoDeinterlaceSoftware && interlaced) {
+	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
+	    && interlaced) {
 	    // FIXME: software deinterlace avpicture_deinterlace
 	    VaapiCpuDeinterlace(decoder, surface);
 	} else {
@@ -2729,7 +2806,7 @@ static void VaapiDisplayFrame(void)
 	    // FIXME: buggy libva-driver-vdpau, buggy libva-driver-intel
 	    && (VaapiBuggyVdpau || (0 && VaapiBuggyIntel
 		    && decoder->InputHeight == 1080))
-	    && VideoDeinterlace != VideoDeinterlaceWeave) {
+	    && VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, 0);
 	    put1 = GetMsTicks();
@@ -3206,6 +3283,7 @@ typedef struct _vdpau_decoder_
     int InputWidth;			///< video input width
     int InputHeight;			///< video input height
     AVRational InputAspect;		///< video input aspect ratio
+    VideoResolutions Resolution;	///< resolution group
 
     int CropX;				///< video crop x
     int CropY;				///< video crop y
@@ -3588,8 +3666,10 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     //
     feature_n = 0;
     if (VdpauTemporal) {
-	enables[feature_n] = (VideoDeinterlace == VideoDeinterlaceTemporal
-	    || (VideoDeinterlace == VideoDeinterlaceTemporalSpatial
+	enables[feature_n] =
+	    (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceTemporal
+	    || (VideoDeinterlace[decoder->Resolution] ==
+		VideoDeinterlaceTemporalSpatial
 		&& !VdpauTemporalSpatial)) ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
 	Debug(3, "video/vdpau: temporal deinterlace %s\n",
@@ -3597,7 +3677,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     }
     if (VdpauTemporalSpatial) {
 	enables[feature_n] =
-	    VideoDeinterlace ==
+	    VideoDeinterlace[decoder->Resolution] ==
 	    VideoDeinterlaceTemporalSpatial ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] =
 	    VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL;
@@ -3611,13 +3691,15 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    enables[feature_n - 1] ? "enabled" : "disabled");
     }
     if (VdpauNoiseReduction) {
-	enables[feature_n] = VideoDenoise ? VDP_TRUE : VDP_FALSE;
+	enables[feature_n] =
+	    VideoDenoise[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
 	Debug(3, "video/vdpau: noise reduction %s\n",
 	    enables[feature_n - 1] ? "enabled" : "disabled");
     }
     if (VdpauSharpness) {
-	enables[feature_n] = VideoSharpen ? VDP_TRUE : VDP_FALSE;
+	enables[feature_n] =
+	    VideoSharpen[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_SHARPNESS;
 	Debug(3, "video/vdpau: sharpness %s\n",
 	    enables[feature_n - 1] ? "enabled" : "disabled");
@@ -3625,7 +3707,8 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
 	i <= VdpauHqScalingMax; ++i) {
 	enables[feature_n] =
-	    VideoScaling == VideoScalingHQ ? VDP_TRUE : VDP_FALSE;
+	    VideoScaling[decoder->Resolution] ==
+	    VideoScalingHQ ? VDP_TRUE : VDP_FALSE;
 	features[feature_n++] = i;
 	Debug(3, "video/vdpau: high quality scaling %d %s\n",
 	    1 + i - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1,
@@ -3646,7 +3729,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
      */
     attribute_n = 0;
     if (VdpauSkipChroma) {
-	skip_chroma_value = VideoSkipChromaDeinterlace;
+	skip_chroma_value = VideoSkipChromaDeinterlace[decoder->Resolution];
 	attributes[attribute_n]
 	    = VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE;
 	attribute_value_ptrs[attribute_n++] = &skip_chroma_value;
@@ -3654,7 +3737,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    skip_chroma_value ? "enabled" : "disabled");
     }
     if (VdpauNoiseReduction) {
-	noise_reduction_level = VideoDenoise / 1000.0;
+	noise_reduction_level = VideoDenoise[decoder->Resolution] / 1000.0;
 	attributes[attribute_n]
 	    = VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL;
 	attribute_value_ptrs[attribute_n++] = &noise_reduction_level;
@@ -3662,7 +3745,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    noise_reduction_level);
     }
     if (VdpauSharpness) {
-	sharpness_level = VideoSharpen / 1000.0;
+	sharpness_level = VideoSharpen[decoder->Resolution] / 1000.0;
 	attributes[attribute_n]
 	    = VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL;
 	attribute_value_ptrs[attribute_n++] = &sharpness_level;
@@ -4488,6 +4571,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	abort();
 	goto slow_path;
     }
+    // FIXME: Combine this with VdpauSetup
 
     decoder->CropX = 0;
     decoder->CropY = 0;
@@ -4501,7 +4585,11 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 
     VdpauMixerSetup(decoder);
 
-    // FIXME: need only to create and destroy surfaces for size changes!
+    // FIXME: need only to create and destroy surfaces for size changes
+    //		or when number of needed surfaces changed!
+    decoder->Resolution =
+	VideoResolutionGroup(video_ctx->width, video_ctx->height,
+	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
@@ -4532,6 +4620,9 @@ static void VdpauSetup(VdpauDecoder * decoder,
     VdpauCleanup(decoder);
 
     VdpauMixerSetup(decoder);
+    decoder->Resolution =
+	VideoResolutionGroup(video_ctx->width, video_ctx->height,
+	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
     //	get real surface size
@@ -4742,7 +4833,8 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	}
 #endif
 
-	if (VideoDeinterlace == VideoDeinterlaceSoftware && interlaced) {
+	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
+	    && interlaced) {
 	    // FIXME: software deinterlace avpicture_deinterlace
 	    // FIXME: VdpauCpuDeinterlace(decoder, surface);
 	} else {
@@ -4940,7 +5032,8 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     VdpauGrabSurface(decoder);
 #endif
 
-    if (decoder->Interlaced && VideoDeinterlace != VideoDeinterlaceWeave) {
+    if (decoder->Interlaced
+	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	//
 	//	Build deinterlace structures
 	//
@@ -6576,41 +6669,56 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
 ///
 ///	Set deinterlace mode.
 ///
-void VideoSetDeinterlace(int mode)
+void VideoSetDeinterlace(int mode[VideoResolutionMax])
 {
-    VideoDeinterlace = mode;
+    VideoDeinterlace[0] = mode[0];
+    VideoDeinterlace[1] = mode[1];
+    VideoDeinterlace[2] = mode[2];
+    VideoDeinterlace[3] = mode[3];
 }
 
 ///
 ///	Set skip chroma deinterlace on/off.
 ///
-void VideoSetSkipChromaDeinterlace(int onoff)
+void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
 {
-    VideoSkipChromaDeinterlace = onoff;
+    VideoSkipChromaDeinterlace[0] = onoff[0];
+    VideoSkipChromaDeinterlace[1] = onoff[1];
+    VideoSkipChromaDeinterlace[2] = onoff[2];
+    VideoSkipChromaDeinterlace[3] = onoff[3];
 }
 
 ///
 ///	Set denoise level (0 .. 1000).
 ///
-void VideoSetDenoise(int level)
+void VideoSetDenoise(int level[VideoResolutionMax])
 {
-    VideoDenoise = level;
+    VideoDenoise[0] = level[0];
+    VideoSharpen[1] = level[1];
+    VideoSharpen[2] = level[2];
+    VideoSharpen[3] = level[3];
 }
 
 ///
 ///	Set sharpness level (-1000 .. 1000).
 ///
-void VideoSetSharpen(int level)
+void VideoSetSharpen(int level[VideoResolutionMax])
 {
-    VideoSharpen = level;
+    VideoSharpen[0] = level[0];
+    VideoSharpen[1] = level[1];
+    VideoSharpen[2] = level[2];
+    VideoSharpen[3] = level[3];
 }
 
 ///
 ///	Set scaling mode.
 ///
-void VideoSetScaling(int mode)
+void VideoSetScaling(int mode[VideoResolutionMax])
 {
-    VideoScaling = mode;
+    VideoScaling[0] = mode[0];
+    VideoScaling[1] = mode[1];
+    VideoScaling[2] = mode[2];
+    VideoScaling[3] = mode[3];
 }
 
 ///

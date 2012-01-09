@@ -1,6 +1,10 @@
 User johns
 Date:
 
+    Add support of resolution dependend video parameters (deint, scale, ...).
+    Add support for recording play back.
+    Add workaround for alsa crash in snd_pcm_prepare.
+    Fix bug: audio crash on exit.
     Fix build with vdr without yaepg support.
     Support yaepghd video picture output position change.
 
