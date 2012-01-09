@@ -1,6 +1,7 @@
 User johns
-Date:
+Date: Mon Jan  9 22:09:38 CET 2012
 
+    Release Version 0.3.0
     Add support of resolution dependend video parameters (deint, scale, ...).
     Add support for recording play back.
     Add workaround for alsa crash in snd_pcm_prepare.
