@@ -296,6 +296,7 @@ static int AlsaPlayRingbuffer(void)
 	    if (first) {
 		// happens with broken alsa drivers
 		Error(_("audio/alsa: broken driver %d\n"), avail);
+		usleep(5 * 1000);
 	    }
 	    Debug(4, "audio/alsa: break state %s\n",
 		snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
@@ -373,13 +374,19 @@ static int AlsaPlayRingbuffer(void)
 static void AlsaFlushBuffers(void)
 {
     int err;
+    snd_pcm_state_t state;
 
     RingBufferReadAdvance(AlsaRingBuffer, RingBufferUsedBytes(AlsaRingBuffer));
-    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
-	Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
-    }
-    if ((err = snd_pcm_prepare(AlsaPCMHandle)) < 0) {
-	Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+    state = snd_pcm_state(AlsaPCMHandle);
+    Debug(3, "audio/alsa: state %d - %s\n", state, snd_pcm_state_name(state));
+    if (state != SND_PCM_STATE_OPEN) {
+	if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
+	    Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
+	}
+	// ****ing alsa crash, when in open state here
+	if ((err = snd_pcm_prepare(AlsaPCMHandle)) < 0) {
+	    Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+	}
     }
     AudioPTS = INT64_C(0x8000000000000000);
 }
@@ -1662,14 +1669,16 @@ static void AudioExitThread(void)
 {
     void *retval;
 
-    if (pthread_cancel(AudioThread)) {
-	Error(_("audio: can't queue cancel play thread\n"));
+    if (AudioThread) {
+	if (pthread_cancel(AudioThread)) {
+	    Error(_("audio: can't queue cancel play thread\n"));
+	}
+	if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
+	    Error(_("audio: can't cancel play thread\n"));
+	}
+	pthread_cond_destroy(&AudioStartCond);
+	pthread_mutex_destroy(&AudioMutex);
     }
-    if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
-	Error(_("audio: can't cancel play thread\n"));
-    }
-    pthread_cond_destroy(&AudioStartCond);
-    pthread_mutex_destroy(&AudioMutex);
 }
 
 #endif
