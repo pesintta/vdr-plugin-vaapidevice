@@ -76,6 +76,10 @@ extern "C"
     /// C plugin main thread hook
     extern void MainThreadHook(void);
 
+    /// Suspend plugin
+    extern void Suspend(void);
+    /// Resume plugin
+    extern void Resume(void);
 #ifdef __cplusplus
 }
 #endif

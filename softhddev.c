@@ -52,7 +52,7 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
 
-static const char DeviceStopped = 1;	///< flag device stopped
+static volatile char VideoFreezed;	///< video freezed
 
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
@@ -195,13 +195,16 @@ int PlayAudio(const uint8_t * data, int size,
 
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
+    if (VideoFreezed) {			// video freezed
+	return 0;
+    }
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
     }
-    if (SkipAudio) {
+    if (SkipAudio) {			// skip audio
 	return size;
     }
     // PES header 0x00 0x00 0x01 ID
@@ -348,8 +351,8 @@ static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
 static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
-static volatile char VideoFreezed;	///< video freezed
 static volatile char VideoClearBuffers;	///< clear video buffers
+static volatile char SkipVideo;		///< skip video
 
 #ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -648,6 +651,12 @@ int PlayVideo(const uint8_t * data, int size)
     if (!MyVideoDecoder) {		// no x11 video started
 	return size;
     }
+    if (SkipVideo) {			// skip video
+	return size;
+    }
+    if (VideoFreezed) {			// video freezed
+	return 0;
+    }
     if (NewVideoStream) {		// channel switched
 	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
 	// FIXME: hack to test results
@@ -668,7 +677,7 @@ int PlayVideo(const uint8_t * data, int size)
     n = data[8];			// header size
     // wrong size
     if (size < 9 + n + 4) {
-	Error(_("[softhddev] invalid video packet\n"));
+	Error(_("[softhddev] invalid video packet %d bytes\n"), size);
 	return size;
     }
     // FIXME: hack to test results
@@ -761,6 +770,7 @@ int PlayVideo(const uint8_t * data, int size)
 */
 void SetPlayMode(void)
 {
+    Resume();
     if (MyVideoDecoder) {
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
@@ -774,6 +784,7 @@ void SetPlayMode(void)
     }
     VideoFreezed = 0;
     SkipAudio = 0;
+    SkipVideo = 0;
 }
 
 /**
@@ -910,6 +921,7 @@ void OsdClose(void)
 */
 void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 {
+    Resume();
     VideoOsdDrawARGB(x, y, height, width, argb);
 }
 
@@ -1137,4 +1149,32 @@ void Stop(void)
 */
 void MainThreadHook(void)
 {
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//	Suspend/Resume
+//////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Suspend plugin.
+*/
+void Suspend(void)
+{
+    // FIXME: close audio
+    // FIXME: close video
+    // FIXME: stop x11, if started
+    SkipVideo = 1;
+    SkipAudio = 1;
+}
+
+/**
+**	Resume plugin.
+*/
+void Resume(void)
+{
+    if (SkipVideo && SkipAudio) {
+	Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+	SkipVideo = 0;
+	SkipAudio = 0;
+    }
 }

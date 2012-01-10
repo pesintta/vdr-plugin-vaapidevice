@@ -46,7 +46,7 @@ static const char *const VERSION = "0.3.0";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
-//static const char *MAINMENUENTRY = trNOOP("Soft-HD-Device");
+static const char *MAINMENUENTRY = trNOOP("Suspend Soft-HD-Device");
 static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -58,6 +58,7 @@ static const char *const Resolution[RESOLUTIONS] = {
 };
 
 static char ConfigMakePrimary;		///< config primary wanted
+static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -306,6 +307,7 @@ class cMenuSetupSoft:public cMenuSetupPage
 {
   protected:
     int MakePrimary;
+    int HideMainMenuEntry;
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
@@ -356,6 +358,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     MakePrimary = ConfigMakePrimary;
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
 	    tr("no"), tr("yes")));
+    HideMainMenuEntry = ConfigHideMainMenuEntry;
+    Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &HideMainMenuEntry,
+	    tr("no"), tr("yes")));
     //
     //	video
     //
@@ -397,6 +402,8 @@ void cMenuSetupSoft::Store(void)
     int i;
 
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
+    SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
+	HideMainMenuEntry);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -584,6 +591,9 @@ void cSoftHdDevice::Play(void)
     ::Play();
 }
 
+/**
+**	Puts the device into "freeze frame" mode.
+*/
 void cSoftHdDevice::Freeze(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
@@ -759,8 +769,8 @@ class cPluginSoftHdDevice:public cPlugin
     virtual void Stop(void);
 //    virtual void Housekeeping(void);
     virtual void MainThreadHook(void);
-//    virtual const char *MainMenuEntry(void);
-//    virtual cOsdObject *MainMenuAction(void);
+    virtual const char *MainMenuEntry(void);
+    virtual cOsdObject *MainMenuAction(void);
     virtual cMenuSetupPage *SetupMenu(void);
     virtual bool SetupParse(const char *, const char *);
 //    virtual bool Service(const char *Id, void *Data = NULL);
@@ -860,14 +870,29 @@ void cPluginSoftHdDevice::Housekeeping(void)
     // Perform any cleanup or other regular tasks.
 }
 
+#endif
+
+/**
+**	Create main menu entry.
+*/
 const char *cPluginSoftHdDevice::MainMenuEntry(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
-    return tr(MAINMENUENTRY);
-    return NULL;
+
+    return ConfigHideMainMenuEntry ? NULL : tr(MAINMENUENTRY);
 }
 
-#endif
+/**
+**	Perform the action when selected from the main VDR menu.
+*/
+cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
+{
+    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    Suspend();
+
+    return NULL;
+}
 
 /**
 **	Called for every plugin once during every cycle of VDR's main program
@@ -885,25 +910,6 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 
     ::MainThreadHook();
 }
-
-#if 0
-
-bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
-{
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
-
-    return false;
-}
-
-cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
-{
-    // Perform the action when selected from the main VDR menu.
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
-
-    return NULL;
-}
-
-#endif
 
 /**
 **	Return our setup menu.
@@ -923,11 +929,14 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     int i;
     char buf[128];
 
-    dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
+    //dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
-    // FIXME: handle the values
     if (!strcmp(name, "MakePrimary")) {
 	ConfigMakePrimary = atoi(value);
+	return true;
+    }
+    if (!strcmp(name, "HideMainMenuEntry")) {
+	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {
@@ -974,5 +983,16 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 
     return false;
 }
+
+#if 0
+
+bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
+{
+    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    return false;
+}
+
+#endif
 
 VDRPLUGINCREATOR(cPluginSoftHdDevice);	// Don't touch this!

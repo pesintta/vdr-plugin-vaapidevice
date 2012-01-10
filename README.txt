@@ -95,6 +95,9 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.MakePrimary = 1
 	0 = no change, 1 make softhddevice primary at start
 
+	softhddevice.HideMainMenuEntry = 0
+	0 = show softhddevice main menu entry, 1 = hide entry
+
 	<res> of the next parameters is 567i, 720p, 1080i_fake or 1080i.
 	1080i_fake is 1280x1080 or 1440x1080
 	1080i is "real" 1920x1080
@@ -122,11 +125,29 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.AudioPassthrough = 0
 	0 = none, 1 = AC-3
 
+Setup: /etc/vdr/remote.conf
+------
+
+	Add "XKeySym." definitions to /etc/vdr/remote.conf to control
+	the vdr and plugin with the connected input device.
+
+	fe.
+	XKeySym.Up	Up
+	XKeySym.Down	Down
+	...
+
+	Additional to the x11 input sends the window close button "Close".
+
+	fe.
+	XKeySym.Power	Close
 
 Commandline:
 ------------
 
 	Use vdr -h to see the command line arguments support by the plugin.
+
+Running:
+--------
 
 Warning:
 --------
