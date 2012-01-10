@@ -98,6 +98,7 @@
 #endif
 
 #ifdef USE_GLX
+#include <GL/gl.h>			// For GL_COLOR_BUFFER_BIT
 #include <GL/glx.h>
 // only for gluErrorString
 #include <GL/glu.h>
@@ -7078,7 +7079,7 @@ int main(int argc, char *const argv[])
     //
     //	  main loop
     //
-    VideoInit();
+    VideoInit(NULL);
     VideoOsdInit();
     for (;;) {
 	VideoRenderOverlay();

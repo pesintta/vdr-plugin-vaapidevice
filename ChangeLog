@@ -1,5 +1,17 @@
+User Christian Rupper
+Date: Tue Jan 10 22:33:14 CET 2012
+
+    Move objects before $LIBS to avoid link failures with --as-needed.
+    Do not override CFLAGS for video test.
+    Rearrange *FLAGS incl. some minor fixes.
+    Don't override VDRDIR, LIBDIR and TMPDIR in makefile.
+    Don't abuse LDFLAGS in makefile.
+    Define CC in makefile.
+    Include GL/gl.h for the GL_COLOR_BUFFER_BIT definition.
+    VideoInit() needs an argument.
+
 User johns
-Date:
+Date: Tue Jan 10 22:32:50 CET 2012
 
     Add main menu entry, which suspends the plugin.
     Add support for resize window.

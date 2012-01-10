@@ -26,40 +26,17 @@ CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
 
 ### The C++ compiler and options:
 
+CC       ?= gcc
 CXX      ?= g++
-CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Woverloaded-virtual -fPIC
-override CXXFLAGS += $(DEFINES) $(INCLUDES)
 CFLAGS   ?=	-g -O2 -W -Wall -Wextra -Winit-self \
-		-Wdeclaration-after-statement -fPIC
-#CFLAGS	+=	-Werror
-override CFLAGS   +=	$(DEFINES) $(INCLUDES) \
-	$(shell pkg-config --cflags libavcodec libavformat) \
-	`pkg-config --cflags x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
-		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
-	`pkg-config --cflags gl glu` \
-	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-	            `pkg-config --cflags vdpau`) \
-	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-	            `pkg-config --cflags libva-x11 libva-glx libva`) \
-	$(if $(findstring USE_ALSA,$(CONFIG)), \
-	            `pkg-config --cflags alsa`)
-override LDFLAGS  += -lrt \
-	$(shell pkg-config --libs libavcodec libavformat) \
-	`pkg-config --libs x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
-		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
-	`pkg-config --libs gl glu` \
-	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-	            `pkg-config --libs vdpau`) \
-	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-	            `pkg-config --libs libva-x11 libva-glx libva`) \
-	$(if $(findstring USE_ALSA,$(CONFIG)), \
-	            `pkg-config --libs alsa`)
+		-Wdeclaration-after-statement
+CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Woverloaded-virtual
 
 ### The directory environment:
 
-VDRDIR = ../../..
-LIBDIR = ../../lib
-TMPDIR = /tmp
+VDRDIR ?= ../../..
+LIBDIR ?= ../../lib
+TMPDIR ?= /tmp
 
 ### Make sure that necessary options are included:
 
@@ -78,11 +55,39 @@ APIVERSION = $(shell sed -ne '/define APIVERSION/s/^.*"\(.*\)".*$$/\1/p' $(VDRDI
 ARCHIVE = $(PLUGIN)-$(VERSION)
 PACKAGE = vdr-$(ARCHIVE)
 
-### Includes and Defines (add further entries here):
+### Includes, Defines and dependencies (add further entries here):
 
 INCLUDES += -I$(VDRDIR)/include
 
 DEFINES += $(CONFIG) -D_GNU_SOURCE -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
+
+_CFLAGS = $(DEFINES) $(INCLUDES) \
+	$(shell pkg-config --cflags libavcodec libavformat) \
+	`pkg-config --cflags x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
+		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
+	`pkg-config --cflags gl glu` \
+	$(if $(findstring USE_VDPAU,$(CONFIG)), \
+	            `pkg-config --cflags vdpau`) \
+	$(if $(findstring USE_VAAPI,$(CONFIG)), \
+	            `pkg-config --cflags libva-x11 libva-glx libva`) \
+	$(if $(findstring USE_ALSA,$(CONFIG)), \
+	            `pkg-config --cflags alsa`)
+
+#override _CFLAGS  += -Werror
+override CXXFLAGS += $(_CFLAGS)
+override CFLAGS   += $(_CFLAGS)
+
+LIBS += -lrt \
+	$(shell pkg-config --libs libavcodec libavformat) \
+	`pkg-config --libs x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
+		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
+	`pkg-config --libs gl glu` \
+	$(if $(findstring USE_VDPAU,$(CONFIG)), \
+	            `pkg-config --libs vdpau`) \
+	$(if $(findstring USE_VAAPI,$(CONFIG)), \
+	            `pkg-config --libs libva-x11 libva-glx libva`) \
+	$(if $(findstring USE_ALSA,$(CONFIG)), \
+	            `pkg-config --libs alsa`)
 
 ### The object files (add further files here):
 
@@ -137,7 +142,7 @@ i18n: $(I18Nmsgs) $(I18Npot)
 ### Targets:
 
 libvdr-$(PLUGIN).so: $(OBJS) Makefile
-	$(CXX) $(CXXFLAGS) -shared $(OBJS) -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -fPIC $(OBJS) -o $@ $(LIBS)
 	@cp --remove-destination $@ $(LIBDIR)/$@.$(APIVERSION)
 
 dist: $(I18Npo) clean
@@ -163,5 +168,5 @@ indent:
 	done
 
 video_test: video.c
-	$(CC) -DVIDEO_TEST -DVERSION='"$(VERSION)"' $(CFLAGS) $(LDFLAGS) $(LIBS) \
-	-O0 -g -o $@ $<
+	$(CC) -DVIDEO_TEST -DVERSION='"$(VERSION)"' $(CFLAGS) $(LDFLAGS) $< $(LIBS) \
+	-o $@
