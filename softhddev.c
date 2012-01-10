@@ -316,7 +316,7 @@ int PlayAudio(const uint8_t * data, int size,
 void Mute(void)
 {
     SkipAudio = 1;
-    AudioSetVolume(0);
+    //AudioSetVolume(0);
 }
 
 /**
