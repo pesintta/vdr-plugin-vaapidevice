@@ -1,4 +1,10 @@
 User johns
+Date:
+
+    Add main menu entry, which suspends the plugin.
+    Add support for resize window.
+    Close window sends "close" as remote key press.
+
 Date: Mon Jan  9 22:09:38 CET 2012
 
     Release Version 0.3.0

@@ -27,9 +27,8 @@ missing:
     atmolight
     zoom/fit-zoom 4:3
     multistream handling
-    disable screensaver
-    disable window cursor
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
+    suspend output / energie saver: stop audio, stop video, configurable
 
 vdpau:
     1080i with temporal spatial and level 1 scaling too slow with my GT 520
@@ -60,8 +59,7 @@ x11:
     support resize of x11 window
     support fullscreen window
     support fullscreen / window toggle
-    close window should send power button
-    disable cursor
+    disable screensaver
 
 audio/alsa:
     done? video/audio asyncron

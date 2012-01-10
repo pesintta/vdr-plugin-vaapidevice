@@ -67,14 +67,14 @@ extern void VideoPollEvent(void);
     /// Wakeup display handler.
 extern void VideoDisplayWakeup(void);
 
-    /// Set video mode.
-//extern void VideoSetVideoMode(int, int, int, int);
-
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
 
     /// Set video output position.
 extern void VideoSetOutputPosition(int, int, int, int);
+
+    /// Set video mode.
+extern void VideoSetVideoMode(int, int, int, int);
 
     /// Set deinterlace.
 extern void VideoSetDeinterlace(int[]);

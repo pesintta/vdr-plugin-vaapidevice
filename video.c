@@ -1017,20 +1017,6 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	Warning(_("video/vaapi: no osd subpicture yet\n"));
 	return;
     }
-#if 0
-    // FIXME: try to fix intel osd bugs
-    if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
-	!= VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't destroy subpicture\n"));
-    }
-    VaOsdSubpicture = VA_INVALID_ID;
-
-    if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id,
-	    &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't create subpicture\n"));
-	return;
-    }
-#endif
 
     if (VaapiUnscaledOsd) {
 	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
@@ -1041,17 +1027,11 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
     } else {
-	int i;
-
 	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesFree, decoder->SurfaceFreeN, 0, 0,
 		VaOsdImage.width, VaOsdImage.height, 0, 0, width, height, 0)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't associate subpicture\n"));
-	}
-	for (i = 0; i < decoder->SurfaceFreeN; ++i) {
-	    Debug(4, "video/vaapi: associate %#010x surface\n",
-		decoder->SurfacesFree[i]);
 	}
     }
 }
@@ -2330,9 +2310,11 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    vaPutSurface(decoder->VaDisplay, decoder->BlackSurface,
 		decoder->Window,
 		// decoder src
-		0, 0, VideoWindowWidth, VideoWindowHeight,
+		decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
+		decoder->OutputHeight,
 		// video dst
-		0, 0, VideoWindowWidth, VideoWindowHeight, NULL, 0,
+		decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
+		decoder->OutputHeight, NULL, 0,
 		VA_FRAME_PICTURE)) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaPutSurface failed %d\n"), status);
     }
@@ -2341,9 +2323,8 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     put1 = GetMsTicks();
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
 
-    if (0
-	&& vaSyncSurface(decoder->VaDisplay,
-	    decoder->BlackSurface) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, decoder->BlackSurface)
+	!= VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
 
@@ -3376,13 +3357,15 @@ static VdpGetErrorString *VdpauGetErrorString;
 static VdpDeviceDestroy *VdpauDeviceDestroy;
 static VdpGenerateCSCMatrix *VdpauGenerateCSCMatrix;
 static VdpVideoSurfaceQueryCapabilities *VdpauVideoSurfaceQueryCapabilities;
-static VdpVideoSurfaceQueryGetPutBitsYCbCrCapabilities
-    *VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities;
+static VdpVideoSurfaceQueryGetPutBitsYCbCrCapabilities *
+    VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities;
 static VdpVideoSurfaceCreate *VdpauVideoSurfaceCreate;
 static VdpVideoSurfaceDestroy *VdpauVideoSurfaceDestroy;
 static VdpVideoSurfaceGetParameters *VdpauVideoSurfaceGetParameters;
 static VdpVideoSurfaceGetBitsYCbCr *VdpauVideoSurfaceGetBitsYCbCr;
 static VdpVideoSurfacePutBitsYCbCr *VdpauVideoSurfacePutBitsYCbCr;
+
+static VdpOutputSurfaceQueryCapabilities *VdpauOutputSurfaceQueryCapabilities;
 
 static VdpOutputSurfaceCreate *VdpauOutputSurfaceCreate;
 static VdpOutputSurfaceDestroy *VdpauOutputSurfaceDestroy;
@@ -3395,10 +3378,10 @@ static VdpBitmapSurfaceDestroy *VdpauBitmapSurfaceDestroy;
 
 static VdpBitmapSurfacePutBitsNative *VdpauBitmapSurfacePutBitsNative;
 
-static VdpOutputSurfaceRenderOutputSurface *
-    VdpauOutputSurfaceRenderOutputSurface;
-static VdpOutputSurfaceRenderBitmapSurface *
-    VdpauOutputSurfaceRenderBitmapSurface;
+static VdpOutputSurfaceRenderOutputSurface
+    *VdpauOutputSurfaceRenderOutputSurface;
+static VdpOutputSurfaceRenderBitmapSurface
+    *VdpauOutputSurfaceRenderBitmapSurface;
 
 static VdpDecoderQueryCapabilities *VdpauDecoderQueryCapabilities;
 static VdpDecoderCreate *VdpauDecoderCreate;
@@ -3407,8 +3390,8 @@ static VdpDecoderDestroy *VdpauDecoderDestroy;
 static VdpDecoderRender *VdpauDecoderRender;
 
 static VdpVideoMixerQueryFeatureSupport *VdpauVideoMixerQueryFeatureSupport;
-static VdpVideoMixerQueryAttributeSupport *
-    VdpauVideoMixerQueryAttributeSupport;
+static VdpVideoMixerQueryAttributeSupport
+    *VdpauVideoMixerQueryAttributeSupport;
 
 static VdpVideoMixerCreate *VdpauVideoMixerCreate;
 static VdpVideoMixerSetFeatureEnables *VdpauVideoMixerSetFeatureEnables;
@@ -3419,18 +3402,18 @@ static VdpVideoMixerRender *VdpauVideoMixerRender;
 static VdpPresentationQueueTargetDestroy *VdpauPresentationQueueTargetDestroy;
 static VdpPresentationQueueCreate *VdpauPresentationQueueCreate;
 static VdpPresentationQueueDestroy *VdpauPresentationQueueDestroy;
-static VdpPresentationQueueSetBackgroundColor
-    *VdpauPresentationQueueSetBackgroundColor;
+static VdpPresentationQueueSetBackgroundColor *
+    VdpauPresentationQueueSetBackgroundColor;
 
 static VdpPresentationQueueGetTime *VdpauPresentationQueueGetTime;
 static VdpPresentationQueueDisplay *VdpauPresentationQueueDisplay;
-static VdpPresentationQueueBlockUntilSurfaceIdle *
-    VdpauPresentationQueueBlockUntilSurfaceIdle;
-static VdpPresentationQueueQuerySurfaceStatus *
-    VdpauPresentationQueueQuerySurfaceStatus;
+static VdpPresentationQueueBlockUntilSurfaceIdle
+    *VdpauPresentationQueueBlockUntilSurfaceIdle;
+static VdpPresentationQueueQuerySurfaceStatus
+    *VdpauPresentationQueueQuerySurfaceStatus;
 
-static VdpPresentationQueueTargetCreateX11
-    *VdpauPresentationQueueTargetCreateX11;
+static VdpPresentationQueueTargetCreateX11 *
+    VdpauPresentationQueueTargetCreateX11;
 ///@}
 
 ///
@@ -3922,6 +3905,93 @@ static inline void VdpauGetProc(const VdpFuncId id, void *addr,
 }
 
 ///
+///	Initialize output queue.
+///
+static void VdpauInitOutputQueue(void)
+{
+    VdpStatus status;
+    int i;
+
+    status =
+	VdpauPresentationQueueTargetCreateX11(VdpauDevice, VideoWindow,
+	&VdpauQueueTarget);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create presentation queue target: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+
+    status =
+	VdpauPresentationQueueCreate(VdpauDevice, VdpauQueueTarget,
+	&VdpauQueue);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't create presentation queue: %s\n"),
+	    VdpauGetErrorString(status));
+	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	VdpauQueueTarget = 0;
+	return;
+    }
+
+    VdpauBackgroundColor->red = 0.01;
+    VdpauBackgroundColor->green = 0.02;
+    VdpauBackgroundColor->blue = 0.03;
+    VdpauBackgroundColor->alpha = 1.00;
+    VdpauPresentationQueueSetBackgroundColor(VdpauQueue, VdpauBackgroundColor);
+
+    //
+    //	Create display output surfaces
+    //
+    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	VdpRGBAFormat format;
+
+	format = VDP_RGBA_FORMAT_B8G8R8A8;
+	// FIXME: does a 10bit rgba produce a better output?
+	format = VDP_RGBA_FORMAT_R10G10B10A2;
+	status =
+	    VdpauOutputSurfaceCreate(VdpauDevice, format, VideoWindowWidth,
+	    VideoWindowHeight, VdpauSurfacesRb + i);
+	if (status != VDP_STATUS_OK) {
+	    Fatal(_("video/vdpau: can't create output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	Debug(3, "video/vdpau: created output surface %dx%d with id 0x%08x\n",
+	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb[i]);
+    }
+}
+
+///
+///	Cleanup output queue.
+///
+static void VdpauExitOutputQueue(void)
+{
+    int i;
+
+    if (VdpauQueue) {
+	VdpauPresentationQueueDestroy(VdpauQueue);
+	VdpauQueue = 0;
+    }
+    if (VdpauQueueTarget) {
+	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	VdpauQueueTarget = 0;
+    }
+    //
+    //	destroy display output surfaces
+    //
+    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	VdpStatus status;
+
+	Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
+	    VdpauSurfacesRb[i]);
+	status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't destroy output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
+    }
+}
+
+///
 ///	VDPAU setup.
 ///
 ///	@param display_name	x11/xcb display name
@@ -3995,8 +4065,10 @@ static void VideoVdpauInit(const char *display_name)
 	&VdpauVideoSurfaceGetBitsYCbCr, "VideoSurfaceGetBitsYCbCr");
     VdpauGetProc(VDP_FUNC_ID_VIDEO_SURFACE_PUT_BITS_Y_CB_CR,
 	&VdpauVideoSurfacePutBitsYCbCr, "VideoSurfacePutBitsYCbCr");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_CAPABILITIES,
+	&VdpauOutputSurfaceQueryCapabilities,
+	"OutputSurfaceQueryCapabilities");
 #if 0
-    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_CAPABILITIES, &, "");
     VdpauGetProc
 	(VDP_FUNC_ID_OUTPUT_SURFACE_QUERY_GET_PUT_BITS_NATIVE_CAPABILITIES, &,
 	"");
@@ -4116,33 +4188,6 @@ static void VideoVdpauInit(const char *display_name)
     // vdp_preemption_callback_register
 
     //
-    //	Create presentation queue, only one queue pro window
-    //
-    status =
-	VdpauPresentationQueueTargetCreateX11(VdpauDevice, VideoWindow,
-	&VdpauQueueTarget);
-    if (status != VDP_STATUS_OK) {
-	Fatal(_("video/vdpau: can't create presentation queue target: %s\n"),
-	    VdpauGetErrorString(status));
-	// FIXME: no fatal errors
-    }
-
-    status =
-	VdpauPresentationQueueCreate(VdpauDevice, VdpauQueueTarget,
-	&VdpauQueue);
-    if (status != VDP_STATUS_OK) {
-	Fatal(_("video/vdpau: can't create presentation queue: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-
-    VdpauBackgroundColor->red = 0.01;
-    VdpauBackgroundColor->green = 0.02;
-    VdpauBackgroundColor->blue = 0.03;
-    VdpauBackgroundColor->alpha = 1.00;
-
-    VdpauPresentationQueueSetBackgroundColor(VdpauQueue, VdpauBackgroundColor);
-
-    //
     //	Look which levels of high quality scaling are supported
     //
     for (i = 0; i < 9; ++i) {
@@ -4244,7 +4289,7 @@ static void VideoVdpauInit(const char *display_name)
 	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_420,
 	&flag, &max_width, &max_height);
     if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't create output surface: %s\n"),
+	Error(_("video/vdpau: can't query video surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
     if (flag) {
@@ -4256,7 +4301,7 @@ static void VideoVdpauInit(const char *display_name)
 	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_422,
 	&flag, &max_width, &max_height);
     if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't create output surface: %s\n"),
+	Error(_("video/vdpau: can't query video surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
     if (flag) {
@@ -4268,7 +4313,7 @@ static void VideoVdpauInit(const char *display_name)
 	VdpauVideoSurfaceQueryCapabilities(VdpauDevice, VDP_CHROMA_TYPE_444,
 	&flag, &max_width, &max_height);
     if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't create output surface: %s\n"),
+	Error(_("video/vdpau: can't query video surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
     if (flag) {
@@ -4288,23 +4333,62 @@ static void VideoVdpauInit(const char *display_name)
     if (status != VDP_STATUS_OK || !flag) {
 	Error(_("video/vdpau: doesn't support yv12 video surface\n"));
     }
-    //FIXME: format support and size support
-    //VdpOutputSurfaceQueryCapabilities
+
+    flag = VDP_FALSE;
+    status =
+	VdpauOutputSurfaceQueryCapabilities(VdpauDevice,
+	VDP_RGBA_FORMAT_B8G8R8A8, &flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 8bit BGRA format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    flag = VDP_FALSE;
+    status =
+	VdpauOutputSurfaceQueryCapabilities(VdpauDevice,
+	VDP_RGBA_FORMAT_R8G8B8A8, &flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 8bit RGBA format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    flag = VDP_FALSE;
+    status =
+	VdpauOutputSurfaceQueryCapabilities(VdpauDevice,
+	VDP_RGBA_FORMAT_R10G10B10A2, &flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 10bit RGBA format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    flag = VDP_FALSE;
+    status =
+	VdpauOutputSurfaceQueryCapabilities(VdpauDevice,
+	VDP_RGBA_FORMAT_B10G10R10A2, &flag, &max_width, &max_height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    if (flag) {
+	Info(_("video/vdpau: 8bit BRGA format with %dx%d supported\n"),
+	    max_width, max_height);
+    }
+    // FIXME: does only check for rgba formats, but no action
 
     //
-    //	Create display output surfaces
+    //	Create presentation queue, only one queue pro window
     //
-    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
-	status =
-	    VdpauOutputSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
-	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb + i);
-	if (status != VDP_STATUS_OK) {
-	    Fatal(_("video/vdpau: can't create output surface: %s\n"),
-		VdpauGetErrorString(status));
-	}
-	Debug(3, "video/vdpau: created output surface %dx%d with id 0x%08x\n",
-	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb[i]);
-    }
+    VdpauInitOutputQueue();
+
 }
 
 ///
@@ -4312,38 +4396,13 @@ static void VideoVdpauInit(const char *display_name)
 ///
 static void VideoVdpauExit(void)
 {
-    int i;
-
     if (VdpauDecoders[0]) {
 	VdpauDelDecoder(VdpauDecoders[0]);
 	VdpauDecoders[0] = NULL;
     }
 
     if (VdpauDevice) {
-
-	if (VdpauQueue) {
-	    VdpauPresentationQueueDestroy(VdpauQueue);
-	    VdpauQueue = 0;
-	}
-	if (VdpauQueueTarget) {
-	    VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
-	    VdpauQueueTarget = 0;
-	}
-	//
-	//	destroy display output surfaces
-	//
-	for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
-	    VdpStatus status;
-
-	    Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
-		VdpauSurfacesRb[i]);
-	    status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
-	    if (status != VDP_STATUS_OK) {
-		Error(_("video/vdpau: can't destroy output surface: %s\n"),
-		    VdpauGetErrorString(status));
-	    }
-	    VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
-	}
+	VdpauExitOutputQueue();
 
 	// FIXME: more VDPAU cleanups...
 
@@ -6013,8 +6072,8 @@ static void VideoEvent(void)
 	case ClientMessage:
 	    Debug(3, "video/event: ClientMessage\n");
 	    if (event.xclient.data.l[0] == (long)WmDeleteWindowAtom) {
-		// FIXME: wrong, kills recordings ...
-		Error(_("video/event: FIXME: wm-delete-message\n"));
+		Debug(3, "video/event: wm-delete-message\n");
+		FeedKeyPress("XKeySym", "Close", 0, 0);
 	    }
 	    break;
 
@@ -6031,7 +6090,9 @@ static void VideoEvent(void)
 	    Debug(3, "video/event: ReparentNotify\n");
 	    break;
 	case ConfigureNotify:
-	    Debug(3, "video/event: ConfigureNotify\n");
+	    //Debug(3, "video/event: ConfigureNotify\n");
+	    VideoSetVideoMode(event.xconfigure.x, event.xconfigure.y,
+		event.xconfigure.width, event.xconfigure.height);
 	    break;
 	case KeyPress:
 	    keysym = XLookupKeysym(&event.xkey, 0);
@@ -6662,6 +6723,46 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpauSetOutputPosition(VdpauDecoders[0], x, y, width, height);
+    }
+#endif
+#ifdef USE_VAPI
+    // FIXME: not supported by vaapi without unscaled OSD,
+    // FIXME: if used to position video inside osd
+#endif
+}
+
+///
+///	Set video window position.
+///
+///	@param x	window x coordinate
+///	@param y	window y coordinate
+///	@param width	window width
+///	@param height	window height
+///
+///	@note no need to lock, only called from inside the video thread
+///
+void VideoSetVideoMode(int x, int y, int width, int height)
+{
+    Debug(3, "video: %s %dx%d%+d%+d\n", __FUNCTION__, width, height, x, y);
+    if ((unsigned)width == VideoWindowWidth
+	&& (unsigned)height == VideoWindowHeight) {
+	return;				// same size nothing todo
+    }
+    VideoWindowWidth = width;
+    VideoWindowHeight = height;
+#ifdef USE_VAAPI
+    if (VideoVaapiEnabled && VaapiDecoders[0]) {
+	// FIXME: must update osd surfaces?
+	VaapiUpdateOutput(VaapiDecoders[0]);
+	return;
+    }
+#endif
+#ifdef USE_VDPAU
+    if (VideoVdpauEnabled && VdpauDecoders[0]) {
+	VdpauExitOutputQueue();
+	VdpauInitOutputQueue();
+	VdpauUpdateOutput(VdpauDecoders[0]);
+	return;
     }
 #endif
 }
