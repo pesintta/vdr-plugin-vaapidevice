@@ -25,10 +25,11 @@ missing:
     software deinterlace
     auto crop
     atmolight
-    zoom/fit-zoom 4:3
+    zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     multistream handling
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
+    Subtitle have the wrong position
 
 vdpau:
     1080i with temporal spatial and level 1 scaling too slow with my GT 520
@@ -79,6 +80,7 @@ audio/oss:
 HDMI/SPDIF Passthrough:
     only AC-3 written
     Channels are wrong setup, if changing setting during operation.
+    split pcm and ac-3 out into two devices
 
 playback of recording
     pause is not reset, when replay exit

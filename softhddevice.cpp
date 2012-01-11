@@ -547,7 +547,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
-	    break;
+	    return true;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    break;
 	default:
@@ -830,15 +830,14 @@ bool cPluginSoftHdDevice::Initialize(void)
     return true;
 }
 
+/**
+**	 Start any background activities the plugin shall perform.
+*/
 bool cPluginSoftHdDevice::Start(void)
 {
-    const cDevice *primary;
-
-    // Start any background activities the plugin shall perform.
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    primary = cDevice::PrimaryDevice();
-    if (MyDevice != primary) {
+    if (!MyDevice->IsPrimaryDevice()) {
 	isyslog("[softhddev] softhddevice is not the primary device!");
 	if (ConfigMakePrimary) {
 	    // Must be done in the main thread
@@ -889,6 +888,8 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
+    //cDevice::PrimaryDevice()->StopReplay();
+    ShutdownHandler.SetUserInactive();
     Suspend();
 
     return NULL;
@@ -906,6 +907,12 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 	dsyslog("[softhddev]%s: switching primary device\n", __FUNCTION__);
 	cDevice::SetPrimaryDevice(MyDevice->DeviceNumber() + 1);
 	DoMakePrimary = 0;
+    }
+
+    // check if user is inactive, automatic enter suspend mode
+    if (ShutdownHandler.IsUserInactive()) {
+	// this is regular called, but guarded against double calls
+	Suspend();
     }
 
     ::MainThreadHook();

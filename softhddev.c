@@ -35,6 +35,11 @@
 
 #include <libavcodec/avcodec.h>
 
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
+#include <pthread.h>
+
 #include "misc.h"
 #include "softhddev.h"
 
@@ -51,6 +56,11 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #else
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
+
+static char ConfigSuspendClose = 1;	///< suspend should close devices
+static char ConfigSuspendX11 = 1;	///< suspend should stop x11
+
+static pthread_mutex_t SuspendLockMutex;///< suspend lock mutex
 
 static volatile char VideoFreezed;	///< video freezed
 
@@ -581,8 +591,8 @@ static void StartVideo(void)
 
 	if ((hw_decoder = VideoNewHwDecoder())) {
 	    MyVideoDecoder = CodecVideoNewDecoder(hw_decoder);
-	    VideoCodecID = CODEC_ID_NONE;
 	}
+	VideoCodecID = CODEC_ID_NONE;
     }
     VideoPacketInit();
 }
@@ -927,7 +937,7 @@ void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 
 //////////////////////////////////////////////////////////////////////////////
 
-static char StartX11Server;		///< flag start the x11 server
+static char ConfigStartX11Server;	///< flag start the x11 server
 
 /**
 **	Return command line help string.
@@ -968,7 +978,7 @@ int ProcessArgs(int argc, char *const argv[])
 		}
 		continue;
 	    case 'x':			// x11 server
-		StartX11Server = 1;
+		ConfigStartX11Server = 1;
 		continue;
 	    case EOF:
 		break;
@@ -1107,13 +1117,15 @@ void SoftHdDeviceExit(void)
     CodecExit();
     VideoPacketExit();
 
-    if (StartX11Server) {
+    if (ConfigStartX11Server) {
 	Debug(3, "x-setup: Stop x11 server\n");
 
 	if (X11ServerPid) {
 	    kill(X11ServerPid, SIGTERM);
 	}
     }
+
+    pthread_mutex_destroy(&SuspendLockMutex);
 }
 
 /**
@@ -1121,15 +1133,17 @@ void SoftHdDeviceExit(void)
 */
 void Start(void)
 {
-    if (StartX11Server) {
+    if (ConfigStartX11Server) {
 	StartXServer();
     }
     CodecInit();
     // FIXME: AudioInit for HDMI after X11 startup
     AudioInit();
-    if (!StartX11Server) {
+    if (!ConfigStartX11Server) {
 	StartVideo();
     }
+
+    pthread_mutex_init(&SuspendLockMutex, NULL);
 }
 
 /**
@@ -1160,11 +1174,27 @@ void MainThreadHook(void)
 */
 void Suspend(void)
 {
-    // FIXME: close audio
-    // FIXME: close video
-    // FIXME: stop x11, if started
+    pthread_mutex_lock(&SuspendLockMutex);
+    if( SkipVideo && SkipAudio ) {		// already suspended
+	pthread_mutex_unlock(&SuspendLockMutex);
+	return;
+    }
+
+    Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+
     SkipVideo = 1;
     SkipAudio = 1;
+    pthread_mutex_unlock(&SuspendLockMutex);
+
+    if ( ConfigSuspendClose ) {
+	pthread_mutex_lock(&SuspendLockMutex);
+	// FIXME: close audio
+	// FIXME: close video
+	pthread_mutex_unlock(&SuspendLockMutex);
+    }
+    if ( ConfigSuspendX11 ) {
+	// FIXME: stop x11, if started
+    }
 }
 
 /**
@@ -1172,9 +1202,19 @@ void Suspend(void)
 */
 void Resume(void)
 {
-    if (SkipVideo && SkipAudio) {
-	Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-	SkipVideo = 0;
-	SkipAudio = 0;
+    if (!SkipVideo && !SkipAudio) {		// we are not suspended
+	return;
     }
+
+    Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+
+    if ( ConfigSuspendX11 ) {
+    }
+    if ( ConfigSuspendClose ) {
+	pthread_mutex_lock(&SuspendLockMutex);
+	pthread_mutex_unlock(&SuspendLockMutex);
+    }
+
+    SkipVideo = 0;
+    SkipAudio = 0;
 }
