@@ -42,7 +42,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.3.0";
+static const char *const VERSION = "0.3.1";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -132,8 +132,10 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 
 class cSoftOsd:public cOsd
 {
+    int Level;				///< level: subtitle
+
   public:
-    cSoftOsd(int, int, uint);
+     cSoftOsd(int, int, uint);
      virtual ~ cSoftOsd(void);
     virtual void Flush(void);
     // virtual void SetActive(bool);
@@ -146,6 +148,7 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
     dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
 	OsdHeight(), left, top, level);
 
+    this->Level = level;
     //SetActive(true);
 }
 
@@ -223,8 +226,24 @@ void cSoftOsd::Flush(void)
 		}
 	    }
 
-	    OsdDrawARGB(Left() + bitmap->X0(), Top() + bitmap->Y0(),
-		bitmap->Width(), bitmap->Height(), argb);
+	    // check if subtitles
+	    if (this->Level == OSD_LEVEL_SUBTITLES) {
+		int video_width;
+		int video_height;
+
+		if (0) {
+		    dsyslog("[softhddev]%s: subtitle %d, %d\n", __FUNCTION__,
+			Left() + bitmap->X0(), Top() + bitmap->Y0());
+		}
+		video_width = 1920;
+		video_height = 1080;
+		OsdDrawARGB((1920 - video_width) / 2 + Left() + bitmap->X0(),
+		    1080 - video_height + Top() + bitmap->Y0(),
+		    bitmap->Width(), bitmap->Height(), argb);
+	    } else {
+		OsdDrawARGB(Left() + bitmap->X0(), Top() + bitmap->Y0(),
+		    bitmap->Width(), bitmap->Height(), argb);
+	    }
 
 	    bitmap->Clean();
 	    free(argb);
@@ -456,8 +475,15 @@ class cSoftHdDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
+    virtual void GetVideoSize(int &width, int &height, double &aspect)
+    {
+	width = 1920;
+	height = 1080;
+	aspect = (double)width / height;
+    }
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
+
     //virtual int PlayTsVideo(const uchar *, int);
 #ifdef USE_OSS				// FIXME: testing only oss
     virtual int PlayTsAudio(const uchar *, int);
@@ -474,11 +500,13 @@ class cSoftHdDevice:public cDevice
 
     virtual int ProvidesCa(const cChannel *) const;
 
+#if 0
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
   public:
     virtual cSpuDecoder * GetSpuDecoder(void);
+#endif
 
   protected:
     virtual void MakePrimaryDevice(bool);
@@ -488,7 +516,9 @@ cSoftHdDevice::cSoftHdDevice(void)
 {
     //dsyslog("[softhddev]%s\n", __FUNCTION__);
 
+#if 0
     spuDecoder = NULL;
+#endif
 }
 
 cSoftHdDevice::~cSoftHdDevice(void)
@@ -506,15 +536,18 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     }
 }
 
-int cSoftHdDevice::ProvidesCa(
-    __attribute__ ((unused)) const cChannel * channel) const
-{
-    //dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
+    int cSoftHdDevice::ProvidesCa(
+    __attribute__ ((unused)) const cChannel *
+    channel) const
+    {
+	//dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
 
-    return 0;
-}
+	return 0;
+    }
 
-cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
+#if 0
+
+    cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
@@ -523,6 +556,8 @@ cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
     }
     return spuDecoder;
 }
+
+#endif
 
 bool cSoftHdDevice::HasDecoder(void) const
 {
@@ -890,9 +925,9 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    //cDevice::PrimaryDevice()->StopReplay();
-    ShutdownHandler.SetUserInactive();
+    cDevice::PrimaryDevice()->StopReplay();
     Suspend();
+    ShutdownHandler.SetUserInactive();
 
     return NULL;
 }
@@ -1029,7 +1064,8 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 **	Handle SVDRP commands.
 */
 cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
-    const char *option, int &reply_code)
+    __attribute__ ((unused)) const char *option,
+    __attribute__ ((unused)) int &reply_code)
 {
     if (!strcasecmp(command, "SUSP")) {
 	Suspend();

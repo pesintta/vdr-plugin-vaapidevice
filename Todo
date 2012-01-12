@@ -29,7 +29,8 @@ missing:
     multistream handling
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
-    Subtitle have the wrong position
+    Option deinterlace off / deinterlace force!
+    Make output drivers better moduluar.
 
 vdpau:
     1080i with temporal spatial and level 1 scaling too slow with my GT 520
@@ -38,6 +39,7 @@ vdpau:
     Improve OSD handling, show only what is used. Big OSD costs performance
     VdpPreemptionCallback handling
     hard channel switch
+    suspendoutput didn't show logo or black picture.
 
 libva:
     hard channel switch
@@ -66,12 +68,17 @@ audio/alsa:
     done? video/audio asyncron
     random crashes in av_parser_parse2, when switching channels
     sometimes alsa hangs
+    snd_pcm_state: Assertion `pcm' failed. while switching channels
+    (thread problem)
 
     better downmix of >2 channels on 2 channel hardware
     remix support of unsupported sample rates
     libav supports only resample of mono to 2 channels
     ffmpeg didn't support resample of 5 to 2 channels
     CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
+
+audio:
+    write TS -> PES parser, which feeds audio before the next start packet
 
 audio/oss:
     alsa oss emulation mixer "pcm" not working
