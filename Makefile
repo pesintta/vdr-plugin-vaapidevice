@@ -110,6 +110,8 @@ DEPFILE = .dependencies
 $(DEPFILE): Makefile
 	@$(MAKEDEP) $(DEFINES) $(INCLUDES) $(SRCS) >$@
 
+$(OBJS): Makefile
+
 -include $(DEPFILE)
 
 ### Internationalization (I18N):
