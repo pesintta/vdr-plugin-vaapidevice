@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Instant update deinterlace configuration changes.
     Fix subtitle position.
     Add SVDRP support.
     Suspend when user is inactive.

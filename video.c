@@ -209,6 +209,8 @@ static int VideoWindowY;		///< video outout window y coordinate
 static unsigned VideoWindowWidth;	///< video output window width
 static unsigned VideoWindowHeight;	///< video output window height
 
+static char VideoSurfaceModesChanged;	///< flag surface modes changed
+
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
@@ -2754,10 +2756,16 @@ static void VaapiDisplayFrame(void)
     uint32_t put1;
     uint32_t put2;
     int i;
+    VaapiDecoder *decoder;
 
+    if (VideoSurfaceModesChanged) {	// handle changed modes
+	for (i = 0; i < VaapiDecoderN; ++i) {
+	    VaapiInitSurfaceFlags(VaapiDecoders[i]);
+	}
+	VideoSurfaceModesChanged = 0;
+    }
     // look if any stream have a new surface available
     for (i = 0; i < VaapiDecoderN; ++i) {
-	VaapiDecoder *decoder;
 	VASurfaceID surface;
 	int filled;
 
@@ -6777,6 +6785,7 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
     VideoDeinterlace[1] = mode[1];
     VideoDeinterlace[2] = mode[2];
     VideoDeinterlace[3] = mode[3];
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
@@ -6788,6 +6797,7 @@ void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
     VideoSkipChromaDeinterlace[1] = onoff[1];
     VideoSkipChromaDeinterlace[2] = onoff[2];
     VideoSkipChromaDeinterlace[3] = onoff[3];
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
@@ -6799,6 +6809,7 @@ void VideoSetDenoise(int level[VideoResolutionMax])
     VideoSharpen[1] = level[1];
     VideoSharpen[2] = level[2];
     VideoSharpen[3] = level[3];
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
@@ -6810,6 +6821,7 @@ void VideoSetSharpen(int level[VideoResolutionMax])
     VideoSharpen[1] = level[1];
     VideoSharpen[2] = level[2];
     VideoSharpen[3] = level[3];
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
@@ -6821,6 +6833,7 @@ void VideoSetScaling(int mode[VideoResolutionMax])
     VideoScaling[1] = mode[1];
     VideoScaling[2] = mode[2];
     VideoScaling[3] = mode[3];
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
