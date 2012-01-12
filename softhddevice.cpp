@@ -773,7 +773,9 @@ class cPluginSoftHdDevice:public cPlugin
     virtual cOsdObject *MainMenuAction(void);
     virtual cMenuSetupPage *SetupMenu(void);
     virtual bool SetupParse(const char *, const char *);
-//    virtual bool Service(const char *Id, void *Data = NULL);
+//    virtual bool Service(const char *, void * = NULL);
+    virtual const char **SVDRPHelpPages(void);
+    virtual cString SVDRPCommand(const char *, const char *, int &);
 };
 
 cPluginSoftHdDevice::cPluginSoftHdDevice(void)
@@ -908,7 +910,6 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 	cDevice::SetPrimaryDevice(MyDevice->DeviceNumber() + 1);
 	DoMakePrimary = 0;
     }
-
     // check if user is inactive, automatic enter suspend mode
     if (ShutdownHandler.IsUserInactive()) {
 	// this is regular called, but guarded against double calls
@@ -1001,5 +1002,40 @@ bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
 }
 
 #endif
+
+//----------------------------------------------------------------------------
+//	cPlugin SVDRP
+//----------------------------------------------------------------------------
+
+/**
+**	Return SVDRP commands help pages.
+**
+**	return a pointer to a list of help strings for all of the plugin's
+**	SVDRP commands.
+*/
+const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
+{
+    // FIXME: translation?
+    static const char *text[] = {
+	"SUSP\n",
+	"    Suspend plugin",
+	NULL
+    };
+
+    return text;
+}
+
+/**
+**	Handle SVDRP commands.
+*/
+cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
+    const char *option, int &reply_code)
+{
+    if (!strcasecmp(command, "SUSP")) {
+	Suspend();
+	return "SoftHdDevice is suspended";
+    }
+    return NULL;
+}
 
 VDRPLUGINCREATOR(cPluginSoftHdDevice);	// Don't touch this!
