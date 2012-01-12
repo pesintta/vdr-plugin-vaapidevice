@@ -3955,7 +3955,7 @@ static void VdpauInitOutputQueue(void)
 
 	format = VDP_RGBA_FORMAT_B8G8R8A8;
 	// FIXME: does a 10bit rgba produce a better output?
-	format = VDP_RGBA_FORMAT_R10G10B10A2;
+	// format = VDP_RGBA_FORMAT_R10G10B10A2;
 	status =
 	    VdpauOutputSurfaceCreate(VdpauDevice, format, VideoWindowWidth,
 	    VideoWindowHeight, VdpauSurfacesRb + i);
@@ -3991,12 +3991,14 @@ static void VdpauExitOutputQueue(void)
 
 	Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
 	    VdpauSurfacesRb[i]);
-	status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
-	if (status != VDP_STATUS_OK) {
-	    Error(_("video/vdpau: can't destroy output surface: %s\n"),
-		VdpauGetErrorString(status));
+	if ( VdpauSurfacesRb[i] != VDP_INVALID_HANDLE ) {
+	    status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't destroy output surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	    VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
 	}
-	VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
     }
 }
 
