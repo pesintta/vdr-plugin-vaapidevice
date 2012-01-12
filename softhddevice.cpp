@@ -359,7 +359,7 @@ static inline cOsdItem *SeparatorItem(const char *label)
 cMenuSetupSoft::cMenuSetupSoft(void)
 {
     static const char *const deinterlace[] = {
-	"Bob", "Weave", "Temporal", "TemporalSpatial", "Software"
+	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software"
     };
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
