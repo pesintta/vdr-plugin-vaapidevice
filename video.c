@@ -1540,6 +1540,12 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 	decoder->InputWidth * input_aspect_ratio.num,
 	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
 
+    // InputWidth/Height can be zero = uninitialized
+    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
+	display_aspect_ratio.num = 1;
+	display_aspect_ratio.den = 1;
+    }
+
     Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
 	display_aspect_ratio.den);
 
@@ -3991,7 +3997,7 @@ static void VdpauExitOutputQueue(void)
 
 	Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
 	    VdpauSurfacesRb[i]);
-	if ( VdpauSurfacesRb[i] != VDP_INVALID_HANDLE ) {
+	if (VdpauSurfacesRb[i] != VDP_INVALID_HANDLE) {
 	    status = VdpauOutputSurfaceDestroy(VdpauSurfacesRb[i]);
 	    if (status != VDP_STATUS_OK) {
 		Error(_("video/vdpau: can't destroy output surface: %s\n"),
@@ -4449,6 +4455,12 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
     av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
 	decoder->InputWidth * input_aspect_ratio.num,
 	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
+
+    // InputWidth/Height can be zero = uninitialized
+    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
+	display_aspect_ratio.num = 1;
+	display_aspect_ratio.den = 1;
+    }
 
     Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
 	display_aspect_ratio.den);
