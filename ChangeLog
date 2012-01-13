@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Fix bug: AudioFreeBytes didn't check if audio running/compiled.
+    Fix bug: snd_pcm_state: Assertion `pcm' failed.
     Add support for fullscreen and fullscreen toogle.
     Instant update deinterlace configuration changes.
     Fix subtitle position.

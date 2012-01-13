@@ -1735,12 +1735,12 @@ void AudioPoller(void)
 int AudioFreeBytes(void)
 {
 #ifdef USE_ALSA
-    return RingBufferFreeBytes(AlsaRingBuffer);
+    return AlsaRingBuffer ? RingBufferFreeBytes(AlsaRingBuffer) : INT32_MAX;
 #endif
 #ifdef USE_OSS
-    return RingBufferFreeBytes(OssRingBuffer);
+    return OssRingBuffer ? RingBufferFreeBytes(OssRingBuffer) : INT32_MAX;
 #endif
-    return -1;
+    return INT32_MAX;			// no driver, much space
 }
 
 /**
