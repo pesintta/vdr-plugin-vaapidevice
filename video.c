@@ -93,8 +93,24 @@
 #include <xcb/xcb_image.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_atom.h>
-#include <xcb/xcb_ewmh.h>
 #include <xcb/xcb_icccm.h>
+#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
+#include <xcb/xcb_ewmh.h>
+#else // compatibility hack for old xcb-util
+
+/**
+ * @brief Action on the _NET_WM_STATE property
+ */
+typedef enum
+{
+    /* Remove/unset property */
+    XCB_EWMH_WM_STATE_REMOVE = 0,
+    /* Add/set property */
+    XCB_EWMH_WM_STATE_ADD = 1,
+    /* Toggle property	*/
+    XCB_EWMH_WM_STATE_TOGGLE = 2
+} xcb_ewmh_wm_state_action_t;
+#endif
 #include <xcb/xcb_keysyms.h>
 #endif
 
