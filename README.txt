@@ -33,7 +33,7 @@ A software and GPU emulated HD output device plugin for VDR.
     o Audio FFMpeg/Alsa/Analog
     o Audio FFMpeg/Alsa/Digital
     o Audio FFMpeg/OSS/Analog
-    o planned: Alsa HDMI/SPDIF Passthrough
+    o Alsa HDMI/SPDIF Passthrough
     o planned: OSS HDMI/SPDIF Passthrough
 
 To compile you must have the 'requires' installed.
@@ -148,6 +148,9 @@ Commandline:
 
 Running:
 --------
+
+	Click into video window to toggle fullscreen/window mode, only if you
+	have a window manager running.
 
 Warning:
 --------

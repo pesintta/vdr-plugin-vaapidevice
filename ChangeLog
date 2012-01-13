@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add support for fullscreen and fullscreen toogle.
     Instant update deinterlace configuration changes.
     Fix subtitle position.
     Add SVDRP support.

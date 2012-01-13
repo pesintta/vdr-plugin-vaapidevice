@@ -57,10 +57,11 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
 
+static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigSuspendClose = 1;	///< suspend should close devices
 static char ConfigSuspendX11 = 1;	///< suspend should stop x11
 
-static pthread_mutex_t SuspendLockMutex;///< suspend lock mutex
+static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
 static volatile char VideoFreezed;	///< video freezed
 
@@ -580,11 +581,15 @@ int VideoDecode(void)
 /**
 **	Try video start.
 **
-**	Could be called, when already started.
+**	NOT TRUE: Could be called, when already started.
 */
 static void StartVideo(void)
 {
     VideoInit(X11DisplayName);
+    if (ConfigFullscreen) {
+	// FIXME: not good looking, mapped and then resized.
+	VideoSetFullscreen(1);
+    }
     VideoOsdInit();
     if (!MyVideoDecoder) {
 	VideoHwDecoder *hw_decoder;
@@ -946,6 +951,7 @@ const char *CommandLineHelp(void)
 {
     return "  -a device\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
+	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
 	"  -x\t\tstart x11 server\n";
 }
@@ -962,12 +968,15 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:d:g:x")) {
+	switch (getopt(argc, argv, "-a:d:fg:x")) {
 	    case 'a':			// audio device
 		AudioSetDevice(optarg);
 		continue;
 	    case 'd':			// x11 display name
 		X11DisplayName = optarg;
+		continue;
+	    case 'f':			// fullscreen mode
+		ConfigFullscreen = 1;
 		continue;
 	    case 'g':			// geometry
 		if (VideoSetGeometry(optarg) < 0) {
@@ -1175,7 +1184,7 @@ void MainThreadHook(void)
 void Suspend(void)
 {
     pthread_mutex_lock(&SuspendLockMutex);
-    if( SkipVideo && SkipAudio ) {		// already suspended
+    if (SkipVideo && SkipAudio) {	// already suspended
 	pthread_mutex_unlock(&SuspendLockMutex);
 	return;
     }
@@ -1186,13 +1195,13 @@ void Suspend(void)
     SkipAudio = 1;
     pthread_mutex_unlock(&SuspendLockMutex);
 
-    if ( ConfigSuspendClose ) {
+    if (ConfigSuspendClose) {
 	pthread_mutex_lock(&SuspendLockMutex);
 	// FIXME: close audio
 	// FIXME: close video
 	pthread_mutex_unlock(&SuspendLockMutex);
     }
-    if ( ConfigSuspendX11 ) {
+    if (ConfigSuspendX11) {
 	// FIXME: stop x11, if started
     }
 }
@@ -1202,15 +1211,15 @@ void Suspend(void)
 */
 void Resume(void)
 {
-    if (!SkipVideo && !SkipAudio) {		// we are not suspended
+    if (!SkipVideo && !SkipAudio) {	// we are not suspended
 	return;
     }
 
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
-    if ( ConfigSuspendX11 ) {
+    if (ConfigSuspendX11) {
     }
-    if ( ConfigSuspendClose ) {
+    if (ConfigSuspendClose) {
 	pthread_mutex_lock(&SuspendLockMutex);
 	pthread_mutex_unlock(&SuspendLockMutex);
     }

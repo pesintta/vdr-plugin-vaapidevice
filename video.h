@@ -76,6 +76,9 @@ extern void VideoSetOutputPosition(int, int, int, int);
     /// Set video mode.
 extern void VideoSetVideoMode(int, int, int, int);
 
+    /// Set video fullscreen mode.
+extern void VideoSetFullscreen(int);
+
     /// Set deinterlace.
 extern void VideoSetDeinterlace(int[]);
 

@@ -19,14 +19,9 @@ GNU Affero General Public License for more details.
 $Id: $
 
 missing:
-    video out with xv
-    video out with opengl
-    software decoder for xv / opengl
     software deinterlace
     auto crop
-    atmolight
     zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
-    multistream handling
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
     Option deinterlace off / deinterlace force!
@@ -59,9 +54,6 @@ libva-vdpau-driver:
 libva-xvba-driver:
 
 x11:
-    support resize of x11 window
-    support fullscreen window
-    support fullscreen / window toggle
     disable screensaver
 
 audio/alsa:
@@ -98,6 +90,17 @@ setup:
     Setup of output type.
     Setup of display type.
     Setup 4:3 zoom type
-    Setup parameters are not used until restart.
+    Some setup parameters are not used until restart.
 	Can a notice be added to the setup menu?
     576i, 720p, fake 1080i, 1080i
+
+future features (not planed for 1.0 - 1.5)
+
+    video out with xv
+    video out with opengl
+    video out with xvba
+    software decoder for xv / opengl
+    atmolight support
+    multistream handling
+
+    upmix stereo to AC-3

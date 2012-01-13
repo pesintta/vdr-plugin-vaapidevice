@@ -93,6 +93,7 @@
 #include <xcb/xcb_image.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_atom.h>
+#include <xcb/xcb_ewmh.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
 #endif
@@ -242,6 +243,8 @@ static VideoZoomModes Video4to3ZoomMode;
 static char Video60HzMode;		///< handle 60hz displays
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message
+static xcb_atom_t NetWmState;		///< wm-state message atom
+static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 
 extern uint32_t VideoSwitch;		///< ticks for channel switch
 
@@ -6119,6 +6122,9 @@ static void VideoEvent(void)
 	    VideoSetVideoMode(event.xconfigure.x, event.xconfigure.y,
 		event.xconfigure.width, event.xconfigure.height);
 	    break;
+	case ButtonPress:
+	    VideoSetFullscreen(-1);
+	    break;
 	case KeyPress:
 	    keysym = XLookupKeysym(&event.xkey, 0);
 #if 0
@@ -6690,6 +6696,22 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 	    free(reply);
 	}
     }
+    //
+    //	prepare fullscreen.
+    //
+    if ((reply =
+	    xcb_intern_atom_reply(Connection, xcb_intern_atom(Connection, 0,
+		    sizeof("_NET_WM_STATE") - 1, "_NET_WM_STATE"), NULL))) {
+	NetWmState = reply->atom;
+	free(reply);
+    }
+    if ((reply =
+	    xcb_intern_atom_reply(Connection, xcb_intern_atom(Connection, 0,
+		    sizeof("_NET_WM_STATE_FULLSCREEN") - 1,
+		    "_NET_WM_STATE_FULLSCREEN"), NULL))) {
+	NetWmStateFullscreen = reply->atom;
+	free(reply);
+    }
 
     xcb_map_window(Connection, VideoWindow);
 
@@ -6790,6 +6812,37 @@ void VideoSetVideoMode(int x, int y, int width, int height)
 	return;
     }
 #endif
+}
+
+///
+///	Send fullscreen message to window.
+///
+///	@param onoff	-1 toggle, true turn on, false turn off
+///
+void VideoSetFullscreen(int onoff)
+{
+    xcb_client_message_event_t event;
+
+    memset(&event, 0, sizeof(event));
+    event.response_type = XCB_CLIENT_MESSAGE;
+    event.format = 32;
+    event.window = VideoWindow;
+    event.type = NetWmState;
+    if (onoff < 0) {
+	event.data.data32[0] = XCB_EWMH_WM_STATE_TOGGLE;
+    } else if (onoff) {
+	event.data.data32[0] = XCB_EWMH_WM_STATE_ADD;
+    } else {
+	event.data.data32[0] = XCB_EWMH_WM_STATE_REMOVE;
+    }
+    event.data.data32[1] = NetWmStateFullscreen;
+
+    xcb_send_event(Connection, XCB_SEND_EVENT_DEST_POINTER_WINDOW,
+	DefaultRootWindow(XlibDisplay),
+	XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
+	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (void *)&event);
+    Debug(3, "video/x11: send fullscreen message %x %x\n",
+	event.data.data32[0], event.data.data32[1]);
 }
 
 ///
