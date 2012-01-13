@@ -918,7 +918,6 @@ struct _vaapi_decoder_
 
     /// flags for put surface for different resolutions groups
     unsigned SurfaceFlagsTable[VideoResolutionMax];
-    unsigned SurfaceFlags;		///< current flags for put surface
 
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
@@ -1169,8 +1168,12 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 
     for (i = 0; i < VideoResolutionMax; ++i) {
 	decoder->SurfaceFlagsTable[i] = VA_CLEAR_DRAWABLE;
-	// FIXME: color space conversion none, ITU-R BT.601, ITU-R BT.709
-	decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
+	// color space conversion none, ITU-R BT.601, ITU-R BT.709
+	if (i > VideoResolution567i) {
+	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT709;
+	} else {
+	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
+	}
 
 	// scaling flags FAST, HQ, NL_ANAMORPHIC
 	// FIXME: need to detect the backend to choose the parameter
@@ -1236,7 +1239,6 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->Window = VideoWindow;
 
     VaapiInitSurfaceFlags(decoder);
-    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[0];
 
     decoder->DeintImages[0].image_id = VA_INVALID_ID;
     decoder->DeintImages[1].image_id = VA_INVALID_ID;
@@ -1776,7 +1778,6 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     decoder->Resolution =
 	VideoResolutionGroup(video_ctx->width, video_ctx->height,
 	decoder->Interlaced);
-    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[decoder->Resolution];
     // FIXME: need only to create and destroy surfaces for size changes
     //		or when number of needed surfaces changed!
     VaapiCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
@@ -1875,7 +1876,8 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 		// video dst
 		decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
 		decoder->OutputHeight, NULL, 0,
-		type | decoder->SurfaceFlags)) != VA_STATUS_SUCCESS) {
+		type | decoder->SurfaceFlagsTable[decoder->Resolution])) !=
+	VA_STATUS_SUCCESS) {
 	// switching video kills VdpPresentationQueueBlockUntilSurfaceIdle
 	Error(_("video/vaapi: vaPutSurface failed %d\n"), status);
     }
@@ -1994,7 +1996,8 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     }
     start = GetMsTicks();
     if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurface[0], surface,
-	    type | decoder->SurfaceFlags) != VA_STATUS_SUCCESS) {
+	    type | decoder->SurfaceFlagsTable[decoder->Resolution]) !=
+	VA_STATUS_SUCCESS) {
 	Error(_("video/glx: vaCopySurfaceGLX failed\n"));
 	return;
     }
@@ -2116,7 +2119,6 @@ static void VaapiSetup(VaapiDecoder * decoder,
     // FIXME: interlaced not valid here?
     decoder->Resolution =
 	VideoResolutionGroup(width, height, decoder->Interlaced);
-    decoder->SurfaceFlags = decoder->SurfaceFlagsTable[decoder->Resolution];
     VaapiCreateSurfaces(decoder, width, height);
 
 #ifdef USE_GLX
