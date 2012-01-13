@@ -60,7 +60,7 @@ audio/alsa:
     done? video/audio asyncron
     random crashes in av_parser_parse2, when switching channels
     sometimes alsa hangs
-    snd_pcm_state: Assertion `pcm' failed. while switching channels
+    fixed? snd_pcm_state: Assertion `pcm' failed. while switching channels
     (thread problem)
 
     better downmix of >2 channels on 2 channel hardware

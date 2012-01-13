@@ -856,23 +856,9 @@ static int AlsaSetup(int *freq, int *channels)
     if (!AlsaPCMHandle) {		// alsa not running yet
 	return -1;
     }
-#if 1
+#if 1					// easy alsa hw setup way
     // flush any buffered data
-#ifndef SEARCH_HDMI_BUG2
-#ifdef USE_AUDIO_THREAD
-    if (AudioRunning) {
-	while (AudioRunning) {
-	    AlsaFlushBuffer = 1;
-	    usleep(1 * 1000);
-	}
-	AlsaFlushBuffer = 0;
-    } else
-#endif
-    {
-	AlsaFlushBuffers();
-    }
-#endif
-    AudioPTS = INT64_C(0x8000000000000000);
+    AudioFlushBuffers();
 
     if (1) {				// close+open to fix hdmi no sound bugs
 	handle = AlsaPCMHandle;
@@ -1449,7 +1435,6 @@ static int OssSetup(int *freq, int *channels)
 	AudioRunning = 0;
 	OssFlushBuffers();
     }
-    AudioPTS = INT64_C(0x8000000000000000);
 
     ret = 0;
 
@@ -1711,17 +1696,18 @@ void AudioFlushBuffers(void)
 {
 #ifdef USE_ALSA
 #ifdef USE_AUDIO_THREAD
-    if (AudioRunning) {
-	while (AudioRunning) {
-	    AlsaFlushBuffer = 1;
+    // signal thread to flush buffers
+    if (AudioThread) {
+	AlsaFlushBuffer = 1;
+	do {
+	    AudioRunning = 1;		// wakeup in case of sleeping
+	    pthread_cond_signal(&AudioStartCond);
 	    usleep(1 * 1000);
-	}
-	AlsaFlushBuffer = 0;
-    } else
-#endif
-    {
-	AlsaFlushBuffers();
+	} while (AlsaFlushBuffer);	// wait until flushed
     }
+#else
+    AlsaFlushBuffers();
+#endif
 #endif
 #ifdef USE_OSS
     OssFlushBuffers();
