@@ -759,6 +759,16 @@ int PlayVideo(const uint8_t * data, int size)
 	    Debug(3, "video: h264 detected\n");
 	    VideoCodecID = CODEC_ID_H264;
 	}
+	// Access Unit Delimiter (BBC-HD)
+	// FIXME: the 4 offset are try & error selected
+    } else if ((data[6] & 0xC0) == 0x80 && !check[4 + 0] && !check[4 + 1]
+	&& !check[4 + 2] && check[4 + 3] == 0x1 && check[4 + 4] == 0x09) {
+	if (VideoCodecID == CODEC_ID_H264) {
+	    VideoNextPacket(CODEC_ID_H264);
+	} else {
+	    Debug(3, "video: h264 detected\n");
+	    VideoCodecID = CODEC_ID_H264;
+	}
     } else {
 	// this happens when vdr sends incomplete packets
 	if (VideoCodecID == CODEC_ID_NONE) {
@@ -1131,6 +1141,7 @@ void SoftHdDeviceExit(void)
 
 	if (X11ServerPid) {
 	    kill(X11ServerPid, SIGTERM);
+	    // FIXME: wait for x11 finishing
 	}
     }
 
