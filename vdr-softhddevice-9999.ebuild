@@ -39,6 +39,7 @@ DEPEND=">=x11-libs/libxcb-1.7
 		vdpau? ( x11-libs/libvdpau )
 		vaapi? ( x11-libs/libva )
 		alsa? ( media-libs/alsa-lib )
+		oss? ( sys-kernel/linux-headers )
 "
 
 src_prepare() {
