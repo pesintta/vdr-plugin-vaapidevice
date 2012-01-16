@@ -1451,6 +1451,7 @@ static void VideoVaapiInit(const char *display_name)
 	Error(_("video/vaapi: Can't connect VA-API to X11 server on '%s'"),
 	    display_name);
 	// FIXME: no fatal for plugin
+	VideoVaapiEnabled = 0;
 	return;
     }
 
@@ -1459,6 +1460,7 @@ static void VideoVaapiInit(const char *display_name)
 	    display_name);
 	vaTerminate(VaDisplay);
 	VaDisplay = NULL;
+	VideoVaapiEnabled = 0;
 	return;
     }
     s = vaQueryVendorString(VaDisplay);
