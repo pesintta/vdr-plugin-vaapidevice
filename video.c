@@ -152,7 +152,7 @@ typedef enum
 ///
 typedef enum _video_resolutions_
 {
-    VideoResolution567i,		///< ...x567 interlaced
+    VideoResolution576i,		///< ...x576 interlaced
     VideoResolution720p,		///< ...x720 progressive
     VideoResolutionFake1080i,		///< 1280x1080 1440x1080 interlaced
     VideoResolution1080i,		///< 1920x1080 interlaced
@@ -784,8 +784,8 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
     __attribute__ ((unused))
     int interlace)
 {
-    if (height <= 567) {
-	return VideoResolution567i;
+    if (height <= 576) {
+	return VideoResolution576i;
     }
     if (height <= 720) {
 	return VideoResolution720p;
@@ -1188,7 +1188,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
     for (i = 0; i < VideoResolutionMax; ++i) {
 	decoder->SurfaceFlagsTable[i] = VA_CLEAR_DRAWABLE;
 	// color space conversion none, ITU-R BT.601, ITU-R BT.709
-	if (i > VideoResolution567i) {
+	if (i > VideoResolution576i) {
 	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT709;
 	} else {
 	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
@@ -1320,7 +1320,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
 	if (surface == VA_INVALID_ID) {
-	    printf(_("video/vaapi: invalid surface in ringbuffer\n"));
 	    Error(_("video/vaapi: invalid surface in ringbuffer\n"));
 	    continue;
 	}
