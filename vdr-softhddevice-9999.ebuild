@@ -21,15 +21,15 @@ SRC_URI=""
 LICENSE="AGPL-3"
 SLOT="0"
 KEYWORDS="~x86 ~amd64"
-IUSE="vaapi vdpau alsa oss yaepg"
+IUSE="vaapi vdpau alsa oss yaepg opengl"
 
 DEPEND=">=x11-libs/libxcb-1.7
 		x11-libs/xcb-util
 		x11-libs/xcb-util-wm
-		x11-libs/xcb-util-wm
 		x11-libs/xcb-util-keysyms
 		x11-libs/xcb-util-renderutil
 		x11-libs/libX11
+		opengl? ( virtual/opengl )
 		>=media-video/ffmpeg-0.7
 		sys-devel/gettext
 		sys-devel/make
