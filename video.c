@@ -1038,7 +1038,7 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	Warning(_("video/vaapi: no osd subpicture yet\n"));
 	return;
     }
-
+    // FIXME: associate only if osd is displayed
     if (VaapiUnscaledOsd) {
 	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesFree, decoder->SurfaceFreeN, 0, 0,
@@ -2237,6 +2237,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 #if 1
     // FIXME: intel seems to forget this, nvidia GT 210 has speed problems here
     if (VaapiBuggyIntel && VaOsdSubpicture != VA_INVALID_ID) {
+	// FIXME: associate only if osd is displayed
 
 	//
 	//	associate the OSD with surface
@@ -2817,9 +2818,7 @@ static void VaapiDisplayFrame(void)
 
 	start = GetMsTicks();
 
-	// deinterlace and full frame rate
-	// VDPAU driver only display a frame, if a full frame is put
-	// INTEL driver does the same, but only with 1080i
+	// VDPAU driver + INTEL driver does no v-sync with 1080
 	if (0 && decoder->Interlaced
 	    // FIXME: buggy libva-driver-vdpau, buggy libva-driver-intel
 	    && (VaapiBuggyVdpau || (0 && VaapiBuggyIntel
@@ -2839,10 +2838,9 @@ static void VaapiDisplayFrame(void)
 	    put2 = put1;
 	}
 	clock_gettime(CLOCK_REALTIME, &nowtime);
-#ifdef noDEBUG
 	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		decoder->FrameTime.tv_nsec) > 21 * 1000 * 1000) {
+		decoder->FrameTime.tv_nsec) > 30 * 1000 * 1000) {
 	    Debug(3, "video/vaapi: time/frame too long %ld ms\n",
 		((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
@@ -2850,6 +2848,11 @@ static void VaapiDisplayFrame(void)
 	    Debug(4, "video/vaapi: put1 %2u put2 %2u\n", put1 - start,
 		put2 - put1);
 	}
+#ifdef noDEBUG
+	Debug(3, "video/vaapi: time/frame %ld ms\n",
+	    ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
+		* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+		    decoder->FrameTime.tv_nsec)) / (1000 * 1000));
 	if (put2 > start + 20) {
 	    Debug(3, "video/vaapi: putsurface too long %u ms\n", put2 - start);
 	}
@@ -2908,7 +2911,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 40 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame = 1;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 50 * 90
