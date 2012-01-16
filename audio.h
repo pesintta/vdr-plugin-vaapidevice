@@ -30,21 +30,19 @@
 extern void AudioEnqueue(const void *, int);	///< buffer audio samples
 extern void AudioFlushBuffers(void);	///< flush audio buffers
 extern void AudioPoller(void);		///< poll audio events/handling
-
 extern int AudioFreeBytes(void);	///< free bytes in audio output
 
 //extern int AudioUsedBytes(void);	///< used bytes in audio output
+extern uint64_t AudioGetDelay(void);	///< get current audio delay
 extern void AudioSetClock(int64_t);	///< set audio clock base
 extern int64_t AudioGetClock();		///< get current audio clock
-extern uint64_t AudioGetDelay(void);	///< get current audio delay
-
+extern void AudioSetVolume(int);	///< set volume
 extern int AudioSetup(int *, int *);	///< setup audio output
 
 //extern void AudioPlay(void);		///< play audio
 //extern void AudioPause(void);		///< pause audio
-extern void AudioSetVolume(int);	///< set volume
 
-extern void AudioSetDevice(const char *);	///< set alsa PCM audio device
+extern void AudioSetDevice(const char *);	///< set PCM audio device
 extern void AudioInit(void);		///< setup audio module
 extern void AudioExit(void);		///< cleanup and exit audio module
 

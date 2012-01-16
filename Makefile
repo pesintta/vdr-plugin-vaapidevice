@@ -14,6 +14,7 @@ PLUGIN = softhddevice
 ### The version number of this plugin (taken from the main source file):
 
 VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | awk '{ print $$7 }' | sed -e 's/[";]//g')
+GIT_REV = $(shell git describe --always 2>/dev/null)
 
 ### Configuration (edit this for your needs)
 
@@ -22,7 +23,7 @@ CONFIG := #-DDEBUG
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
-#CONFIG += -DUSE_OSS
+CONFIG += -DUSE_OSS
 
 ### The C++ compiler and options:
 
@@ -59,7 +60,8 @@ PACKAGE = vdr-$(ARCHIVE)
 
 INCLUDES += -I$(VDRDIR)/include
 
-DEFINES += $(CONFIG) -D_GNU_SOURCE -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
+DEFINES += $(CONFIG) -D_GNU_SOURCE -DPLUGIN_NAME_I18N='"$(PLUGIN)"' \
+	$(if $(GIT_REV), -DGIT_REV='"$(GIT_REV)"')
 
 _CFLAGS = $(DEFINES) $(INCLUDES) \
 	$(shell pkg-config --cflags libavcodec libavformat) \

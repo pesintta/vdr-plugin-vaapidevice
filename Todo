@@ -27,6 +27,10 @@ missing:
     Option deinterlace off / deinterlace force!
     Make output drivers better moduluar.
 
+video:
+    subtitle not cleared
+    subtitle could be asyncron
+
 vdpau:
     1080i with temporal spatial and level 1 scaling too slow with my GT 520
     1080i with temporal spatial too slow with my GT 520 on some channels
@@ -56,21 +60,18 @@ libva-xvba-driver:
 x11:
     disable screensaver
 
-audio/alsa:
-    done? video/audio asyncron
-    random crashes in av_parser_parse2, when switching channels
-    sometimes alsa hangs
-    fixed? snd_pcm_state: Assertion `pcm' failed. while switching channels
-    (thread problem)
+audio:
+    write TS -> PES parser, which feeds audio before the next start packet
+    CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
+    Combine alsa+oss ringbuffer code.
+    Make alsa thread/polled and oss thread/polled output module runtime
+    selectable.
 
+audio/alsa:
     better downmix of >2 channels on 2 channel hardware
     remix support of unsupported sample rates
     libav supports only resample of mono to 2 channels
     ffmpeg didn't support resample of 5 to 2 channels
-    CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
-
-audio:
-    write TS -> PES parser, which feeds audio before the next start packet
 
 audio/oss:
     alsa oss emulation mixer "pcm" not working
@@ -80,6 +81,7 @@ HDMI/SPDIF Passthrough:
     only AC-3 written
     Channels are wrong setup, if changing setting during operation.
     split pcm and ac-3 out into two devices
+    support oss pass-through
 
 playback of recording
     pause is not reset, when replay exit
@@ -93,6 +95,10 @@ setup:
     Some setup parameters are not used until restart.
 	Can a notice be added to the setup menu?
     576i, 720p, fake 1080i, 1080i
+
+unsorted:
+    Menu -> Setup -> Plugins -> skingenigmang -> General
+	-> Try 8bpp single area: no, has missing parts.
 
 future features (not planed for 1.0 - 1.5)
 

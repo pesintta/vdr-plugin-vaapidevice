@@ -1,4 +1,13 @@
 User johns
+Date:
+
+    Audio module cleanup:
+    Alsa + OSS can be included/build at the same time.
+    Alsa or OSS can be runtime selected with -a.
+    Add audio thread support to OSS module.
+    Add polled audio support to alsa module.
+    Removed some debug source code.
+
 Date: Sun Jan 15 16:56:04 CET 2012
 
     Release Version 0.3.1
