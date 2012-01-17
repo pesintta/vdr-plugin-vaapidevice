@@ -226,6 +226,8 @@ static int VideoWindowY;		///< video outout window y coordinate
 static unsigned VideoWindowWidth;	///< video output window width
 static unsigned VideoWindowHeight;	///< video output window height
 
+static char VideoHardwareDecoder;	///< flag use hardware decoder
+
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
     /// Default deinterlace mode.
@@ -943,7 +945,7 @@ struct _vaapi_decoder_
     int Interlaced;			///< ffmpeg interlaced flag
     int TopFieldFirst;			///< ffmpeg top field displayed first
 
-    VAImage DeintImages[3];		///< deinterlace image buffers
+    VAImage DeintImages[5];		///< deinterlace image buffers
 
     VAImage Image[1];			///< image buffer to update surface
 
@@ -996,7 +998,10 @@ static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
 static int VaapiDecoderN;		///< number of decoder streams
 
     /// forward display back surface
-static void VaapiBlackSurface(VaapiDecoder * decoder);
+static void VaapiBlackSurface(VaapiDecoder *);
+
+    /// forward destroy deinterlace images
+static void VaapiDestroyDeinterlaceImages(VaapiDecoder *);
 
 //----------------------------------------------------------------------------
 //	VA-API Functions
@@ -1262,6 +1267,8 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->DeintImages[0].image_id = VA_INVALID_ID;
     decoder->DeintImages[1].image_id = VA_INVALID_ID;
     decoder->DeintImages[2].image_id = VA_INVALID_ID;
+    decoder->DeintImages[3].image_id = VA_INVALID_ID;
+    decoder->DeintImages[4].image_id = VA_INVALID_ID;
 
     decoder->Image->image_id = VA_INVALID_ID;
 
@@ -1371,6 +1378,10 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
 	VaapiDestroySurfaces(decoder);
     }
+    // cleanup images
+    if (decoder->DeintImages[0].image_id != VA_INVALID_ID) {
+	VaapiDestroyDeinterlaceImages(decoder);
+    }
 
     decoder->PTS = AV_NOPTS_VALUE;
 }
@@ -1399,7 +1410,6 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
 	    Error(_("video/vaapi: can't destroy a surface\n"));
 	}
     }
-    // FIXME: decoder->DeintImages
 #ifdef USE_GLX
     if (decoder->GlxSurface[0] != VA_INVALID_ID) {
 	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurface[0])
@@ -1538,6 +1548,8 @@ static void VideoVaapiExit(void)
     }
 }
 
+//----------------------------------------------------------------------------
+
 ///
 ///	Update output for new size or aspect ratio.
 ///
@@ -1654,6 +1666,8 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints,
 ///			it is terminated by -1 as 0 is a valid format, the
 ///			formats are ordered by quality.
 ///
+///	@note + 2 surface for software deinterlace
+///
 static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
@@ -1672,7 +1686,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     VaapiBlackSurface(decoder);
     VaapiCleanup(decoder);
 
-    if (getenv("NO_HW")) {		// FIXME: make config option
+    if (!VideoHardwareDecoder) {	// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -1691,18 +1705,19 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     switch (video_ctx->codec_id) {
 	case CODEC_ID_MPEG2VIDEO:
 	    decoder->SurfacesNeeded =
-		CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX;
+		CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG2Main);
 	    break;
 	case CODEC_ID_MPEG4:
 	case CODEC_ID_H263:
 	    decoder->SurfacesNeeded =
-		CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX;
+		CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n,
 		VAProfileMPEG4AdvancedSimple);
 	    break;
 	case CODEC_ID_H264:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX;
+	    decoder->SurfacesNeeded =
+		CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
 	    // try more simple formats, fallback to better
 	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
 		p = VaapiFindProfile(profiles, profile_n,
@@ -1719,11 +1734,13 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	    }
 	    break;
 	case CODEC_ID_WMV3:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX;
+	    decoder->SurfacesNeeded =
+		CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
 	    break;
 	case CODEC_ID_VC1:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX;
+	    decoder->SurfacesNeeded =
+		CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
 	    break;
 	default:
@@ -1870,6 +1887,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 
     // deinterlace
     if (interlaced
+	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceSoftware
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
 	    if (field) {
@@ -2054,9 +2072,8 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 	    // intel: I420 is native format for MPEG-2 decoded surfaces
 	    // intel: NV12 is native format for H.264 decoded surfaces
 	case PIX_FMT_YUV420P:
-	    fourcc = VA_FOURCC_YV12;	// YVU
+	    // fourcc = VA_FOURCC_YV12; // YVU
 	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
-	    // FIXME: intel deinterlace ... only supported with nv12
 	    break;
 	case PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
@@ -2390,9 +2407,10 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 	Fatal("video/vaapi: can't map the image!\n");
     }
 
-    if (1) {
+    if (0) {				// test all updated
 	memset(dst1_base, 0x00, dst1->data_size);
-	memset(dst2_base, 0x00, dst2->data_size);
+	memset(dst2_base, 0xFF, dst2->data_size);
+	return;
     }
     for (p = 0; p < src->num_planes; ++p) {
 	for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
@@ -2424,95 +2442,171 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 }
 
 ///
+///	Create software deinterlace images.
+///
+///	@param decoder		VA-API decoder
+///
+static void VaapiCreateDeinterlaceImages(VaapiDecoder * decoder)
+{
+    VAImageFormat format[1];
+    int i;
+
+    // NV12, YV12, I420, BGRA
+    // NV12 Y U/V 2x2
+    // YV12 Y V U 2x2
+    // I420 Y U V 2x2
+
+    // Intel needs NV12
+    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+    //VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+    for (i = 0; i < 5; ++i) {
+	if (vaCreateImage(decoder->VaDisplay, format, decoder->InputWidth,
+		decoder->InputHeight,
+		decoder->DeintImages + i) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create image!\n"));
+	}
+    }
+#ifdef DEBUG
+    if (1) {
+	VAImage *img;
+
+	img = decoder->DeintImages;
+	Debug(3, "video/vaapi: %c%c%c%c %dx%d*%d\n", img->format.fourcc,
+	    img->format.fourcc >> 8, img->format.fourcc >> 16,
+	    img->format.fourcc >> 24, img->width, img->height,
+	    img->num_planes);
+    }
+#endif
+}
+
+///
+///	Destroy software deinterlace images.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiDestroyDeinterlaceImages(VaapiDecoder * decoder)
+{
+    int i;
+
+    for (i = 0; i < 5; ++i) {
+	if (vaDestroyImage(decoder->VaDisplay,
+		decoder->DeintImages[i].image_id) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+	decoder->DeintImages[i].image_id = VA_INVALID_ID;
+    }
+}
+
+///
 ///	Vaapi software deinterlace.
 ///
-static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
+///	@param decoder	VA-API decoder
+///	@param surface	interlaced hardware surface
+///
+static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 {
-#if 0
+    //
+    //	vaPutImage not working, vaDeriveImage
+    //
+    uint32_t tick1;
+    uint32_t tick2;
+    uint32_t tick3;
+    uint32_t tick4;
+    uint32_t tick5;
     VAImage image[1];
+    VAImage dest1[1];
+    VAImage dest2[1];
     VAStatus status;
-    VAImageFormat format[1];
-    void *image_base;
-    int image_derived;
+    VASurfaceID out1;
+    VASurfaceID out2;
 
-    // release old frame
-    // get new frame
-    // deinterlace
-
-    image_derived = 1;
+    tick1 = GetMsTicks();
     if ((status =
 	    vaDeriveImage(decoder->VaDisplay, surface,
 		image)) != VA_STATUS_SUCCESS) {
-	image_derived = 0;
-	Warning(_("video/vaapi: vaDeriveImage failed %d\n"), status);
-	// NV12, YV12, I420, BGRA
-	VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
-	if (vaCreateImage(decoder->VaDisplay, format, decoder->InputWidth,
-		decoder->InputHeight, image) != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/vaapi: can't create image!\n"));
-	}
-	if (vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
-		decoder->InputHeight, image->image_id) != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/vaapi: can't get image!\n"));
-	}
+	Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
+	VaapiQueueSurface(decoder, surface, 0);
+	VaapiQueueSurface(decoder, surface, 0);
+	return;
     }
-    Debug(3, "video/vaapi: %c%c%c%c %dx%d*%d\n", image->format.fourcc,
+    tick2 = GetMsTicks();
+
+    Debug(4, "video/vaapi: %c%c%c%c %dx%d*%d\n", image->format.fourcc,
 	image->format.fourcc >> 8, image->format.fourcc >> 16,
 	image->format.fourcc >> 24, image->width, image->height,
 	image->num_planes);
 
-    if (vaMapBuffer(decoder->VaDisplay, image->buf,
-	    &image_base) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't map the image!\n");
+    // get a free surfaces
+    out1 = VaapiGetSurface(decoder);
+    if (out1 == VA_INVALID_ID) {
+	abort();
+    }
+    if ((status =
+	    vaDeriveImage(decoder->VaDisplay, out1,
+		dest1)) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
+    }
+    tick3 = GetMsTicks();
+    out2 = VaapiGetSurface(decoder);
+    if (out2 == VA_INVALID_ID) {
+	abort();
+    }
+    if ((status =
+	    vaDeriveImage(decoder->VaDisplay, out2,
+		dest2)) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
+    }
+    tick4 = GetMsTicks();
+
+    VaapiBob(decoder, image, dest1, dest2);
+    tick5 = GetMsTicks();
+
+    if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy image!\n"));
+    }
+    if (vaDestroyImage(VaDisplay, dest1->image_id) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy image!\n"));
+    }
+    if (vaDestroyImage(VaDisplay, dest2->image_id) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy image!\n"));
     }
 
-    memset(image_base, 0xff, image->width * image->height);
+    VaapiQueueSurface(decoder, out1, 1);
+    VaapiQueueSurface(decoder, out2, 1);
 
-    if (vaUnmapBuffer(decoder->VaDisplay, image->buf) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't unmap image buffer\n"));
-    }
+    tick5 = GetMsTicks();
 
-    if (!image_derived) {
-	if ((status =
-		vaPutImage(decoder->VaDisplay, surface, image->image_id, 0, 0,
-		    image->width, image->height, 0, 0, image->width,
-		    image->height)) != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't put image %d!\n", status);
-	}
-    }
+    Debug(3, "video/vaapi: get=%2d get1=%2d get2=%d deint=%2d\n",
+	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4);
+}
 
-    vaDestroyImage(decoder->VaDisplay, image->image_id);
-#endif
+///
+///	Vaapi software deinterlace.
+///
+///	@param decoder	VA-API decoder
+///	@param surface	interlaced hardware surface
+///
+static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
+{
+    //
+    //	vaPutImage working
+    //
+    uint32_t tick1;
+    uint32_t tick2;
+    uint32_t tick3;
+    uint32_t tick4;
+    uint32_t tick5;
     VAImage *img1;
     VAImage *img2;
     VAImage *img3;
-    VASurfaceID out1;
-    VASurfaceID out2;
+    VASurfaceID out;
+    VAStatus status;
 
     //
     //	Create deinterlace images.
     //
     if (decoder->DeintImages[0].image_id == VA_INVALID_ID) {
-	VAImageFormat format[1];
-	int i;
-
-	// NV12, YV12, I420, BGRA
-	// VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
-
-	// Intel needs NV12
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-	for (i = 0; i < 3; ++i) {
-	    if (vaCreateImage(decoder->VaDisplay, format, decoder->InputWidth,
-		    decoder->InputHeight,
-		    decoder->DeintImages + i) != VA_STATUS_SUCCESS) {
-		Fatal(_("video/vaapi: can't create image!\n"));
-	    }
-	}
-	img1 = decoder->DeintImages;
-	Debug(3, "video/vaapi: %c%c%c%c %dx%d*%d\n", img1->format.fourcc,
-	    img1->format.fourcc >> 8, img1->format.fourcc >> 16,
-	    img1->format.fourcc >> 24, img1->width, img1->height,
-	    img1->num_planes);
+	VaapiCreateDeinterlaceImages(decoder);
     }
 
     if (0 && vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
@@ -2523,34 +2617,74 @@ static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
     img2 = decoder->DeintImages + 1;
     img3 = decoder->DeintImages + 2;
 
+    tick1 = GetMsTicks();
     if (vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
 	    decoder->InputHeight, img1->image_id) != VA_STATUS_SUCCESS) {
-	Fatal(_("video/vaapi: can't get img1!\n"));
+	Error(_("video/vaapi: can't get source image\n"));
+	VaapiQueueSurface(decoder, surface, 0);
+	VaapiQueueSurface(decoder, surface, 0);
+	return;
     }
+    tick2 = GetMsTicks();
+
+    // FIXME: handle top_field_first
 
     VaapiBob(decoder, img1, img2, img3);
+    tick3 = GetMsTicks();
 
     // get a free surface and upload the image
-    out1 = VaapiGetSurface(decoder);
-    if (vaPutImage(VaDisplay, out1, img2->image_id, 0, 0, img2->width,
-	    img2->height, 0, 0, img2->width,
-	    img2->height) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't put image!\n");
+    out = VaapiGetSurface(decoder);
+    if (out == VA_INVALID_ID) {
+	abort();
     }
-    VaapiQueueSurface(decoder, out1, 1);
-    if (0 && vaSyncSurface(decoder->VaDisplay, out1) != VA_STATUS_SUCCESS) {
+    if ((status =
+	    vaPutImage(VaDisplay, out, img2->image_id, 0, 0, img2->width,
+		img2->height, 0, 0, img2->width,
+		img2->height)) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't put image: %d!\n", status);
+	abort();
+    }
+    VaapiQueueSurface(decoder, out, 1);
+    if (1 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
+    tick4 = GetMsTicks();
+
+    Debug(3, "video/vaapi: deint %d %#010x -> %#010x\n", decoder->SurfaceField,
+	surface, out);
+
     // get a free surface and upload the image
-    out2 = VaapiGetSurface(decoder);
-    if (vaPutImage(VaDisplay, out2, img3->image_id, 0, 0, img3->width,
+    out = VaapiGetSurface(decoder);
+    if (out == VA_INVALID_ID) {
+	abort();
+    }
+    if (vaPutImage(VaDisplay, out, img3->image_id, 0, 0, img3->width,
 	    img3->height, 0, 0, img3->width,
 	    img3->height) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't put image!\n");
     }
-    VaapiQueueSurface(decoder, out2, 1);
-    if (0 && vaSyncSurface(decoder->VaDisplay, out2) != VA_STATUS_SUCCESS) {
+    VaapiQueueSurface(decoder, out, 1);
+    if (1 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
+    }
+    tick5 = GetMsTicks();
+
+    Debug(4, "video/vaapi: get=%2d deint=%2d put1=%2d put2=%2d\n",
+	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4);
+}
+
+///
+///	Vaapi software deinterlace.
+///
+///	@param decoder	VA-API decoder
+///	@param surface	interlaced hardware surface
+///
+static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
+{
+    if (VaapiBuggyIntel) {
+	VaapiCpuDerive(decoder, surface);
+    } else {
+	VaapiCpuPut(decoder, surface);
     }
     // FIXME: must release software input surface
 }
@@ -2618,23 +2752,30 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	}
 #endif
 
-	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
-	    && interlaced) {
+	// FIXME: should be done by init video_ctx->field_order
+	if (decoder->Interlaced != interlaced
+	    || decoder->TopFieldFirst != frame->top_field_first) {
+
+#if 0
+	    // field_order only in git
+	    Debug(3, "video/vaapi: interlaced %d top-field-first %d - %d\n",
+		interlaced, frame->top_field_first, video_ctx->field_order);
+#else
+	    Debug(3, "video/vaapi: interlaced %d top-field-first %d\n",
+		interlaced, frame->top_field_first);
+#endif
+
+	    decoder->Interlaced = interlaced;
+	    decoder->TopFieldFirst = frame->top_field_first;
+	    decoder->SurfaceField = 1;
+	}
+
+	if (interlaced
+	    && VideoDeinterlace[decoder->Resolution] ==
+	    VideoDeinterlaceSoftware) {
 	    // FIXME: software deinterlace avpicture_deinterlace
 	    VaapiCpuDeinterlace(decoder, surface);
 	} else {
-	    // FIXME: should be done by init
-	    if (decoder->Interlaced != interlaced
-		|| decoder->TopFieldFirst != frame->top_field_first) {
-
-		Debug(3, "video/vaapi: interlaced %d top-field-first %d\n",
-		    interlaced, frame->top_field_first);
-
-		decoder->Interlaced = interlaced;
-		decoder->TopFieldFirst = frame->top_field_first;
-		decoder->SurfaceField = 1;
-
-	    }
 	    VaapiQueueSurface(decoder, surface, 0);
 	}
 
@@ -2694,6 +2835,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't map the image!\n"));
 	}
+	// FIXME: I420 vs YV12
 	for (i = 0; (unsigned)i < decoder->Image->num_planes; ++i) {
 	    picture->data[i] = va_image_data + decoder->Image->offsets[i];
 	    picture->linesize[i] = decoder->Image->pitches[i];
@@ -2746,7 +2888,8 @@ static void VaapiAdvanceFrame(void)
 
 	// 0 -> 1
 	// 1 -> 0 + advance
-	if (decoder->Interlaced) {
+	if (VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceSoftware
+	    && decoder->Interlaced) {
 	    // FIXME: first frame is never shown
 	    if (decoder->SurfaceField) {
 		if (filled > 1) {
@@ -2961,7 +3104,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     }
     // if video output buffer is full, wait and display surface.
     // loop for interlace
-    while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+    while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	struct timespec abstime;
 
 	abstime = decoder->FrameTime;
@@ -3074,7 +3217,7 @@ static void VaapiDisplayHandlerThread(void)
     //
     filled = atomic_read(&decoder->SurfacesFilled);
     err = 1;
-    if (filled < VIDEO_SURFACES_MAX) {
+    if (filled < VIDEO_SURFACES_MAX - 1) {
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
@@ -4567,7 +4710,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
     VdpauCleanup(decoder);
 
-    if (getenv("NO_HW")) {		// FIXME: make config option
+    if (!VideoHardwareDecoder) {	// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -6808,7 +6951,9 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
 ///
 ///	@note no need to lock, only called from inside the video thread
 ///
-void VideoSetVideoMode(int x, int y, int width, int height)
+void VideoSetVideoMode( __attribute__ ((unused))
+    int x, __attribute__ ((unused))
+    int y, int width, int height)
 {
     Debug(3, "video: %s %dx%d%+d%+d\n", __FUNCTION__, width, height, x, y);
     if ((unsigned)width == VideoWindowWidth
@@ -7049,6 +7194,10 @@ void VideoInit(const char *display_name)
     }
 #endif
 
+    // FIXME: make it configurable from gui
+    if (!getenv("NO_HW")) {
+	VideoHardwareDecoder = 1;
+    }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
 }

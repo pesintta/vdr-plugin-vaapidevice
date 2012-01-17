@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix software deinterlace with VA-API.
     Fix bug: transposed digits 567 should be 576.
     Audio module cleanup:
     Alsa + OSS can be included/build at the same time.
