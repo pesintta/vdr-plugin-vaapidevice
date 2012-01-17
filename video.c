@@ -2388,40 +2388,54 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     VAImage * dst2)
 {
+    uint32_t tick1;
+    uint32_t tick2;
+    uint32_t tick3;
+    uint32_t tick4;
+    uint32_t tick5;
+    uint32_t tick6;
+    uint32_t tick7;
+    uint32_t tick8;
     void *src_base;
     void *dst1_base;
     void *dst2_base;
     unsigned y;
     unsigned p;
 
+    tick1 = GetMsTicks();
     if (vaMapBuffer(decoder->VaDisplay, src->buf,
 	    &src_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+    tick2 = GetMsTicks();
     if (vaMapBuffer(decoder->VaDisplay, dst1->buf,
 	    &dst1_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+    tick3 = GetMsTicks();
     if (vaMapBuffer(decoder->VaDisplay, dst2->buf,
 	    &dst2_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+    tick4 = GetMsTicks();
 
     if (0) {				// test all updated
 	memset(dst1_base, 0x00, dst1->data_size);
 	memset(dst2_base, 0xFF, dst2->data_size);
 	return;
     }
+#if 0
+    // interleave
     for (p = 0; p < src->num_planes; ++p) {
 	for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
-	    memcpy(dst1_base + src->offsets[p] + y * src->pitches[p],
-		src_base + src->offsets[p] + y * src->pitches[p],
+	    memcpy(dst1_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		src_base + src->offsets[p] + (y + 0) * src->pitches[p],
 		src->pitches[p]);
 	    memcpy(dst1_base + src->offsets[p] + (y + 1) * src->pitches[p],
-		src_base + src->offsets[p] + y * src->pitches[p],
+		src_base + src->offsets[p] + (y + 0) * src->pitches[p],
 		src->pitches[p]);
 
-	    memcpy(dst2_base + src->offsets[p] + y * src->pitches[p],
+	    memcpy(dst2_base + src->offsets[p] + (y + 0) * src->pitches[p],
 		src_base + src->offsets[p] + (y + 1) * src->pitches[p],
 		src->pitches[p]);
 	    memcpy(dst2_base + src->offsets[p] + (y + 1) * src->pitches[p],
@@ -2429,16 +2443,116 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 		src->pitches[p]);
 	}
     }
+#endif
+#if 1
+    // use tmp copy
+    if (1) {
+	uint8_t *tmp;
+
+	tmp = malloc(src->data_size);
+	memcpy(tmp, src_base, src->data_size);
+
+	for (p = 0; p < src->num_planes; ++p) {
+	    for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
+		memcpy(dst1_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		    tmp + src->offsets[p] + (y + 0) * src->pitches[p],
+		    src->pitches[p]);
+		memcpy(dst1_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		    tmp + src->offsets[p] + (y + 0) * src->pitches[p],
+		    src->pitches[p]);
+
+		memcpy(dst2_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		    tmp + src->offsets[p] + (y + 1) * src->pitches[p],
+		    src->pitches[p]);
+		memcpy(dst2_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		    tmp + src->offsets[p] + (y + 1) * src->pitches[p],
+		    src->pitches[p]);
+	    }
+
+	}
+	free(tmp);
+    }
+#endif
+#if 0
+    // use multiple tmp copy
+    if (1) {
+	uint8_t *tmp_src;
+	uint8_t *tmp_dst1;
+	uint8_t *tmp_dst2;
+
+	tmp_src = malloc(src->data_size);
+	memcpy(tmp_src, src_base, src->data_size);
+	tmp_dst1 = malloc(src->data_size);
+	tmp_dst2 = malloc(src->data_size);
+
+	for (p = 0; p < src->num_planes; ++p) {
+	    for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
+		memcpy(tmp_dst1 + src->offsets[p] + (y + 0) * src->pitches[p],
+		    tmp_src + src->offsets[p] + (y + 0) * src->pitches[p],
+		    src->pitches[p]);
+		memcpy(tmp_dst1 + src->offsets[p] + (y + 1) * src->pitches[p],
+		    tmp_src + src->offsets[p] + (y + 0) * src->pitches[p],
+		    src->pitches[p]);
+
+		memcpy(tmp_dst2 + src->offsets[p] + (y + 0) * src->pitches[p],
+		    tmp_src + src->offsets[p] + (y + 1) * src->pitches[p],
+		    src->pitches[p]);
+		memcpy(tmp_dst2 + src->offsets[p] + (y + 1) * src->pitches[p],
+		    tmp_src + src->offsets[p] + (y + 1) * src->pitches[p],
+		    src->pitches[p]);
+	    }
+	}
+	memcpy(dst1_base, tmp_dst1, src->data_size);
+	memcpy(dst2_base, tmp_dst2, src->data_size);
+
+	free(tmp_src);
+	free(tmp_dst1);
+	free(tmp_dst2);
+    }
+#endif
+#if 0
+    // dst1 first
+    for (p = 0; p < src->num_planes; ++p) {
+	for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
+	    memcpy(dst1_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		src_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		src->pitches[p]);
+	    memcpy(dst1_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		src_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		src->pitches[p]);
+	}
+    }
+    // dst2 next
+    for (p = 0; p < src->num_planes; ++p) {
+	for (y = 0; y < (unsigned)(src->height >> (p != 0)); y += 2) {
+	    memcpy(dst2_base + src->offsets[p] + (y + 0) * src->pitches[p],
+		src_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		src->pitches[p]);
+	    memcpy(dst2_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		src_base + src->offsets[p] + (y + 1) * src->pitches[p],
+		src->pitches[p]);
+	}
+    }
+#endif
+
+    tick5 = GetMsTicks();
 
     if (vaUnmapBuffer(decoder->VaDisplay, dst2->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+    tick6 = GetMsTicks();
     if (vaUnmapBuffer(decoder->VaDisplay, dst1->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+    tick7 = GetMsTicks();
     if (vaUnmapBuffer(decoder->VaDisplay, src->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+    tick8 = GetMsTicks();
+
+    Debug(3, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
+	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
+	tick6 - tick5, tick7 - tick6, tick8 - tick7);
 }
 
 ///
@@ -2576,7 +2690,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 
     tick5 = GetMsTicks();
 
-    Debug(3, "video/vaapi: get=%2d get1=%2d get2=%d deint=%2d\n",
+    Debug(4, "video/vaapi: get=%2d get1=%2d get2=%d deint=%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4);
 }
 
@@ -2645,12 +2759,12 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 	abort();
     }
     VaapiQueueSurface(decoder, out, 1);
-    if (1 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
     tick4 = GetMsTicks();
 
-    Debug(3, "video/vaapi: deint %d %#010x -> %#010x\n", decoder->SurfaceField,
+    Debug(4, "video/vaapi: deint %d %#010x -> %#010x\n", decoder->SurfaceField,
 	surface, out);
 
     // get a free surface and upload the image
@@ -2664,7 +2778,7 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 	Error("video/vaapi: can't put image!\n");
     }
     VaapiQueueSurface(decoder, out, 1);
-    if (1 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
+    if (0 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
     tick5 = GetMsTicks();
