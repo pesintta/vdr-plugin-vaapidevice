@@ -652,6 +652,9 @@ static int ValidateMpeg(const uint8_t * data, int size)
 **	supports complete packets.
 **	We buffer here until we receive an complete PES Packet, which
 **	is no problem, the audio is always far behind us.
+**	cTsToPes::GetPes splits the packets.
+**
+**	@todo FIXME: combine the 5 ifs at start of the function
 */
 int PlayVideo(const uint8_t * data, int size)
 {
@@ -695,7 +698,7 @@ int PlayVideo(const uint8_t * data, int size)
 	Error(_("[softhddev] invalid video packet %d bytes\n"), size);
 	return size;
     }
-    // FIXME: hack to test results
+    // buffer full: needed for replay
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
 	return 0;
     }

@@ -61,7 +61,7 @@ Install:
 	    http://projects.vdr-developer.org/projects/plg-softhddevice/files
 
 	tar vxf vdr-softhddevice-*.tar.bz2
-	cd vdr-softhddevice
+	cd softhddevice-*
 	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
 
 	You can edit Makefile to enable/disable VDPAU / VA-API / Alsa / OSS
@@ -145,6 +145,15 @@ Commandline:
 ------------
 
 	Use vdr -h to see the command line arguments support by the plugin.
+
+    -a audio_device
+
+	Selects audio output module and device.
+	""		to disable audio output
+	/...		to use oss audio module (if compiled with oss
+			support)
+	other		to use alsa audio module (if compiled with alsa
+			support)
 
 Running:
 --------

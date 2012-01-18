@@ -42,7 +42,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.3.1";
+static const char *const VERSION = "0.3.5";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -404,10 +404,10 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
     MakePrimary = ConfigMakePrimary;
     Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
-	    tr("no"), tr("yes")));
+	    trVDR("no"), trVDR("yes")));
     HideMainMenuEntry = ConfigHideMainMenuEntry;
     Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &HideMainMenuEntry,
-	    tr("no"), tr("yes")));
+	    trVDR("no"), trVDR("yes")));
     //
     //	video
     //
@@ -421,7 +421,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 		deinterlace));
 	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
 	Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
-		&SkipChromaDeinterlace[i], tr("no"), tr("yes")));
+		&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
 	Denoise[i] = ConfigVideoDenoise[i];
 	Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"), &Denoise[i],
 		0, 1000));
@@ -508,7 +508,7 @@ class cSoftHdDevice:public cDevice
     virtual int PlayVideo(const uchar *, int);
 
     //virtual int PlayTsVideo(const uchar *, int);
-#ifdef USE_OSS				// FIXME: testing only oss
+#ifndef USE_AUDIO_THREAD		// FIXME: testing none threaded
     virtual int PlayTsAudio(const uchar *, int);
 #endif
     virtual void SetAudioChannelDevice(int);
@@ -520,8 +520,6 @@ class cSoftHdDevice:public cDevice
 // Image Grab facilities
 
     virtual uchar *GrabImage(int &, bool, int, int, int);
-
-    virtual int ProvidesCa(const cChannel *) const;
 
 #if 0
 // SPU facilities
@@ -549,6 +547,11 @@ cSoftHdDevice::~cSoftHdDevice(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
+/**
+**	Informs a device that it will be the primary device.
+**
+**	@param on	flag if becoming or loosing primary
+*/
 void cSoftHdDevice::MakePrimaryDevice(bool on)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
@@ -557,14 +560,6 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     if (on) {
 	new cSoftOsdProvider();
     }
-}
-
-int cSoftHdDevice::ProvidesCa(
-    __attribute__ ((unused)) const cChannel * channel) const
-{
-    //dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
-
-    return 0;
 }
 
 #if 0
@@ -790,17 +785,21 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 ///
 ///	Play a TS video packet.
 ///
-int cSoftHdDevice::PlayTsVideo(const uchar * Data, int Length)
+int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
     // many code to repeat
 }
 #endif
 
-#ifdef USE_OSS				// FIXME: testing only oss
+#ifndef USE_AUDIO_THREAD		// FIXME: testing none threaded
+
 ///
 ///	Play a TS audio packet.
 ///
 ///	misuse this function as audio poller
+///
+///	@param data	ts data buffer
+///	@param length	ts packet length
 ///
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
@@ -808,6 +807,7 @@ int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 
     return cDevice::PlayTsAudio(data, length);
 }
+
 #endif
 
 uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int sizex,
@@ -960,7 +960,9 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 
     cDevice::PrimaryDevice()->StopReplay();
     Suspend();
-    ShutdownHandler.SetUserInactive();
+    if (ShutdownHandler.GetUserInactiveTime()) {
+	ShutdownHandler.SetUserInactive();
+    }
 
     return NULL;
 }

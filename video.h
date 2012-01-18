@@ -37,6 +37,9 @@ typedef struct _video_hw_decoder_ VideoHwDecoder;
     /// Allocate new video hardware decoder.
 extern VideoHwDecoder *VideoNewHwDecoder(void);
 
+    /// Deallocate video hardware decoder.
+extern void VideoDelHwDecoder(VideoHwDecoder *);
+
     /// Get and allocate a video hardware surface.
 extern unsigned VideoGetSurface(VideoHwDecoder *);
 
