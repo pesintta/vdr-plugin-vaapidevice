@@ -19,23 +19,20 @@ GNU Affero General Public License for more details.
 $Id: $
 
 missing:
-    software deinterlace
+    software deinterlace (yadif, ...)
+    software decoder with software deinterlace
     auto crop
     zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
     Option deinterlace off / deinterlace force!
-    Make output drivers better moduluar.
+    Make output drivers better modular.
 
 video:
     subtitle not cleared
     subtitle could be asyncron
 
 vdpau:
-    1080i with temporal spatial and level 1 scaling too slow with my GT 520
-    1080i with temporal spatial too slow with my GT 520 on some channels
-    SkipChromaDeinterlace improves performance
-    Improve OSD handling, show only what is used. Big OSD costs performance
     VdpPreemptionCallback handling
     hard channel switch
     suspendoutput didn't show logo or black picture.
@@ -43,15 +40,15 @@ vdpau:
 libva:
     hard channel switch
     yaepghd (VaapiSetOutputPosition) support
+    can associate ony displayed part of osd
 
 libva-intel-driver:
     intel still has hangups most with 1080i
     1080i does no v-sync (workaround written)
-    osd has sometimes wrong size (workaround written)
+    OSD has sometimes wrong size (workaround written)
 
 libva-vdpau-driver:
-    G210 osd update too slow (needs hardware problem workaround)
-    OSD update is too slow
+    G210/GT520 OSD update too slow (needs hardware problem workaround)
     hangup on exit (VaapiDelDecoder -> VaapiCleanup
 	-> vaDestroyContext -> pthread_rwlock_wrlock)
 

@@ -913,22 +913,19 @@ int Flush(int timeout)
 void GetOsdSize(int *width, int *height, double *aspect)
 {
 #ifdef DEBUG
-    static char done;
+    static int done_width;
+    static int done_height;
 #endif
 
-    // FIXME: should be configured!
-    *width = 1920;
-    *height = 1080;
-    //*width = 768;
-    //*height = 576;
-
+    VideoGetOsdSize(width, height);
     *aspect = 16.0 / 9.0 / (double)*width * (double)*height;
 
 #ifdef DEBUG
-    if (!done) {
+    if (done_width != *width || done_height != *height) {
 	Debug(3, "[softhddev]%s: %dx%d %g\n", __FUNCTION__, *width, *height,
 	    *aspect);
-	done = 1;
+	done_width = *width;
+	done_height = *height;
     }
 #endif
 }

@@ -53,6 +53,7 @@ static class cSoftHdDevice *MyDevice;
 
 #define RESOLUTIONS 4			///< number of resolutions
 
+    /// resolutions names
 static const char *const Resolution[RESOLUTIONS] = {
     "576i", "720p", "1080i_fake", "1080i"
 };
@@ -158,8 +159,15 @@ cSoftOsd::~cSoftOsd(void)
     SetActive(false);
 
 #ifdef USE_YAEPG
-    if (vidWin.bpp) {
-	VideoSetOutputPosition(0, 0, 1920, 1080);
+    // support yaepghd, video window
+    if (vidWin.bpp) {			// restore fullsized video
+	int width;
+	int height;
+	double video_aspect;
+
+	::GetOsdSize(&width, &height, &video_aspect);
+	// works osd relative
+	VideoSetOutputPosition(0, 0, width, height);
     }
 #endif
     OsdClose();
@@ -175,8 +183,8 @@ void cSoftOsd::Flush(void)
     if (!Active()) {
 	return;
     }
-    // support yaepghd, video window
 #ifdef USE_YAEPG
+    // support yaepghd, video window
     if (vidWin.bpp) {
 	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__, vidWin.Width(),
 	    vidWin.Height(), vidWin.x1, vidWin.y2);
@@ -213,6 +221,7 @@ void cSoftOsd::Flush(void)
 	    if (!bitmap->Dirty(x1, y1, x2, y2)) {
 		continue;		// nothing dirty continue
 	    }
+#if 0
 	    // FIXME: need only to convert and upload dirty areas
 
 	    // DrawBitmap(bitmap);
@@ -225,7 +234,6 @@ void cSoftOsd::Flush(void)
 		    ((uint32_t *) argb)[x + y * w] = bitmap->GetColor(x, y);
 		}
 	    }
-
 	    // check if subtitles
 	    if (this->Level == OSD_LEVEL_SUBTITLES) {
 		int video_width;
@@ -238,12 +246,32 @@ void cSoftOsd::Flush(void)
 		video_width = 1920;
 		video_height = 1080;
 		OsdDrawARGB((1920 - video_width) / 2 + Left() + bitmap->X0(),
-		    1080 - video_height + Top() + bitmap->Y0(),
-		    bitmap->Width(), bitmap->Height(), argb);
+		    1080 - video_height + Top() + bitmap->Y0(), w, h, argb);
 	    } else {
-		OsdDrawARGB(Left() + bitmap->X0(), Top() + bitmap->Y0(),
-		    bitmap->Width(), bitmap->Height(), argb);
+		OsdDrawARGB(Left() + bitmap->X0(), Top() + bitmap->Y0(), w, h,
+		    argb);
 	    }
+#else
+	    // convert and upload only dirty areas
+	    w = x2 - x1 + 1;
+	    h = y2 - y1 + 1;
+#ifdef DEBUG
+	    if (w > bitmap->Width() || h > bitmap->Height()) {
+		esyslog(tr("softhdev: dirty area too big\n"));
+		abort();
+	    }
+#endif
+	    argb = (uint8_t *) malloc(w * h * sizeof(uint32_t));
+	    for (y = y1; y <= y2; ++y) {
+		for (x = x1; x <= x2; ++x) {
+		    ((uint32_t *) argb)[x - x1 + (y - y1) * w] =
+			bitmap->GetColor(x, y);
+		}
+	    }
+	    // check if subtitles
+	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
+		w, h, argb);
+#endif
 
 	    bitmap->Clean();
 	    free(argb);
@@ -475,12 +503,7 @@ class cSoftHdDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
-    virtual void GetVideoSize(int &width, int &height, double &aspect)
-    {
-	width = 1920;
-	height = 1080;
-	aspect = (double)width / height;
-    }
+    virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
 
@@ -536,18 +559,17 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     }
 }
 
-    int cSoftHdDevice::ProvidesCa(
-    __attribute__ ((unused)) const cChannel *
-    channel) const
-    {
-	//dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
+int cSoftHdDevice::ProvidesCa(
+    __attribute__ ((unused)) const cChannel * channel) const
+{
+    //dsyslog("[softhddev]%s: %p\n", __FUNCTION__, channel);
 
-	return 0;
-    }
+    return 0;
+}
 
 #if 0
 
-    cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
+cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
@@ -697,7 +719,18 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 // ----------------------------------------------------------------------------
 
 /**
-**	Returns the With, Height and PixelAspect ratio the OSD.
+**	Returns the width, height and video_aspect ratio of the currently
+**	displayed video material.
+**
+**	@note the size is used to scale the subtitle.
+*/
+void cSoftHdDevice::GetVideoSize(int &width, int &height, double &video_aspect)
+{
+    ::GetOsdSize(&width, &height, &video_aspect);
+}
+
+/**
+**	Returns the width, height and pixel_aspect ratio the OSD.
 **
 **	FIXME: Called every second, for nothing (no OSD displayed)?
 */

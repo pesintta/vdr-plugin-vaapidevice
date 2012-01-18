@@ -1,6 +1,11 @@
 User johns
 Date:
 
+    OSD improvements:
+    Use OSD size equal to video window.
+    Update only dirty area(s) of OSD.
+    Show/mix only used area of OSD.
+    Fix bug: vpdau use previous resolution for deint, ...
     Fix software deinterlace with VA-API.
     Fix bug: transposed digits 567 should be 576.
     Audio module cleanup:

@@ -103,6 +103,9 @@ extern void VideoOsdClear(void);
     /// Draw an OSD ARGB image.
 extern void VideoOsdDrawARGB(int, int, int, int, const uint8_t *);
 
+    /// Get OSD size.
+extern void VideoGetOsdSize(int *, int *);
+
 extern int64_t VideoGetClock(void);	///< Get video clock.
 
 extern void VideoOsdInit(void);		///< Setup osd.

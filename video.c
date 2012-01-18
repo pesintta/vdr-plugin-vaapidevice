@@ -25,7 +25,7 @@
 ///
 ///	This module contains all video rendering functions.
 ///
-///	@todo hide mouse cursor support
+///	@todo disable screen saver support
 ///
 ///	Uses Xlib where it is needed for VA-API or vdpau.  XCB is used for
 ///	everything else.
@@ -36,16 +36,16 @@
 ///	- Xrender rendering
 ///
 
-#define USE_XLIB_XCB
-#define noUSE_GRAB
-#define noUSE_GLX
-#define noUSE_DOUBLEBUFFER
+#define USE_XLIB_XCB			///< use xlib/xcb backend
+#define noUSE_GRAB			///< experimental grab code
+#define noUSE_GLX			///< outdated GLX code
+#define noUSE_DOUBLEBUFFER		///< use GLX double buffers
 
 //#define USE_VAAPI				///< enable vaapi support
 //#define USE_VDPAU				///< enable vdpau support
 #define noUSE_BITMAP			///< use vdpau bitmap surface
 
-#define USE_VIDEO_THREAD
+#define USE_VIDEO_THREAD		///< run decoder in an own thread
 
 #include <sys/time.h>
 #include <sys/shm.h>
@@ -274,6 +274,14 @@ static pthread_mutex_t VideoMutex;	///< video condition mutex
 static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 
 #endif
+
+static char OsdShown;			///< flag show osd
+static int OsdWidth;			///< osd width
+static int OsdHeight;			///< osd height
+static int OsdDirtyX;			///< osd dirty area x
+static int OsdDirtyY;			///< osd dirty area y
+static int OsdDirtyWidth;		///< osd dirty area width
+static int OsdDirtyHeight;		///< osd dirty area height
 
 //----------------------------------------------------------------------------
 //	Functions
@@ -863,8 +871,9 @@ static void AutoCropDetect(int width, int height, void *data[3],
 {
     const void *data_y;
     unsigned length_y;
-    int x;
-    int y;
+
+    //int x;
+    //int y;
     int x1;
     int x2;
     int y1;
@@ -1010,6 +1019,92 @@ static void VaapiDestroyDeinterlaceImages(VaapiDecoder *);
 //	Surfaces -------------------------------------------------------------
 
 ///
+///	Associate OSD with surface.
+///
+///	@param decoder	VA-API decoder
+///	@param width	surface source/video width
+///	@param height	surface source/video height
+///
+static void VaapiAssociate(VaapiDecoder * decoder, int width, int height)
+{
+    int x;
+    int y;
+    int w;
+    int h;
+
+    if (VaOsdSubpicture == VA_INVALID_ID) {
+	Warning(_("video/vaapi: no osd subpicture yet\n"));
+	return;
+    }
+
+    x = 0;
+    y = 0;
+    w = VaOsdImage.width;
+    h = VaOsdImage.height;
+
+    // FIXME: associate only if osd is displayed
+    if (VaapiUnscaledOsd) {
+	if (decoder->SurfaceFreeN
+	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w, h, 0, 0,
+		VideoWindowWidth, VideoWindowHeight,
+		VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+	if (decoder->SurfaceUsedN
+	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w, h, 0, 0,
+		VideoWindowWidth, VideoWindowHeight,
+		VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+    } else {
+	if (decoder->SurfaceFreeN
+	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w, h, 0, 0,
+		width, height, 0)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+	if (decoder->SurfaceUsedN
+	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w, h, 0, 0,
+		width, height, 0)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture\n"));
+	}
+    }
+}
+
+///
+///	Deassociate OSD with surface.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiDeassociate(VaapiDecoder * decoder)
+{
+    if (VaOsdSubpicture != VA_INVALID_ID) {
+	if (decoder->SurfaceFreeN
+	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesFree, decoder->SurfaceFreeN)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
+		decoder->SurfaceFreeN);
+	}
+
+	if (decoder->SurfaceUsedN
+	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+		decoder->SurfacesUsed, decoder->SurfaceUsedN)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
+		decoder->SurfaceUsedN);
+	}
+    }
+}
+
+///
 ///	Create surfaces for VA-API decoder.
 ///
 ///	@param decoder	VA-API decoder
@@ -1039,27 +1134,7 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
     //
     //	update OSD associate
     //
-    if (VaOsdSubpicture == VA_INVALID_ID) {
-	Warning(_("video/vaapi: no osd subpicture yet\n"));
-	return;
-    }
-    // FIXME: associate only if osd is displayed
-    if (VaapiUnscaledOsd) {
-	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesFree, decoder->SurfaceFreeN, 0, 0,
-		VaOsdImage.width, VaOsdImage.height, 0, 0, VideoWindowWidth,
-		VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't associate subpicture\n"));
-	}
-    } else {
-	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesFree, decoder->SurfaceFreeN, 0, 0,
-		VaOsdImage.width, VaOsdImage.height, 0, 0, width, height, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't associate subpicture\n"));
-	}
-    }
+    VaapiAssociate(decoder, width, height);
 }
 
 ///
@@ -1074,23 +1149,7 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     //
     //	update OSD associate
     //
-    if (VaOsdSubpicture != VA_INVALID_ID) {
-	if (decoder->SurfaceFreeN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesFree, decoder->SurfaceFreeN)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
-		decoder->SurfaceFreeN);
-	}
-
-	if (decoder->SurfaceUsedN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesUsed, decoder->SurfaceUsedN)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
-		decoder->SurfaceUsedN);
-	}
-    }
+    VaapiDeassociate(decoder);
 
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree,
 	    decoder->SurfaceFreeN)
@@ -1524,23 +1583,6 @@ static void VideoVaapiExit(void)
 	}
     }
     VaapiDecoderN = 0;
-
-    if (VaOsdImage.image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay,
-		VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't destroy image!\n"));
-	}
-	VaOsdImage.image_id = VA_INVALID_ID;
-    }
-
-    if (VaOsdSubpicture != VA_INVALID_ID) {
-	// still has 35 surfaces associated to it
-	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't destroy subpicture\n"));
-	}
-	VaOsdSubpicture = VA_INVALID_ID;
-    }
 
     if (!VaDisplay) {
 	vaTerminate(VaDisplay);
@@ -3384,8 +3426,20 @@ static void VaapiOsdClear(void)
 	Error(_("video/vaapi: can't map osd image buffer\n"));
 	return;
     }
-    // 100% transparent
-    memset(image_buffer, 0x00, VaOsdImage.data_size);
+    // have dirty area.
+    if (OsdDirtyWidth && OsdDirtyHeight) {
+	int o;
+
+	Debug(3, "video/vaapi: handle osd dirty area\n");
+	for (o = 0; o < OsdDirtyHeight; ++o) {
+	    memset(image_buffer + (OsdDirtyX + (o +
+			OsdDirtyY) * VaOsdImage.width) * 4, 0,
+		OsdDirtyWidth * 4);
+	}
+    } else {
+	// 100% transparent
+	memset(image_buffer, 0x00, VaOsdImage.data_size);
+    }
 
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap osd image buffer\n"));
@@ -3406,6 +3460,8 @@ static void VaapiOsdClear(void)
 static void VaapiUploadImage(int x, int y, int width, int height,
     const uint8_t * argb)
 {
+    uint32_t start;
+    uint32_t end;
     void *image_buffer;
     int o;
 
@@ -3414,17 +3470,13 @@ static void VaapiUploadImage(int x, int y, int width, int height,
 	return;
     }
 
-    Debug(3, "video/vaapi: upload image\n");
-
+    start = GetMsTicks();
     // map osd surface/image into memory.
     if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer)
 	!= VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't map osd image buffer\n"));
 	return;
     }
-    // 100% transparent
-    //memset(image_buffer, 0x00, VaOsdImage.data_size);
-
     // FIXME: convert image from ARGB to subpicture format, if not argb
 
     // copy argb to image
@@ -3436,6 +3488,10 @@ static void VaapiUploadImage(int x, int y, int width, int height,
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap osd image buffer\n"));
     }
+    end = GetMsTicks();
+
+    Debug(3, "video/vaapi: osd upload %dx%d+%d+%d %d ms %d\n", width, height,
+	x, y, end - start, width * height * 4);
 }
 
 ///
@@ -3528,8 +3584,30 @@ static void VaapiOsdInit(int width, int height)
     }
     // FIXME: must store format, to convert ARGB to it.
 
-    VaapiOsdClear();
     // FIXME: unlock
+}
+
+///
+///	VA-API cleanup osd.
+///
+static void VaapiOsdExit(void)
+{
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+	if (vaDestroyImage(VaDisplay,
+		VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+	VaOsdImage.image_id = VA_INVALID_ID;
+    }
+
+    if (VaOsdSubpicture != VA_INVALID_ID) {
+	// FIXME: still has 35 surfaces associated to it
+	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy subpicture\n"));
+	}
+	VaOsdSubpicture = VA_INVALID_ID;
+    }
 }
 
 #endif
@@ -3628,10 +3706,6 @@ static int VdpauSkipChroma;		///< skip chroma deint. supported
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
 static int VdpauSurfaceIndex;		///< current display surface
-
-static int VdpauOsdWidth;		///< width of osd surface
-static int VdpauOsdHeight;		///< height of osd surface
-static int VdpauShowOsd;		///< flag show osd
 
 #ifdef USE_BITMAP
     /// bitmap surfaces for osd
@@ -4947,14 +5021,14 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
     VdpauUpdateOutput(decoder);
 
-    VdpauMixerSetup(decoder);
-
     // FIXME: need only to create and destroy surfaces for size changes
     //		or when number of needed surfaces changed!
     decoder->Resolution =
 	VideoResolutionGroup(video_ctx->width, video_ctx->height,
 	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+
+    VdpauMixerSetup(decoder);
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
 
@@ -4983,11 +5057,12 @@ static void VdpauSetup(VdpauDecoder * decoder,
     // decoder->Input... already setup by caller
     VdpauCleanup(decoder);
 
-    VdpauMixerSetup(decoder);
     decoder->Resolution =
 	VideoResolutionGroup(video_ctx->width, video_ctx->height,
 	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
+
+    VdpauMixerSetup(decoder);
 
     //	get real surface size
     status =
@@ -5323,15 +5398,30 @@ static void VdpauMixOsd(void)
     blend_state.blend_equation_alpha =
 	VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD;
 
-    source_rect.x0 = 0;
-    source_rect.y0 = 0;
-    source_rect.x1 = VdpauOsdWidth;
-    source_rect.y1 = VdpauOsdHeight;
+    // FIXME: use dirty area
+    if (OsdDirtyWidth && OsdDirtyHeight) {
+	source_rect.x0 = OsdDirtyX;
+	source_rect.y0 = OsdDirtyY;
+	source_rect.x1 = source_rect.x0 + OsdDirtyWidth;
+	source_rect.y1 = source_rect.y0 + OsdDirtyHeight;
 
-    output_rect.x0 = 0;
-    output_rect.y0 = 0;
-    output_rect.x1 = VideoWindowWidth;
-    output_rect.y1 = VideoWindowHeight;
+	output_rect.x0 = (OsdDirtyX * VideoWindowWidth) / OsdWidth;
+	output_rect.y0 = (OsdDirtyY * VideoWindowHeight) / OsdHeight;
+	output_rect.x1 =
+	    output_rect.x0 + (OsdDirtyWidth * VideoWindowWidth) / OsdWidth;
+	output_rect.y1 =
+	    output_rect.y0 + (OsdDirtyHeight * VideoWindowHeight) / OsdHeight;
+    } else {
+	source_rect.x0 = 0;
+	source_rect.y0 = 0;
+	source_rect.x1 = OsdWidth;
+	source_rect.y1 = OsdHeight;
+
+	output_rect.x0 = 0;
+	output_rect.y0 = 0;
+	output_rect.x1 = VideoWindowWidth;
+	output_rect.y1 = VideoWindowHeight;
+    }
 
     //start = GetMsTicks();
 
@@ -5645,7 +5735,7 @@ static void VdpauDisplayFrame(void)
     //
     //	add osd to surface
     //
-    if (VdpauShowOsd) {			// showing costs performance
+    if (OsdShown) {			// showing costs performance
 	VdpauMixOsd();
     }
     //
@@ -5879,6 +5969,8 @@ static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
 //	VDPAU OSD
 //----------------------------------------------------------------------------
 
+static const uint8_t OsdZeros[1920 * 1080 * 4];	///< 0 for clear osd
+
 ///
 ///	Clear subpicture image.
 ///
@@ -5887,7 +5979,6 @@ static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
 static void VdpauOsdClear(void)
 {
     VdpStatus status;
-    void *image;
     void const *data[1];
     uint32_t pitches[1];
     VdpRect dst_rect;
@@ -5903,16 +5994,27 @@ static void VdpauOsdClear(void)
     }
 #endif
 
-    Debug(3, "video/vdpau: clear image\n");
-
-    image = calloc(4, VdpauOsdWidth * VdpauOsdHeight);
-
-    dst_rect.x0 = 0;
-    dst_rect.y0 = 0;
-    dst_rect.x1 = dst_rect.x0 + VdpauOsdWidth;
-    dst_rect.y1 = dst_rect.y0 + VdpauOsdHeight;
-    data[0] = image;
-    pitches[0] = VdpauOsdWidth * 4;
+    if (OsdWidth * OsdHeight > 1920 * 1080) {
+	Error(_("video/vdpau: osd too big: unsupported\n"));
+	return;
+    }
+    // have dirty area.
+    if (OsdDirtyWidth && OsdDirtyHeight) {
+	Debug(3, "video/vdpau: osd clear dirty %dx%d+%d+%d\n", OsdDirtyWidth,
+	    OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
+	dst_rect.x0 = OsdDirtyX;
+	dst_rect.y0 = OsdDirtyY;
+	dst_rect.x1 = dst_rect.x0 + OsdDirtyWidth;
+	dst_rect.y1 = dst_rect.y0 + OsdDirtyHeight;
+    } else {
+	Debug(3, "video/vdpau: osd clear image\n");
+	dst_rect.x0 = 0;
+	dst_rect.y0 = 0;
+	dst_rect.x1 = dst_rect.x0 + OsdWidth;
+	dst_rect.y1 = dst_rect.y0 + OsdHeight;
+    }
+    data[0] = OsdZeros;
+    pitches[0] = OsdWidth * 4;
 
 #ifdef USE_BITMAP
     status =
@@ -5931,9 +6033,6 @@ static void VdpauOsdClear(void)
 	    VdpauGetErrorString(status));
     }
 #endif
-
-    free(image);
-    VdpauShowOsd = 0;
 }
 
 ///
@@ -5954,6 +6053,8 @@ static void VdpauUploadImage(int x, int y, int width, int height,
     void const *data[1];
     uint32_t pitches[1];
     VdpRect dst_rect;
+    uint32_t start;
+    uint32_t end;
 
     // osd image available?
 #ifdef USE_BITMAP
@@ -5966,7 +6067,7 @@ static void VdpauUploadImage(int x, int y, int width, int height,
     }
 #endif
 
-    Debug(3, "video/vdpau: upload image\n");
+    start = GetMsTicks();
 
     dst_rect.x0 = x;
     dst_rect.y0 = y;
@@ -5992,7 +6093,10 @@ static void VdpauUploadImage(int x, int y, int width, int height,
 	    VdpauGetErrorString(status));
     }
 #endif
-    VdpauShowOsd = 1;
+    end = GetMsTicks();
+
+    Debug(3, "video/vdpau: osd upload %dx%d+%d+%d %d ms %d\n", width, height,
+	x, y, end - start, width * height * 4);
 }
 
 ///
@@ -6010,16 +6114,12 @@ static void VdpauOsdInit(int width, int height)
 	Debug(3, "video/vdpau: vdpau not setup\n");
 	return;
     }
-
-    VdpauOsdWidth = width;
-    VdpauOsdHeight = height;
-
     //
     //	create bitmap/surface for osd
     //
 #ifdef USE_BITMAP
     if (VdpauOsdBitmapSurface[0] == VDP_INVALID_HANDLE) {
-	for (i = 0; i < 2; ++i) {
+	for (i = 0; i < 1; ++i) {
 	    status =
 		VdpauBitmapSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
 		width, height, VDP_TRUE, VdpauOsdBitmapSurface + i);
@@ -6034,7 +6134,7 @@ static void VdpauOsdInit(int width, int height)
     }
 #else
     if (VdpauOsdOutputSurface[0] == VDP_INVALID_HANDLE) {
-	for (i = 0; i < 2; ++i) {
+	for (i = 0; i < 1; ++i) {
 	    status =
 		VdpauOutputSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
 		width, height, VdpauOsdOutputSurface + i);
@@ -6048,10 +6148,7 @@ static void VdpauOsdInit(int width, int height)
 	}
     }
 #endif
-
     Debug(3, "video/vdpau: osd surfaces created\n");
-
-    VdpauOsdClear();
 }
 
 ///
@@ -6059,7 +6156,38 @@ static void VdpauOsdInit(int width, int height)
 ///
 static void VdpauOsdExit(void)
 {
-    Debug(3, "FIXME: %s\n", __FUNCTION__);
+    int i;
+
+    //
+    //	destroy osd bitmap/output surfaces
+    //
+#ifdef USE_BITMAP
+    for (i = 0; i < 1; ++i) {
+	VdpStatus status;
+
+	if (VdpauOsdBitmapSurface[i] != VDP_INVALID_HANDLE) {
+	    status = VdpauBitmapSurfaceDestroy(VdpauOsdBitmapSurface[i]);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't destroy bitmap surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	    VdpauOsdBitmapSurface[i] = VDP_INVALID_HANDLE;
+	}
+    }
+#else
+    for (i = 0; i < 1; ++i) {
+	VdpStatus status;
+
+	if (VdpauOsdOutputSurface[i] != VDP_INVALID_HANDLE) {
+	    status = VdpauOutputSurfaceDestroy(VdpauOsdOutputSurface[i]);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't destroy output surface: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+	    VdpauOsdOutputSurface[i] = VDP_INVALID_HANDLE;
+	}
+    }
+#endif
 }
 
 #endif
@@ -6067,10 +6195,6 @@ static void VdpauOsdExit(void)
 //----------------------------------------------------------------------------
 //	OSD
 //----------------------------------------------------------------------------
-
-//static int OsdShow;			///< flag show osd
-static int OsdWidth;			///< osd width
-static int OsdHeight;			///< osd height
 
 ///
 ///	Clear the OSD.
@@ -6080,6 +6204,10 @@ static int OsdHeight;			///< osd height
 ///
 void VideoOsdClear(void)
 {
+    if (!VideoThread) {			// thread not yet running
+	return;
+    }
+
     VideoThreadLock();
 #ifdef USE_GLX
     if (GlxEnabled) {
@@ -6100,6 +6228,11 @@ void VideoOsdClear(void)
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
 	VaapiOsdClear();
+	OsdDirtyX = OsdWidth;
+	OsdDirtyY = OsdHeight;
+	OsdDirtyWidth = 0;
+	OsdDirtyHeight = 0;
+	OsdShown = 0;
 	VideoThreadUnlock();
 	return;
     }
@@ -6107,6 +6240,11 @@ void VideoOsdClear(void)
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpauOsdClear();
+	OsdDirtyX = OsdWidth;
+	OsdDirtyY = OsdHeight;
+	OsdDirtyWidth = 0;
+	OsdDirtyHeight = 0;
+	OsdShown = 0;
 	VideoThreadUnlock();
 	return;
     }
@@ -6123,10 +6261,36 @@ void VideoOsdClear(void)
 ///	@param height	height of image
 ///	@param argb	argb image
 ///
-void VideoOsdDrawARGB(int x, int y, int height, int width,
+void VideoOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
+    if (!VideoThread) {			// thread not yet running
+	return;
+    }
     VideoThreadLock();
+
+    // update dirty area
+    if (x < OsdDirtyX) {
+	if (OsdDirtyWidth) {
+	    OsdDirtyWidth += OsdDirtyX - x;
+	}
+	OsdDirtyX = x;
+    }
+    if (y < OsdDirtyY) {
+	if (OsdDirtyHeight) {
+	    OsdDirtyHeight += OsdDirtyY - y;
+	}
+	OsdDirtyY = y;
+    }
+    if (x + width > OsdDirtyX + OsdDirtyWidth) {
+	OsdDirtyWidth = x + width - OsdDirtyX;
+    }
+    if (y + height > OsdDirtyY + OsdDirtyHeight) {
+	OsdDirtyHeight = y + height - OsdDirtyY;
+    }
+    Debug(3, "video: osd dirty %dx%d+%d+%d -> %dx%d+%d+%d\n", width, height, x,
+	y, OsdDirtyWidth, OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
+
 #ifdef USE_GLX
     if (GlxEnabled) {
 	Debug(3, "video: %p <-> %p\n", glXGetCurrentContext(), GlxContext);
@@ -6137,15 +6301,17 @@ void VideoOsdDrawARGB(int x, int y, int height, int width,
 #endif
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	VaapiUploadImage(x, y, height, width, argb);
+	VaapiUploadImage(x, y, width, height, argb);
 	VideoThreadUnlock();
+	OsdShown = 1;
 	return;
     }
 #endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
-	VdpauUploadImage(x, y, height, width, argb);
+	VdpauUploadImage(x, y, width, height, argb);
 	VideoThreadUnlock();
+	OsdShown = 1;
 	return;
     }
 #endif
@@ -6158,6 +6324,19 @@ void VideoOsdDrawARGB(int x, int y, int height, int width,
 }
 
 ///
+///	Get OSD size.
+///
+void VideoGetOsdSize(int *width, int *height)
+{
+    *width = 1920;
+    *height = 1080;			// unknown default
+    if (OsdWidth && OsdHeight) {
+	*width = OsdWidth;
+	*height = OsdHeight;
+    }
+}
+
+///
 ///	Setup osd.
 ///
 ///	FIXME: looking for BGRA, but this fourcc isn't supported by the
@@ -6165,11 +6344,8 @@ void VideoOsdDrawARGB(int x, int y, int height, int width,
 ///
 void VideoOsdInit(void)
 {
-    OsdWidth = 1920 / 1;
-    OsdHeight = 1080 / 1;		// worst-case
-
-    //OsdWidth = 768;
-    //OsdHeight = VideoWindowHeight;		// FIXME: must be configured
+    OsdWidth = VideoWindowWidth;	// FIXME: must be configured
+    OsdHeight = VideoWindowHeight;
 
 #ifdef USE_GLX
     // FIXME: make an extra function for this
@@ -6205,12 +6381,14 @@ void VideoOsdInit(void)
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
 	VaapiOsdInit(OsdWidth, OsdHeight);
+	VideoOsdClear();
 	return;
     }
 #endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpauOsdInit(OsdWidth, OsdHeight);
+	VideoOsdClear();
 	return;
     }
 #endif
@@ -6223,7 +6401,7 @@ void VideoOsdExit(void)
 {
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	// FIXME: VaapiOsdExit();
+	VaapiOsdExit();
 	return;
     }
 #endif
@@ -7070,27 +7248,45 @@ void VideoSetVideoMode( __attribute__ ((unused))
     int y, int width, int height)
 {
     Debug(3, "video: %s %dx%d%+d%+d\n", __FUNCTION__, width, height, x, y);
+
     if ((unsigned)width == VideoWindowWidth
 	&& (unsigned)height == VideoWindowHeight) {
 	return;				// same size nothing todo
     }
+
+    if (!VideoThread) {			// thread not yet running
+	return;
+    }
+    //VideoThreadLock();		// FIXME: vaapi can crash
+
     VideoWindowWidth = width;
     VideoWindowHeight = height;
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled && VaapiDecoders[0]) {
-	// FIXME: must update osd surfaces?
+	VaapiDeassociate(VaapiDecoders[0]);
+	VideoOsdExit();
+	VideoOsdInit();
+	if (VaapiDecoders[0]->InputWidth && VaapiDecoders[0]->InputHeight) {
+	    VaapiAssociate(VaapiDecoders[0], VaapiDecoders[0]->InputWidth,
+		VaapiDecoders[0]->InputHeight);
+	}
 	VaapiUpdateOutput(VaapiDecoders[0]);
+	//VideoThreadUnlock();
 	return;
     }
 #endif
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled && VdpauDecoders[0]) {
 	VdpauExitOutputQueue();
+	VideoOsdExit();
+	VideoOsdInit();
 	VdpauInitOutputQueue();
 	VdpauUpdateOutput(VdpauDecoders[0]);
+	//VideoThreadUnlock();
 	return;
     }
 #endif
+    //VideoThreadUnlock();
 }
 
 ///
