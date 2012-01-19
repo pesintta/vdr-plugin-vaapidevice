@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.3.6
+    VDPAU: Changed OSD alpha calculation.
     Fix bug: Used VideoSharpen for denoise settings.
     Instant update deinterlace/... configuration changes.
     Fix bug: AudioExit called without AudioInit crash.
