@@ -1,4 +1,8 @@
 User johns
+Date:
+
+    Fix bug: AudioExit called without AudioInit crash.
+
 Date: Thu Jan 19 15:58:40 CET 2012
 
     Release Version 0.3.5
