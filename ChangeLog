@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Release Version 0.3.6
+    Fix bug: Used VideoSharpen for denoise settings.
+    Instant update deinterlace/... configuration changes.
     Fix bug: AudioExit called without AudioInit crash.
 
 Date: Thu Jan 19 15:58:40 CET 2012

@@ -230,14 +230,20 @@ static char VideoHardwareDecoder;	///< flag use hardware decoder
 
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
+    /// flag use transparent OSD.
+static const char VideoTransparentOsd = 1;
+
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
     /// Default number of deinterlace surfaces
 static const int VideoDeinterlaceSurfaces = 4;
 
-    /// Default skip chroma deinterlace flag (VDPAU only)
-static int VideoSkipChromaDeinterlace[VideoResolutionMax];
+    /// Default Inverse telecine flag (VDPAU only).
+static char VideoInverseTelecine[VideoResolutionMax];
+
+    /// Default skip chroma deinterlace flag (VDPAU only).
+static char VideoSkipChromaDeinterlace[VideoResolutionMax];
 
     /// Default amount of noise reduction algorithm to apply (0 .. 1000).
 static int VideoDenoise[VideoResolutionMax];
@@ -3997,19 +4003,157 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     VdpVideoMixerFeature features[15];
     VdpBool enables[15];
     int feature_n;
-    VdpVideoMixerParameter paramaters[4];
-    void const *value_ptrs[4];
-    int parameter_n;
     VdpVideoMixerAttribute attributes[4];
     void const *attribute_value_ptrs[4];
     int attribute_n;
     uint8_t skip_chroma_value;
     float noise_reduction_level;
     float sharpness_level;
-    VdpChromaType chroma_type;
-    int layers;
     VdpColorStandard color_standard;
     VdpCSCMatrix csc_matrix[1];
+
+    //
+    //	Build enables table
+    //
+    feature_n = 0;
+    if (VdpauTemporal) {
+	enables[feature_n] =
+	    (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceTemporal
+	    || VideoDeinterlace[decoder->Resolution] ==
+	    VideoDeinterlaceTemporalSpatial) ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
+	Debug(3, "video/vdpau: temporal deinterlace %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauTemporalSpatial) {
+	enables[feature_n] =
+	    VideoDeinterlace[decoder->Resolution] ==
+	    VideoDeinterlaceTemporalSpatial ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] =
+	    VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL;
+	Debug(3, "video/vdpau: temporal spatial deinterlace %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauInverseTelecine) {
+	enables[feature_n] =
+	    VideoInverseTelecine[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
+	Debug(3, "video/vdpau: inverse telecine %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauNoiseReduction) {
+	enables[feature_n] =
+	    VideoDenoise[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
+	Debug(3, "video/vdpau: noise reduction %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    if (VdpauSharpness) {
+	enables[feature_n] =
+	    VideoSharpen[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_SHARPNESS;
+	Debug(3, "video/vdpau: sharpness %s\n",
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
+	i <= VdpauHqScalingMax; ++i) {
+	enables[feature_n] =
+	    VideoScaling[decoder->Resolution] ==
+	    VideoScalingHQ ? VDP_TRUE : VDP_FALSE;
+	features[feature_n++] = i;
+	Debug(3, "video/vdpau: high quality scaling %d %s\n",
+	    1 + i - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1,
+	    enables[feature_n - 1] ? "enabled" : "disabled");
+    }
+    status =
+	VdpauVideoMixerSetFeatureEnables(decoder->VideoMixer, feature_n,
+	features, enables);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't set mixer feature enables: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    //
+    //	build attributes table
+    //
+
+    /*
+       FIXME:
+       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
+       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
+     */
+    attribute_n = 0;
+    if (VdpauSkipChroma) {
+	skip_chroma_value = VideoSkipChromaDeinterlace[decoder->Resolution];
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE;
+	attribute_value_ptrs[attribute_n++] = &skip_chroma_value;
+	Debug(3, "video/vdpau: skip chroma deinterlace %s\n",
+	    skip_chroma_value ? "enabled" : "disabled");
+    }
+    if (VdpauNoiseReduction) {
+	noise_reduction_level = VideoDenoise[decoder->Resolution] / 1000.0;
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL;
+	attribute_value_ptrs[attribute_n++] = &noise_reduction_level;
+	Debug(3, "video/vdpau: noise reduction level %1.3f\n",
+	    noise_reduction_level);
+    }
+    if (VdpauSharpness) {
+	sharpness_level = VideoSharpen[decoder->Resolution] / 1000.0;
+	attributes[attribute_n]
+	    = VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL;
+	attribute_value_ptrs[attribute_n++] = &sharpness_level;
+	Debug(3, "video/vdpau: sharpness level %+1.3f\n", sharpness_level);
+    }
+    // FIXME: studio colors, VideoColorStandard[decoder->Resolution]
+    if (decoder->InputWidth > 1280 || decoder->InputHeight > 576) {
+	// HDTV
+	color_standard = VDP_COLOR_STANDARD_ITUR_BT_709;
+	Debug(3, "video/vdpau: color space ITU-R BT.709\n");
+    } else {
+	// SDTV
+	color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
+	Debug(3, "video/vdpau: color space ITU-R BT.601\n");
+    }
+
+    status =
+	VdpauGenerateCSCMatrix(&decoder->Procamp, color_standard, csc_matrix);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't generate CSC matrix: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    attributes[attribute_n] = VDP_VIDEO_MIXER_ATTRIBUTE_CSC_MATRIX;
+    attribute_value_ptrs[attribute_n++] = csc_matrix;
+
+    status =
+	VdpauVideoMixerSetAttributeValues(decoder->VideoMixer, attribute_n,
+	attributes, attribute_value_ptrs);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't set mixer attribute values: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+}
+
+///
+///	Create and setup VDPAU mixer.
+///
+///	@param decoder	VDPAU hw decoder
+///
+///	@note don't forget to update features, paramaters, attributes table
+///	size, if more is add.
+///
+static void VdpauMixerCreate(VdpauDecoder * decoder)
+{
+    VdpStatus status;
+    int i;
+    VdpVideoMixerFeature features[15];
+    int feature_n;
+    VdpVideoMixerParameter paramaters[4];
+    void const *value_ptrs[4];
+    int parameter_n;
+    VdpChromaType chroma_type;
+    int layers;
 
     //
     //	Build feature table
@@ -4061,120 +4205,8 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    VdpauGetErrorString(status));
 	// FIXME: no fatal errors
     }
-    //
-    //	Build default enables table
-    //
-    feature_n = 0;
-    if (VdpauTemporal) {
-	enables[feature_n] =
-	    (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceTemporal
-	    || (VideoDeinterlace[decoder->Resolution] ==
-		VideoDeinterlaceTemporalSpatial
-		&& !VdpauTemporalSpatial)) ? VDP_TRUE : VDP_FALSE;
-	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL;
-	Debug(3, "video/vdpau: temporal deinterlace %s\n",
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    if (VdpauTemporalSpatial) {
-	enables[feature_n] =
-	    VideoDeinterlace[decoder->Resolution] ==
-	    VideoDeinterlaceTemporalSpatial ? VDP_TRUE : VDP_FALSE;
-	features[feature_n++] =
-	    VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL_SPATIAL;
-	Debug(3, "video/vdpau: temporal spatial deinterlace %s\n",
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    if (VdpauInverseTelecine) {
-	enables[feature_n] = VDP_FALSE;
-	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_INVERSE_TELECINE;
-	Debug(3, "video/vdpau: inverse telecine %s\n",
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    if (VdpauNoiseReduction) {
-	enables[feature_n] =
-	    VideoDenoise[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
-	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_NOISE_REDUCTION;
-	Debug(3, "video/vdpau: noise reduction %s\n",
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    if (VdpauSharpness) {
-	enables[feature_n] =
-	    VideoSharpen[decoder->Resolution] ? VDP_TRUE : VDP_FALSE;
-	features[feature_n++] = VDP_VIDEO_MIXER_FEATURE_SHARPNESS;
-	Debug(3, "video/vdpau: sharpness %s\n",
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    for (i = VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1;
-	i <= VdpauHqScalingMax; ++i) {
-	enables[feature_n] =
-	    VideoScaling[decoder->Resolution] ==
-	    VideoScalingHQ ? VDP_TRUE : VDP_FALSE;
-	features[feature_n++] = i;
-	Debug(3, "video/vdpau: high quality scaling %d %s\n",
-	    1 + i - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1,
-	    enables[feature_n - 1] ? "enabled" : "disabled");
-    }
-    VdpauVideoMixerSetFeatureEnables(decoder->VideoMixer, feature_n, features,
-	enables);
-    // FIXME: check status
 
-    //
-    //	build attributes table
-    //
-
-    /*
-       FIXME:
-       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
-       VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
-     */
-    attribute_n = 0;
-    if (VdpauSkipChroma) {
-	skip_chroma_value = VideoSkipChromaDeinterlace[decoder->Resolution];
-	attributes[attribute_n]
-	    = VDP_VIDEO_MIXER_ATTRIBUTE_SKIP_CHROMA_DEINTERLACE;
-	attribute_value_ptrs[attribute_n++] = &skip_chroma_value;
-	Debug(3, "video/vdpau: skip chroma deinterlace %s\n",
-	    skip_chroma_value ? "enabled" : "disabled");
-    }
-    if (VdpauNoiseReduction) {
-	noise_reduction_level = VideoDenoise[decoder->Resolution] / 1000.0;
-	attributes[attribute_n]
-	    = VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL;
-	attribute_value_ptrs[attribute_n++] = &noise_reduction_level;
-	Debug(3, "video/vdpau: noise reduction level %1.3f\n",
-	    noise_reduction_level);
-    }
-    if (VdpauSharpness) {
-	sharpness_level = VideoSharpen[decoder->Resolution] / 1000.0;
-	attributes[attribute_n]
-	    = VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL;
-	attribute_value_ptrs[attribute_n++] = &sharpness_level;
-	Debug(3, "video/vdpau: sharpness level %+1.3f\n", sharpness_level);
-    }
-
-    if (decoder->InputWidth > 1280 || decoder->InputHeight > 576) {
-	// HDTV
-	color_standard = VDP_COLOR_STANDARD_ITUR_BT_709;
-	Debug(3, "video/vdpau: color space ITU-R BT.709\n");
-    } else {
-	// SDTV
-	color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
-	Debug(3, "video/vdpau: color space ITU-R BT.601\n");
-    }
-
-    status =
-	VdpauGenerateCSCMatrix(&decoder->Procamp, color_standard, csc_matrix);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't generate CSC matrix: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-
-    attributes[attribute_n] = VDP_VIDEO_MIXER_ATTRIBUTE_CSC_MATRIX;
-    attribute_value_ptrs[attribute_n++] = csc_matrix;
-
-    VdpauVideoMixerSetAttributeValues(decoder->VideoMixer, attribute_n,
-	attributes, attribute_value_ptrs);
-    // FIXME: check status
+    VdpauMixerSetup(decoder);
 }
 
 ///
@@ -5074,7 +5106,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
-    VdpauMixerSetup(decoder);
+    VdpauMixerCreate(decoder);
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
 
@@ -5108,7 +5140,7 @@ static void VdpauSetup(VdpauDecoder * decoder,
 	decoder->Interlaced);
     VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
-    VdpauMixerSetup(decoder);
+    VdpauMixerCreate(decoder);
 
     //	get real surface size
     status =
@@ -5477,7 +5509,8 @@ static void VdpauMixOsd(void)
 	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
 	VdpauOsdBitmapSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
-	&blend_state, VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+	VideoTransparentOsd ? &blend_state : NULL,
+	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't render bitmap surface: %s\n"),
 	    VdpauGetErrorString(status));
@@ -5487,7 +5520,8 @@ static void VdpauMixOsd(void)
 	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
 	VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
-	&blend_state, VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+	VideoTransparentOsd ? &blend_state : NULL,
+	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't render output surface: %s\n"),
 	    VdpauGetErrorString(status));
@@ -5733,6 +5767,12 @@ static void VdpauDisplayFrame(void)
     static VdpTime last_time;
     int i;
 
+    if (VideoSurfaceModesChanged) {	// handle changed modes
+	for (i = 0; i < VdpauDecoderN; ++i) {
+	    VdpauMixerSetup(VdpauDecoders[i]);
+	}
+	VideoSurfaceModesChanged = 0;
+    }
     //
     //	wait for surface visible (blocks max ~5ms)
     //
@@ -7399,9 +7439,9 @@ void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
 void VideoSetDenoise(int level[VideoResolutionMax])
 {
     VideoDenoise[0] = level[0];
-    VideoSharpen[1] = level[1];
-    VideoSharpen[2] = level[2];
-    VideoSharpen[3] = level[3];
+    VideoDenoise[1] = level[1];
+    VideoDenoise[2] = level[2];
+    VideoDenoise[3] = level[3];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -7419,6 +7459,8 @@ void VideoSetSharpen(int level[VideoResolutionMax])
 
 ///
 ///	Set scaling mode.
+///
+///	@param mode	table with VideoResolutionMax values
 ///
 void VideoSetScaling(int mode[VideoResolutionMax])
 {
