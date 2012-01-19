@@ -831,7 +831,7 @@ typedef struct _video_auto_crop_ctx_
 ///
 ///	Detect black line Y.
 ///
-///	@param data	Y plane data
+///	@param data	Y plane pixel data
 ///	@param length	number of pixel to check
 ///	@param stride	offset of pixels
 ///
@@ -845,22 +845,22 @@ static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
     const uint64_t *p;
 
 #ifdef DEBUG
-    if ((size_t) data & 0x7 || length & 0x7 || stride & 0x7) {
+    if ((size_t) data & 0x7 || stride & 0x7) {
 	abort();
     }
 #endif
     p = (const uint64_t *)data;
-    n = length / 8;			// FIXME: can remove n
+    n = length;				// FIXME: can remove n
     o = stride / 8;
 
-    r = 0;
+    r = 0UL;
     while (--n >= 0) {
 	r |= *p;
 	p += o;
     }
 
     // below YBLACK(0x20) is black
-    return r & (~(YBLACK - 1) * M64);
+    return !(r & ~((YBLACK - 1) * M64));
 }
 
 ///
@@ -871,21 +871,24 @@ static void AutoCropDetect(int width, int height, void *data[3],
 {
     const void *data_y;
     unsigned length_y;
-
-    //int x;
-    //int y;
+    int x;
+    int y;
     int x1;
     int x2;
     int y1;
     int y2;
+    int logo_skip;
 
     //
     //	ignore top+bottom 4 lines and left+right 8 pixels
     //
-    x1 = 0;
-    y1 = 0;
-    x2 = width;
-    y2 = height;
+#define SKIP_X	8
+#define SKIP_Y	4
+    x1 = width - 1;
+    x2 = 0;
+    y1 = height - 1;
+    y2 = 0;
+    logo_skip = SKIP_X;
 
     data_y = data[0];
     length_y = pitches[0];
@@ -893,18 +896,61 @@ static void AutoCropDetect(int width, int height, void *data[3],
     //
     //	search top
     //
-
+    for (y = SKIP_Y; y < y1; ++y) {
+	if (!AutoCropIsBlackLineY(data_y + logo_skip + y * length_y,
+		(length_y - 2 * logo_skip) / 8, 8)) {
+	    if (y == SKIP_Y) {
+		y = 0;
+	    }
+	    y1 = y;
+	    break;
+	}
+    }
     //
     //	search bottom
     //
-
+    for (y = height - SKIP_Y - 1; y > y2; --y) {
+	if (!AutoCropIsBlackLineY(data_y + logo_skip + y * length_y,
+		(length_y - 2 * logo_skip) / 8, 8)) {
+	    if (y == height - SKIP_Y - 1) {
+		y = height - 1;
+	    }
+	    y2 = y;
+	    break;
+	}
+    }
     //
     //	search left
     //
+    for (x = SKIP_X; x < x1; x += 8) {
+	if (!AutoCropIsBlackLineY(data_y + x + SKIP_Y * length_y,
+		height - 2 * SKIP_Y, length_y)) {
+	    if (x == SKIP_X) {
+		x = 0;
+	    }
+	    x1 = x;
+	    break;
+	}
+    }
 
     //
     //	search right
     //
+    for (x = width - SKIP_X - 8; x > x2; x -= 8) {
+	if (!AutoCropIsBlackLineY(data_y + x + SKIP_Y * length_y,
+		height - 2 * SKIP_Y * 8, length_y)) {
+	    if (x == width - SKIP_X - 8) {
+		x = width - 1;
+	    }
+	    x2 = x;
+	    break;
+	}
+    }
+
+    if (y1 > SKIP_Y || x1 > SKIP_X) {
+	Debug(3, "video/autocrop: top=%d bottom=%d left=%d right=%d\n", y1, y2,
+	    x1, x2);
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -5398,7 +5444,7 @@ static void VdpauMixOsd(void)
     blend_state.blend_equation_alpha =
 	VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD;
 
-    // FIXME: use dirty area
+    // use dirty area
     if (OsdDirtyWidth && OsdDirtyHeight) {
 	source_rect.x0 = OsdDirtyX;
 	source_rect.y0 = OsdDirtyY;
@@ -5449,7 +5495,10 @@ static void VdpauMixOsd(void)
 #endif
     //end = GetMsTicks();
 
-    //Debug(3, "video:/vdpau: osd render %d ms\n", end - start);
+    /*
+       Debug(4, "video:/vdpau: osd render %d %d ms\n", VdpauOsdSurfaceIndex,
+       end - start);
+     */
 
     VdpauOsdSurfaceIndex = !VdpauOsdSurfaceIndex;
 }

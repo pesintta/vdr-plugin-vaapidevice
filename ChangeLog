@@ -1,6 +1,7 @@
 User johns
-Date:
+Date: Thu Jan 19 15:58:40 CET 2012
 
+    Release Version 0.3.5
     OSD improvements:
     Use OSD size equal to video window.
     Update only dirty area(s) of OSD.
