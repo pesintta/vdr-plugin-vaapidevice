@@ -42,7 +42,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.3.5";
+static const char *const VERSION = "0.4.0";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -78,6 +78,9 @@ static int ConfigVideoScaling[RESOLUTIONS];
 
 static int ConfigVideoAudioDelay;	///< config audio delay
 static int ConfigAudioPassthrough;	///< config audio pass-through
+
+static int ConfigAutoCropInterval;	///< auto crop detection interval
+static int ConfigAutoCropDelay;		///< auto crop detection delay
 
 static volatile char DoMakePrimary;	///< flag switch primary
 
@@ -362,6 +365,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen[RESOLUTIONS];
     int AudioDelay;
     int AudioPassthrough;
+    int AutoCropInterval;
+    int AutoCropDelay;
   protected:
      virtual void Store(void);
   public:
@@ -370,6 +375,8 @@ class cMenuSetupSoft:public cMenuSetupPage
 
 /**
 **	Create a seperator item.
+**
+**	@param label	text inside separator
 */
 static inline cOsdItem *SeparatorItem(const char *label)
 {
@@ -439,6 +446,16 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioPassthrough = ConfigAudioPassthrough;
     Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough, 2,
 	    passthrough));
+    //
+    //	auto-crop
+    //
+    Add(SeparatorItem(tr("Auto-crop")));
+    AutoCropInterval = ConfigAutoCropInterval;
+    Add(new cMenuEditIntItem(tr("autocrop interval (frames)"),
+	    &AutoCropInterval, 0, 200));
+    AutoCropDelay = ConfigAutoCropDelay;
+    Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
+	    &AutoCropDelay, 0, 200));
 }
 
 /**
@@ -478,6 +495,11 @@ void cMenuSetupSoft::Store(void)
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
+
+    SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
+    SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
+
+    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1001,11 +1023,15 @@ cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
 
 /**
 **	Parse setup parameters
+**
+**	@param name	paramter name (case sensetive)
+**	@param value	value as string
+**
+**	@returns true if the parameter is supported.
 */
 bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 {
     int i;
-    char buf[128];
 
     //dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
@@ -1018,6 +1044,8 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {
+	char buf[128];
+
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Scaling");
 	if (!strcmp(name, buf)) {
 	    ConfigVideoScaling[i] = atoi(value);
@@ -1050,12 +1078,24 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	    return true;
 	}
     }
+
     if (!strcmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;
     }
     if (!strcmp(name, "AudioPassthrough")) {
 	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
+	return true;
+    }
+
+    if (!strcmp(name, "AutoCrop.Interval")) {
+	VideoSetAutoCrop(ConfigAutoCropInterval =
+	    atoi(value), ConfigAutoCropDelay);
+	return true;
+    }
+    if (!strcmp(name, "AutoCrop.Delay")) {
+	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay =
+	    atoi(value));
 	return true;
     }
 

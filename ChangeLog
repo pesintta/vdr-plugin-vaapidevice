@@ -1,7 +1,8 @@
 User johns
 Date:
 
-    Release Version 0.3.6
+    Release Version 0.4.0
+    VDPAU: Add auto-crop support.
     VDPAU: Changed OSD alpha calculation.
     Fix bug: Used VideoSharpen for denoise settings.
     Instant update deinterlace/... configuration changes.

@@ -21,7 +21,6 @@ $Id: $
 missing:
     software deinterlace (yadif, ...)
     software decoder with software deinterlace
-    auto crop
     zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
@@ -41,6 +40,7 @@ libva:
     hard channel switch
     yaepghd (VaapiSetOutputPosition) support
     can associate ony displayed part of osd
+    auto crop for va-api
 
 libva-intel-driver:
     intel still has hangups most with 1080i

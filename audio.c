@@ -2125,7 +2125,7 @@ void AudioExit(void)
 #ifdef USE_AUDIO_THREAD
     AudioExitThread();
 #endif
-    if ( UsedAudioModule ) {
+    if (UsedAudioModule) {
 	UsedAudioModule->Exit();
     }
 #ifdef USE_AUDIORING

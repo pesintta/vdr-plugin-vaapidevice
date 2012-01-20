@@ -37,6 +37,7 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
+#define USE_AUTOCROP			///< compile autocrop support
 #define noUSE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
 #define noUSE_DOUBLEBUFFER		///< use GLX double buffers
@@ -820,19 +821,30 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
 //----------------------------------------------------------------------------
 
 ///
-///	avfilter_vf_cropdetect
+///	Autocrop context structure and typedef.
 ///
-typedef struct _video_auto_crop_ctx_
+typedef struct _auto_crop_ctx_
 {
-    int x1;				///< detected left border
-    int x2;				///< detected right border
-    int y1;				///< detected top border
-    int y2;				///< detected bottom border
-} VideoAutoCropCtx;
+    int X1;				///< detected left border
+    int X2;				///< detected right border
+    int Y1;				///< detected top border
+    int Y2;				///< detected bottom border
+
+    int Count;				///< counter to delay switch
+    int State;				///< autocrop state (0, 14, 16)
+
+} AutoCropCtx;
+
+#ifdef USE_AUTOCROP
 
 #define YBLACK 0x20			///< below is black
 #define UVBLACK 0x80			///< around is black
 #define M64 UINT64_C(0x0101010101010101)	///< 64bit multiplicator
+
+    /// percent of width to ignore logos
+static const int AutoCropLogoIgnore = 24;
+static int AutoCropInterval;		///< check interval
+static int AutoCropDelay;		///< switch delay
 
 ///
 ///	Detect black line Y.
@@ -872,8 +884,19 @@ static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
 ///
 ///	Auto detect black borders and crop them.
 ///
-static void AutoCropDetect(int width, int height, void *data[3],
-    uint32_t pitches[3])
+///	@param autocrop autocrop variables
+///	@param width	frame width in pixel
+///	@param height	frame height in pixel
+///	@param data	frame planes data (Y, U, V)
+///	@param pitches	frame planes pitches (Y, U, V)
+///
+///	@note FIXME: can reduce the checked range, left, right crop isn't
+///		used yet.
+///
+///	@note FIXME: only Y is checked, for black.
+///
+static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
+    void *data[3], uint32_t pitches[3])
 {
     const void *data_y;
     unsigned length_y;
@@ -886,15 +909,15 @@ static void AutoCropDetect(int width, int height, void *data[3],
     int logo_skip;
 
     //
-    //	ignore top+bottom 4 lines and left+right 8 pixels
+    //	ignore top+bottom 6 lines and left+right 8 pixels
     //
 #define SKIP_X	8
-#define SKIP_Y	4
+#define SKIP_Y	6
     x1 = width - 1;
     x2 = 0;
     y1 = height - 1;
     y2 = 0;
-    logo_skip = SKIP_X;
+    logo_skip = SKIP_X + (((width * AutoCropLogoIgnore) / 100 + 8) / 8) * 8;
 
     data_y = data[0];
     length_y = pitches[0];
@@ -957,11 +980,20 @@ static void AutoCropDetect(int width, int height, void *data[3],
 	Debug(3, "video/autocrop: top=%d bottom=%d left=%d right=%d\n", y1, y2,
 	    x1, x2);
     }
+
+    autocrop->X1 = x1;
+    autocrop->X2 = x2;
+    autocrop->Y1 = y1;
+    autocrop->Y2 = y2;
 }
+
+#endif
 
 //----------------------------------------------------------------------------
 //	software - deinterlace
 //----------------------------------------------------------------------------
+
+// FIXME: move general software deinterlace functions to here.
 
 //----------------------------------------------------------------------------
 //	VA-API
@@ -1703,6 +1735,9 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
     }
     Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
 	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
+
+    //decoder->AutoCrop->State = 0;
+    //decoder->AutoCrop->Count = 0;
 }
 
 ///
@@ -3698,6 +3733,8 @@ typedef struct _vdpau_decoder_
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
 
+    AutoCropCtx AutoCrop[1];		///< autocrop variables
+
 #ifdef noyetUSE_GLX
     GLuint GlTexture[2];		///< gl texture for VDPAU
     void *GlxSurface[2];		///< VDPAU/GLX surface
@@ -4906,6 +4943,7 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
 	    case VideoStretch:
 	    case VideoZoom:
 	    case VideoAnamorphic:
+		// AutoCrop
 		break;
 	}
     }
@@ -4925,6 +4963,9 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
     }
     Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
 	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
+
+    decoder->AutoCrop->State = 0;
+    decoder->AutoCrop->Count = 0;
 }
 
 ///
@@ -5162,6 +5203,8 @@ static void VdpauSetup(VdpauDecoder * decoder,
     //
 }
 
+#ifdef USE_GRAB
+
 ///
 ///	Grab video surface.
 ///
@@ -5213,6 +5256,9 @@ static void VdpauGrabSurface(VdpauDecoder * decoder)
 	    data[2] = base + width * height + width * height / 4;
 	    format = VDP_YCBCR_FORMAT_YV12;
 	    break;
+	default:
+	    Error(_("video/vdpau: unsupported chroma type %d\n"), chroma_type);
+	    return;
     }
     status = VdpauVideoSurfaceGetBitsYCbCr(surface, format, data, pitches);
     if (status != VDP_STATUS_OK) {
@@ -5221,10 +5267,164 @@ static void VdpauGrabSurface(VdpauDecoder * decoder)
 	return;
     }
 
-    AutoCropDetect(width, height, data, pitches);
-
     free(base);
 }
+
+#endif
+
+#ifdef USE_AUTOCROP
+
+///
+///	VDPAU Auto crop support.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauAutoCrop(VdpauDecoder * decoder)
+{
+    VdpVideoSurface surface;
+    VdpStatus status;
+    VdpChromaType chroma_type;
+    uint32_t size;
+    uint32_t width;
+    uint32_t height;
+    void *base;
+    void *data[3];
+    uint32_t pitches[3];
+    int crop14;
+    int crop16;
+    int next_state;
+    VdpYCbCrFormat format;
+
+    surface = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+	% VIDEO_SURFACES_MAX];
+
+    //	get real surface size
+    status =
+	VdpauVideoSurfaceGetParameters(surface, &chroma_type, &width, &height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface parameters: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+    switch (chroma_type) {
+	case VDP_CHROMA_TYPE_420:
+	case VDP_CHROMA_TYPE_422:
+	case VDP_CHROMA_TYPE_444:
+	    size = width * height + ((width + 1) / 2) * ((height + 1) / 2)
+		+ ((width + 1) / 2) * ((height + 1) / 2);
+	    base = malloc(size);
+	    if (!base) {
+		Error(_("video/vdpau: out of memory\n"));
+		return;
+	    }
+	    pitches[0] = width;
+	    pitches[1] = width / 2;
+	    pitches[2] = width / 2;
+	    data[0] = base;
+	    data[1] = base + width * height;
+	    data[2] = base + width * height + width * height / 4;
+	    format = VDP_YCBCR_FORMAT_YV12;
+	    break;
+	default:
+	    Error(_("video/vdpau: unsupported chroma type %d\n"), chroma_type);
+	    return;
+    }
+    status = VdpauVideoSurfaceGetBitsYCbCr(surface, format, data, pitches);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface bits: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+
+    AutoCropDetect(decoder->AutoCrop, width, height, data, pitches);
+    free(base);
+
+    // ignore black frames
+    if (decoder->AutoCrop->Y1 >= decoder->AutoCrop->Y2) {
+	return;
+    }
+
+    crop14 =
+	(decoder->InputWidth * decoder->InputAspect.num * 9) /
+	(decoder->InputAspect.den * 14);
+    crop14 = (decoder->InputHeight - crop14) / 2;
+    crop16 =
+	(decoder->InputWidth * decoder->InputAspect.num * 9) /
+	(decoder->InputAspect.den * 16);
+    crop16 = (decoder->InputHeight - crop16) / 2;
+
+    // -2 for rounding errors
+    if (decoder->AutoCrop->Y1 >= crop16 - 2
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop16 - 2) {
+	next_state = 16;
+    } else if (decoder->AutoCrop->Y1 >= crop14 - 2
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop14 - 2) {
+	next_state = 14;
+    } else {
+	next_state = 0;
+    }
+
+    if (decoder->AutoCrop->State == next_state) {
+	return;
+    }
+
+    Debug(3, "video: crop aspect %d:%d %d/%d %d+%d\n",
+	decoder->InputAspect.num, decoder->InputAspect.den, crop14, crop16,
+	decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
+
+    Debug(3, "video: crop aspect %d -> %d\n", decoder->AutoCrop->State,
+	next_state);
+
+    switch (decoder->AutoCrop->State) {
+	case 16:
+	case 14:
+	    if (decoder->AutoCrop->Count++ < AutoCropDelay / 2) {
+		return;
+	    }
+	    break;
+	case 0:
+	    if (decoder->AutoCrop->Count++ < AutoCropDelay) {
+		return;
+	    }
+	    break;
+    }
+
+    decoder->AutoCrop->Count = 0;
+    decoder->AutoCrop->State = next_state;
+
+    if (next_state) {
+	decoder->CropX = 0;
+	decoder->CropY = next_state == 16 ? crop16 : crop14;
+	decoder->CropWidth = decoder->InputWidth;
+	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
+
+	// FIXME: this overwrites user choosen output position
+	// FIXME: resize kills the auto crop values
+	decoder->OutputX = 0;
+	decoder->OutputY = 0;
+	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
+	decoder->OutputHeight = (VideoWindowWidth * 9) / next_state;
+	if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
+	    decoder->OutputWidth = VideoWindowWidth;
+	    decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
+	} else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
+	    decoder->OutputHeight = VideoWindowHeight;
+	    decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
+	}
+	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
+	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
+	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
+    } else {
+	decoder->CropX = 0;
+	decoder->CropY = 0;
+	decoder->CropWidth = decoder->InputWidth;
+	decoder->CropHeight = decoder->InputHeight;
+
+	VdpauUpdateOutput(decoder);
+    }
+}
+
+#endif
 
 ///
 ///	Queue output surface.
@@ -5567,6 +5767,24 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 
 #ifdef USE_GRAB
     VdpauGrabSurface(decoder);
+#endif
+#ifdef USE_AUTOCROP
+    // reduce load, check only n frames
+    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
+	AVRational display_aspect_ratio;
+
+	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	    decoder->InputWidth * decoder->InputAspect.num,
+	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
+
+	// only 4:3 with 16:9/14:9 inside supported
+	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	    VdpauAutoCrop(decoder);
+	} else {
+	    decoder->AutoCrop->Count = 0;
+	    decoder->AutoCrop->State = 0;
+	}
+    }
 #endif
 
     if (decoder->Interlaced
@@ -7482,6 +7700,25 @@ void VideoSetAudioDelay(int ms)
 }
 
 ///
+///	Set auto-crop parameters.
+///
+void VideoSetAutoCrop(int interval, int delay)
+{
+#ifdef USE_AUTOCROP
+    int i;
+
+    AutoCropInterval = interval;
+    AutoCropDelay = delay;
+#ifdef USE_VDPAU
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	VdpauDecoders[i]->AutoCrop->State = 0;
+	VdpauDecoders[i]->AutoCrop->Count = 0;
+    }
+#endif
+#endif
+}
+
+///
 ///	Initialize video output module.
 ///
 ///	@param display_name	X11 display name
@@ -7659,7 +7896,7 @@ static void PrintVersion(void)
 #ifdef GIT_REV
 	"(GIT-" GIT_REV ")"
 #endif
-	",\n\t(c) 2009 - 2011 by Johns\n"
+	",\n\t(c) 2009 - 2012 by Johns\n"
 	"\tLicense AGPLv3: GNU Affero General Public License version 3\n");
 }
 

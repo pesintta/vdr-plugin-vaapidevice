@@ -24,17 +24,20 @@ A software and GPU emulated HD output device plugin for VDR.
     o Video CPU/VA-API
     o Video VDPAU/VDPAU
     o Video CPU/VDPAU
+    o Audio FFMpeg/Alsa/Analog
+    o Audio FFMpeg/Alsa/Digital
+    o Audio FFMpeg/OSS/Analog
+    o HDMI/SPDIF Passthrough
+    o VA-API bob software deinterlace
+    o Auto-crop
+
     o planned: Video VA-API/Opengl
     o planned: Video VDPAU/Opengl
     o planned: Video CPU/Xv
     o planned: Video CPU/Opengl
-    o planned: Software Deinterlacer
+    o planned: Improved Software Deinterlacer (yadif or/and ffmpeg filters)
     o planned: Video XvBA/XvBA
-    o Audio FFMpeg/Alsa/Analog
-    o Audio FFMpeg/Alsa/Digital
-    o Audio FFMpeg/OSS/Analog
-    o Alsa HDMI/SPDIF Passthrough
-    o planned: OSS HDMI/SPDIF Passthrough
+    o planned: atmo light support
 
 To compile you must have the 'requires' installed.
 
@@ -124,6 +127,14 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.AudioPassthrough = 0
 	0 = none, 1 = AC-3
+
+	softhddevice.AutoCrop.Interval = 0
+	0 disables auto-crop
+	n each 'n' frames auto-crop is checked.
+
+	softhddevice.AutoCrop.Delay = 0
+	if auto-crop is over after 'n' intervals the same, the cropping is
+	used.
 
 Setup: /etc/vdr/remote.conf
 ------
