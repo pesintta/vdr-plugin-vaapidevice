@@ -38,7 +38,7 @@
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
 #define USE_AUTOCROP			///< compile autocrop support
-#define noUSE_GRAB			///< experimental grab code
+#define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
 #define noUSE_DOUBLEBUFFER		///< use GLX double buffers
 
@@ -194,6 +194,19 @@ typedef enum _video_zoom_modes_
     VideoAnamorphic,			///< anamorphic scaled (unsupported)
 } VideoZoomModes;
 
+///
+///	Video output module structure and typedef.
+///
+typedef struct _video_module_
+{
+    const char *Name;			///< video output module name
+
+    void (*const Thread) (void);	///< module thread handler
+
+    void (*const Init) (const char *);	///< initialize video output module
+    void (*const Exit) (void);		///< cleanup video output module
+} VideoModule;
+
 //----------------------------------------------------------------------------
 //	Defines
 //----------------------------------------------------------------------------
@@ -226,6 +239,8 @@ static int VideoWindowX;		///< video output window x coordinate
 static int VideoWindowY;		///< video outout window y coordinate
 static unsigned VideoWindowWidth;	///< video output window width
 static unsigned VideoWindowHeight;	///< video output window height
+
+static const VideoModule *VideoUsedModule;	///< selected video module
 
 static char VideoHardwareDecoder;	///< flag use hardware decoder
 
@@ -3697,6 +3712,15 @@ static void VaapiOsdExit(void)
     }
 }
 
+///
+///	VA-API module.
+///
+static const VideoModule VaapiModule = {
+    .Name = "va-api",
+    .Init = VideoVaapiInit,
+    .Exit = VideoVaapiExit,
+};
+
 #endif
 
 //----------------------------------------------------------------------------
@@ -3829,7 +3853,8 @@ static VdpOutputSurfaceQueryCapabilities *VdpauOutputSurfaceQueryCapabilities;
 
 static VdpOutputSurfaceCreate *VdpauOutputSurfaceCreate;
 static VdpOutputSurfaceDestroy *VdpauOutputSurfaceDestroy;
-
+static VdpOutputSurfaceGetParameters *VdpauOutputSurfaceGetParameters;
+static VdpOutputSurfaceGetBitsNative *VdpauOutputSurfaceGetBitsNative;
 static VdpOutputSurfacePutBitsNative *VdpauOutputSurfacePutBitsNative;
 
 static VdpBitmapSurfaceQueryCapabilities *VdpauBitmapSurfaceQueryCapabilities;
@@ -4571,10 +4596,10 @@ static void VideoVdpauInit(const char *display_name)
 	"OutputSurfaceCreate");
     VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_DESTROY,
 	&VdpauOutputSurfaceDestroy, "OutputSurfaceDestroy");
-#if 0
-    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_PARAMETERS, &, "");
-    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_BITS_NATIVE, &, "");
-#endif
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_PARAMETERS,
+	&VdpauOutputSurfaceGetParameters, "OutputSurfaceGetParameters");
+    VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_GET_BITS_NATIVE,
+	&VdpauOutputSurfaceGetBitsNative, "OutputSurfaceGetBitsNative");
     VdpauGetProc(VDP_FUNC_ID_OUTPUT_SURFACE_PUT_BITS_NATIVE,
 	&VdpauOutputSurfacePutBitsNative, "OutputSurfacePutBitsNative");
 #if 0
@@ -5210,7 +5235,7 @@ static void VdpauSetup(VdpauDecoder * decoder,
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
-static void VdpauGrabSurface(VdpauDecoder * decoder)
+static void VdpauGrabVideoSurface(VdpauDecoder * decoder)
 {
     VdpVideoSurface surface;
     VdpStatus status;
@@ -5268,6 +5293,87 @@ static void VdpauGrabSurface(VdpauDecoder * decoder)
     }
 
     free(base);
+}
+
+///
+///	Grab output surface.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
+    int *ret_height)
+{
+    VdpOutputSurface surface;
+    VdpStatus status;
+    VdpRGBAFormat rgba_format;
+    uint32_t size;
+    uint32_t width;
+    uint32_t height;
+    void *base;
+    void *data[1];
+    uint32_t pitches[1];
+    VdpRect source_rect;
+
+    // FIXME: test function to grab output surface content
+
+    surface = VdpauSurfacesRb[VdpauSurfaceIndex];
+
+    //	get real surface size
+    status =
+	VdpauOutputSurfaceGetParameters(surface, &rgba_format, &width,
+	&height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get output surface parameters: %s\n"),
+	    VdpauGetErrorString(status));
+	return NULL;
+    }
+
+    Debug(3, "video/vdpau: grab %dx%d format %d\n", width, height,
+	rgba_format);
+
+    switch (rgba_format) {
+	case VDP_RGBA_FORMAT_B8G8R8A8:
+	case VDP_RGBA_FORMAT_R8G8B8A8:
+	    size = width * height * sizeof(uint32_t);
+	    base = malloc(size);
+	    if (!base) {
+		Error(_("video/vdpau: out of memory\n"));
+		return NULL;
+	    }
+	    pitches[0] = width * sizeof(uint32_t);
+	    data[0] = base;
+	    break;
+	case VDP_RGBA_FORMAT_R10G10B10A2:
+	case VDP_RGBA_FORMAT_B10G10R10A2:
+	case VDP_RGBA_FORMAT_A8:
+	    Error(_("video/vdpau: unsupported rgba format %d\n"), rgba_format);
+	    return NULL;
+    }
+
+    source_rect.x0 = 0;
+    source_rect.y0 = 0;
+    source_rect.x1 = source_rect.x0 + width;
+    source_rect.y1 = source_rect.y0 + height;
+    status =
+	VdpauOutputSurfaceGetBitsNative(surface, &source_rect, data, pitches);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface bits native: %s\n"),
+	    VdpauGetErrorString(status));
+	free(base);
+	return NULL;
+    }
+
+    if (ret_size) {
+	*ret_size = size;
+    }
+    if (ret_width) {
+	*ret_width = width;
+    }
+    if (ret_height) {
+	*ret_height = height;
+    }
+
+    return base;
 }
 
 #endif
@@ -5765,9 +5871,6 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     dst_video_rect.x1 = decoder->OutputX + decoder->OutputWidth;
     dst_video_rect.y1 = decoder->OutputY + decoder->OutputHeight;
 
-#ifdef USE_GRAB
-    VdpauGrabSurface(decoder);
-#endif
 #ifdef USE_AUTOCROP
     // reduce load, check only n frames
     if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
@@ -6496,6 +6599,15 @@ static void VdpauOsdExit(void)
     }
 #endif
 }
+
+///
+///	VDPAU module.
+///
+static const VideoModule VdpauModule = {
+    .Name = "vdpau",
+    .Init = VideoVdpauInit,
+    .Exit = VideoVdpauExit,
+};
 
 #endif
 
@@ -7377,6 +7489,48 @@ int64_t VideoGetClock(void)
     return 0L;
 }
 
+///
+///	Grab full screen image.
+///
+uint8_t *VideoGrab(int *size, int *width, int *height)
+{
+    Debug(3, "video: grab\n");
+
+#ifdef USE_GRAB
+#ifdef USE_VDPAU
+    if (VideoVdpauEnabled) {
+	uint8_t *data;
+	uint8_t *rgb;
+	char buf[64];
+	int i;
+	int n;
+
+	data = VdpauGrabOutputSurface(size, width, height);
+	n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width, *height);
+	rgb = malloc(*width * *height * 3 + n);
+	if (!rgb) {
+	    Error(_("video: out of memory\n"));
+	    free(data);
+	    return NULL;
+	}
+	memcpy(rgb, buf, n);		// header
+
+	for (i = 0; i < *size / 4; ++i) {	// convert bgra -> rgb
+	    rgb[n + i * 3 + 0] = data[i * 4 + 2];
+	    rgb[n + i * 3 + 1] = data[i * 4 + 1];
+	    rgb[n + i * 3 + 2] = data[i * 4 + 0];
+	}
+
+	free(data);
+	*size = *width * *height * 3 + n;
+
+	return rgb;
+    }
+#endif
+#endif
+    return NULL;
+}
+
 //----------------------------------------------------------------------------
 //	Setup
 //----------------------------------------------------------------------------
@@ -7818,17 +7972,21 @@ void VideoInit(const char *display_name)
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VideoVdpauInit(display_name);
-#ifdef USE_VAAPI
-	// disable va-api, if vdpau succeeded
 	if (VideoVdpauEnabled) {
+	    VideoUsedModule = &VdpauModule;
+#ifdef USE_VAAPI
+	    // disable va-api, if vdpau succeeded
 	    VideoVaapiEnabled = 0;
-	}
 #endif
+	}
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
 	VideoVaapiInit(display_name);
+	if (VideoVaapiEnabled) {
+	    VideoUsedModule = &VaapiModule;
+	}
     }
 #endif
 
@@ -7851,16 +8009,9 @@ void VideoExit(void)
 #ifdef USE_VIDEO_THREAD
     VideoThreadExit();
 #endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VideoVdpauExit();
+    if (VideoUsedModule) {
+	VideoUsedModule->Exit();
     }
-#endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VideoVaapiExit();
-    }
-#endif
 #ifdef USE_GLX
     if (GlxEnabled) {
 	GlxExit();

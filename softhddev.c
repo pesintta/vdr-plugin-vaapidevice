@@ -791,6 +791,29 @@ int PlayVideo(const uint8_t * data, int size)
     return size;
 }
 
+/**
+**	Grabs the currently visible screen image.
+**
+**	@param size	size of the returned data
+**	@param jpeg	flag true, create JPEG data
+**	@param quality	JPEG quality
+**	@param width	number of horizontal pixels in the frame
+**	@param height	number of vertical pixels in the frame
+*/
+uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
+{
+    if (jpeg) {
+	(void)quality;
+	Error(_("softhddev: jpeg grabbing not supported\n"));
+	return NULL;
+    }
+    if (width != -1 && height != -1) {
+	Error(_("softhddev: scaling not supported\n"));
+	return NULL;
+    }
+    return VideoGrab(size, &width, &height);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 
 /**

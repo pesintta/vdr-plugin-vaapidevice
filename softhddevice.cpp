@@ -126,7 +126,7 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 	csoft = new cSoftRemote(keymap);
     }
 
-    dsyslog("[softhddev]%s %s, %s\n", __FUNCTION__, keymap, key);
+    //dsyslog("[softhddev]%s %s, %s\n", __FUNCTION__, keymap, key);
     csoft->Put(key, repeat, release);
 }
 
@@ -295,8 +295,8 @@ void cSoftOsd::Flush(void)
 	h = pm->ViewPort().Height();
 
 	/*
-	   dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h, x,
-	   y, pm->Data());
+	   dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h,
+	   x, y, pm->Data());
 	 */
 
 	OsdDrawARGB(x, y, w, h, pm->Data());
@@ -832,13 +832,22 @@ int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 
 #endif
 
-uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int sizex,
-    int sizey)
+/**
+**	Grabs the currently visible screen image.
+**
+**	@param size	size of the returned data
+**	@param jpeg	flag true, create JPEG data
+**	@param quality	JPEG quality
+**	@param width	number of horizontal pixels in the frame
+**	@param height	number of vertical pixels in the frame
+*/
+uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
+    int height)
 {
     dsyslog("[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
-	quality, sizex, sizey);
+	quality, width, height);
 
-    return NULL;
+    return ::GrabImage(&size, jpeg, quality, width, height);
 }
 
 //////////////////////////////////////////////////////////////////////////////

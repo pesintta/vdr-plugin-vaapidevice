@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.4.0
+    VDPAU: Add grab image support.
     VDPAU: Add auto-crop support.
     VDPAU: Changed OSD alpha calculation.
     Fix bug: Used VideoSharpen for denoise settings.
