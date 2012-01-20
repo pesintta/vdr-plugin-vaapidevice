@@ -99,7 +99,7 @@
 //----------------------------------------------------------------------------
 
 /**
-**	Audio output module typedef.
+**	Audio output module structure and typedef.
 */
 typedef struct _audio_module_
 {
@@ -117,12 +117,16 @@ typedef struct _audio_module_
     void (*Exit) (void);		///< cleanup audio output module
 } AudioModule;
 
+static const AudioModule NoopModule;	///< forward definition of noop module
+
 //----------------------------------------------------------------------------
 //	Variables
 //----------------------------------------------------------------------------
 
 static const char *AudioModuleName;	///< which audio module to use
-static const AudioModule *UsedAudioModule;	///< Selected audio module.
+
+    /// Selected audio module.
+static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< alsa/OSS PCM device name
 static const char *AudioMixerDevice;	///< alsa/OSS mixer device name
 static const char *AudioMixerChannel;	///< alsa/OSS mixer channel name
@@ -1863,7 +1867,7 @@ static void *AudioPlayHandlerThread(void *dummy)
 #endif
 
 	Debug(3, "audio: play start\n");
-	UsedAudioModule->Thread();
+	AudioUsedModule->Thread();
     }
 
     return dummy;
@@ -1928,7 +1932,7 @@ static const AudioModule *AudioModules[] = {
 */
 void AudioEnqueue(const void *samples, int count)
 {
-    UsedAudioModule->Enqueue(samples, count);
+    AudioUsedModule->Enqueue(samples, count);
 }
 
 /**
@@ -1936,7 +1940,7 @@ void AudioEnqueue(const void *samples, int count)
 */
 void AudioFlushBuffers(void)
 {
-    UsedAudioModule->FlushBuffers();
+    AudioUsedModule->FlushBuffers();
 }
 
 /**
@@ -1944,7 +1948,7 @@ void AudioFlushBuffers(void)
 */
 void AudioPoller(void)
 {
-    UsedAudioModule->Poller();
+    AudioUsedModule->Poller();
 }
 
 /**
@@ -1952,7 +1956,7 @@ void AudioPoller(void)
 */
 int AudioFreeBytes(void)
 {
-    return UsedAudioModule->FreeBytes();
+    return AudioUsedModule->FreeBytes();
 }
 
 /**
@@ -1962,7 +1966,7 @@ int AudioFreeBytes(void)
 */
 uint64_t AudioGetDelay(void)
 {
-    return UsedAudioModule->GetDelay();
+    return AudioUsedModule->GetDelay();
 }
 
 /**
@@ -2041,7 +2045,7 @@ int AudioSetup(int *freq, int *channels)
     // FIXME: need to store possible combination and report this
     return AudioRingAdd(*freq, *channels);
 #endif
-    return UsedAudioModule->Setup(freq, channels);
+    return AudioUsedModule->Setup(freq, channels);
 }
 
 /**
@@ -2089,27 +2093,27 @@ void AudioInit(void)
     //
     for (u = 0; u < sizeof(AudioModules) / sizeof(*AudioModules); ++u) {
 	if (!strcasecmp(name, AudioModules[u]->Name)) {
-	    UsedAudioModule = AudioModules[u];
-	    Info(_("audio: '%s' output module used\n"), UsedAudioModule->Name);
+	    AudioUsedModule = AudioModules[u];
+	    Info(_("audio: '%s' output module used\n"), AudioUsedModule->Name);
 	    goto found;
 	}
     }
     Error(_("audio: '%s' output module isn't supported\n"), name);
-    UsedAudioModule = &NoopModule;
+    AudioUsedModule = &NoopModule;
     return;
 
   found:
 #ifdef USE_AUDIORING
     AudioRingInit();
 #endif
-    UsedAudioModule->Init();
+    AudioUsedModule->Init();
     freq = 48000;
     chan = 2;
     if (AudioSetup(&freq, &chan)) {	// set default parameters
 	Error(_("audio: can't do initial setup\n"));
     }
 #ifdef USE_AUDIO_THREAD
-    if (UsedAudioModule->Thread) {	// supports threads
+    if (AudioUsedModule->Thread) {	// supports threads
 	AudioInitThread();
     }
 #endif
@@ -2125,9 +2129,8 @@ void AudioExit(void)
 #ifdef USE_AUDIO_THREAD
     AudioExitThread();
 #endif
-    if (UsedAudioModule) {
-	UsedAudioModule->Exit();
-    }
+    AudioUsedModule->Exit();
+    AudioUsedModule = &NoopModule;
 #ifdef USE_AUDIORING
     AudioRingExit();
 #endif
