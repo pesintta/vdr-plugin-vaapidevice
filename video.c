@@ -6003,6 +6003,8 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
+///	@FIXME: render only video area, not fullscreen!
+///
 static void VdpauBlackSurface(VdpauDecoder * decoder)
 {
     VdpStatus status;
@@ -6090,7 +6092,9 @@ static void VdpauDisplayFrame(void)
 
     if (VideoSurfaceModesChanged) {	// handle changed modes
 	for (i = 0; i < VdpauDecoderN; ++i) {
-	    VdpauMixerSetup(VdpauDecoders[i]);
+	    if (VdpauDecoders[i]->VideoMixer != VDP_INVALID_HANDLE) {
+		VdpauMixerSetup(VdpauDecoders[i]);
+	    }
 	}
 	VideoSurfaceModesChanged = 0;
     }
