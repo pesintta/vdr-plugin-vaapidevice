@@ -991,7 +991,7 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 	}
     }
 
-    if (y1 > SKIP_Y || x1 > SKIP_X) {
+    if (0 && (y1 > SKIP_Y || x1 > SKIP_X)) {
 	Debug(3, "video/autocrop: top=%d bottom=%d left=%d right=%d\n", y1, y2,
 	    x1, x2);
     }
@@ -6981,12 +6981,12 @@ static void VideoEvent(void)
 
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify\n");
-	    // µwn workaround
+	    // µwm workaround
 	    xcb_change_window_attributes(Connection, VideoWindow,
 		XCB_CW_CURSOR, &VideoBlankCursor);
 	    break;
 	case Expose:
-	    Debug(3, "video/event: Expose\n");
+	    //Debug(3, "video/event: Expose\n");
 	    break;
 	case ReparentNotify:
 	    Debug(3, "video/event: ReparentNotify\n");
@@ -7330,7 +7330,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 	    }
 	}
 	if (*pts_p != pts) {
-	    Debug(3,
+	    Debug(4,
 		"video: %#012" PRIx64 "->%#012" PRIx64 " %4" PRId64 " pts\n",
 		*pts_p, pts, pts - *pts_p);
 	    *pts_p = pts;
@@ -7708,7 +7708,7 @@ void VideoSetVideoMode( __attribute__ ((unused))
     int x, __attribute__ ((unused))
     int y, int width, int height)
 {
-    Debug(3, "video: %s %dx%d%+d%+d\n", __FUNCTION__, width, height, x, y);
+    Debug(4, "video: %s %dx%d%+d%+d\n", __FUNCTION__, width, height, x, y);
 
     if ((unsigned)width == VideoWindowWidth
 	&& (unsigned)height == VideoWindowHeight) {

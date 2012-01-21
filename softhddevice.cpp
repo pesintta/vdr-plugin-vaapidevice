@@ -148,12 +148,13 @@ class cSoftOsd:public cOsd
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
 {
-    // FIXME: OsdWidth/OsdHeight not correct!
-    dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
-	OsdHeight(), left, top, level);
+    /* FIXME: OsdWidth/OsdHeight not correct!
+       dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
+       OsdHeight(), left, top, level);
+     */
 
     this->Level = level;
-    //SetActive(true);
+    SetActive(true);
 }
 
 cSoftOsd::~cSoftOsd(void)
@@ -847,7 +848,7 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
     dsyslog("[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
 	quality, width, height);
 
-    return ::GrabImage(&size, jpeg, quality, width, height);
+    return::GrabImage(&size, jpeg, quality, width, height);
 }
 
 //////////////////////////////////////////////////////////////////////////////

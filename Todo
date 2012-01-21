@@ -25,14 +25,15 @@ missing:
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop audio, stop video, configurable
     Option deinterlace off / deinterlace force!
-    Make output drivers better modular.
+    Make output drivers better modular (under construction).
 
 video:
     subtitle not cleared
     subtitle could be asyncron
+    reduce warnings after channel switch
 
 vdpau:
-    VdpPreemptionCallback handling
+    VdpPreemptionCallback handling (under construction)
     hard channel switch
     suspendoutput didn't show logo or black picture.
 
@@ -41,10 +42,14 @@ libva:
     yaepghd (VaapiSetOutputPosition) support
     can associate ony displayed part of osd
     auto crop for va-api
+    grab image for va-api
+
+libva: branch vaapi-ext
+    add support for vaapi-ext
 
 libva-intel-driver:
     intel still has hangups most with 1080i
-    1080i does no v-sync (workaround written)
+    1080i does no v-sync (workaround written, fixed with vaapi-ext)
     OSD has sometimes wrong size (workaround written)
 
 libva-vdpau-driver:
@@ -91,7 +96,6 @@ setup:
     Setup 4:3 zoom type
     Some setup parameters are not used until restart.
 	Can a notice be added to the setup menu?
-    576i, 720p, fake 1080i, 1080i
 
 unsorted:
     Menu -> Setup -> Plugins -> skingenigmang -> General
@@ -105,5 +109,7 @@ future features (not planed for 1.0 - 1.5)
     software decoder for xv / opengl
     atmolight support
     multistream handling
+    pip support
+    grab image with jpeg
 
     upmix stereo to AC-3

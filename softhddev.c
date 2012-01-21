@@ -1140,8 +1140,12 @@ static void StartXServer(void)
 */
 void SoftHdDeviceExit(void)
 {
-    // lets hope that vdr does a good thead cleanup
-    // no it doesn't do a good thread cleanup
+    // lets hope that vdr does a good thread cleanup
+
+    VideoOsdExit();
+    VideoExit();
+    AudioExit();
+
     if (MyVideoDecoder) {
 	CodecVideoClose(MyVideoDecoder);
 	// FIXME: CodecDelVideoDecoder(MyVideoDecoder);
@@ -1153,9 +1157,6 @@ void SoftHdDeviceExit(void)
 	MyAudioDecoder = NULL;
     }
 
-    VideoOsdExit();
-    VideoExit();
-    AudioExit();
     CodecExit();
     VideoPacketExit();
 
