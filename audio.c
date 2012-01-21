@@ -136,6 +136,7 @@ static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
+static const int AudioBufferTime = 350;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
@@ -574,6 +575,8 @@ static void AlsaEnqueue(const void *samples, int count)
 
 // direct play produces underuns on some hardware
 
+#ifndef USE_AUDIO_THREAD
+
 /**
 **	Place samples in audio output queue.
 **
@@ -586,6 +589,8 @@ static void AlsaEnqueue(const void *samples, int count)
 	AudioRunning = 1;
     }
 }
+
+#endif
 
 #ifdef USE_AUDIO_THREAD
 
@@ -1070,9 +1075,12 @@ static int AlsaSetup(int *freq, int *channels)
 	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 
     AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
-    // min 333ms
-    if (AlsaStartThreshold < (*freq * *channels * AudioBytesProSample) / 3U) {
-	AlsaStartThreshold = (*freq * *channels * AudioBytesProSample) / 3U;
+    // buffer time/delay in ms
+    if (AlsaStartThreshold <
+	(*freq * *channels * AudioBytesProSample * AudioBufferTime) / 1000U) {
+	AlsaStartThreshold =
+	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
+	    1000U;
     }
     // no bigger, than the buffer
     if (AlsaStartThreshold > RingBufferFreeBytes(AlsaRingBuffer)) {
@@ -1286,6 +1294,8 @@ static void OssFlushBuffers(void)
 //	OSS pcm polled
 //----------------------------------------------------------------------------
 
+#ifndef USE_AUDIO_THREAD
+
 /**
 **	Place samples in audio output queue.
 **
@@ -1311,6 +1321,8 @@ static void OssEnqueue(const void *samples, int count)
 	AudioRunning = 1;
     }
 }
+
+#endif
 
 /**
 **	Play all samples possible, without blocking.
@@ -1656,9 +1668,13 @@ static int OssSetup(int *freq, int *channels)
 	}
 	// start when enough bytes for initial write
 	OssStartThreshold = bi.bytes + tmp;
-	// min 333ms
-	if (OssStartThreshold < (*freq * *channels * AudioBytesProSample) / 3U) {
-	    OssStartThreshold = (*freq * *channels * AudioBytesProSample) / 3U;
+	// buffer time/delay in ms
+	if (OssStartThreshold <
+	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
+	    1000U) {
+	    OssStartThreshold =
+		(*freq * *channels * AudioBytesProSample * AudioBufferTime) /
+		1000U;
 	}
 	// no bigger, than the buffer
 	if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
