@@ -389,6 +389,7 @@ static void VideoPacketInit(void)
     }
 
     atomic_set(&VideoPacketsFilled, 0);
+    VideoPacketRead = VideoPacketWrite = 0;
 }
 
 /**
@@ -461,10 +462,10 @@ static void VideoNextPacket(int codec_id)
 
     avpkt = &VideoPacketRb[VideoPacketWrite];
     if (!avpkt->stream_index) {		// ignore empty packets
-	if (codec_id == CODEC_ID_NONE) {
-	    Debug(3, "video: possible stream change loss\n");
+	if (codec_id != CODEC_ID_NONE) {
+	    return;
 	}
-	return;
+	Debug(3, "video: possible stream change loss\n");
     }
 
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
@@ -478,6 +479,7 @@ static void VideoNextPacket(int codec_id)
     }
     // clear area for decoder, always enough space allocated
     memset(avpkt->data + avpkt->stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
     avpkt->priv = (void *)(size_t) codec_id;
 
     // advance packet write
@@ -540,8 +542,8 @@ int VideoDecode(void)
 		CodecVideoClose(MyVideoDecoder);
 		goto skip;
 	    }
+	    // size can be zero
 	    goto skip;
-	    break;
 	case CODEC_ID_MPEG2VIDEO:
 	    if (last_codec_id != CODEC_ID_MPEG2VIDEO) {
 		last_codec_id = CODEC_ID_MPEG2VIDEO;
@@ -619,7 +621,7 @@ static void StopVideo(void)
     }
     VideoPacketExit();
 
-    NewVideoStream = 0;
+    NewVideoStream = 1;
 }
 
 #ifdef DEBUG
