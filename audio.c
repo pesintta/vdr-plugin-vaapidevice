@@ -708,6 +708,7 @@ static snd_pcm_t *AlsaOpenPCM(int use_ac3)
 
     // &&|| hell
     if (!(use_ac3 && ((device = AudioAC3Device)
+		|| (device = getenv("ALSA_AC3_DEVICE"))
 		|| (device = getenv("ALSA_PASSTHROUGH_DEVICE"))))
 	&& !(device = AudioPCMDevice) && !(device = getenv("ALSA_DEVICE"))) {
 	device = "default";
