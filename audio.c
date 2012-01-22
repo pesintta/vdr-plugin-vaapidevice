@@ -112,7 +112,7 @@ typedef struct _audio_module_
     int (*FreeBytes) (void);		///< number of bytes free in buffer
      uint64_t(*GetDelay) (void);	///< get current audio delay
     void (*SetVolume) (int);		///< set output volume
-    int (*Setup) (int *, int *);	///< setup channels, samplerate
+    int (*Setup) (int *, int *, int);	///< setup channels, samplerate
     void (*Init) (void);		///< initialize audio output module
     void (*Exit) (void);		///< cleanup audio output module
 } AudioModule;
@@ -128,6 +128,7 @@ static const char *AudioModuleName;	///< which audio module to use
     /// Selected audio module.
 static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< alsa/OSS PCM device name
+static const char *AudioAC3Device;	///< alsa/OSS AC3 device name
 static const char *AudioMixerDevice;	///< alsa/OSS mixer device name
 static const char *AudioMixerChannel;	///< alsa/OSS mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
@@ -696,18 +697,24 @@ static void AlsaThreadFlushBuffers(void)
 
 /**
 **	Open alsa pcm device.
+**
+**	@param use_ac3	use ac3/pass-through device
 */
-static snd_pcm_t *AlsaOpenPCM(void)
+static snd_pcm_t *AlsaOpenPCM(int use_ac3)
 {
     const char *device;
     snd_pcm_t *handle;
     int err;
 
-    if (!(device = AudioPCMDevice)) {
-	if (!(device = getenv("ALSA_DEVICE"))) {
-	    device = "default";
-	}
+    // &&|| hell
+    if (!(use_ac3 && ((device = AudioAC3Device)
+		|| (device = getenv("ALSA_PASSTHROUGH_DEVICE"))))
+	&& !(device = AudioPCMDevice) && !(device = getenv("ALSA_DEVICE"))) {
+	device = "default";
     }
+    Debug(3, "audio/alsa: &&|| hell '%s'\n", device);
+
+    // open none blocking; if device is already used, we don't want wait
     if ((err =
 	    snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK,
 		SND_PCM_NONBLOCK)) < 0) {
@@ -734,7 +741,7 @@ static void AlsaInitPCM(void)
     int err;
     snd_pcm_uframes_t buffer_size;
 
-    if (!(handle = AlsaOpenPCM())) {
+    if (!(handle = AlsaOpenPCM(0))) {
 	return;
     }
 
@@ -878,6 +885,7 @@ static uint64_t AlsaGetDelay(void)
 **
 **	@param freq	sample frequency
 **	@param channels	number of channels
+**	@param use_ac3	use ac3/pass-through device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -885,7 +893,7 @@ static uint64_t AlsaGetDelay(void)
 **
 **	@todo audio changes must be queued and done when the buffer is empty
 */
-static int AlsaSetup(int *freq, int *channels)
+static int AlsaSetup(int *freq, int *channels, int use_ac3)
 {
     snd_pcm_uframes_t buffer_size;
     snd_pcm_uframes_t period_size;
@@ -904,7 +912,7 @@ static int AlsaSetup(int *freq, int *channels)
 	handle = AlsaPCMHandle;
 	AlsaPCMHandle = NULL;
 	snd_pcm_close(handle);
-	if (!(handle = AlsaOpenPCM())) {
+	if (!(handle = AlsaOpenPCM(use_ac3))) {
 	    return -1;
 	}
 	AlsaPCMHandle = handle;
@@ -1584,6 +1592,7 @@ static uint64_t OssGetDelay(void)
 **
 **	@param freq	sample frequency
 **	@param channels	number of channels
+**	@param use_ac3	use ac3/pass-through device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -1591,7 +1600,8 @@ static uint64_t OssGetDelay(void)
 **
 **	@todo audio changes must be queued and done when the buffer is empty
 */
-static int OssSetup(int *freq, int *channels)
+static int OssSetup(int *freq, int *channels, __attribute__ ((unused))
+    int use_ac3)
 {
     int ret;
     int tmp;
@@ -1690,6 +1700,8 @@ static int OssSetup(int *freq, int *channels)
 
 /**
 **	Initialize OSS audio output module.
+**
+**	@param use_ac3	use ac3/pass-through device
 */
 static void OssInit(void)
 {
@@ -1790,7 +1802,8 @@ static void NoopSetVolume( __attribute__ ((unused))
 */
 static int NoopSetup( __attribute__ ((unused))
     int *channels, __attribute__ ((unused))
-    int *freq)
+    int *freq, __attribute__ ((unused))
+    int use_ac3)
 {
     return -1;
 }
@@ -2040,6 +2053,7 @@ void AudioSetVolume(int volume)
 **
 **	@param freq	sample frequency
 **	@param channels	number of channels
+**	@param use_ac3	use ac3/pass-through device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -2047,9 +2061,10 @@ void AudioSetVolume(int volume)
 **
 **	@todo audio changes must be queued and done when the buffer is empty
 */
-int AudioSetup(int *freq, int *channels)
+int AudioSetup(int *freq, int *channels, int use_ac3)
 {
-    Debug(3, "audio: channels %d frequency %d hz\n", *channels, *freq);
+    Debug(3, "audio: channels %d frequency %d hz %s\n", *channels, *freq,
+	use_ac3 ? "ac3" : "pcm");
 
     // invalid parameter
     if (!freq || !channels || !*freq || !*channels) {
@@ -2059,9 +2074,9 @@ int AudioSetup(int *freq, int *channels)
     }
 #ifdef USE_AUDIORING
     // FIXME: need to store possible combination and report this
-    return AudioRingAdd(*freq, *channels);
+    return AudioRingAdd(*freq, *channels, use_ac3);
 #endif
-    return AudioUsedModule->Setup(freq, channels);
+    return AudioUsedModule->Setup(freq, channels, use_ac3);
 }
 
 /**
@@ -2073,13 +2088,35 @@ int AudioSetup(int *freq, int *channels)
 */
 void AudioSetDevice(const char *device)
 {
-    AudioModuleName = "alsa";		// detect alsa/OSS
-    if (!device[0]) {
-	AudioModuleName = "noop";
-    } else if (device[0] == '/') {
-	AudioModuleName = "oss";
+    if (!AudioModuleName) {
+	AudioModuleName = "alsa";	// detect alsa/OSS
+	if (!device[0]) {
+	    AudioModuleName = "noop";
+	} else if (device[0] == '/') {
+	    AudioModuleName = "oss";
+	}
     }
     AudioPCMDevice = device;
+}
+
+/**
+**	Set pass-through audio device.
+**
+**	@param device	name of pass-through device (fe. "hw:0,1")
+**
+**	@note this is currently usable with alsa only.
+*/
+void AudioSetDeviceAC3(const char *device)
+{
+    if (!AudioModuleName) {
+	AudioModuleName = "alsa";	// detect alsa/OSS
+	if (!device[0]) {
+	    AudioModuleName = "noop";
+	} else if (device[0] == '/') {
+	    AudioModuleName = "oss";
+	}
+    }
+    AudioAC3Device = device;
 }
 
 /**
@@ -2125,7 +2162,7 @@ void AudioInit(void)
     AudioUsedModule->Init();
     freq = 48000;
     chan = 2;
-    if (AudioSetup(&freq, &chan)) {	// set default parameters
+    if (AudioSetup(&freq, &chan, 0)) {	// set default parameters
 	Error(_("audio: can't do initial setup\n"));
     }
 #ifdef USE_AUDIO_THREAD

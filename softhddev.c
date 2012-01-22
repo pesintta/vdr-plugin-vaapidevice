@@ -989,6 +989,7 @@ static char ConfigStartX11Server;	///< flag start the x11 server
 const char *CommandLineHelp(void)
 {
     return "  -a device\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
+	"  -p device\taudio device (alsa only) for pass-through (hw:0,1)\n"
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
@@ -1007,9 +1008,12 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:d:fg:x")) {
+	switch (getopt(argc, argv, "-a:p:d:fg:x")) {
 	    case 'a':			// audio device
 		AudioSetDevice(optarg);
+		continue;
+	    case 'p':			// pass-through audio device
+		AudioSetDeviceAC3(optarg);
 		continue;
 	    case 'd':			// x11 display name
 		X11DisplayName = optarg;
@@ -1154,12 +1158,12 @@ void SoftHdDeviceExit(void)
 
     if (MyVideoDecoder) {
 	CodecVideoClose(MyVideoDecoder);
-	// FIXME: CodecDelVideoDecoder(MyVideoDecoder);
+	CodecVideoDelDecoder(MyVideoDecoder);
 	MyVideoDecoder = NULL;
     }
     if (MyAudioDecoder) {
 	CodecAudioClose(MyAudioDecoder);
-	// FIXME: CodecDelAudioDecoder(MyAudioDecoder);
+	CodecAudioDelDecoder(MyAudioDecoder);
 	MyAudioDecoder = NULL;
     }
 

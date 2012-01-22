@@ -79,6 +79,8 @@ Setup:	environment
     only if alsa is configured
 	ALSA_DEVICE=default
 		alsa PCM device name
+	ALSA_AC3_DEVICE=
+		alsa AC3/pass-though device name
 	ALSA_MIXER=default
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
@@ -127,6 +129,8 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.AudioPassthrough = 0
 	0 = none, 1 = AC-3
+
+	for AC-3 the pass-through device is used.
 
 	softhddevice.AutoCrop.Interval = 0
 	0 disables auto-crop

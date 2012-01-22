@@ -320,18 +320,28 @@ static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
 **
 **	@param hw_decoder	video hardware decoder
 **
-**	@returns private decoder pointer for audio/video decoder.
+**	@returns private decoder pointer for video decoder.
 */
 VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
 {
     VideoDecoder *decoder;
 
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
-	Fatal(_("codec: Can't allocate vodeo decoder\n"));
+	Fatal(_("codec: can't allocate vodeo decoder\n"));
     }
     decoder->HwDecoder = hw_decoder;
 
     return decoder;
+}
+
+/**
+**	Deallocate a video decoder context.
+**
+**	@param decoder	private video decoder
+*/
+void CodecVideoDelDecoder(VideoDecoder * decoder)
+{
+    free(decoder);
 }
 
 /**
@@ -613,19 +623,27 @@ static char CodecPassthroughAC3;	///< pass ac3 through
 /**
 **	Allocate a new audio decoder context.
 **
-**	@param hw_decoder	video hardware decoder
-**
-**	@returns private decoder pointer for audio/video decoder.
+**	@returns private decoder pointer for audio decoder.
 */
 AudioDecoder *CodecAudioNewDecoder(void)
 {
     AudioDecoder *audio_decoder;
 
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
-	Fatal(_("codec: Can't allocate audio decoder\n"));
+	Fatal(_("codec: can't allocate audio decoder\n"));
     }
 
     return audio_decoder;
+}
+
+/**
+**	Deallocate an audio decoder context.
+**
+**	@param decoder	private audio decoder
+*/
+void CodecAudioDelDecoder(AudioDecoder * decoder)
+{
+    free(decoder);
 }
 
 /**
@@ -794,6 +812,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    if (audio_decoder->SampleRate != audio_ctx->sample_rate
 		|| audio_decoder->Channels != audio_ctx->channels) {
 		int err;
+		int isAC3;
 
 		if (audio_decoder->ReSample) {
 		    audio_resample_close(audio_decoder->ReSample);
@@ -807,16 +826,18 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		// SPDIF/HDMI passthrough
 		if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
 		    audio_decoder->HwChannels = 2;
+		    isAC3 = 1;
 		} else
 #endif
 		{
 		    audio_decoder->HwChannels = audio_ctx->channels;
+		    isAC3 = 0;
 		}
 
 		// channels not support?
 		if ((err =
 			AudioSetup(&audio_decoder->HwSampleRate,
-			    &audio_decoder->HwChannels))) {
+			    &audio_decoder->HwChannels, isAC3))) {
 		    Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
 			audio_ctx->sample_rate, audio_ctx->channels,
 			audio_decoder->HwSampleRate,

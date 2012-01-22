@@ -1,5 +1,10 @@
+User Morone
+Data: Sun Jan 22 16:43:23 CET 2012
+
+    Use different alsa devices for AC3/pass-through and pcm.
+
 User johns
-Data:
+Data: Sun Jan 22 11:12:57 CET 2012
 
     Add dummy player and control for suspend mode.
     Buffertime compile time configurable in ms.
