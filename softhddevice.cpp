@@ -38,6 +38,8 @@ extern "C"
 #include "video.h"
     extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
+    extern char ConfigSuspendClose;	///< suspend should close devices
+    extern char ConfigSuspendX11;	///< suspend should stop x11
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -368,6 +370,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioPassthrough;
     int AutoCropInterval;
     int AutoCropDelay;
+    int SuspendClose;
+    int SuspendX11;
   protected:
      virtual void Store(void);
   public:
@@ -457,6 +461,16 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AutoCropDelay = ConfigAutoCropDelay;
     Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
 	    &AutoCropDelay, 0, 200));
+    //
+    //	suspend
+    //
+    Add(SeparatorItem(tr("Suspend")));
+    SuspendClose = ConfigSuspendClose;
+    Add(new cMenuEditBoolItem(tr("suspend closes video+audio"), &SuspendClose,
+	    trVDR("no"), trVDR("yes")));
+    SuspendX11 = ConfigSuspendX11;
+    Add(new cMenuEditBoolItem(tr("suspend stops x11"), &SuspendX11,
+	    trVDR("no"), trVDR("yes")));
 }
 
 /**
@@ -499,8 +513,10 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
-
     VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay);
+
+    SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
+    SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -705,6 +721,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	case pmNone:
 	    return true;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
+	    dsyslog("[softhddev] play mode external\n");
 	    break;
 	default:
 	    dsyslog("[softhddev]playmode not implemented... %d\n", play_mode);
@@ -1198,6 +1215,14 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
 
+    if (!strcmp(name, "Suspend.Close")) {
+	ConfigSuspendClose = atoi(value);
+	return true;
+    }
+    if (!strcmp(name, "Suspend.X11")) {
+	ConfigSuspendX11 = atoi(value);
+	return true;
+    }
     return false;
 }
 
@@ -1226,10 +1251,10 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 {
     // FIXME: translation?
     static const char *text[] = {
-	"SUSP\n",
-	"    Suspend plugin",
-	"RESU\n",
-	"    Resume plugin",
+	"SUSP\n"
+	"    Suspend plugin.\n",
+	"RESU\n"
+	"    Resume plugin.\n",
 	NULL
     };
 
@@ -1250,8 +1275,11 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	return "SoftHdDevice is suspended";
     }
     if (!strcasecmp(command, "RESU")) {
+	if (ShutdownHandler.GetUserInactiveTime()) {
+	    ShutdownHandler.SetUserInactiveTimeout();
+	}
 	Resume();
-	cControl::Shutdown();
+	cControl::Shutdown();		// not need, if not suspended
 	return "SoftHdDevice is resumed";
     }
     return NULL;

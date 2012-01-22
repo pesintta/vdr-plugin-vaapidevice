@@ -203,6 +203,10 @@ typedef struct _video_module_
 
     void (*const Thread) (void);	///< module thread handler
 
+    /// allocate new video hw decoder
+    VideoHwDecoder *(*const NewHwDecoder)(void);
+    void (*const DelHwDecoder) (VideoHwDecoder *);
+
     void (*const Init) (const char *);	///< initialize video output module
     void (*const Exit) (void);		///< cleanup video output module
 } VideoModule;
@@ -1551,6 +1555,9 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 ///
 static void VaapiDelDecoder(VaapiDecoder * decoder)
 {
+    VaapiDecoderN = 0;
+    VaapiDecoders[0] = NULL;
+
     VaapiCleanup(decoder);
 
     if (decoder->BlackSurface != VA_INVALID_ID) {
@@ -3717,6 +3724,8 @@ static void VaapiOsdExit(void)
 ///
 static const VideoModule VaapiModule = {
     .Name = "va-api",
+    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewDecoder,
+    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelDecoder,
     .Init = VideoVaapiInit,
     .Exit = VideoVaapiExit,
 };
@@ -4389,6 +4398,10 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 ///
 static void VdpauDelDecoder(VdpauDecoder * decoder)
 {
+    // FIXME: hack
+    VdpauDecoderN = 0;
+    VdpauDecoders[0] = NULL;
+
     VdpauCleanup(decoder);
 
     VdpauPrintFrames(decoder);
@@ -4477,14 +4490,6 @@ static void VdpauExitOutputQueue(void)
 {
     int i;
 
-    if (VdpauQueue) {
-	VdpauPresentationQueueDestroy(VdpauQueue);
-	VdpauQueue = 0;
-    }
-    if (VdpauQueueTarget) {
-	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
-	VdpauQueueTarget = 0;
-    }
     //
     //	destroy display output surfaces
     //
@@ -4501,6 +4506,14 @@ static void VdpauExitOutputQueue(void)
 	    }
 	    VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
 	}
+    }
+    if (VdpauQueue) {
+	VdpauPresentationQueueDestroy(VdpauQueue);
+	VdpauQueue = 0;
+    }
+    if (VdpauQueueTarget) {
+	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	VdpauQueueTarget = 0;
     }
 }
 
@@ -4915,6 +4928,7 @@ static void VideoVdpauExit(void)
     }
 
     if (VdpauDevice) {
+	xcb_flush(Connection);
 	VdpauExitOutputQueue();
 
 	// FIXME: more VDPAU cleanups...
@@ -6612,6 +6626,8 @@ static void VdpauOsdExit(void)
 ///
 static const VideoModule VdpauModule = {
     .Name = "vdpau",
+    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewDecoder,
+    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelDecoder,
     .Init = VideoVdpauInit,
     .Exit = VideoVdpauExit,
 };
@@ -7157,9 +7173,12 @@ static void VideoThreadExit(void)
 	void *retval;
 
 	Debug(3, "video: video thread canceled\n");
+	VideoThreadLock();
+	// FIXME: can't cancel locked
 	if (pthread_cancel(VideoThread)) {
 	    Error(_("video: can't queue cancel video display thread\n"));
 	}
+	VideoThreadUnlock();
 	if (pthread_join(VideoThread, &retval) || retval != PTHREAD_CANCELED) {
 	    Error(_("video: can't cancel video display thread\n"));
 	}
@@ -7213,20 +7232,22 @@ struct _video_hw_decoder_
 ///
 VideoHwDecoder *VideoNewHwDecoder(void)
 {
-    if (!XlibDisplay) {			// waiting for x11 start
+    if (!XlibDisplay && !VideoUsedModule) {	// waiting for x11 start
 	return NULL;
     }
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	return (VideoHwDecoder *) VaapiNewDecoder();
+    return VideoUsedModule->NewHwDecoder();
+}
+
+///
+///	Destroy a video hw decoder.
+///
+///	@param decoder	video hw decoder
+///
+void VideoDelHwDecoder(VideoHwDecoder * decoder)
+{
+    if (decoder && VideoUsedModule) {
+	VideoUsedModule->DelHwDecoder(decoder);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return (VideoHwDecoder *) VdpauNewDecoder();
-    }
-#endif
-    return NULL;
 }
 
 ///
@@ -7484,12 +7505,12 @@ void VideoDisplayHandler(void)
 int64_t VideoGetClock(void)
 {
 #ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
+    if (VideoVaapiEnabled && VaapiDecoders[0]) {
 	return VaapiGetClock(VaapiDecoders[0]);
     }
 #endif
 #ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
+    if (VideoVdpauEnabled && VdpauDecoders[0]) {
 	return VdpauGetClock(VdpauDecoders[0]);
     }
 #endif
@@ -7535,6 +7556,9 @@ uint8_t *VideoGrab(int *size, int *width, int *height)
     }
 #endif
 #endif
+    (void)size;
+    (void)width;
+    (void)height;
     return NULL;
 }
 
@@ -7733,6 +7757,7 @@ void VideoSetVideoMode( __attribute__ ((unused))
     if (VideoVaapiEnabled && VaapiDecoders[0]) {
 	VaapiDeassociate(VaapiDecoders[0]);
 	VideoOsdExit();
+
 	VideoOsdInit();
 	if (VaapiDecoders[0]->InputWidth && VaapiDecoders[0]->InputHeight) {
 	    VaapiAssociate(VaapiDecoders[0], VaapiDecoders[0]->InputWidth,
@@ -7747,6 +7772,7 @@ void VideoSetVideoMode( __attribute__ ((unused))
     if (VideoVdpauEnabled && VdpauDecoders[0]) {
 	VdpauExitOutputQueue();
 	VideoOsdExit();
+
 	VideoOsdInit();
 	VdpauInitOutputQueue();
 	VdpauUpdateOutput(VdpauDecoders[0]);
@@ -7866,14 +7892,26 @@ void VideoSetAudioDelay(int ms)
 void VideoSetAutoCrop(int interval, int delay)
 {
 #ifdef USE_AUTOCROP
-    int i;
-
     AutoCropInterval = interval;
     AutoCropDelay = delay;
 #ifdef USE_VDPAU
-    for (i = 0; i < VdpauDecoderN; ++i) {
-	VdpauDecoders[i]->AutoCrop->State = 0;
-	VdpauDecoders[i]->AutoCrop->Count = 0;
+    if (VideoVdpauEnabled) {
+	int i;
+
+	for (i = 0; i < VdpauDecoderN; ++i) {
+	    VdpauDecoders[i]->AutoCrop->State = 0;
+	    VdpauDecoders[i]->AutoCrop->Count = 0;
+	}
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoVaapiEnabled) {
+	int i;
+
+	for (i = 0; i < VaapiDecoderN; ++i) {
+	    // FIXME: VaapiDecoders[i]->AutoCrop->State = 0;
+	    // FIXME: VaapiDecoders[i]->AutoCrop->Count = 0;
+	}
     }
 #endif
 #endif
@@ -8035,6 +8073,20 @@ void VideoExit(void)
     //	FIXME: cleanup.
     //
     //RandrExit();
+
+    //
+    //	X11/xcb cleanup
+    //
+    if (VideoWindow != XCB_NONE) {
+	xcb_destroy_window(Connection, VideoWindow);
+	VideoWindow = XCB_NONE;
+    }
+    if (XlibDisplay) {
+	if (XCloseDisplay(XlibDisplay)) {
+	    Error(_("video: error closing display\n"));
+	}
+	XlibDisplay = NULL;
+    }
 }
 
 #endif

@@ -140,6 +140,13 @@ Setup: /etc/vdr/setup.conf
 	if auto-crop is over after 'n' intervals the same, the cropping is
 	used.
 
+	softhddevice.Suspend.Close = 0
+	1 suspend closes x11 window, connection and audio device.
+	(use svdrpsend plug softhddevice RESU to resume, if you have no lirc)
+
+	softhddevice.Suspend.X11 = 0
+	1 suspend stops X11 server (not working yet)
+
 Setup: /etc/vdr/remote.conf
 ------
 
@@ -159,7 +166,7 @@ Setup: /etc/vdr/remote.conf
 Commandline:
 ------------
 
-	Use vdr -h to see the command line arguments support by the plugin.
+	Use vdr -h to see the command line arguments supported by the plugin.
 
     -a audio_device
 
@@ -169,6 +176,12 @@ Commandline:
 			support)
 	other		to use alsa audio module (if compiled with alsa
 			support)
+
+SVDRP:
+------
+
+	Use 'svdrpsend.pl plug softhddevice HELP' to see the SVDRP commands
+	help and which are supported by the plugin.
 
 Running:
 --------

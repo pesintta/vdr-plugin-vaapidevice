@@ -1932,6 +1932,7 @@ static void AudioExitThread(void)
 	}
 	pthread_cond_destroy(&AudioStartCond);
 	pthread_mutex_destroy(&AudioMutex);
+	AudioThread = 0;
     }
 }
 
@@ -2187,6 +2188,7 @@ void AudioExit(void)
 #ifdef USE_AUDIORING
     AudioRingExit();
 #endif
+    AudioRunning = 0;
 }
 
 #ifdef AUDIO_TEST

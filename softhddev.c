@@ -58,8 +58,8 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #endif
 
 static char ConfigFullscreen;		///< fullscreen modus
-static char ConfigSuspendClose = 1;	///< suspend should close devices
-static char ConfigSuspendX11 = 1;	///< suspend should stop x11
+char ConfigSuspendClose;		///< suspend should close devices
+char ConfigSuspendX11;			///< suspend should stop x11
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
@@ -347,7 +347,8 @@ void SetVolumeDevice(int volume)
 #include <alsa/iatomic.h>		// portable atomic_t
 
 uint32_t VideoSwitch;			///< debug video switch ticks
-static volatile char NewVideoStream;	///< new video stream
+static volatile char NewVideoStream;	///< flag new video stream
+static VideoHwDecoder *MyHwDecoder;	///< video hw decoder
 static VideoDecoder *MyVideoDecoder;	///< video decoder
 static enum CodecID VideoCodecID;	///< current codec id
 
@@ -592,14 +593,33 @@ static void StartVideo(void)
     }
     VideoOsdInit();
     if (!MyVideoDecoder) {
-	VideoHwDecoder *hw_decoder;
-
-	if ((hw_decoder = VideoNewHwDecoder())) {
-	    MyVideoDecoder = CodecVideoNewDecoder(hw_decoder);
+	if ((MyHwDecoder = VideoNewHwDecoder())) {
+	    MyVideoDecoder = CodecVideoNewDecoder(MyHwDecoder);
 	}
 	VideoCodecID = CODEC_ID_NONE;
     }
     VideoPacketInit();
+}
+
+/**
+**	Stop video.
+*/
+static void StopVideo(void)
+{
+    VideoOsdExit();
+    VideoExit();
+    if (MyVideoDecoder) {
+	CodecVideoClose(MyVideoDecoder);
+	CodecVideoDelDecoder(MyVideoDecoder);
+	MyVideoDecoder = NULL;
+    }
+    if (MyHwDecoder) {
+	// done by exit: VideoDelHwDecoder(MyHwDecoder);
+	MyHwDecoder = NULL;
+    }
+    VideoPacketExit();
+
+    NewVideoStream = 0;
 }
 
 #ifdef DEBUG
@@ -1152,20 +1172,15 @@ void SoftHdDeviceExit(void)
 {
     // lets hope that vdr does a good thread cleanup
 
-    VideoOsdExit();
-    VideoExit();
     AudioExit();
-
-    if (MyVideoDecoder) {
-	CodecVideoClose(MyVideoDecoder);
-	CodecVideoDelDecoder(MyVideoDecoder);
-	MyVideoDecoder = NULL;
-    }
     if (MyAudioDecoder) {
 	CodecAudioClose(MyAudioDecoder);
 	CodecAudioDelDecoder(MyAudioDecoder);
 	MyAudioDecoder = NULL;
     }
+    NewAudioStream = 0;
+
+    StopVideo();
 
     CodecExit();
     VideoPacketExit();
@@ -1242,9 +1257,17 @@ void Suspend(void)
 
     if (ConfigSuspendClose) {
 	pthread_mutex_lock(&SuspendLockMutex);
-	// FIXME: close audio
 
-	// FIXME: close video
+	AudioExit();
+	if (MyAudioDecoder) {
+	    CodecAudioClose(MyAudioDecoder);
+	    CodecAudioDelDecoder(MyAudioDecoder);
+	    MyAudioDecoder = NULL;
+	}
+	NewAudioStream = 0;
+
+	StopVideo();
+
 	pthread_mutex_unlock(&SuspendLockMutex);
     }
     if (ConfigSuspendX11) {
@@ -1267,6 +1290,10 @@ void Resume(void)
     }
     if (ConfigSuspendClose) {
 	pthread_mutex_lock(&SuspendLockMutex);
+
+	StartVideo();
+	AudioInit();
+
 	pthread_mutex_unlock(&SuspendLockMutex);
     }
 
