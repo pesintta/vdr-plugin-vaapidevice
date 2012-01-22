@@ -31,11 +31,13 @@ video:
     subtitle not cleared
     subtitle could be asyncron
     reduce warnings after channel switch
+    grab image with scaling support
+    suspendoutput didn't show logo or black pictures
+	(must detect video format to show image)
 
 vdpau:
     VdpPreemptionCallback handling (under construction)
     hard channel switch
-    suspendoutput didn't show logo or black picture.
 
 libva:
     hard channel switch

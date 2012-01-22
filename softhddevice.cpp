@@ -716,7 +716,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 
 int64_t cSoftHdDevice::GetSTC(void)
 {
-    // dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     return::VideoGetClock();
 }
@@ -798,7 +798,7 @@ void cSoftHdDevice::StillPicture(const uchar * data, int length)
 bool cSoftHdDevice::Poll(
     __attribute__ ((unused)) cPoller & poller, int timeout_ms)
 {
-    // dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
+    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
 
     return::Poll(timeout_ms);
 }
@@ -1074,13 +1074,14 @@ const char *cPluginSoftHdDevice::MainMenuEntry(void)
 */
 cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     //MyDevice->StopReplay();
     cControl::Launch(new cSoftHdControl);
     cControl::Attach();
     Suspend();
     if (ShutdownHandler.GetUserInactiveTime()) {
+	dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
 	ShutdownHandler.SetUserInactive();
     }
 

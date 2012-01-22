@@ -5331,6 +5331,9 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     Debug(3, "video/vdpau: grab %dx%d format %d\n", width, height,
 	rgba_format);
 
+    // FIXME: scale surface to requested size with
+    //		VdpauOutputSurfaceRenderOutputSurface
+
     switch (rgba_format) {
 	case VDP_RGBA_FORMAT_B8G8R8A8:
 	case VDP_RGBA_FORMAT_R8G8B8A8:

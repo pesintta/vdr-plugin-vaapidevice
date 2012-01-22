@@ -40,6 +40,9 @@ typedef struct _audio_decoder_ AudioDecoder;
     /// Allocate a new video decoder context.
 extern VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder *);
 
+    /// Deallocate a video decoder context.
+extern void CodecVideoDelDecoder(VideoDecoder *);
+
     /// Open video codec.
 extern void CodecVideoOpen(VideoDecoder *, const char *, int);
 
@@ -54,6 +57,9 @@ extern void CodecVideoFlushBuffers(VideoDecoder *);
 
     /// Allocate a new audio decoder context.
 extern AudioDecoder *CodecAudioNewDecoder(void);
+
+    /// Deallocate an audio decoder context.
+extern void CodecAudioDelDecoder(AudioDecoder *);
 
     /// Open audio codec.
 extern void CodecAudioOpen(AudioDecoder *, const char *, int);
