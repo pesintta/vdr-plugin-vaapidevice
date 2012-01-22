@@ -504,6 +504,81 @@ void cMenuSetupSoft::Store(void)
 }
 
 //////////////////////////////////////////////////////////////////////////////
+//	cPlayer
+//////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Dummy player for suspend mode.
+*/
+class cSoftHdPlayer:public cPlayer
+{
+  protected:
+  public:
+    cSoftHdPlayer(void);
+    virtual ~ cSoftHdPlayer();
+};
+
+cSoftHdPlayer::cSoftHdPlayer(void)
+{
+}
+
+cSoftHdPlayer::~cSoftHdPlayer()
+{
+    Detach();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//	cControl
+//////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Dummy control for suspend mode.
+*/
+class cSoftHdControl:public cControl
+{
+  private:
+    cSoftHdPlayer * Player;
+  public:
+    virtual void Hide(void)
+    {
+    }
+    virtual eOSState ProcessKey(eKeys);
+
+    cSoftHdControl(void);
+
+    virtual ~ cSoftHdControl();
+};
+
+eOSState cSoftHdControl::ProcessKey(eKeys key)
+{
+    if (!ISMODELESSKEY(key) || key == kBack || key == kStop) {
+	if (Player) {
+	    delete Player;
+
+	    Player = NULL;
+	    Resume();
+	}
+	return osEnd;
+    }
+    return osContinue;
+}
+
+cSoftHdControl::cSoftHdControl(void)
+:  cControl(Player = new cSoftHdPlayer)
+{
+}
+
+cSoftHdControl::~cSoftHdControl()
+{
+    if (Player) {
+	delete Player;
+
+	Player = NULL;
+    }
+    Resume();
+}
+
+//////////////////////////////////////////////////////////////////////////////
 //	cDevice
 //////////////////////////////////////////////////////////////////////////////
 
@@ -511,7 +586,7 @@ class cSoftHdDevice:public cDevice
 {
   public:
     cSoftHdDevice(void);
-    virtual ~ cSoftHdDevice(void);
+     virtual ~ cSoftHdDevice(void);
 
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
@@ -547,13 +622,13 @@ class cSoftHdDevice:public cDevice
 #if 0
 // SPU facilities
   private:
-    cDvbSpuDecoder * spuDecoder;
+     cDvbSpuDecoder * spuDecoder;
   public:
-    virtual cSpuDecoder * GetSpuDecoder(void);
+     virtual cSpuDecoder * GetSpuDecoder(void);
 #endif
 
   protected:
-    virtual void MakePrimaryDevice(bool);
+     virtual void MakePrimaryDevice(bool);
 };
 
 cSoftHdDevice::cSoftHdDevice(void)
@@ -604,16 +679,22 @@ bool cSoftHdDevice::HasDecoder(void) const
     return true;
 }
 
+/**
+**	Returns true if this device can currently start a replay session.
+*/
 bool cSoftHdDevice::CanReplay(void) const
 {
     return true;
 }
 
-bool cSoftHdDevice::SetPlayMode(ePlayMode PlayMode)
+/**
+**	 Sets the device into the given play mode.
+*/
+bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, PlayMode);
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, play_mode);
 
-    switch (PlayMode) {
+    switch (play_mode) {
 	case pmAudioVideo:
 	    break;
 	case pmAudioOnly:
@@ -626,7 +707,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    break;
 	default:
-	    dsyslog("[softhddev]playmode not implemented... %d\n", PlayMode);
+	    dsyslog("[softhddev]playmode not implemented... %d\n", play_mode);
 	    break;
     }
     ::SetPlayMode();
@@ -867,7 +948,7 @@ class cPluginSoftHdDevice:public cPlugin
     virtual bool Initialize(void);
     virtual bool Start(void);
     virtual void Stop(void);
-//    virtual void Housekeeping(void);
+    // virtual void Housekeeping(void);
     virtual void MainThreadHook(void);
     virtual const char *MainMenuEntry(void);
     virtual cOsdObject *MainMenuAction(void);
@@ -966,9 +1047,14 @@ void cPluginSoftHdDevice::Stop(void)
 
 #if 0
 
+/**
+**	Perform any cleanup or other regular tasks.
+*/
 void cPluginSoftHdDevice::Housekeeping(void)
 {
-    // Perform any cleanup or other regular tasks.
+    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+
+    // ::Housekeeping();
 }
 
 #endif
@@ -990,7 +1076,9 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    cDevice::PrimaryDevice()->StopReplay();
+    //MyDevice->StopReplay();
+    cControl::Launch(new cSoftHdControl);
+    cControl::Attach();
     Suspend();
     if (ShutdownHandler.GetUserInactiveTime()) {
 	ShutdownHandler.SetUserInactive();
@@ -1139,6 +1227,8 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
     static const char *text[] = {
 	"SUSP\n",
 	"    Suspend plugin",
+	"RESU\n",
+	"    Resume plugin",
 	NULL
     };
 
@@ -1153,8 +1243,15 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     __attribute__ ((unused)) int &reply_code)
 {
     if (!strcasecmp(command, "SUSP")) {
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
 	Suspend();
 	return "SoftHdDevice is suspended";
+    }
+    if (!strcasecmp(command, "RESU")) {
+	Resume();
+	cControl::Shutdown();
+	return "SoftHdDevice is resumed";
     }
     return NULL;
 }

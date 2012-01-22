@@ -1,6 +1,7 @@
 User johns
 Data:
 
+    Add dummy player and control for suspend mode.
     Buffertime compile time configurable in ms.
 
 Date: Sat Jan 21 15:49:16 CET 2012

@@ -887,6 +887,12 @@ void StillPicture(const uint8_t * data, int size)
 	Error(_("[softhddev] invalid PES video packet\n"));
 	return;
     }
+    if (VideoCodecID == CODEC_ID_NONE) {
+	// FIXME: should detect codec, see PlayVideo
+	Error(_("[softhddev] no codec known for still picture\n"));
+	return;
+    }
+
     Clear();				// flush video buffers
     // +1 future for deinterlace
     for (i = -1; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
@@ -1233,6 +1239,7 @@ void Suspend(void)
     if (ConfigSuspendClose) {
 	pthread_mutex_lock(&SuspendLockMutex);
 	// FIXME: close audio
+
 	// FIXME: close video
 	pthread_mutex_unlock(&SuspendLockMutex);
     }
