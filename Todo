@@ -43,7 +43,7 @@ libva:
     hard channel switch
     yaepghd (VaapiSetOutputPosition) support
     can associate ony displayed part of osd
-    auto crop for va-api
+    ready(not intel checked) auto crop for va-api
     grab image for va-api
 
 libva: branch vaapi-ext
@@ -58,8 +58,10 @@ libva-vdpau-driver:
     G210/GT520 OSD update too slow (needs hardware problem workaround)
     hangup on exit (VaapiDelDecoder -> VaapiCleanup
 	-> vaDestroyContext -> pthread_rwlock_wrlock)
+    with auto-crop OSD has wrong position
 
 libva-xvba-driver:
+    with auto-crop OSD has wrong position
 
 x11:
     disable screensaver

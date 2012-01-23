@@ -37,7 +37,7 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
-#define USE_AUTOCROP			///< compile autocrop support
+#define USE_AUTOCROP			///< compile auto-crop support
 #define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
 #define noUSE_DOUBLEBUFFER		///< use GLX double buffers
@@ -840,7 +840,7 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
 //----------------------------------------------------------------------------
 
 ///
-///	Autocrop context structure and typedef.
+///	auto-crop context structure and typedef.
 ///
 typedef struct _auto_crop_ctx_
 {
@@ -850,7 +850,7 @@ typedef struct _auto_crop_ctx_
     int Y2;				///< detected bottom border
 
     int Count;				///< counter to delay switch
-    int State;				///< autocrop state (0, 14, 16)
+    int State;				///< auto-crop state (0, 14, 16)
 
 } AutoCropCtx;
 
@@ -860,10 +860,10 @@ typedef struct _auto_crop_ctx_
 #define UVBLACK 0x80			///< around is black
 #define M64 UINT64_C(0x0101010101010101)	///< 64bit multiplicator
 
-    /// percent of width to ignore logos
+    /// auto-crop percent of video width to ignore logos
 static const int AutoCropLogoIgnore = 24;
-static int AutoCropInterval;		///< check interval
-static int AutoCropDelay;		///< switch delay
+static int AutoCropInterval;		///< auto-crop check interval
+static int AutoCropDelay;		///< auto-crop switch delay
 
 ///
 ///	Detect black line Y.
@@ -903,7 +903,7 @@ static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
 ///
 ///	Auto detect black borders and crop them.
 ///
-///	@param autocrop autocrop variables
+///	@param autocrop auto-crop variables
 ///	@param width	frame width in pixel
 ///	@param height	frame height in pixel
 ///	@param data	frame planes data (Y, U, V)
@@ -1080,7 +1080,9 @@ struct _vaapi_decoder_
     int CropY;				///< video crop y
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
-
+#ifdef USE_AUTOCROP
+    AutoCropCtx AutoCrop[1];		///< auto-crop variables
+#endif
 #ifdef USE_GLX
     GLuint GlTexture[2];		///< gl texture for VA-API
     void *GlxSurface[2];		///< VA-API/GLX surface
@@ -1164,6 +1166,7 @@ static void VaapiAssociate(VaapiDecoder * decoder, int width, int height)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
     } else {
+	// FIXME: auto-crop wrong position
 	if (decoder->SurfaceFreeN
 	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
 		decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w, h, 0, 0,
@@ -1758,8 +1761,8 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
     Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
 	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
 
-    //decoder->AutoCrop->State = 0;
-    //decoder->AutoCrop->Count = 0;
+    decoder->AutoCrop->State = 0;
+    decoder->AutoCrop->Count = 0;
 }
 
 ///
@@ -1984,6 +1987,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     decoder->CropWidth = video_ctx->width;
     decoder->CropHeight = video_ctx->height;
 
+    decoder->PixFmt = video_ctx->pix_fmt;
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -2263,6 +2267,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
     }
 
     Fatal("video/vaapi: pixel format %d unsupported by VA-API\n", pix_fmt);
+    // FIXME: no fatal error!
 
     return 0;
 }
@@ -2296,9 +2301,10 @@ static void VaapiSetup(VaapiDecoder * decoder,
     }
     VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
 
+    // FIXME: this image is only needed for software decoder and auto-crop
     if (vaCreateImage(VaDisplay, format, width, height,
 	    decoder->Image) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't create image!\n");
+	Error(_("video/vaapi: can't create image!\n"));
     }
     Debug(3,
 	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
@@ -2330,6 +2336,203 @@ static void VaapiSetup(VaapiDecoder * decoder,
     }
 #endif
 }
+
+#ifdef USE_AUTOCROP
+
+///
+///	VA-API auto-crop support.
+///
+///	@param decoder	VA-API hw decoder
+///
+static void VaapiAutoCrop(VaapiDecoder * decoder)
+{
+    VASurfaceID surface;
+    uint32_t width;
+    uint32_t height;
+    void *va_image_data;
+    void *data[3];
+    uint32_t pitches[3];
+    int crop14;
+    int crop16;
+    int next_state;
+    int i;
+
+    width = decoder->InputWidth;
+    height = decoder->InputHeight;
+
+    if (decoder->Image->image_id == VA_INVALID_ID) {
+	VAImageFormat format[1];
+
+	Debug(3, "video/vaapi: download image not available\n");
+
+	// FIXME: PixFmt not set!
+	//VaapiFindImageFormat(decoder, decoder->PixFmt, format);
+	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	//VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+	if (vaCreateImage(VaDisplay, format, width, height,
+		decoder->Image) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create image!\n"));
+	    return;
+	}
+    }
+    // no problem to go back, we just wrote it
+    // FIXME: we can pass the surface through.
+    surface =
+	decoder->SurfacesRb[(decoder->SurfaceWrite + VIDEO_SURFACES_MAX -
+	    1) % VIDEO_SURFACES_MAX];
+
+    //	Copy data from frame to image
+    if ((i = vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
+		decoder->InputHeight,
+		decoder->Image->image_id)) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't get auto-crop image %d\n"), i);
+	printf(_("video/vaapi: can't get auto-crop image %d\n"), i);
+	return;
+    }
+    if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data)
+	!= VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't map auto-crop image!\n"));
+	return;
+    }
+    // convert vaapi to our frame format
+    for (i = 0; (unsigned)i < decoder->Image->num_planes; ++i) {
+	data[i] = va_image_data + decoder->Image->offsets[i];
+	pitches[i] = decoder->Image->pitches[i];
+    }
+
+    AutoCropDetect(decoder->AutoCrop, width, height, data, pitches);
+
+    if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't unmap auto-crop image!\n"));
+    }
+    // FIXME: this a copy of vdpau, combine the two same things
+
+    // ignore black frames
+    if (decoder->AutoCrop->Y1 >= decoder->AutoCrop->Y2) {
+	return;
+    }
+
+    crop14 =
+	(decoder->InputWidth * decoder->InputAspect.num * 9) /
+	(decoder->InputAspect.den * 14);
+    crop14 = (decoder->InputHeight - crop14) / 2;
+    crop16 =
+	(decoder->InputWidth * decoder->InputAspect.num * 9) /
+	(decoder->InputAspect.den * 16);
+    crop16 = (decoder->InputHeight - crop16) / 2;
+
+    // -2 for rounding errors
+    if (decoder->AutoCrop->Y1 >= crop16 - 2
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop16 - 2) {
+	next_state = 16;
+    } else if (decoder->AutoCrop->Y1 >= crop14 - 2
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop14 - 2) {
+	next_state = 14;
+    } else {
+	next_state = 0;
+    }
+
+    if (decoder->AutoCrop->State == next_state) {
+	return;
+    }
+
+    Debug(3, "video: crop aspect %d:%d %d/%d %d+%d\n",
+	decoder->InputAspect.num, decoder->InputAspect.den, crop14, crop16,
+	decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
+
+    Debug(3, "video: crop aspect %d -> %d\n", decoder->AutoCrop->State,
+	next_state);
+
+    switch (decoder->AutoCrop->State) {
+	case 16:
+	case 14:
+	    if (decoder->AutoCrop->Count++ < AutoCropDelay / 2) {
+		return;
+	    }
+	    break;
+	case 0:
+	    if (decoder->AutoCrop->Count++ < AutoCropDelay) {
+		return;
+	    }
+	    break;
+    }
+
+    decoder->AutoCrop->Count = 0;
+    decoder->AutoCrop->State = next_state;
+
+    if (next_state) {
+	decoder->CropX = 0;
+	decoder->CropY = next_state == 16 ? crop16 : crop14;
+	decoder->CropWidth = decoder->InputWidth;
+	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
+
+	// FIXME: this overwrites user choosen output position
+	// FIXME: resize kills the auto crop values
+	decoder->OutputX = 0;
+	decoder->OutputY = 0;
+	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
+	decoder->OutputHeight = (VideoWindowWidth * 9) / next_state;
+	if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
+	    decoder->OutputWidth = VideoWindowWidth;
+	    decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
+	} else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
+	    decoder->OutputHeight = VideoWindowHeight;
+	    decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
+	}
+	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
+	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
+	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
+    } else {
+	decoder->CropX = 0;
+	decoder->CropY = 0;
+	decoder->CropWidth = decoder->InputWidth;
+	decoder->CropHeight = decoder->InputHeight;
+
+	VaapiUpdateOutput(decoder);
+    }
+}
+
+///
+///	VA-API check if auto-crop todo.
+///
+///	@param decoder	VA-API hw decoder
+///
+///	@note a copy of VdpauCheckAutoCrop
+///
+static void VaapiCheckAutoCrop(VaapiDecoder * decoder)
+{
+    // reduce load, check only n frames
+    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
+	AVRational display_aspect_ratio;
+
+	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	    decoder->InputWidth * decoder->InputAspect.num,
+	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
+
+	// only 4:3 with 16:9/14:9 inside supported
+	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	    VaapiAutoCrop(decoder);
+	} else {
+	    decoder->AutoCrop->Count = 0;
+	    decoder->AutoCrop->State = 0;
+	}
+    }
+}
+
+///
+///	VA-API reset auto-crop.
+///
+static void VaapiResetAutoCrop(void)
+{
+    int i;
+
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	VaapiDecoders[i]->AutoCrop->State = 0;
+	VaapiDecoders[i]->AutoCrop->Count = 0;
+    }
+}
+
+#endif
 
 ///
 ///	Queue output surface.
@@ -2419,6 +2622,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 		Error(_("video/vaapi: can't associate subpicture\n"));
 	    }
 	} else {
+	    // FIXME: auto-crop wrong position
 	    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, &surface, 1,
 		    0, 0, VaOsdImage.width, VaOsdImage.height, 0, 0,
 		    decoder->InputWidth, decoder->InputHeight, 0)
@@ -3066,12 +3270,12 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    || width != decoder->InputWidth
 	    || height != decoder->InputHeight) {
 
-	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->CropX = 0;
 	    decoder->CropY = 0;
 	    decoder->CropWidth = video_ctx->width;
 	    decoder->CropHeight = video_ctx->height;
 
+	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->InputWidth = width;
 	    decoder->InputHeight = height;
 
@@ -3092,6 +3296,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    // FIXME: I hope this didn't change in the middle of the stream
 	}
 	// FIXME: Need to insert software deinterlace here
+	// FIXME: can insert auto-crop here
 
 	//
 	//	Copy data from frame to image
@@ -3393,6 +3598,9 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     }
 
     VaapiRenderFrame(decoder, video_ctx, frame);
+#ifdef USE_AUTOCROP
+    VaapiCheckAutoCrop(decoder);
+#endif
 }
 
 #if 0
@@ -3766,8 +3974,9 @@ typedef struct _vdpau_decoder_
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
 
-    AutoCropCtx AutoCrop[1];		///< autocrop variables
-
+#ifdef USE_AUTOCROP
+    AutoCropCtx AutoCrop[1];		///< auto-crop variables
+#endif
 #ifdef noyetUSE_GLX
     GLuint GlTexture[2];		///< gl texture for VDPAU
     void *GlxSurface[2];		///< VDPAU/GLX surface
@@ -5174,6 +5383,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->CropWidth = video_ctx->width;
     decoder->CropHeight = video_ctx->height;
 
+    decoder->PixFmt = video_ctx->pix_fmt;
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -5398,7 +5608,7 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
 #ifdef USE_AUTOCROP
 
 ///
-///	VDPAU Auto crop support.
+///	VDPAU auto-crop support.
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
@@ -5544,6 +5754,46 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	decoder->CropHeight = decoder->InputHeight;
 
 	VdpauUpdateOutput(decoder);
+    }
+}
+
+///
+///	VDPAU check if auto-crop todo.
+///
+///	@param decoder	VDPAU hw decoder
+///
+///	@note a copy of VaapiCheckAutoCrop
+///
+static void VdpauCheckAutoCrop(VdpauDecoder * decoder)
+{
+    // reduce load, check only n frames
+    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
+	AVRational display_aspect_ratio;
+
+	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	    decoder->InputWidth * decoder->InputAspect.num,
+	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
+
+	// only 4:3 with 16:9/14:9 inside supported
+	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	    VdpauAutoCrop(decoder);
+	} else {
+	    decoder->AutoCrop->Count = 0;
+	    decoder->AutoCrop->State = 0;
+	}
+    }
+}
+
+///
+///	VDPAU reset auto-crop.
+///
+static void VdpauResetAutoCrop(void)
+{
+    int i;
+
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	VdpauDecoders[i]->AutoCrop->State = 0;
+	VdpauDecoders[i]->AutoCrop->Count = 0;
     }
 }
 
@@ -5709,12 +5959,12 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    || video_ctx->width != decoder->InputWidth
 	    || video_ctx->height != decoder->InputHeight) {
 
-	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->CropX = 0;
 	    decoder->CropY = 0;
 	    decoder->CropWidth = video_ctx->width;
 	    decoder->CropHeight = video_ctx->height;
 
+	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->InputWidth = video_ctx->width;
 	    decoder->InputHeight = video_ctx->height;
 
@@ -5873,6 +6123,11 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     VdpRect dst_video_rect;
     VdpStatus status;
 
+#ifdef USE_AUTOCROP
+    // FIXME: can move to render frame
+    VdpauCheckAutoCrop(decoder);
+#endif
+
     dst_rect.x0 = 0;			// window output (clip)
     dst_rect.y0 = 0;
     dst_rect.x1 = VideoWindowWidth;
@@ -5887,25 +6142,6 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     dst_video_rect.y0 = decoder->OutputY;
     dst_video_rect.x1 = decoder->OutputX + decoder->OutputWidth;
     dst_video_rect.y1 = decoder->OutputY + decoder->OutputHeight;
-
-#ifdef USE_AUTOCROP
-    // reduce load, check only n frames
-    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
-	AVRational display_aspect_ratio;
-
-	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-	    decoder->InputWidth * decoder->InputAspect.num,
-	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
-
-	// only 4:3 with 16:9/14:9 inside supported
-	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
-	    VdpauAutoCrop(decoder);
-	} else {
-	    decoder->AutoCrop->Count = 0;
-	    decoder->AutoCrop->State = 0;
-	}
-    }
-#endif
 
     if (decoder->Interlaced
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
@@ -7896,22 +8132,12 @@ void VideoSetAutoCrop(int interval, int delay)
     AutoCropDelay = delay;
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
-	int i;
-
-	for (i = 0; i < VdpauDecoderN; ++i) {
-	    VdpauDecoders[i]->AutoCrop->State = 0;
-	    VdpauDecoders[i]->AutoCrop->Count = 0;
-	}
+	VdpauResetAutoCrop();
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	int i;
-
-	for (i = 0; i < VaapiDecoderN; ++i) {
-	    // FIXME: VaapiDecoders[i]->AutoCrop->State = 0;
-	    // FIXME: VaapiDecoders[i]->AutoCrop->Count = 0;
-	}
+	VaapiResetAutoCrop();
     }
 #endif
 #endif

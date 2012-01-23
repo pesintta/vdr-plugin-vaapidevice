@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    VA-API: Add auto-crop support.
     Suspend can close/open X11 window, connection and audio device.
 
 User Morone

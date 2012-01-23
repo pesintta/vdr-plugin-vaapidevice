@@ -357,10 +357,9 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 
     Debug(3, "codec: using codec %s or ID %#04x\n", name, codec_id);
 
-    if ( decoder->VideoCtx ) {
+    if (decoder->VideoCtx) {
 	Error(_("codec: missing close\n"));
     }
-
     //
     //	ffmpeg compatibility hack
     //
