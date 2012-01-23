@@ -4564,6 +4564,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
     int i;
 
     if (decoder->VideoDecoder != VDP_INVALID_HANDLE) {
+	// hangs in lock
 	status = VdpauDecoderDestroy(decoder->VideoDecoder);
 	if (status != VDP_STATUS_OK) {
 	    Error(_("video/vdpau: can't destroy video decoder: %s\n"),
@@ -5137,7 +5138,6 @@ static void VideoVdpauExit(void)
     }
 
     if (VdpauDevice) {
-	xcb_flush(Connection);
 	VdpauExitOutputQueue();
 
 	// FIXME: more VDPAU cleanups...
@@ -7360,6 +7360,12 @@ static void *VideoDisplayHandlerThread(void *dummy)
 #endif
 
     for (;;) {
+	/* other way to try to fix dead-lock with VdpauExit
+	   pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	   pthread_testcancel();
+	   pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+	 */
+
 	VideoPollEvent();
 
 #ifdef USE_VAAPI
@@ -8231,7 +8237,7 @@ void VideoInit(const char *display_name)
 	Fatal(_("video: Can't connect to X11 server on '%s'"), display_name);
 	// FIXME: we need to retry connection
     }
-    XInitThreads();
+    // XInitThreads();
     // Convert XLIB display to XCB connection
     if (!(Connection = XGetXCBConnection(XlibDisplay))) {
 	Fatal(_("video: Can't convert XLIB display to XCB connection"));
@@ -8338,6 +8344,9 @@ void VideoExit(void)
     }
 #ifdef USE_VIDEO_THREAD
     VideoThreadExit();
+    // VDPAU cleanup hangs in XLockDisplay every 100 exits
+    // XUnlockDisplay(XlibDisplay);
+    // xcb_flush(Connection);
 #endif
     if (VideoUsedModule) {
 	VideoUsedModule->Exit();

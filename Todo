@@ -34,6 +34,7 @@ video:
     grab image with scaling support
     suspendoutput didn't show logo or black pictures
 	(must detect video format to show image)
+    first OSD can show random chaos
 
 vdpau:
     VdpPreemptionCallback handling (under construction)
