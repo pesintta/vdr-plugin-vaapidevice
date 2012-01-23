@@ -1442,25 +1442,41 @@ static void OssThreadFlushBuffers(void)
 //----------------------------------------------------------------------------
 
 /**
+**	Open OSS pcm device.
+**
+**	@param use_ac3	use ac3/pass-through device
+*/
+static int OssOpenPCM(int use_ac3)
+{
+    const char *device;
+    int fildes;
+
+    // &&|| hell
+    if (!(use_ac3 && ((device = AudioAC3Device)
+		|| (device = getenv("OSS_AC3_AUDIODEV"))))
+	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
+	device = "/dev/dsp";
+    }
+    Debug(3, "audio/oss: &&|| hell '%s'\n", device);
+
+    if ((fildes = open(device, O_WRONLY)) < 0) {
+	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
+	    strerror(errno));
+	return -1;
+    }
+    return fildes;
+}
+
+/**
 **	Initialize OSS pcm device.
 **
 **	@see AudioPCMDevice
 */
 static void OssInitPCM(void)
 {
-    const char *device;
     int fildes;
 
-    if (!(device = AudioPCMDevice)) {
-	if (!(device = getenv("OSS_AUDIODEV"))) {
-	    device = "/dev/dsp";
-	}
-    }
-    if ((fildes = open(device, O_WRONLY)) < 0) {
-	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
-	    strerror(errno));
-	return;
-    }
+    fildes = OssOpenPCM(0);
 
     OssPcmFildes = fildes;
 }
@@ -1601,8 +1617,7 @@ static uint64_t OssGetDelay(void)
 **
 **	@todo audio changes must be queued and done when the buffer is empty
 */
-static int OssSetup(int *freq, int *channels, __attribute__ ((unused))
-    int use_ac3)
+static int OssSetup(int *freq, int *channels, int use_ac3)
 {
     int ret;
     int tmp;
@@ -1612,6 +1627,18 @@ static int OssSetup(int *freq, int *channels, __attribute__ ((unused))
     }
     // flush any buffered data
     AudioFlushBuffers();
+
+    if (1) {				// close+open for pcm / ac3
+	int fildes;
+
+	fildes = OssPcmFildes;
+	OssPcmFildes = -1;
+	close(fildes);
+	if (!(fildes = OssOpenPCM(use_ac3))) {
+	    return -1;
+	}
+	OssPcmFildes = fildes;
+    }
 
     ret = 0;
 
@@ -1701,8 +1728,6 @@ static int OssSetup(int *freq, int *channels, __attribute__ ((unused))
 
 /**
 **	Initialize OSS audio output module.
-**
-**	@param use_ac3	use ac3/pass-through device
 */
 static void OssInit(void)
 {

@@ -88,6 +88,8 @@ Setup:	environment
     only if oss is configured
 	OSS_AUDIODEV=/dev/dsp
 		oss dsp device name
+	OSS_AC3_AUDIODEV=
+		oss AC3/pass-though device name
 	OSS_MIXERDEV=/dev/mixer
 		oss mixer device name
 	OSS_MIXER_CHANNEL=pcm
