@@ -45,6 +45,9 @@ libva:
     can associate ony displayed part of osd
     ready(not intel checked) auto crop for va-api
     grab image for va-api
+    still many:
+    [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
+    [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
 
 libva: branch vaapi-ext
     add support for vaapi-ext

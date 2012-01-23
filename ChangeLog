@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    VDPAU: Add very primitive software scaler for grab image.
     VA-API: Add auto-crop support.
     Suspend can close/open X11 window, connection and audio device.
 

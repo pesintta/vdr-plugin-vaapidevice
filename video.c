@@ -7768,8 +7768,66 @@ uint8_t *VideoGrab(int *size, int *width, int *height)
 	char buf[64];
 	int i;
 	int n;
+	int scale_width;
+	int scale_height;
+	int x;
+	int y;
+	double src_x;
+	double src_y;
+	double scale_x;
+	double scale_y;
 
+	scale_width = *width;
+	scale_height = *height;
 	data = VdpauGrabOutputSurface(size, width, height);
+
+#if 1
+	if (scale_width <= 0) {
+	    scale_width = *width;
+	}
+	if (scale_height <= 0) {
+	    scale_height = *height;
+	}
+
+	n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", scale_width,
+	    scale_height);
+	rgb = malloc(scale_width * scale_height * 3 + n);
+	if (!rgb) {
+	    Error(_("video: out of memory\n"));
+	    free(data);
+	    return NULL;
+	}
+	*size = scale_width * scale_height * 3 + n;
+	memcpy(rgb, buf, n);		// header
+
+	scale_x = (double)*width / scale_width;
+	scale_y = (double)*height / scale_height;
+
+	src_y = 0.0;
+	for (y = 0; y < scale_height; y++) {
+	    int o;
+
+	    src_x = 0.0;
+	    o = (int)src_y **width;
+
+	    for (x = 0; x < scale_width; x++) {
+		i = 4 * (o + (int)src_x);
+
+		rgb[n + (x + y * scale_width) * 3 + 0] = data[i + 2];
+		rgb[n + (x + y * scale_width) * 3 + 1] = data[i + 1];
+		rgb[n + (x + y * scale_width) * 3 + 2] = data[i + 0];
+
+		src_x += scale_x;
+	    }
+
+	    src_y += scale_y;
+	}
+
+	*width = scale_width;
+	*height = scale_height;
+
+	free(data);
+#else
 	n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width, *height);
 	rgb = malloc(*width * *height * 3 + n);
 	if (!rgb) {
@@ -7787,6 +7845,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height)
 
 	free(data);
 	*size = *width * *height * 3 + n;
+#endif
 
 	return rgb;
     }
