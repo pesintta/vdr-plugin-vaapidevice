@@ -201,11 +201,17 @@ typedef struct _video_module_
 {
     const char *Name;			///< video output module name
 
-    void (*const Thread) (void);	///< module thread handler
-
     /// allocate new video hw decoder
     VideoHwDecoder *(*const NewHwDecoder)(void);
     void (*const DelHwDecoder) (VideoHwDecoder *);
+
+    void (*const Thread) (void);	///< module display handler thread
+
+    void (*const OsdClear) (void);	///< clear OSD
+    void (*const OsdDrawARGB) (int, int, int, int, const uint8_t *);
+    ///< draw OSD ARGB area
+    void (*const OsdInit) (int, int);	///< initialize OSD
+    void (*const OsdExit) (void);	///< cleanup OSD
 
     void (*const Init) (const char *);	///< initialize video output module
     void (*const Exit) (void);		///< cleanup video output module
@@ -1606,7 +1612,7 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
 ///
 ///	@param display_name	x11/xcb display name
 ///
-static void VideoVaapiInit(const char *display_name)
+static void VaapiInit(const char *display_name)
 {
     int major;
     int minor;
@@ -1678,7 +1684,7 @@ static void VideoVaapiInit(const char *display_name)
 ///
 ///	VA-API cleanup
 ///
-static void VideoVaapiExit(void)
+static void VaapiExit(void)
 {
     int i;
 
@@ -3777,7 +3783,7 @@ static void VaapiOsdClear(void)
 ///
 ///	@note looked by caller
 ///
-static void VaapiUploadImage(int x, int y, int width, int height,
+static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
     uint32_t start;
@@ -3884,7 +3890,6 @@ static void VaapiOsdInit(int width, int height)
     //VaapiUnscaledOsd = 0;
     //Info(_("video/vaapi: unscaled osd disabled\n"));
 
-    // FIXME: lock
     if (vaCreateImage(VaDisplay, &formats[u], width, height,
 	    &VaOsdImage) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't create osd image\n"));
@@ -3903,8 +3908,6 @@ static void VaapiOsdInit(int width, int height)
 	return;
     }
     // FIXME: must store format, to convert ARGB to it.
-
-    // FIXME: unlock
 }
 
 ///
@@ -3921,7 +3924,12 @@ static void VaapiOsdExit(void)
     }
 
     if (VaOsdSubpicture != VA_INVALID_ID) {
-	// FIXME: still has 35 surfaces associated to it
+	int i;
+
+	for (i = 0; i < VaapiDecoderN; ++i) {
+	    VaapiDeassociate(VaapiDecoders[i]);
+	}
+
 	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy subpicture\n"));
@@ -3937,8 +3945,13 @@ static const VideoModule VaapiModule = {
     .Name = "va-api",
     .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelDecoder,
-    .Init = VideoVaapiInit,
-    .Exit = VideoVaapiExit,
+    .Thread = VaapiDisplayHandlerThread,
+    .OsdClear = VaapiOsdClear,
+    .OsdDrawARGB = VaapiOsdDrawARGB,
+    .OsdInit = VaapiOsdInit,
+    .OsdExit = VaapiOsdExit,
+    .Init = VaapiInit,
+    .Exit = VaapiExit,
 };
 
 #endif
@@ -4735,7 +4748,7 @@ static void VdpauExitOutputQueue(void)
 ///
 ///	@param display_name	x11/xcb display name
 ///
-static void VideoVdpauInit(const char *display_name)
+static void VdpauInit(const char *display_name)
 {
     VdpStatus status;
     VdpGetApiVersion *get_api_version;
@@ -5133,7 +5146,7 @@ static void VideoVdpauInit(const char *display_name)
 ///
 ///	VDPAU cleanup.
 ///
-static void VideoVdpauExit(void)
+static void VdpauExit(void)
 {
     if (VdpauDecoders[0]) {
 	VdpauDelDecoder(VdpauDecoders[0]);
@@ -6720,7 +6733,7 @@ static void VdpauOsdClear(void)
 ///
 ///	@note looked by caller
 ///
-static void VdpauUploadImage(int x, int y, int width, int height,
+static void VdpauOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
     VdpStatus status;
@@ -6871,8 +6884,13 @@ static const VideoModule VdpauModule = {
     .Name = "vdpau",
     .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelDecoder,
-    .Init = VideoVdpauInit,
-    .Exit = VideoVdpauExit,
+    .Thread = VdpauDisplayHandlerThread,
+    .OsdClear = VdpauOsdClear,
+    .OsdDrawARGB = VdpauOsdDrawARGB,
+    .OsdInit = VdpauOsdInit,
+    .OsdExit = VdpauOsdExit,
+    .Init = VdpauInit,
+    .Exit = VdpauExit,
 };
 
 #endif
@@ -6889,11 +6907,9 @@ static const VideoModule VdpauModule = {
 ///
 void VideoOsdClear(void)
 {
-    if (!VideoThread) {			// thread not yet running
-	return;
+    if (VideoThread) {
+	VideoThreadLock();
     }
-
-    VideoThreadLock();
 #ifdef USE_GLX
     if (GlxEnabled) {
 	void *texbuf;
@@ -6910,31 +6926,19 @@ void VideoOsdClear(void)
 	free(texbuf);
     }
 #endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiOsdClear();
-	OsdDirtyX = OsdWidth;
-	OsdDirtyY = OsdHeight;
-	OsdDirtyWidth = 0;
-	OsdDirtyHeight = 0;
-	OsdShown = 0;
-	VideoThreadUnlock();
-	return;
+
+    if (VideoUsedModule) {
+	VideoUsedModule->OsdClear();
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauOsdClear();
-	OsdDirtyX = OsdWidth;
-	OsdDirtyY = OsdHeight;
-	OsdDirtyWidth = 0;
-	OsdDirtyHeight = 0;
-	OsdShown = 0;
+    OsdDirtyX = OsdWidth;
+    OsdDirtyY = OsdHeight;
+    OsdDirtyWidth = 0;
+    OsdDirtyHeight = 0;
+    OsdShown = 0;
+
+    if (VideoThread) {
 	VideoThreadUnlock();
-	return;
     }
-#endif
-    VideoThreadUnlock();
 }
 
 ///
@@ -6949,11 +6953,9 @@ void VideoOsdClear(void)
 void VideoOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
-    if (!VideoThread) {			// thread not yet running
-	return;
+    if (VideoThread) {
+	VideoThreadLock();
     }
-    VideoThreadLock();
-
     // update dirty area
     if (x < OsdDirtyX) {
 	if (OsdDirtyWidth) {
@@ -6984,28 +6986,14 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
 	return;
     }
 #endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiUploadImage(x, y, width, height, argb);
-	VideoThreadUnlock();
-	OsdShown = 1;
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->OsdDrawARGB(x, y, width, height, argb);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauUploadImage(x, y, width, height, argb);
+    OsdShown = 1;
+
+    if (VideoThread) {
 	VideoThreadUnlock();
-	OsdShown = 1;
-	return;
     }
-#endif
-    (void)x;
-    (void)y;
-    (void)height;
-    (void)width;
-    (void)argb;
-    VideoThreadUnlock();
 }
 
 ///
@@ -7063,20 +7051,17 @@ void VideoOsdInit(void)
 	return;
     }
 #endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiOsdInit(OsdWidth, OsdHeight);
-	VideoOsdClear();
-	return;
+
+    if (VideoThread) {
+	VideoThreadLock();
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauOsdInit(OsdWidth, OsdHeight);
-	VideoOsdClear();
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
     }
-#endif
+    if (VideoThread) {
+	VideoThreadUnlock();
+    }
+    VideoOsdClear();
 }
 
 ///
@@ -7084,18 +7069,15 @@ void VideoOsdInit(void)
 ///
 void VideoOsdExit(void)
 {
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiOsdExit();
-	return;
+    if (VideoThread) {
+	VideoThreadLock();
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauOsdExit();
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->OsdExit();
     }
-#endif
+    if (VideoThread) {
+	VideoThreadUnlock();
+    }
 }
 
 #if 0
@@ -7374,26 +7356,16 @@ static void *VideoDisplayHandlerThread(void *dummy)
 
 	VideoPollEvent();
 
-#ifdef USE_VAAPI
-	if (VideoVaapiEnabled) {
-	    VaapiDisplayHandlerThread();
-	}
-#endif
-#ifdef USE_VDPAU
-	if (VideoVdpauEnabled) {
-	    VdpauDisplayHandlerThread();
-	}
-#endif
-#if !defined(USE_VAAPI) && !defined(USE_VDPAU)
-	// avoid 100% cpu use
-	if (1) {
+	if (VideoUsedModule) {
+	    VideoUsedModule->Thread();
+	} else {
 	    XEvent event;
 
+	    // FIXME: move into noop module
+	    // avoid 100% cpu use
+
 	    XPeekEvent(XlibDisplay, &event);
-	} else {
-	    usleep(10 * 1000);
 	}
-#endif
     }
 
     return dummy;
@@ -7409,7 +7381,6 @@ static void VideoThreadInit(void)
     pthread_cond_init(&VideoWakeupCond, NULL);
     pthread_create(&VideoThread, NULL, VideoDisplayHandlerThread, NULL);
     pthread_setname_np(VideoThread, "softhddev video");
-    //pthread_detach(VideoThread);
 }
 
 ///
@@ -7421,12 +7392,12 @@ static void VideoThreadExit(void)
 	void *retval;
 
 	Debug(3, "video: video thread canceled\n");
-	VideoThreadLock();
+	//VideoThreadLock();
 	// FIXME: can't cancel locked
 	if (pthread_cancel(VideoThread)) {
 	    Error(_("video: can't queue cancel video display thread\n"));
 	}
-	VideoThreadUnlock();
+	//VideoThreadUnlock();
 	if (pthread_join(VideoThread, &retval) || retval != PTHREAD_CANCELED) {
 	    Error(_("video: can't cancel video display thread\n"));
 	}
@@ -7480,7 +7451,7 @@ struct _video_hw_decoder_
 ///
 VideoHwDecoder *VideoNewHwDecoder(void)
 {
-    if (!XlibDisplay && !VideoUsedModule) {	// waiting for x11 start
+    if (!XlibDisplay || !VideoUsedModule) {	// waiting for x11 start
 	return NULL;
     }
     return VideoUsedModule->NewHwDecoder();
@@ -8062,7 +8033,6 @@ void VideoSetVideoMode( __attribute__ ((unused))
     VideoWindowHeight = height;
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled && VaapiDecoders[0]) {
-	VaapiDeassociate(VaapiDecoders[0]);
 	VideoOsdExit();
 
 	VideoOsdInit();
@@ -8313,7 +8283,7 @@ void VideoInit(const char *display_name)
     //
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
-	VideoVdpauInit(display_name);
+	VdpauInit(display_name);
 	if (VideoVdpauEnabled) {
 	    VideoUsedModule = &VdpauModule;
 #ifdef USE_VAAPI
@@ -8325,7 +8295,7 @@ void VideoInit(const char *display_name)
 #endif
 #ifdef USE_VAAPI
     if (VideoVaapiEnabled) {
-	VideoVaapiInit(display_name);
+	VaapiInit(display_name);
 	if (VideoVaapiEnabled) {
 	    VideoUsedModule = &VaapiModule;
 	}

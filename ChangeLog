@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Fix bug: VaapiOsdExit doesn't deassociate osd surface.
+    Fix bug: First OSD can show random pixels.
+    Wait for X11 exit and kill it, if not.
     Fix still picture handling.
     Fix for dead-lock in VdpauExit.
     Workaround for dead-lock in VdpauExit.
