@@ -795,8 +795,8 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 */
 void cSoftHdDevice::StillPicture(const uchar * data, int length)
 {
-    dsyslog("[softhddev]%s: %s\n", __FUNCTION__,
-	data[0] == 0x47 ? "ts" : "pes");
+    dsyslog("[softhddev]%s: %s %p %d\n", __FUNCTION__,
+	data[0] == 0x47 ? "ts" : "pes", data, length);
 
     if (data[0] == 0x47) {		// ts sync
 	cDevice::StillPicture(data, length);

@@ -902,10 +902,12 @@ void Freeze(void)
 void StillPicture(const uint8_t * data, int size)
 {
     int i;
+    static uint8_t seq_end_mpeg[] = { 0x00, 0x00, 0x01, 0xB7 };
+    static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x10 };
 
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
-	Error(_("[softhddev] invalid PES video packet\n"));
+	Error(_("[softhddev] invalid still video packet\n"));
 	return;
     }
     if (VideoCodecID == CODEC_ID_NONE) {
@@ -913,13 +915,37 @@ void StillPicture(const uint8_t * data, int size)
 	Error(_("[softhddev] no codec known for still picture\n"));
 	return;
     }
+    //Clear();				// flush video buffers
 
-    Clear();				// flush video buffers
     // +1 future for deinterlace
     for (i = -1; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
-	PlayVideo(data, size);		// reference frames
+	//if ( 1 ) {
+	const uint8_t *split;
+	int n;
+
+	// split the I-frame into single pes packets
+	split = data;
+	n = size;
+	do {
+	    int len;
+
+	    len = (split[4] << 8) + split[5];
+	    if (len > n) {
+		break;
+	    }
+	    PlayVideo(split, len + 6);	// feed it
+	    split += 6 + len;
+	    n -= 6 + len;
+	} while (n > 6);
+	VideoNextPacket(VideoCodecID);	// terminate last packet
+
+	if (VideoCodecID == CODEC_ID_H264) {
+	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264, sizeof(seq_end_h264));
+	} else {
+	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg, sizeof(seq_end_mpeg));
+	}
+	VideoNextPacket(VideoCodecID);	// terminate last packet
     }
-    VideoNextPacket(VideoCodecID);	// terminate last packet
 }
 
 /**
