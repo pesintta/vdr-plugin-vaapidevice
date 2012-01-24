@@ -1216,8 +1216,34 @@ void SoftHdDeviceExit(void)
 	Debug(3, "x-setup: Stop x11 server\n");
 
 	if (X11ServerPid) {
+	    int waittime;
+	    int timeout;
+	    pid_t wpid;
+	    int status;
+
 	    kill(X11ServerPid, SIGTERM);
-	    // FIXME: wait for x11 finishing
+	    waittime = 0;
+	    timeout = 500;		// 0.5s
+	    // wait for x11 finishing, with timeout
+	    do {
+		wpid = waitpid(X11ServerPid, &status, WNOHANG);
+		if (wpid) {
+		    break;
+		}
+		if (waittime++ < timeout) {
+		    usleep(1 * 1000);
+		    continue;
+		}
+		kill(X11ServerPid, SIGKILL);
+	    } while (waittime < timeout);
+	    if (wpid && WIFEXITED(status)) {
+		Debug(3, "x-setup: x11 server exited (%d)\n",
+		    WEXITSTATUS(status));
+	    }
+	    if (wpid && WIFSIGNALED(status)) {
+		Debug(3, "x-setup: x11 server killed (%d)\n",
+		    WTERMSIG(status));
+	    }
 	}
     }
 
