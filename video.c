@@ -3587,12 +3587,15 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 
 	VideoPollEvent();
 
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	pthread_testcancel();
 	// give osd some time slot
 	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
 		&abstime) != ETIMEDOUT) {
 	    // SIGUSR1
 	    Debug(3, "video/vaapi: pthread_cond_timedwait error\n");
 	}
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 	VaapiSyncDisplayFrame(decoder);
     }
@@ -6526,12 +6529,16 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 
 	VideoPollEvent();
 
+	// fix dead-lock with VdpauExit
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	pthread_testcancel();
 	// give osd some time slot
 	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
 		&abstime) != ETIMEDOUT) {
 	    // SIGUSR1
 	    Debug(3, "video/vdpau: pthread_cond_timedwait error\n");
 	}
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 	VdpauSyncDisplayFrame(decoder);
     }
@@ -7360,11 +7367,10 @@ static void *VideoDisplayHandlerThread(void *dummy)
 #endif
 
     for (;;) {
-	/* other way to try to fix dead-lock with VdpauExit
-	   pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-	   pthread_testcancel();
-	   pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-	 */
+	// fix dead-lock with VdpauExit
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	pthread_testcancel();
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 	VideoPollEvent();
 

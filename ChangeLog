@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix for dead-lock in VdpauExit.
     Workaround for dead-lock in VdpauExit.
     VDPAU: Add very primitive software scaler for grab image.
     VA-API: Add auto-crop support.
