@@ -115,7 +115,7 @@ extern void VideoGetOsdSize(int *, int *);
 extern int64_t VideoGetClock(void);	///< Get video clock.
 
     /// Grab screen.
-extern uint8_t *VideoGrab(int *, int *, int *);
+extern uint8_t *VideoGrab(int *, int *, int *, int);
 
 extern void VideoOsdInit(void);		///< Setup osd.
 extern void VideoOsdExit(void);		///< Cleanup osd.

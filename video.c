@@ -7739,7 +7739,7 @@ int64_t VideoGetClock(void)
 ///
 ///	Grab full screen image.
 ///
-uint8_t *VideoGrab(int *size, int *width, int *height)
+uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 {
     Debug(3, "video: grab\n");
 
@@ -7771,9 +7771,11 @@ uint8_t *VideoGrab(int *size, int *width, int *height)
 	if (scale_height <= 0) {
 	    scale_height = *height;
 	}
-
-	n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", scale_width,
-	    scale_height);
+	n = 0;
+	if (write_header) {
+	    n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", scale_width,
+		scale_height);
+	}
 	rgb = malloc(scale_width * scale_height * 3 + n);
 	if (!rgb) {
 	    Error(_("video: out of memory\n"));

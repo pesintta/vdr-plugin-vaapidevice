@@ -39,6 +39,9 @@
 #define __USE_GNU
 #endif
 #include <pthread.h>
+#ifdef USE_JPEG
+#include <jpeglib.h>
+#endif
 
 #include "misc.h"
 #include "softhddev.h"
@@ -813,6 +816,48 @@ int PlayVideo(const uint8_t * data, int size)
     return size;
 }
 
+#ifdef USE_JPEG
+
+uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality,
+    int width, int height)
+{
+    struct jpeg_compress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    JSAMPROW row_ptr[1];
+    int row_stride;
+    uint8_t *outbuf;
+    long unsigned int outsize;
+
+    outbuf = NULL;
+    outsize = 0;
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_compress(&cinfo);
+    jpeg_mem_dest(&cinfo, &outbuf, &outsize);
+
+    cinfo.image_width = width;
+    cinfo.image_height = height;
+    cinfo.input_components = raw_size / height / width;
+    cinfo.in_color_space = JCS_RGB;
+
+    jpeg_set_defaults(&cinfo);
+    jpeg_set_quality(&cinfo, quality, TRUE);
+    jpeg_start_compress(&cinfo, TRUE);
+
+    row_stride = width * 3;
+    while (cinfo.next_scanline < cinfo.image_height) {
+	row_ptr[0] = &image[cinfo.next_scanline * row_stride];
+	jpeg_write_scanlines(&cinfo, row_ptr, 1);
+    }
+
+    jpeg_finish_compress(&cinfo);
+    jpeg_destroy_compress(&cinfo);
+    *size = outsize;
+
+    return outbuf;
+}
+
+#endif
+
 /**
 **	Grabs the currently visible screen image.
 **
@@ -825,14 +870,26 @@ int PlayVideo(const uint8_t * data, int size)
 uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 {
     if (jpeg) {
+#ifdef USE_JPEG
+	int raw_size;
+	uint8_t *image;
+	uint8_t *jpg_image;
+
+	raw_size = 0;
+	image = VideoGrab(&raw_size, &width, &height, 0);
+	jpg_image = CreateJpeg(image, raw_size, size, quality, width, height);
+	free(image);
+	return jpg_image;
+#else
 	(void)quality;
 	Error(_("softhddev: jpeg grabbing not supported\n"));
 	return NULL;
+#endif
     }
     if (width != -1 && height != -1) {
 	Warning(_("softhddev: scaling unsupported\n"));
     }
-    return VideoGrab(size, &width, &height);
+    return VideoGrab(size, &width, &height, 1);
 }
 
 //////////////////////////////////////////////////////////////////////////////

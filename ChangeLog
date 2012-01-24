@@ -1,5 +1,10 @@
+User m.Rcu
+Date: Tue Jan 24 22:38:30 CET 2012
+
+    Add support for grab jpeg image.
+
 User johns
-Date:
+Date: Tue Jan 24 22:25:33 CET 2012
 
     Fix bug: VaapiOsdExit doesn't deassociate osd surface.
     Fix bug: First OSD can show random pixels.

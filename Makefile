@@ -23,6 +23,7 @@ CONFIG := #-DDEBUG
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
+CONFIG += $(shell ls /usr/lib/libjpeg* >/dev/null 2>&1 && echo "-DUSE_JPEG")
 CONFIG += -DUSE_OSS
 
 ### The C++ compiler and options:
@@ -89,7 +90,9 @@ LIBS += -lrt \
 	$(if $(findstring USE_VAAPI,$(CONFIG)), \
 	            `pkg-config --libs libva-x11 libva-glx libva`) \
 	$(if $(findstring USE_ALSA,$(CONFIG)), \
-	            `pkg-config --libs alsa`)
+	            `pkg-config --libs alsa`) \
+	$(if $(findstring USE_JPEG,$(CONFIG)), \
+	            -ljpeg)
 
 ### The object files (add further files here):
 
