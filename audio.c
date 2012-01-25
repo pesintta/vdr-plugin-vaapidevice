@@ -1148,6 +1148,7 @@ static void AlsaExit(void)
 	RingBufferDel(AlsaRingBuffer);
 	AlsaRingBuffer = NULL;
     }
+    AlsaFlushBuffer = 0;
 }
 
 /**
@@ -1750,6 +1751,7 @@ static void OssExit(void)
 	close(OssMixerFildes);
 	OssMixerFildes = -1;
     }
+    OssFlushBuffer = 0;
 }
 
 /**
@@ -1906,17 +1908,6 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    }
 	    Debug(3, "audio: thread channels %d sample-rate %d hz\n",
 		AudioChannels, AudioSampleRate);
-	    if (1) {
-		int16_t buf[6144 / 2];
-
-		buf[0] = htole16(0xF872);	// iec 61937 sync word
-		buf[1] = htole16(0x4E1F);
-		buf[2] = htole16((7 << 5) << 8 | 0x00);
-		buf[3] = htole16(0x0000);
-		memset(buf + 4, 0, 6144 - 8);
-
-		AlsaEnqueue(buf, 6144);
-	    }
 #endif
 	}
 #endif
