@@ -27,6 +27,9 @@ missing:
     Option deinterlace off / deinterlace force!
     Make output drivers better modular (under construction).
 
+crash:
+    AudioPlayHandlerThread -> pthread_cond_wait
+
 video:
     subtitle not cleared
     subtitle could be asyncron
@@ -36,7 +39,6 @@ video:
 	(must detect video format to show image)
 
 vdpau:
-    VdpPreemptionCallback handling (under construction)
     hard channel switch
 
 libva:

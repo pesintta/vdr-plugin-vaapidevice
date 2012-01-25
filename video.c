@@ -292,7 +292,7 @@ static VideoZoomModes Video4to3ZoomMode;
 
 static char Video60HzMode;		///< handle 60hz displays
 
-static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message
+static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
 static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 
@@ -1564,8 +1564,16 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 ///
 static void VaapiDelDecoder(VaapiDecoder * decoder)
 {
-    VaapiDecoderN = 0;
-    VaapiDecoders[0] = NULL;
+    int i;
+
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	if (VaapiDecoders[i] == decoder) {
+	    VaapiDecoders[i] = NULL;
+	    VaapiDecoderN--;
+	    // FIXME: must copy last slot into empty slot and --
+	    break;
+	}
+    }
 
     VaapiCleanup(decoder);
 
@@ -2024,7 +2032,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 
   slow_path:
     // no accelerated format found
-    decoder->SurfacesNeeded = 1 + VIDEO_SURFACES_MAX;
+    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
     video_ctx->hwaccel_context = NULL;
     return avcodec_default_get_format(video_ctx, fmt);
 }
@@ -3539,7 +3547,8 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	    decoder->DropNextFrame = 1;
 	}
     }
-
+#ifdef DEBUG
+    // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
 	static int64_t last_video_clock;
@@ -3552,6 +3561,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 
 	last_video_clock = video_clock;
     }
+#endif
 }
 
 ///
@@ -3674,7 +3684,7 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
 	    - decoder->SurfaceField);
     }
-    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) -
+    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
 	1);
 }
 
@@ -3998,11 +4008,13 @@ typedef struct _vdpau_decoder_
     void *GlxSurface[2];		///< VDPAU/GLX surface
 #endif
 
+    VdpDecoderProfile Profile;		///< vdp decoder profile
     VdpDecoder VideoDecoder;		///< vdp video decoder
     VdpVideoMixer VideoMixer;		///< vdp video mixer
     VdpChromaType ChromaType;		///< vdp video surface chroma format
     VdpProcamp Procamp;			///< vdp procamp parameterization data
 
+    int SurfacesNeeded;			///< number of surface to request
     int SurfaceUsedN;			///< number of used video surfaces
     /// used video surface ids
     VdpVideoSurface SurfacesUsed[CODEC_SURFACES_MAX];
@@ -4030,6 +4042,7 @@ typedef struct _vdpau_decoder_
 } VdpauDecoder;
 
 static int VideoVdpauEnabled = 1;	///< use VDPAU decoder
+static volatile char VdpauPreemption;	///< flag preemption happened.
 
 static VdpauDecoder *VdpauDecoders[1];	///< open decoder streams
 static int VdpauDecoderN;		///< number of decoder streams
@@ -4130,10 +4143,15 @@ static VdpPresentationQueueBlockUntilSurfaceIdle
     *VdpauPresentationQueueBlockUntilSurfaceIdle;
 static VdpPresentationQueueQuerySurfaceStatus
     *VdpauPresentationQueueQuerySurfaceStatus;
+static VdpPreemptionCallbackRegister *VdpauPreemptionCallbackRegister;
 
 static VdpPresentationQueueTargetCreateX11 *
     VdpauPresentationQueueTargetCreateX11;
 ///@}
+
+static void VdpauOsdInit(int, int);	///< forward definition
+
+//----------------------------------------------------------------------------
 
 ///
 ///	Create surfaces for VDPAU decoder.
@@ -4146,11 +4164,17 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 {
     int i;
 
+#ifdef DEBUG
+    if (!decoder->SurfacesNeeded) {
+	Error(_("video/vaapi: surface needed not set\n"));
+	decoder->SurfacesNeeded = 3 + VIDEO_SURFACES_MAX;
+    }
+#endif
     Debug(3, "video/vdpau: %s: %dx%d * %d\n", __FUNCTION__, width, height,
-	CODEC_SURFACES_DEFAULT);
+	decoder->SurfacesNeeded);
 
-    // FIXME: allocate only the number of needed surfaces
-    decoder->SurfaceFreeN = CODEC_SURFACES_DEFAULT;
+    // allocate only the number of needed surfaces
+    decoder->SurfaceFreeN = decoder->SurfacesNeeded;
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
 	VdpStatus status;
 
@@ -4516,15 +4540,18 @@ static VdpauDecoder *VdpauNewDecoder(void)
     int i;
 
     if (VdpauDecoderN == 1) {
-	Fatal(_("video/vdpau: out of decoders\n"));
+	Error(_("video/vdpau: out of decoders\n"));
+	return NULL;
     }
 
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
-	Fatal(_("video/vdpau: out of memory\n"));
+	Error(_("video/vdpau: out of memory\n"));
+	return NULL;
     }
     decoder->Device = VdpauDevice;
     decoder->Window = VideoWindow;
 
+    decoder->Profile = VDP_INVALID_HANDLE;
     decoder->VideoDecoder = VDP_INVALID_HANDLE;
     decoder->VideoMixer = VDP_INVALID_HANDLE;
 
@@ -4547,7 +4574,7 @@ static VdpauDecoder *VdpauNewDecoder(void)
 
 #ifdef DEBUG
     if (VIDEO_SURFACES_MAX < 1 + 1 + 1 + 1) {
-	Fatal(_
+	Error(_
 	    ("video/vdpau: need 1 future, 1 current, 1 back and 1 work surface\n"));
     }
 #endif
@@ -4587,6 +4614,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 		VdpauGetErrorString(status));
 	}
 	decoder->VideoDecoder = VDP_INVALID_HANDLE;
+	decoder->Profile = VDP_INVALID_HANDLE;
     }
 
     if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
@@ -4624,9 +4652,16 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 ///
 static void VdpauDelDecoder(VdpauDecoder * decoder)
 {
-    // FIXME: hack
-    VdpauDecoderN = 0;
-    VdpauDecoders[0] = NULL;
+    int i;
+
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	if (VdpauDecoders[i] == decoder) {
+	    VdpauDecoders[i] = NULL;
+	    VdpauDecoderN--;
+	    // FIXME: must copy last slot into empty slot and --
+	    break;
+	}
+    }
 
     VdpauCleanup(decoder);
 
@@ -4741,6 +4776,23 @@ static void VdpauExitOutputQueue(void)
 	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
 	VdpauQueueTarget = 0;
     }
+}
+
+///
+///	Display preemption callback.
+///
+///	@param device	device that had its display preempted
+///	@param context	client-supplied callback context
+///
+static void VdpauPreemptionCallback(VdpDevice device, __attribute__ ((unused))
+    void *context)
+{
+    Debug(3, "video/vdpau: display preemption\n");
+    if (device != VdpauDevice) {
+	Error(_("video/vdpau preemption device not our device\n"));
+	return;
+    }
+    VdpauPreemption = 1;		// set flag for video thread
 }
 
 ///
@@ -4929,16 +4981,20 @@ static void VdpauInit(const char *display_name)
     VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_QUERY_SURFACE_STATUS,
 	&VdpauPresentationQueueQuerySurfaceStatus,
 	"PresentationQueueQuerySurfaceStatus");
-#if 0
     VdpauGetProc(VDP_FUNC_ID_PREEMPTION_CALLBACK_REGISTER,
-	&VdpauPreemptionCallback, "PreemptionCallback");
-#endif
+	&VdpauPreemptionCallbackRegister, "PreemptionCallbackRegister");
+
     VdpauGetProc(VDP_FUNC_ID_PRESENTATION_QUEUE_TARGET_CREATE_X11,
 	&VdpauPresentationQueueTargetCreateX11,
 	"PresentationQueueTargetCreateX11");
 
-    // vdp_preemption_callback_register
-
+    status =
+	VdpauPreemptionCallbackRegister(VdpauDevice, VdpauPreemptionCallback,
+	NULL);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't register preemption callback: %s\n"),
+	    VdpauGetErrorString(status));
+    }
     //
     //	Look which levels of high quality scaling are supported
     //
@@ -5140,7 +5196,6 @@ static void VdpauInit(const char *display_name)
     //	Create presentation queue, only one queue pro window
     //
     VdpauInitOutputQueue();
-
 }
 
 ///
@@ -5228,8 +5283,51 @@ static void VdpauUpdateOutput(VdpauDecoder * decoder)
     Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
 	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
 
+#ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
     decoder->AutoCrop->Count = 0;
+#endif
+}
+
+///
+///	Configure VDPAU for new video format.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauSetupOutput(VdpauDecoder * decoder)
+{
+    VdpStatus status;
+    VdpChromaType chroma_type;
+    uint32_t width;
+    uint32_t height;
+
+    // FIXME: need only to create and destroy surfaces for size changes
+    //		or when number of needed surfaces changed!
+    decoder->Resolution =
+	VideoResolutionGroup(decoder->InputWidth, decoder->InputHeight,
+	decoder->Interlaced);
+    VdpauCreateSurfaces(decoder, decoder->InputWidth, decoder->InputHeight);
+
+    VdpauMixerCreate(decoder);
+
+    VdpauUpdateOutput(decoder);		// update aspect/scaling
+
+    //	get real surface size
+    status =
+	VdpauVideoSurfaceGetParameters(decoder->SurfacesFree[0], &chroma_type,
+	&width, &height);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't get video surface parameters: %s\n"),
+	    VdpauGetErrorString(status));
+	return;
+    }
+    // vdpau can choose different sizes, must use them for putbits
+    if (chroma_type != decoder->ChromaType
+	|| width != (uint32_t) decoder->InputWidth
+	|| height != (uint32_t) decoder->InputHeight) {
+	// FIXME: must rewrite the code to support this case
+	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
+    }
 }
 
 ///
@@ -5383,17 +5481,17 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     Debug(3, "video/vdpau: create decoder profile=%d %dx%d #%d refs\n",
 	profile, video_ctx->width, video_ctx->height, max_refs);
 
+    decoder->Profile = profile;
+    decoder->SurfacesNeeded = max_refs + VIDEO_SURFACES_MAX;
     status =
 	VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
 	video_ctx->height, max_refs, &decoder->VideoDecoder);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't create decoder: %s\n"),
 	    VdpauGetErrorString(status));
-	abort();
 	goto slow_path;
     }
-    // FIXME: Combine this with VdpauSetup
-
+    // FIXME: combine this with VdpauSetupOutput and software decoder part
     decoder->CropX = 0;
     decoder->CropY = 0;
     decoder->CropWidth = video_ctx->width;
@@ -5403,16 +5501,8 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
-    VdpauUpdateOutput(decoder);
 
-    // FIXME: need only to create and destroy surfaces for size changes
-    //		or when number of needed surfaces changed!
-    decoder->Resolution =
-	VideoResolutionGroup(video_ctx->width, video_ctx->height,
-	decoder->Interlaced);
-    VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
-
-    VdpauMixerCreate(decoder);
+    VdpauSetupOutput(decoder);
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
 
@@ -5420,52 +5510,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 
   slow_path:
     // no accelerated format found
+    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX;
     video_ctx->hwaccel_context = NULL;
     return avcodec_default_get_format(video_ctx, fmt);
-}
-
-///
-///	Configure VDPAU for new video format.
-///
-///	@param decoder		VDPAU hw decoder
-///	@param video_ctx	ffmpeg video codec context
-///
-static void VdpauSetup(VdpauDecoder * decoder,
-    const AVCodecContext * video_ctx)
-{
-    VdpStatus status;
-    VdpChromaType chroma_type;
-    uint32_t width;
-    uint32_t height;
-
-    // decoder->Input... already setup by caller
-    VdpauCleanup(decoder);
-
-    decoder->Resolution =
-	VideoResolutionGroup(video_ctx->width, video_ctx->height,
-	decoder->Interlaced);
-    VdpauCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
-
-    VdpauMixerCreate(decoder);
-
-    //	get real surface size
-    status =
-	VdpauVideoSurfaceGetParameters(decoder->SurfacesFree[0], &chroma_type,
-	&width, &height);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't get video surface parameters: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-    // vdpau can choose different sizes, must use them for putbits
-    if (chroma_type != decoder->ChromaType
-	|| width != (uint32_t) video_ctx->width
-	|| height != (uint32_t) video_ctx->height) {
-	// FIXME: must rewrite the code to support this case
-	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
-    }
-    //
-    //	When window output size changes update VdpauSurfacesRb
-    //
 }
 
 #ifdef USE_GRAB
@@ -5995,7 +6042,8 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    decoder->SurfaceField = 0;
 	    // FIXME: I hope this didn't change in the middle of the stream
 
-	    VdpauSetup(decoder, video_ctx);
+	    VdpauCleanup(decoder);
+	    VdpauSetupOutput(decoder);
 	}
 	//
 	//	Copy data from frame to image
@@ -6092,6 +6140,7 @@ static void VdpauMixOsd(void)
 
     //start = GetMsTicks();
 
+    // FIXME: double buffered osd disabled
     VdpauOsdSurfaceIndex = 1;
 #ifdef USE_BITMAP
     status =
@@ -6117,7 +6166,6 @@ static void VdpauMixOsd(void)
     }
 #endif
     //end = GetMsTicks();
-
     /*
        Debug(4, "video:/vdpau: osd render %d %d ms\n", VdpauOsdSurfaceIndex,
        end - start);
@@ -6511,6 +6559,9 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+    if (VdpauPreemption) {		// display preempted
+	return;
+    }
 #ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
@@ -6553,6 +6604,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	}
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
+	if (VdpauPreemption) {		// display become preempted
+	    return;
+	}
 	VdpauSyncDisplayFrame(decoder);
     }
 
@@ -6580,6 +6634,54 @@ static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 	1);
 }
 
+///
+///	Recover from preemption.
+///
+static int VdpauPreemptionRecover(void)
+{
+    VdpStatus status;
+    int i;
+
+    VdpauPreemption = 0;
+
+    Debug(3, "video/vdpau: display preempted\n");
+
+    status =
+	vdp_device_create_x11(XlibDisplay, DefaultScreen(XlibDisplay),
+	&VdpauDevice, &VdpauGetProcAddress);
+    if (status != VDP_STATUS_OK) {
+	VdpauPreemption = 1;
+	return -1;
+    }
+
+    VdpauInitOutputQueue();
+
+    // mixer
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	VdpauDecoders[i]->VideoDecoder = VDP_INVALID_HANDLE;
+	VdpauDecoders[i]->VideoMixer = VDP_INVALID_HANDLE;
+	VdpauDecoders[i]->SurfaceFreeN = 0;
+	VdpauDecoders[i]->SurfaceUsedN = 0;
+    }
+
+    // FIXME: codec has still some surfaces used
+
+    //
+    //	invalid osd bitmap/output surfaces
+    //
+    for (i = 0; i < 1; ++i) {
+#ifdef USE_BITMAP
+	VdpauOsdBitmapSurface[i] = VDP_INVALID_HANDLE;
+#else
+	VdpauOsdOutputSurface[i] = VDP_INVALID_HANDLE;
+    }
+#endif
+
+    VdpauOsdInit(OsdWidth, OsdHeight);
+
+    return 1;
+}
+
 #ifdef USE_VIDEO_THREAD
 
 ///
@@ -6596,6 +6698,13 @@ static void VdpauDisplayHandlerThread(void)
 
     if (!(decoder = VdpauDecoders[0])) {	// no stream available
 	return;
+    }
+
+    if (VdpauPreemption) {		// display preempted
+	if (VdpauPreemptionRecover()) {
+	    usleep(15 * 1000);
+	    return;
+	}
     }
     //
     // fill frame output ring buffer
@@ -6670,6 +6779,9 @@ static void VdpauOsdClear(void)
     uint32_t pitches[1];
     VdpRect dst_rect;
 
+    if (VdpauPreemption) {		// display preempted
+	return;
+    }
     // osd image available?
 #ifdef USE_BITMAP
     if (VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
@@ -6743,6 +6855,9 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
     uint32_t start;
     uint32_t end;
 
+    if (VdpauPreemption) {		// display preempted
+	return;
+    }
     // osd image available?
 #ifdef USE_BITMAP
     if (VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
@@ -7449,6 +7564,8 @@ struct _video_hw_decoder_
 ///
 ///	Allocate new video hw decoder.
 ///
+///	@returns a new initialized video hardware decoder.
+///
 VideoHwDecoder *VideoNewHwDecoder(void)
 {
     if (!XlibDisplay || !VideoUsedModule) {	// waiting for x11 start
@@ -7460,7 +7577,7 @@ VideoHwDecoder *VideoNewHwDecoder(void)
 ///
 ///	Destroy a video hw decoder.
 ///
-///	@param decoder	video hw decoder
+///	@param decoder	video hardware decoder
 ///
 void VideoDelHwDecoder(VideoHwDecoder * decoder)
 {
@@ -7472,7 +7589,7 @@ void VideoDelHwDecoder(VideoHwDecoder * decoder)
 ///
 ///	Get a free hardware decoder surface.
 ///
-///	@param decoder	VDPAU video hardware decoder
+///	@param decoder	video hardware decoder
 ///
 unsigned VideoGetSurface(VideoHwDecoder * decoder)
 {
@@ -7638,21 +7755,39 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 ///
 ///	Draw ffmpeg vdpau render state.
 ///
-///	@param decoder	VDPAU hw decoder
+///	@param decoder	video hw decoder
 ///	@param vrs	vdpau render state
 ///
-void VideoDrawRenderState(VideoHwDecoder * decoder,
+void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
     struct vdpau_render_state *vrs)
 {
     if (VideoVdpauEnabled) {
 	VdpStatus status;
 	uint32_t start;
 	uint32_t end;
+	VdpauDecoder *decoder;
+
+	decoder = &hw_decoder->Vdpau;
+	if (decoder->VideoDecoder == VDP_INVALID_HANDLE) {
+	    Debug(3, "video/vdpau: recover preemption\n");
+	    status =
+		VdpauDecoderCreate(VdpauDevice, decoder->Profile,
+		decoder->InputWidth, decoder->InputHeight,
+		decoder->SurfacesNeeded - VIDEO_SURFACES_MAX,
+		&decoder->VideoDecoder);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't create decoder: %s\n"),
+		    VdpauGetErrorString(status));
+	    }
+
+	    VdpauSetupOutput(decoder);
+	    return;
+	}
 
 	Debug(4, "video/vdpau: decoder render to %#010x\n", vrs->surface);
 	start = GetMsTicks();
 	status =
-	    VdpauDecoderRender(decoder->Vdpau.VideoDecoder, vrs->surface,
+	    VdpauDecoderRender(decoder->VideoDecoder, vrs->surface,
 	    (VdpPictureInfo const *)&vrs->info, vrs->bitstream_buffers_used,
 	    vrs->bitstream_buffers);
 	end = GetMsTicks();
@@ -7667,8 +7802,6 @@ void VideoDrawRenderState(VideoHwDecoder * decoder,
 	}
 	return;
     }
-    (void)decoder;
-    (void)vrs;
     Error(_("video/vdpau: draw render state, without vdpau enabled\n"));
     return;
 }
