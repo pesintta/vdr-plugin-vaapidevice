@@ -21,7 +21,7 @@ SRC_URI=""
 LICENSE="AGPL-3"
 SLOT="0"
 KEYWORDS="~x86 ~amd64"
-IUSE="vaapi vdpau alsa oss yaepg opengl"
+IUSE="vaapi vdpau alsa oss yaepg opengl jpeg"
 
 DEPEND=">=x11-libs/libxcb-1.7
 		x11-libs/xcb-util
@@ -40,6 +40,7 @@ DEPEND=">=x11-libs/libxcb-1.7
 		vaapi? ( x11-libs/libva )
 		alsa? ( media-libs/alsa-lib )
 		oss? ( sys-kernel/linux-headers )
+		jpeg? ( virtual/jpeg )
 "
 
 src_prepare() {
@@ -49,11 +50,12 @@ src_prepare() {
 src_compile() {
 		local myconf
 
-		myconf=""
+		myconf="-DHAVE_PTHREAD_NAME"
 		use vdpau && myconf="${myconf} -DUSE_VDPAU"
 		use vaapi && myconf="${myconf} -DUSE_VAAPI"
 		use alsa && myconf="${myconf} -DUSE_ALSA"
 		use oss && myconf="${myconf} -DUSE_OSS"
+		use jpeg && myconf="${myconf} -DUSE_JPEG"
 
 		emake all CC="$(tc-getCC)" CFLAGS="${CFLAGS}" \
 			LDFLAGS="${LDFLAGS}" CONFIG="${myconf}" LIBDIR="." || die
