@@ -38,8 +38,6 @@ extern "C"
 #include "video.h"
     extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
-    extern char ConfigSuspendClose;	///< suspend should close devices
-    extern char ConfigSuspendX11;	///< suspend should stop x11
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -83,6 +81,9 @@ static int ConfigAudioPassthrough;	///< config audio pass-through
 
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
+
+static char ConfigSuspendClose;		///< suspend should close devices
+static char ConfigSuspendX11;		///< suspend should stop x11
 
 static volatile char DoMakePrimary;	///< flag switch primary
 
@@ -722,7 +723,8 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    return true;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    dsyslog("[softhddev] play mode external\n");
-	    break;
+	    Suspend(1, 1, 0);
+	    return true;
 	default:
 	    dsyslog("[softhddev]playmode not implemented... %d\n", play_mode);
 	    break;
@@ -1096,7 +1098,7 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
     //MyDevice->StopReplay();
     cControl::Launch(new cSoftHdControl);
     cControl::Attach();
-    Suspend();
+    Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
     if (ShutdownHandler.GetUserInactiveTime()) {
 	dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
 	ShutdownHandler.SetUserInactive();
@@ -1121,7 +1123,7 @@ void cPluginSoftHdDevice::MainThreadHook(void)
     // check if user is inactive, automatic enter suspend mode
     if (ShutdownHandler.IsUserInactive()) {
 	// this is regular called, but guarded against double calls
-	Suspend();
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
     }
 
     ::MainThreadHook();
@@ -1271,7 +1273,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     if (!strcasecmp(command, "SUSP")) {
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
-	Suspend();
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
 	return "SoftHdDevice is suspended";
     }
     if (!strcasecmp(command, "RESU")) {

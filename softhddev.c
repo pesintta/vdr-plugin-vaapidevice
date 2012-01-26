@@ -61,8 +61,6 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #endif
 
 static char ConfigFullscreen;		///< fullscreen modus
-char ConfigSuspendClose;		///< suspend should close devices
-char ConfigSuspendX11;			///< suspend should stop x11
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
@@ -212,14 +210,14 @@ int PlayAudio(const uint8_t * data, int size,
     if (VideoFreezed) {			// video freezed
 	return 0;
     }
+    if (SkipAudio || !MyAudioDecoder) {	// skip audio
+	return size;
+    }
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
-    }
-    if (SkipAudio) {			// skip audio
-	return size;
     }
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
@@ -263,27 +261,17 @@ int PlayAudio(const uint8_t * data, int size,
 
     // Syncword - 0x0B77
     if (data[0] == 0x0B && data[1] == 0x77) {
-	if (!MyAudioDecoder) {
-	    MyAudioDecoder = CodecAudioNewDecoder();
-	    AudioCodecID = CODEC_ID_NONE;
-	}
 	if (AudioCodecID != CODEC_ID_AC3) {
 	    Debug(3, "[softhddev]%s: AC-3 %d\n", __FUNCTION__, id);
 	    CodecAudioClose(MyAudioDecoder);
-
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
 	    AudioCodecID = CODEC_ID_AC3;
 	}
 	// Syncword - 0xFFFC - 0xFFFF
     } else if (data[0] == 0xFF && (data[1] & 0xFC) == 0xFC) {
-	if (!MyAudioDecoder) {
-	    MyAudioDecoder = CodecAudioNewDecoder();
-	    AudioCodecID = CODEC_ID_NONE;
-	}
 	if (AudioCodecID != CODEC_ID_MP2) {
 	    Debug(3, "[softhddev]%s: MP2 %d\n", __FUNCTION__, id);
 	    CodecAudioClose(MyAudioDecoder);
-
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
 	}
@@ -300,9 +288,6 @@ int PlayAudio(const uint8_t * data, int size,
 	    if (n < 0) {
 		return osize;
 	    }
-	    if (!MyAudioDecoder) {
-		MyAudioDecoder = CodecAudioNewDecoder();
-	    }
 
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
@@ -312,7 +297,7 @@ int PlayAudio(const uint8_t * data, int size,
     }
 
     // no decoder or codec known
-    if (!MyAudioDecoder || AudioCodecID == CODEC_ID_NONE) {
+    if (AudioCodecID == CODEC_ID_NONE) {
 	return osize;
     }
 
@@ -757,13 +742,15 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 #endif
     }
-    // FIXME: no valid mpeg2/h264 detection yet
 
     check = data + 9 + n;
     if (0) {
 	printf("%02x: %02x %02x %02x %02x %02x\n", data[6], check[0], check[1],
 	    check[2], check[3], check[4]);
     }
+    // FIXME: no valid mpeg2/h264 detection yet
+    // FIXME: better skip all zero's >3 && 0x01 0x09 h264, >2 && 0x01 -> mpeg2
+
     // PES_VIDEO_STREAM 0xE0 or PES start code
     //(data[6] & 0xC0) != 0x80 ||
     if ((!check[0] && !check[1] && check[2] == 0x1)) {
@@ -803,7 +790,9 @@ int PlayVideo(const uint8_t * data, int size)
 	    Debug(3, "video: not detected\n");
 	    return size;
 	}
-	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	// FIXME: incomplete packets produce artefacts after channel switch
+	if (atomic_read(&VideoPacketsFilled)
+	    && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    // mpeg codec supports incomplete packets
 	    // waiting for a full complete packages, increases needed delays
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
@@ -1079,7 +1068,6 @@ void OsdClose(void)
 */
 void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 {
-    Resume();
     VideoOsdDrawARGB(x, y, height, width, argb);
 }
 
@@ -1316,8 +1304,12 @@ void Start(void)
 	StartXServer();
     }
     CodecInit();
+
     // FIXME: AudioInit for HDMI after X11 startup
     AudioInit();
+    MyAudioDecoder = CodecAudioNewDecoder();
+    AudioCodecID = CODEC_ID_NONE;
+
     if (!ConfigStartX11Server) {
 	StartVideo();
     }
@@ -1350,8 +1342,12 @@ void MainThreadHook(void)
 
 /**
 **	Suspend plugin.
+**
+**	@param video	suspend closes video
+**	@param audio	suspend closes audio
+**	@param dox11	suspend closes x11 server
 */
-void Suspend(void)
+void Suspend(int video, int audio, int dox11)
 {
     pthread_mutex_lock(&SuspendLockMutex);
     if (SkipVideo && SkipAudio) {	// already suspended
@@ -1365,22 +1361,25 @@ void Suspend(void)
     SkipAudio = 1;
     pthread_mutex_unlock(&SuspendLockMutex);
 
-    if (ConfigSuspendClose) {
+    if (audio || video) {
 	pthread_mutex_lock(&SuspendLockMutex);
 
-	AudioExit();
-	if (MyAudioDecoder) {
-	    CodecAudioClose(MyAudioDecoder);
-	    CodecAudioDelDecoder(MyAudioDecoder);
-	    MyAudioDecoder = NULL;
+	if (audio) {
+	    AudioExit();
+	    if (MyAudioDecoder) {
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioDelDecoder(MyAudioDecoder);
+		MyAudioDecoder = NULL;
+	    }
+	    NewAudioStream = 0;
 	}
-	NewAudioStream = 0;
-
-	StopVideo();
+	if (video) {
+	    StopVideo();
+	}
 
 	pthread_mutex_unlock(&SuspendLockMutex);
     }
-    if (ConfigSuspendX11) {
+    if (dox11) {
 	// FIXME: stop x11, if started
     }
 }
@@ -1396,17 +1395,20 @@ void Resume(void)
 
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
-    if (ConfigSuspendX11) {
-    }
-    if (ConfigSuspendClose) {
-	pthread_mutex_lock(&SuspendLockMutex);
+    pthread_mutex_lock(&SuspendLockMutex);
+    // FIXME: start x11
 
+    if (!MyHwDecoder) {			// video not running
 	StartVideo();
+    }
+    if (!MyAudioDecoder) {		// audio not running
 	AudioInit();
-
-	pthread_mutex_unlock(&SuspendLockMutex);
+	MyAudioDecoder = CodecAudioNewDecoder();
+	AudioCodecID = CODEC_ID_NONE;
     }
 
     SkipVideo = 0;
     SkipAudio = 0;
+
+    pthread_mutex_unlock(&SuspendLockMutex);
 }

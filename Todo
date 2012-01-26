@@ -23,7 +23,7 @@ missing:
     software decoder with software deinterlace
     zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
-    suspend output / energie saver: stop audio, stop video, configurable
+    suspend output / energie saver: stop and restart X11
     Option deinterlace off / deinterlace force!
     Make output drivers better modular (under construction).
 
@@ -37,15 +37,14 @@ video:
     grab image with hardware and better scaling support
     suspendoutput didn't show logo or black pictures
 	(must detect video format to show image)
+    incomplete mpeg packets creates artefacts after channel switch
+    hard channel switch
 
 vdpau:
-    hard channel switch
 
 libva:
-    hard channel switch
     yaepghd (VaapiSetOutputPosition) support
     can associate ony displayed part of osd
-    ready(not intel checked) auto crop for va-api
     grab image for va-api
     still many:
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
@@ -55,8 +54,7 @@ libva: branch vaapi-ext
     add support for vaapi-ext
 
 libva-intel-driver:
-    intel still has hangups most with 1080i
-    1080i does no v-sync (workaround written, fixed with vaapi-ext)
+    1080i does no v-sync (sometimes correct working with vaapi-ext)
     OSD has sometimes wrong size (workaround written)
 
 libva-vdpau-driver:
@@ -73,10 +71,10 @@ x11:
 
 audio:
     write TS -> PES parser, which feeds audio before the next start packet
-    CodecAudioOpen can fail "can't open audio codec" and does Fatal exit.
     Combine alsa+oss ringbuffer code.
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.
+    software volume support
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware
@@ -91,7 +89,6 @@ audio/oss:
 HDMI/SPDIF Passthrough:
     only AC-3 written
     Channels are wrong setup, if changing setting during operation.
-    split pcm and ac-3 out into two devices
     support oss pass-through
 
 playback of recording
@@ -119,6 +116,5 @@ future features (not planed for 1.0 - 1.5)
     atmolight support
     multistream handling
     pip support
-    grab image with jpeg
 
     upmix stereo to AC-3
