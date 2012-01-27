@@ -18,7 +18,7 @@ GIT_REV = $(shell git describe --always 2>/dev/null)
 
 ### Configuration (edit this for your needs)
 
-CONFIG := #-DDEBUG
+CONFIG := -DDEBUG
 #CONFIG += -DHAVE_PTHREAD_NAME
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
@@ -174,6 +174,6 @@ indent:
 		indent $$i; unexpand -a $$i > $$i.up; mv $$i.up $$i; \
 	done
 
-video_test: video.c
+video_test: video.c Makefile
 	$(CC) -DVIDEO_TEST -DVERSION='"$(VERSION)"' $(CFLAGS) $(LDFLAGS) $< $(LIBS) \
 	-o $@

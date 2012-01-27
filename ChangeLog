@@ -1,6 +1,13 @@
 User johns
 Date:
 
+    Made video_test working again.
+    Disabled VA-API Intel vaAssociateSubpicture workaround.
+    Fix bug: Must release lock for VideoPollEvent.
+    Allow faster video and audio sync.
+    Fix bug: Software decoder use vaPutImage with intel backend.
+    Fix bug: Artefacts are shown after mpeg2 channel switch.
+    Fix bug: VideoReleaseSurface called after VideoExit.
     Support external players.
     Add VDPAU display preemption support.
 

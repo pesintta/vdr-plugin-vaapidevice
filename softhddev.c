@@ -124,6 +124,8 @@ static const uint16_t SampleRateTable[4] = {
 **		FrameLengthInBytes = (12 * BitRate / SampleRate + Padding) * 4
 **	Layer II & III:
 **		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
+**
+**	@todo sometimes detects wrong position
 */
 static int FindAudioSync(const AVPacket * avpkt)
 {
@@ -289,16 +291,17 @@ int PlayAudio(const uint8_t * data, int size,
 		return osize;
 	    }
 
+	    avpkt->pts = AV_NOPTS_VALUE;
+	    AudioIncreaseBufferTime();
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
 	    data += n;
 	    size -= n;
 	}
-    }
-
-    // no decoder or codec known
-    if (AudioCodecID == CODEC_ID_NONE) {
-	return osize;
+	// no decoder or codec known
+	if (AudioCodecID == CODEC_ID_NONE) {
+	    return osize;
+	}
     }
 
     avpkt->data = (void *)data;
@@ -350,7 +353,7 @@ static volatile char Usr1Signal;	///< true got usr1 signal
 static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
-static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
+atomic_t VideoPacketsFilled;		///< how many of the buffer is used
 static volatile char VideoClearBuffers;	///< clear video buffers
 static volatile char SkipVideo;		///< skip video
 
@@ -599,6 +602,7 @@ static void StopVideo(void)
     VideoOsdExit();
     VideoExit();
     if (MyVideoDecoder) {
+	// FIXME: this can crash, hw decoder released by video exit
 	CodecVideoClose(MyVideoDecoder);
 	CodecVideoDelDecoder(MyVideoDecoder);
 	MyVideoDecoder = NULL;
@@ -791,8 +795,7 @@ int PlayVideo(const uint8_t * data, int size)
 	    return size;
 	}
 	// FIXME: incomplete packets produce artefacts after channel switch
-	if (atomic_read(&VideoPacketsFilled)
-	    && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	if (0 && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    // mpeg codec supports incomplete packets
 	    // waiting for a full complete packages, increases needed delays
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);

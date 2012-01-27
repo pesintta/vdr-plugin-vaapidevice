@@ -561,13 +561,13 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	    video_ctx->frame_number, used);
     }
     if (used != pkt->size) {
-	if (used >= 0) {
+	if (used >= 0 && used < pkt->size) {
 	    // some tv channels, produce this
 	    Debug(4,
 		"codec: ooops didn't use complete video packet used %d of %d\n",
 		used, pkt->size);
-	    pkt->data += used;
 	    pkt->size -= used;
+	    pkt->data += used;
 	    goto next_part;
 	}
 	Debug(3, "codec: bad frame %d\n", used);

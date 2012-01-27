@@ -137,7 +137,8 @@ static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
-static const int AudioBufferTime = 350;	///< audio buffer time in ms
+static const int AudioBufferTime = 300;	///< audio buffer time in ms
+static int AudioMoreBufferTime = 1;	///< increase buffer time
 
 #ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
@@ -1086,11 +1087,13 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
     // buffer time/delay in ms
     if (AlsaStartThreshold <
-	(*freq * *channels * AudioBytesProSample * AudioBufferTime) / 1000U) {
+	(*freq * *channels * AudioBytesProSample * AudioMoreBufferTime *
+	    AudioBufferTime) / 1000U) {
 	AlsaStartThreshold =
-	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-	    1000U;
+	    (*freq * *channels * AudioBytesProSample * AudioMoreBufferTime *
+	    AudioBufferTime) / 1000U;
     }
+    AudioMoreBufferTime = 1;
     // no bigger, than the buffer
     if (AlsaStartThreshold > RingBufferFreeBytes(AlsaRingBuffer)) {
 	AlsaStartThreshold = RingBufferFreeBytes(AlsaRingBuffer);
@@ -1709,12 +1712,13 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 	OssStartThreshold = bi.bytes + tmp;
 	// buffer time/delay in ms
 	if (OssStartThreshold <
-	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-	    1000U) {
+	    (*freq * *channels * AudioBytesProSample * AudioMoreBufferTime *
+		AudioBufferTime) / 1000U) {
 	    OssStartThreshold =
-		(*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-		1000U;
+		(*freq * *channels * AudioBytesProSample *
+		AudioMoreBufferTime * AudioBufferTime) / 1000U;
 	}
+	AudioMoreBufferTime = 1;
 	// no bigger, than the buffer
 	if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
 	    OssStartThreshold = RingBufferFreeBytes(OssRingBuffer);
@@ -2095,6 +2099,16 @@ int AudioSetup(int *freq, int *channels, int use_ac3)
     return AudioRingAdd(*freq, *channels, use_ac3);
 #endif
     return AudioUsedModule->Setup(freq, channels, use_ac3);
+}
+
+/**
+**	Increase audio buffer time.
+**
+**	Some channels need a bigger audio buffer to buffer video.
+*/
+void AudioIncreaseBufferTime(void)
+{
+    AudioMoreBufferTime = 4;
 }
 
 /**

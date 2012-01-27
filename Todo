@@ -44,7 +44,7 @@ vdpau:
 
 libva:
     yaepghd (VaapiSetOutputPosition) support
-    can associate ony displayed part of osd
+    can associate only displayed part of osd
     grab image for va-api
     still many:
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
@@ -56,6 +56,7 @@ libva: branch vaapi-ext
 libva-intel-driver:
     1080i does no v-sync (sometimes correct working with vaapi-ext)
     OSD has sometimes wrong size (workaround written)
+    software decoder needs UV swab
 
 libva-vdpau-driver:
     G210/GT520 OSD update too slow (needs hardware problem workaround)
