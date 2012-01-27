@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Reduces audio latency, increases audio buffer time.
     Made video_test working again.
     Disabled VA-API Intel vaAssociateSubpicture workaround.
     Fix bug: Must release lock for VideoPollEvent.

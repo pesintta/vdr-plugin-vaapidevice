@@ -3471,7 +3471,8 @@ static void VaapiAdvanceFrame(void)
 	    }
 	    // debug duplicate frames
 	} else if (filled == 1) {
-	    decoder->FramesDuped++;
+	    ++decoder->FramesDuped;
+	    decoder->DropNextFrame = 0;
 	    Warning(_
 		("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		decoder->FramesDuped, decoder->FrameCounter,
@@ -6423,6 +6424,7 @@ static void VdpauAdvanceFrame(void)
 	    if (filled <= 1 + 2 * decoder->Interlaced) {
 		// keep use of last surface
 		++decoder->FramesDuped;
+		decoder->DropNextFrame = 0;
 		Warning(_
 		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		    decoder->FramesDuped, decoder->FrameCounter,

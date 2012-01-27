@@ -42,8 +42,6 @@ extern int AudioSetup(int *, int *, int);	///< setup audio output
 //extern void AudioPlay(void);		///< play audio
 //extern void AudioPause(void);		///< pause audio
 
-extern void AudioIncreaseBufferTime(void);	///< use bigger buffer
-
 extern void AudioSetDevice(const char *);	///< set PCM audio device
 extern void AudioSetDeviceAC3(const char *);	///< set Passthrough device
 extern void AudioInit(void);		///< setup audio module

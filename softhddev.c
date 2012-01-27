@@ -292,7 +292,6 @@ int PlayAudio(const uint8_t * data, int size,
 	    }
 
 	    avpkt->pts = AV_NOPTS_VALUE;
-	    AudioIncreaseBufferTime();
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
 	    data += n;
@@ -794,11 +793,15 @@ int PlayVideo(const uint8_t * data, int size)
 	    Debug(3, "video: not detected\n");
 	    return size;
 	}
-	// FIXME: incomplete packets produce artefacts after channel switch
-	if (0 && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	// incomplete packets produce artefacts after channel switch
+	// packet < 65526 is the last split packet, detect it here for
+	// better latency
+	if (size < 65526 && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    // mpeg codec supports incomplete packets
 	    // waiting for a full complete packages, increases needed delays
+	    VideoEnqueue(pts, check, size - 9 - n);
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
+	    return size;
 	}
     }
 
