@@ -101,7 +101,7 @@ extern void VideoSetSharpen(int[]);
 extern void VideoSetAudioDelay(int);
 
     /// Set auto-crop parameters.
-extern void VideoSetAutoCrop(int, int);
+extern void VideoSetAutoCrop(int, int, int);
 
     /// Clear OSD.
 extern void VideoOsdClear(void);

@@ -81,6 +81,7 @@ static int ConfigAudioPassthrough;	///< config audio pass-through
 
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
+static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
 
 static char ConfigSuspendClose;		///< suspend should close devices
 static char ConfigSuspendX11;		///< suspend should stop x11
@@ -371,6 +372,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioPassthrough;
     int AutoCropInterval;
     int AutoCropDelay;
+    int AutoCropTolerance;
     int SuspendClose;
     int SuspendX11;
   protected:
@@ -462,6 +464,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AutoCropDelay = ConfigAutoCropDelay;
     Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
 	    &AutoCropDelay, 0, 200));
+    AutoCropTolerance = ConfigAutoCropTolerance;
+    Add(new cMenuEditIntItem(tr("autocrop tolerance (pixel)"),
+	    &AutoCropTolerance, 0, 32));
     //
     //	suspend
     //
@@ -514,7 +519,8 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
-    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay);
+    SetupStore("AutoCrop.Tolerance", ConfigAutoCropTolerance = AutoCropTolerance);
+    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay, ConfigAutoCropTolerance);
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
@@ -1208,12 +1214,16 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 
     if (!strcmp(name, "AutoCrop.Interval")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval =
-	    atoi(value), ConfigAutoCropDelay);
+	    atoi(value), ConfigAutoCropDelay, ConfigAutoCropTolerance);
 	return true;
     }
     if (!strcmp(name, "AutoCrop.Delay")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay =
-	    atoi(value));
+	    atoi(value), ConfigAutoCropTolerance);
+	return true;
+    }
+    if (!strcmp(name, "AutoCrop.Tolerance")) {
+	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay, ConfigAutoCropTolerance = atoi(value));
 	return true;
     }
 

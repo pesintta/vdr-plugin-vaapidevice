@@ -873,6 +873,7 @@ typedef struct _auto_crop_ctx_
 static const int AutoCropLogoIgnore = 24;
 static int AutoCropInterval;		///< auto-crop check interval
 static int AutoCropDelay;		///< auto-crop switch delay
+static int AutoCropTolerance;		///< auto-crop tolerance
 
 ///
 ///	Detect black line Y.
@@ -2443,12 +2444,13 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	(decoder->InputAspect.den * 16);
     crop16 = (decoder->InputHeight - crop16) / 2;
 
-    // -2 for rounding errors
-    if (decoder->AutoCrop->Y1 >= crop16 - 2
-	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop16 - 2) {
+    if (decoder->AutoCrop->Y1 >= crop16 - AutoCropTolerance
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >=
+	crop16 - AutoCropTolerance) {
 	next_state = 16;
-    } else if (decoder->AutoCrop->Y1 >= crop14 - 2
-	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop14 - 2) {
+    } else if (decoder->AutoCrop->Y1 >= crop14 - AutoCropTolerance
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >=
+	crop14 - AutoCropTolerance) {
 	next_state = 14;
     } else {
 	next_state = 0;
@@ -5792,12 +5794,13 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	(decoder->InputAspect.den * 16);
     crop16 = (decoder->InputHeight - crop16) / 2;
 
-    // -2 for rounding errors
-    if (decoder->AutoCrop->Y1 >= crop16 - 2
-	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop16 - 2) {
+    if (decoder->AutoCrop->Y1 >= crop16 - AutoCropTolerance
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >=
+	crop16 - AutoCropTolerance) {
 	next_state = 16;
-    } else if (decoder->AutoCrop->Y1 >= crop14 - 2
-	&& decoder->InputHeight - decoder->AutoCrop->Y2 >= crop14 - 2) {
+    } else if (decoder->AutoCrop->Y1 >= crop14 - AutoCropTolerance
+	&& decoder->InputHeight - decoder->AutoCrop->Y2 >=
+	crop14 - AutoCropTolerance) {
 	next_state = 14;
     } else {
 	next_state = 0;
@@ -8362,11 +8365,12 @@ void VideoSetAudioDelay(int ms)
 ///
 ///	Set auto-crop parameters.
 ///
-void VideoSetAutoCrop(int interval, int delay)
+void VideoSetAutoCrop(int interval, int delay, int tolerance)
 {
 #ifdef USE_AUTOCROP
     AutoCropInterval = interval;
     AutoCropDelay = delay;
+    AutoCropTolerance = tolerance;
 #ifdef USE_VDPAU
     if (VideoVdpauEnabled) {
 	VdpauResetAutoCrop();
