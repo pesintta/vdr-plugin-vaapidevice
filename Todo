@@ -107,6 +107,7 @@ setup:
 unsorted:
     Menu -> Setup -> Plugins -> skingenigmang -> General
 	-> Try 8bpp single area: no, has missing parts.
+    stoping vdr while plugin is suspended opens and closes a window.
 
 future features (not planed for 1.0 - 1.5)
 

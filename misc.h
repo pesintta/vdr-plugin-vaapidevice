@@ -86,7 +86,7 @@ static inline void Syslog(const int level, const char *format, ...)
 /**
 **	Show fatal error.
 */
-#define Fatal(fmt...)	do { Error(fmt); exit(-1); } while (0)
+#define Fatal(fmt...)	do { Error(fmt); abort(); } while (0)
 
 /**
 **	Show warning.

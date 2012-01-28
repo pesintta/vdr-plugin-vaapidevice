@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Release Version 0.4.5
     Add configurable skip lines at video top and bottom.
     Add auto-crop tolerance configuration.
     Reduces audio latency, increases audio buffer time.
