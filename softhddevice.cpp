@@ -77,6 +77,7 @@ static int ConfigVideoSharpen[RESOLUTIONS];
 static int ConfigVideoScaling[RESOLUTIONS];
 
 static int ConfigVideoAudioDelay;	///< config audio delay
+static int ConfigVideoSkipLines;	///< config skip lines top/bottom
 static int ConfigAudioPassthrough;	///< config audio pass-through
 
 static int ConfigAutoCropInterval;	///< auto crop detection interval
@@ -1203,6 +1204,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	}
     }
 
+    if (!strcmp(name, "SkipLines")) {
+	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
+	return true;
+    }
     if (!strcmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;

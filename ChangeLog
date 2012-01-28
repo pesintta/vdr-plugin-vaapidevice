@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add configurable skip lines at video top and bottom.
     Add auto-crop tolerance configuration.
     Reduces audio latency, increases audio buffer time.
     Made video_test working again.

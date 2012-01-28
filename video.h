@@ -97,6 +97,9 @@ extern void VideoSetDenoise(int[]);
     /// Set sharpen.
 extern void VideoSetSharpen(int[]);
 
+    /// Set skip lines.
+extern void VideoSetSkipLines(int);
+
     /// Set audio delay.
 extern void VideoSetAudioDelay(int);
 

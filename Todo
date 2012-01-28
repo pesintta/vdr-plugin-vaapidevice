@@ -37,8 +37,8 @@ video:
     grab image with hardware and better scaling support
     suspendoutput didn't show logo or black pictures
 	(must detect video format to show image)
-    incomplete mpeg packets creates artefacts after channel switch
     hard channel switch
+    skip line not configurable from setup menu.
 
 vdpau:
 

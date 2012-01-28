@@ -139,8 +139,13 @@ Setup: /etc/vdr/setup.conf
 	n each 'n' frames auto-crop is checked.
 
 	softhddevice.AutoCrop.Delay = 0
-	if auto-crop is over after 'n' intervals the same, the cropping is
+	if auto-crop is over 'n' intervals the same, the cropping is
 	used.
+
+	softhddevice.AutoCrop.Tolerance = 0
+	if detected crop area is too small, cut max 'n' pixels at top and
+	bottom.
+
 
 	softhddevice.Suspend.Close = 0
 	1 suspend closes x11 window, connection and audio device.

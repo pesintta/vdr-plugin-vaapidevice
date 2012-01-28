@@ -259,6 +259,8 @@ static char VideoSurfaceModesChanged;	///< flag surface modes changed
     /// flag use transparent OSD.
 static const char VideoTransparentOsd = 1;
 
+static int VideoSkipLines;		///< skip video lines top/bottom
+
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
@@ -2006,9 +2008,9 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     }
 
     decoder->CropX = 0;
-    decoder->CropY = 0;
+    decoder->CropY = VideoSkipLines;
     decoder->CropWidth = video_ctx->width;
-    decoder->CropHeight = video_ctx->height;
+    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
     decoder->PixFmt = video_ctx->pix_fmt;
     decoder->InputWidth = video_ctx->width;
@@ -2486,7 +2488,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
     if (next_state) {
 	decoder->CropX = 0;
-	decoder->CropY = next_state == 16 ? crop16 : crop14;
+	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
 	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
 
@@ -2508,9 +2510,9 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
 	decoder->CropX = 0;
-	decoder->CropY = 0;
+	decoder->CropY = VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
-	decoder->CropHeight = decoder->InputHeight;
+	decoder->CropHeight = decoder->InputHeight - VideoSkipLines * 2;
 
 	VaapiUpdateOutput(decoder);
     }
@@ -3337,9 +3339,9 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    || height != decoder->InputHeight) {
 
 	    decoder->CropX = 0;
-	    decoder->CropY = 0;
+	    decoder->CropY = VideoSkipLines;
 	    decoder->CropWidth = video_ctx->width;
-	    decoder->CropHeight = video_ctx->height;
+	    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->InputWidth = width;
@@ -5538,9 +5540,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     }
     // FIXME: combine this with VdpauSetupOutput and software decoder part
     decoder->CropX = 0;
-    decoder->CropY = 0;
+    decoder->CropY = VideoSkipLines;
     decoder->CropWidth = video_ctx->width;
-    decoder->CropHeight = video_ctx->height;
+    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
     decoder->PixFmt = video_ctx->pix_fmt;
     decoder->InputWidth = video_ctx->width;
@@ -5836,7 +5838,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 
     if (next_state) {
 	decoder->CropX = 0;
-	decoder->CropY = next_state == 16 ? crop16 : crop14;
+	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
 	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
 
@@ -5858,9 +5860,9 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
 	decoder->CropX = 0;
-	decoder->CropY = 0;
+	decoder->CropY = VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
-	decoder->CropHeight = decoder->InputHeight;
+	decoder->CropHeight = decoder->InputHeight - VideoSkipLines * 2;
 
 	VdpauUpdateOutput(decoder);
     }
@@ -6069,9 +6071,9 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    || video_ctx->height != decoder->InputHeight) {
 
 	    decoder->CropX = 0;
-	    decoder->CropY = 0;
+	    decoder->CropY = VideoSkipLines;
 	    decoder->CropWidth = video_ctx->width;
-	    decoder->CropHeight = video_ctx->height;
+	    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->InputWidth = video_ctx->width;
@@ -8350,6 +8352,16 @@ void VideoSetScaling(int mode[VideoResolutionMax])
     VideoScaling[2] = mode[2];
     VideoScaling[3] = mode[3];
     VideoSurfaceModesChanged = 1;
+}
+
+///
+///	Set skip lines.
+///
+///	@param lines	lines in pixel
+///
+void VideoSetSkipLines(int lines)
+{
+    VideoSkipLines = lines;
 }
 
 ///
