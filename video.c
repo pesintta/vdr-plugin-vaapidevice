@@ -1071,7 +1071,7 @@ struct _vaapi_decoder_
 
     VAImage DeintImages[5];		///< deinterlace image buffers
 
-    // FIXME: int PutSurface;			///< flag put surface ok
+    int PutImage;			///< flag put image can be used
     VAImage Image[1];			///< image buffer to update surface
 
     struct vaapi_context VaapiContext[1];	///< ffmpeg VA-API context
@@ -1481,6 +1481,8 @@ static VaapiDecoder *VaapiNewDecoder(void)
 
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
+
+    decoder->PutImage = !VaapiBuggyIntel;
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
 
@@ -3341,7 +3343,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	AVPicture picture[1];
 	int width;
 	int height;
-	int put_image;
 
 	Debug(4, "video/vaapi: hw render sw surface\n");
 
@@ -3387,13 +3388,11 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	surface = VaapiGetSurface(decoder);
 	Debug(4, "video/vaapi: video surface %#010x displayed\n", surface);
 
-	put_image = !VaapiBuggyIntel;
-	if (!put_image
-	    && (i =
-		vaDeriveImage(decoder->VaDisplay, surface,
-		    decoder->Image)) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: vaDeriveImage failed %d\n"), i);
-	    put_image = 1;
+	if (!decoder->PutImage
+	    && vaDeriveImage(decoder->VaDisplay, surface,
+		    decoder->Image) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaDeriveImage failed\n"));
+	    decoder->PutImage = 1;
 	}
 	//
 	//	Copy data from frame to image
@@ -3426,17 +3425,25 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 			    = frame->data[2][i * frame->linesize[2] + x];
 		}
 	    }
-	} else {
+	// vdpau uses this
+	} else if (decoder->Image->format.fourcc
+		== VA_FOURCC('I', '4', '2', '0') ) {
+	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
+	    picture->linesize[0] = decoder->Image->pitches[0];
+	    picture->data[1] = va_image_data + decoder->Image->offsets[1];
+	    picture->linesize[1] = decoder->Image->pitches[2];
+	    picture->data[2] = va_image_data + decoder->Image->offsets[2];
+	    picture->linesize[2] = decoder->Image->pitches[1];
 
-	    // FIXME: I420 vs YV12
-	    if ( decoder->Image->num_planes == 3 ) {
-		picture->data[0] = va_image_data + decoder->Image->offsets[0];
-		picture->linesize[0] = decoder->Image->pitches[0];
-		picture->data[1] = va_image_data + decoder->Image->offsets[2];
-		picture->linesize[1] = decoder->Image->pitches[2];
-		picture->data[2] = va_image_data + decoder->Image->offsets[1];
-		picture->linesize[2] = decoder->Image->pitches[1];
-	    }
+	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt,
+		width, height);
+	} else if ( decoder->Image->num_planes == 3 ) {
+	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
+	    picture->linesize[0] = decoder->Image->pitches[0];
+	    picture->data[1] = va_image_data + decoder->Image->offsets[2];
+	    picture->linesize[1] = decoder->Image->pitches[2];
+	    picture->data[2] = va_image_data + decoder->Image->offsets[1];
+	    picture->linesize[2] = decoder->Image->pitches[1];
 
 	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt,
 		width, height);
@@ -3449,8 +3456,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	Debug(4, "video/vaapi: buffer %dx%d <- %dx%d\n", decoder->Image->width,
 	    decoder->Image->height, width, height);
 
-	// FIXME: intel didn't support put image.
-	if (put_image
+	if (decoder->PutImage
 	    && (i =
 		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0,
 		    width, height, 0, 0, width,

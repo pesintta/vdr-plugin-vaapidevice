@@ -41,6 +41,7 @@ video:
     skip lines not configurable from setup menu.
     software decoder path didn't support auto-crop
     software decoder path didn't support correct 4:3 16:9
+    OSD can only be shown after some stream could be shown
 
 vdpau:
 
