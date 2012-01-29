@@ -1,6 +1,11 @@
 User johns
 Date:
 
+    Add workaround for Intel VA-API MPEG GPU hung.
+
+User johns
+Date: Sat Jan 28 13:32:12 CET 2012
+
     Release Version 0.4.5
     Add configurable skip lines at video top and bottom.
     Add auto-crop tolerance configuration.

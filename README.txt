@@ -146,6 +146,8 @@ Setup: /etc/vdr/setup.conf
 	if detected crop area is too small, cut max 'n' pixels at top and
 	bottom.
 
+	softhddevice.SkipLines = 0
+	skip 'n' lines at top and bottom of the video picture.
 
 	softhddevice.Suspend.Close = 0
 	1 suspend closes x11 window, connection and audio device.

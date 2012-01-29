@@ -1561,6 +1561,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	VaapiDestroyDeinterlaceImages(decoder);
     }
 
+    decoder->FrameCounter = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -1865,7 +1866,10 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     // cleanup last context
     VaapiCleanup(decoder);
 
-    if (!VideoHardwareDecoder) {	// hardware disabled by config
+    if (!VideoHardwareDecoder
+	|| (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+		&& VideoHardwareDecoder == 1)
+	) {	// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -2064,6 +2068,8 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 {
     unsigned type;
     VAStatus status;
+    uint32_t s;
+    uint32_t e;
 
     // deinterlace
     if (interlaced
@@ -2086,6 +2092,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	type = VA_FRAME_PICTURE;
     }
 
+    s = GetMsTicks();
     xcb_flush(Connection);
     if ((status = vaPutSurface(decoder->VaDisplay, surface, decoder->Window,
 		// decoder src
@@ -2098,6 +2105,15 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	!= VA_STATUS_SUCCESS) {
 	// switching video kills VdpPresentationQueueBlockUntilSurfaceIdle
 	Error(_("video/vaapi: vaPutSurface failed %d\n"), status);
+    }
+
+    if (0 && vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaSyncSurface failed\n"));
+    }
+    e = GetMsTicks();
+    if (e - s > 2000) {
+	Error(_("video/vaapi: gpu hung %d ms %d\n"), e - s, decoder->FrameCounter);
+	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), e - s, decoder->FrameCounter);
     }
 
     if (0) {
@@ -2133,7 +2149,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	    usleep(1 * 1000);
 	}
     }
-
 }
 
 #ifdef USE_GLX
@@ -2792,14 +2807,16 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
 
     put1 = GetMsTicks();
+    if (put1 - sync > 2000 ) {
+	Error(_("video/vaapi: gpu hung %d ms %d\n"), put1 - sync, decoder->FrameCounter);
+	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), put1 - sync, decoder->FrameCounter);
+    }
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
 
     if (0 && vaSyncSurface(decoder->VaDisplay, decoder->BlackSurface)
 	!= VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
-
-    usleep(500);
 }
 
 ///
@@ -3385,20 +3402,40 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't map the image!\n"));
 	}
+	// crazy: intel mixes YV12 and NV12 with mpeg
 	if (decoder->Image->format.fourcc == VA_FOURCC_NV12) {
-	    static int warned;
+	    int x;
 
-	    // FIXME: intel NV12 convert YV12 to NV12
-	    if (!warned) {
-		warned = 1;
-		Error(_("video/vaapi: FIXME: yv12->nv12 not written\n"));
+	    // intel NV12 convert YV12 to NV12
+
+	    // copy Y
+	    for ( i=0; i<height; ++i ) {
+		memcpy(va_image_data + decoder->Image->offsets[0] +
+			decoder->Image->pitches[0] * i,
+		    frame->data[0] + frame->linesize[0] * i,
+			frame->linesize[0]);
+	    }
+	    // copy UV
+	    for ( i=0; i< height / 2; ++i ) {
+		for ( x=0; x < frame->linesize[1]; ++x ) {
+		    ((uint8_t*)va_image_data)[decoder->Image->offsets[1]
+			+ decoder->Image->pitches[1] * i + x * 2 + 0]
+			    = frame->data[1][i * frame->linesize[1] + x];
+		    ((uint8_t*)va_image_data)[decoder->Image->offsets[1]
+			+ decoder->Image->pitches[1] * i + x * 2 + 1]
+			    = frame->data[2][i * frame->linesize[2] + x];
+		}
 	    }
 	} else {
 
 	    // FIXME: I420 vs YV12
-	    for (i = 0; (unsigned)i < decoder->Image->num_planes; ++i) {
-		picture->data[i] = va_image_data + decoder->Image->offsets[i];
-		picture->linesize[i] = decoder->Image->pitches[i];
+	    if ( decoder->Image->num_planes == 3 ) {
+		picture->data[0] = va_image_data + decoder->Image->offsets[0];
+		picture->linesize[0] = decoder->Image->pitches[0];
+		picture->data[1] = va_image_data + decoder->Image->offsets[2];
+		picture->linesize[1] = decoder->Image->pitches[2];
+		picture->data[2] = va_image_data + decoder->Image->offsets[1];
+		picture->linesize[2] = decoder->Image->pitches[1];
 	    }
 
 	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt,
@@ -3576,10 +3613,6 @@ static void VaapiDisplayFrame(void)
 #endif
 
 	decoder->FrameTime = nowtime;
-
-	// fixes: [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck
-	//	  timer elapsed... GPU hung
-	usleep(1 * 1000);
     }
 }
 
@@ -5426,7 +5459,10 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
     VdpauCleanup(decoder);
 
-    if (!VideoHardwareDecoder) {	// hardware disabled by config
+    if (!VideoHardwareDecoder
+	|| (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+		&& VideoHardwareDecoder == 1)
+	) {	// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -8518,8 +8554,12 @@ void VideoInit(const char *display_name)
 #endif
 
     // FIXME: make it configurable from gui
-    if (!getenv("NO_HW")) {
+    VideoHardwareDecoder = -1;
+    if (getenv("NO_MPEG_HW")) {
 	VideoHardwareDecoder = 1;
+    }
+    if (getenv("NO_HW")) {
+	VideoHardwareDecoder = 0;
     }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);

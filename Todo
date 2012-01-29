@@ -38,7 +38,9 @@ video:
     suspendoutput didn't show logo or black pictures
 	(must detect video format to show image)
     hard channel switch
-    skip line not configurable from setup menu.
+    skip lines not configurable from setup menu.
+    software decoder path didn't support auto-crop
+    software decoder path didn't support correct 4:3 16:9
 
 vdpau:
 
@@ -46,7 +48,7 @@ libva:
     yaepghd (VaapiSetOutputPosition) support
     can associate only displayed part of osd
     grab image for va-api
-    still many:
+    still many: (workaround export NO_MPEG_HW=1)
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
     [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
 
@@ -56,7 +58,8 @@ libva: branch vaapi-ext
 libva-intel-driver:
     1080i does no v-sync (sometimes correct working with vaapi-ext)
     OSD has sometimes wrong size (workaround written)
-    software decoder needs UV swab
+    sometimes software decoder deinterlace isn't working and 1080i channels
+    show artefacts
 
 libva-vdpau-driver:
     G210/GT520 OSD update too slow (needs hardware problem workaround)
@@ -85,6 +88,7 @@ audio/alsa:
 
 audio/oss:
     alsa oss emulation mixer "pcm" not working
+    oss4 mixer channel not working
     ring buffer overflow with alsa oss emulation
 
 HDMI/SPDIF Passthrough:
