@@ -44,6 +44,7 @@ video:
     OSD can only be shown after some stream could be shown
 
 vdpau:
+    software decoder path not working
 
 libva:
     yaepghd (VaapiSetOutputPosition) support

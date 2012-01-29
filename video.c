@@ -1868,10 +1868,9 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     // cleanup last context
     VaapiCleanup(decoder);
 
-    if (!VideoHardwareDecoder
-	|| (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
-		&& VideoHardwareDecoder == 1)
-	) {	// hardware disabled by config
+    if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+	    && VideoHardwareDecoder == 1)
+	) {				// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -2114,8 +2113,10 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     }
     e = GetMsTicks();
     if (e - s > 2000) {
-	Error(_("video/vaapi: gpu hung %d ms %d\n"), e - s, decoder->FrameCounter);
-	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), e - s, decoder->FrameCounter);
+	Error(_("video/vaapi: gpu hung %d ms %d\n"), e - s,
+	    decoder->FrameCounter);
+	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), e - s,
+	    decoder->FrameCounter);
     }
 
     if (0) {
@@ -2335,11 +2336,9 @@ static void VaapiSetup(VaapiDecoder * decoder,
 
     width = video_ctx->width;
     height = video_ctx->height;
+    // FIXME: remove this if
     if (decoder->Image->image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy image!\n");
-	}
+	abort();			// should be done by VaapiCleanup()
     }
     VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
 
@@ -2809,9 +2808,11 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
 
     put1 = GetMsTicks();
-    if (put1 - sync > 2000 ) {
-	Error(_("video/vaapi: gpu hung %d ms %d\n"), put1 - sync, decoder->FrameCounter);
-	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), put1 - sync, decoder->FrameCounter);
+    if (put1 - sync > 2000) {
+	Error(_("video/vaapi: gpu hung %d ms %d\n"), put1 - sync,
+	    decoder->FrameCounter);
+	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), put1 - sync,
+	    decoder->FrameCounter);
     }
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
 
@@ -3255,80 +3256,78 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     VASurfaceID surface;
+    int interlaced;
 
-    if (video_ctx->height != decoder->InputHeight
-	|| video_ctx->width != decoder->InputWidth) {
-	Debug(3, "video/vaapi: stream <-> surface size mismatch\n");
+    // FIXME: some tv-stations toggle interlace on/off
+    // frame->interlaced_frame isn't always correct set
+    interlaced = frame->interlaced_frame;
+    if (video_ctx->height == 720) {
+	if (interlaced && !decoder->WrongInterlacedWarned) {
+	    Debug(3, "video/vaapi: wrong interlace flag fixed\n");
+	    decoder->WrongInterlacedWarned = 1;
+	}
+	interlaced = 0;
+    } else {
+	if (!interlaced && !decoder->WrongInterlacedWarned) {
+	    Debug(3, "video/vaapi: wrong interlace flag fixed\n");
+	    decoder->WrongInterlacedWarned = 1;
+	}
+	interlaced = 1;
     }
+
+    // FIXME: should be done by init video_ctx->field_order
+    if (decoder->Interlaced != interlaced
+	|| decoder->TopFieldFirst != frame->top_field_first) {
+
+#if 0
+	// field_order only in git
+	Debug(3, "video/vaapi: interlaced %d top-field-first %d - %d\n",
+	    interlaced, frame->top_field_first, video_ctx->field_order);
+#else
+	Debug(3, "video/vaapi: interlaced %d top-field-first %d\n", interlaced,
+	    frame->top_field_first);
+#endif
+
+	decoder->Interlaced = interlaced;
+	decoder->TopFieldFirst = frame->top_field_first;
+	decoder->SurfaceField = 1;
+    }
+    // update aspect ratio changes
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,60,100)
+    if (decoder->InputWidth && decoder->InputHeight
+	&& av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	Debug(3, "video/vaapi: aspect ratio changed\n");
+
+	decoder->InputAspect = frame->sample_aspect_ratio;
+	VaapiUpdateOutput(decoder);
+    }
+#else
+    if (decoder->InputWidth && decoder->InputHeight
+	&& av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
+	Debug(3, "video/vaapi: aspect ratio changed\n");
+
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+	VaapiUpdateOutput(decoder);
+    }
+#endif
+
     //
     // Hardware render
     //
     if (video_ctx->hwaccel_context) {
-	int interlaced;
+
+	if (video_ctx->height != decoder->InputHeight
+	    || video_ctx->width != decoder->InputWidth) {
+	    Error(_("video/vaapi: stream <-> surface size mismatch\n"));
+	    return;
+	}
 
 	surface = (unsigned)(size_t) frame->data[3];
 	Debug(4, "video/vaapi: hw render hw surface %#x\n", surface);
 
-	// FIXME: some tv-stations toggle interlace on/off
-	// frame->interlaced_frame isn't always correct set
-	interlaced = frame->interlaced_frame;
-	if (video_ctx->height == 720) {
-	    if (interlaced && !decoder->WrongInterlacedWarned) {
-		Debug(3, "video/vaapi: wrong interlace flag fixed\n");
-		decoder->WrongInterlacedWarned = 1;
-	    }
-	    interlaced = 0;
-	} else {
-	    if (!interlaced && !decoder->WrongInterlacedWarned) {
-		Debug(3, "video/vaapi: wrong interlace flag fixed\n");
-		decoder->WrongInterlacedWarned = 1;
-	    }
-	    interlaced = 1;
-	}
-
-	// update aspect ratio changes
-#ifdef still_to_detect_define
-	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
-	    Debug(3, "video/vaapi: aspect ratio changed\n");
-
-	    //decoder->InputWidth = video_ctx->width;
-	    //decoder->InputHeight = video_ctx->height;
-	    decoder->InputAspect = frame->sample_aspect_ratio;
-	    VaapiUpdateOutput(decoder);
-	}
-#else
-	if (av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
-	    Debug(3, "video/vaapi: aspect ratio changed\n");
-
-	    //decoder->InputWidth = video_ctx->width;
-	    //decoder->InputHeight = video_ctx->height;
-	    decoder->InputAspect = video_ctx->sample_aspect_ratio;
-	    VaapiUpdateOutput(decoder);
-	}
-#endif
-
-	// FIXME: should be done by init video_ctx->field_order
-	if (decoder->Interlaced != interlaced
-	    || decoder->TopFieldFirst != frame->top_field_first) {
-
-#if 0
-	    // field_order only in git
-	    Debug(3, "video/vaapi: interlaced %d top-field-first %d - %d\n",
-		interlaced, frame->top_field_first, video_ctx->field_order);
-#else
-	    Debug(3, "video/vaapi: interlaced %d top-field-first %d\n",
-		interlaced, frame->top_field_first);
-#endif
-
-	    decoder->Interlaced = interlaced;
-	    decoder->TopFieldFirst = frame->top_field_first;
-	    decoder->SurfaceField = 1;
-	}
-
 	if (interlaced
 	    && VideoDeinterlace[decoder->Resolution] ==
 	    VideoDeinterlaceSoftware) {
-	    // FIXME: software deinterlace avpicture_deinterlace
 	    VaapiCpuDeinterlace(decoder, surface);
 	} else {
 	    VaapiQueueSurface(decoder, surface, 0);
@@ -3356,33 +3355,24 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    || width != decoder->InputWidth
 	    || height != decoder->InputHeight) {
 
+	    Debug(3,
+		"video/vaapi: stream <-> surface size/interlace mismatch\n");
+
 	    decoder->CropX = 0;
 	    decoder->CropY = VideoSkipLines;
-	    decoder->CropWidth = video_ctx->width;
-	    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
+	    decoder->CropWidth = width;
+	    decoder->CropHeight = height - VideoSkipLines * 2;
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
+	    // FIXME: aspect done above!
 	    decoder->InputWidth = width;
 	    decoder->InputHeight = height;
 
 	    VaapiSetup(decoder, video_ctx);
-
-	    // FIXME: bad interlace like hw-part
-	    // FIXME: aspect ratio
-
-	    //
-	    //	detect interlaced input
-	    //
-	    Debug(3, "video/vaapi: interlaced %d top-field-first %d\n",
-		frame->interlaced_frame, frame->top_field_first);
-
-	    decoder->Interlaced = frame->interlaced_frame;
-	    decoder->TopFieldFirst = frame->top_field_first;
-	    decoder->SurfaceField = 1;
-	    // FIXME: I hope this didn't change in the middle of the stream
+	    VaapiUpdateOutput(decoder);
 	}
 	// FIXME: Need to insert software deinterlace here
-	// FIXME: can insert auto-crop here
+	// FIXME: can/must insert auto-crop here
 
 	// get a free surface and upload the image
 	surface = VaapiGetSurface(decoder);
@@ -3390,7 +3380,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 	if (!decoder->PutImage
 	    && vaDeriveImage(decoder->VaDisplay, surface,
-		    decoder->Image) != VA_STATUS_SUCCESS) {
+		decoder->Image) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaDeriveImage failed\n"));
 	    decoder->PutImage = 1;
 	}
@@ -3408,26 +3398,26 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    // intel NV12 convert YV12 to NV12
 
 	    // copy Y
-	    for ( i=0; i<height; ++i ) {
+	    for (i = 0; i < height; ++i) {
 		memcpy(va_image_data + decoder->Image->offsets[0] +
-			decoder->Image->pitches[0] * i,
+		    decoder->Image->pitches[0] * i,
 		    frame->data[0] + frame->linesize[0] * i,
-			frame->linesize[0]);
+		    frame->linesize[0]);
 	    }
 	    // copy UV
-	    for ( i=0; i< height / 2; ++i ) {
-		for ( x=0; x < frame->linesize[1]; ++x ) {
-		    ((uint8_t*)va_image_data)[decoder->Image->offsets[1]
+	    for (i = 0; i < height / 2; ++i) {
+		for (x = 0; x < frame->linesize[1]; ++x) {
+		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
 			+ decoder->Image->pitches[1] * i + x * 2 + 0]
-			    = frame->data[1][i * frame->linesize[1] + x];
-		    ((uint8_t*)va_image_data)[decoder->Image->offsets[1]
+			= frame->data[1][i * frame->linesize[1] + x];
+		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
 			+ decoder->Image->pitches[1] * i + x * 2 + 1]
-			    = frame->data[2][i * frame->linesize[2] + x];
+			= frame->data[2][i * frame->linesize[2] + x];
 		}
 	    }
-	// vdpau uses this
-	} else if (decoder->Image->format.fourcc
-		== VA_FOURCC('I', '4', '2', '0') ) {
+	    // vdpau uses this
+	} else if (decoder->Image->format.fourcc == VA_FOURCC('I', '4', '2',
+		'0')) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
 	    picture->linesize[0] = decoder->Image->pitches[0];
 	    picture->data[1] = va_image_data + decoder->Image->offsets[1];
@@ -3437,7 +3427,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt,
 		width, height);
-	} else if ( decoder->Image->num_planes == 3 ) {
+	} else if (decoder->Image->num_planes == 3) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
 	    picture->linesize[0] = decoder->Image->pitches[0];
 	    picture->data[1] = va_image_data + decoder->Image->offsets[2];
@@ -3449,7 +3439,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 		width, height);
 	}
 
-	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
+	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf)
+	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't unmap the image!\n"));
 	}
 
@@ -5465,10 +5456,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
     VdpauCleanup(decoder);
 
-    if (!VideoHardwareDecoder
-	|| (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
-		&& VideoHardwareDecoder == 1)
-	) {	// hardware disabled by config
+    if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+	    && VideoHardwareDecoder == 1)
+	) {				// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
 	goto slow_path;
     }
@@ -6023,6 +6013,54 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 {
     VdpStatus status;
     VdpVideoSurface surface;
+    int interlaced;
+
+    // FIXME: some tv-stations toggle interlace on/off
+    // frame->interlaced_frame isn't always correct set
+    interlaced = frame->interlaced_frame;
+    if (video_ctx->height == 720) {
+	if (interlaced && !decoder->WrongInterlacedWarned) {
+	    Debug(3, "video/vdpau: wrong interlace flag fixed\n");
+	    decoder->WrongInterlacedWarned = 1;
+	}
+	interlaced = 0;
+    } else {
+	if (!interlaced && !decoder->WrongInterlacedWarned) {
+	    Debug(3, "video/vdpau: wrong interlace flag fixed\n");
+	    decoder->WrongInterlacedWarned = 1;
+	}
+	interlaced = 1;
+    }
+
+    // FIXME: should be done by init video_ctx->field_order
+    if (decoder->Interlaced != interlaced
+	|| decoder->TopFieldFirst != frame->top_field_first) {
+
+	Debug(3, "video/vdpau: interlaced %d top-field-first %d\n", interlaced,
+	    frame->top_field_first);
+
+	decoder->Interlaced = interlaced;
+	decoder->TopFieldFirst = frame->top_field_first;
+	decoder->SurfaceField = 0;
+    }
+    // update aspect ratio changes
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,60,100)
+    if (decoder->InputWidth && decoder->InputHeight
+	&& av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	Debug(3, "video/vdpau: aspect ratio changed\n");
+
+	decoder->InputAspect = frame->sample_aspect_ratio;
+	VdpauUpdateOutput(decoder);
+    }
+#else
+    if (decoder->InputWidth && decoder->InputHeight
+	&& av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	Debug(3, "video/vdpau: aspect ratio changed\n");
+
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+	VdpauUpdateOutput(decoder);
+    }
+#endif
 
     //
     // Hardware render
@@ -6032,67 +6070,16 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
 	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
 	struct vdpau_render_state *vrs;
-	int interlaced;
 
 	vrs = (struct vdpau_render_state *)frame->data[0];
 	surface = vrs->surface;
 	Debug(4, "video/vdpau: hw render hw surface %#x\n", surface);
-
-	// FIXME: some tv-stations toggle interlace on/off
-	// frame->interlaced_frame isn't always correct set
-	interlaced = frame->interlaced_frame;
-	if (video_ctx->height == 720) {
-	    if (interlaced && !decoder->WrongInterlacedWarned) {
-		Debug(3, "video/vdpau: wrong interlace flag fixed\n");
-		decoder->WrongInterlacedWarned = 1;
-	    }
-	    interlaced = 0;
-	} else {
-	    if (!interlaced && !decoder->WrongInterlacedWarned) {
-		Debug(3, "video/vdpau: wrong interlace flag fixed\n");
-		decoder->WrongInterlacedWarned = 1;
-	    }
-	    interlaced = 1;
-	}
-
-	// update aspect ratio changes
-#ifdef still_to_detect_define
-	if (av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
-	    Debug(3, "video/vdpau: aspect ratio changed\n");
-
-	    //decoder->InputWidth = video_ctx->width;
-	    //decoder->InputHeight = video_ctx->height;
-	    decoder->InputAspect = frame->sample_aspect_ratio;
-	    VdpauUpdateOutput(decoder);
-	}
-#else
-	if (av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
-	    Debug(3, "video/vdpau: aspect ratio changed\n");
-
-	    //decoder->InputWidth = video_ctx->width;
-	    //decoder->InputHeight = video_ctx->height;
-	    decoder->InputAspect = video_ctx->sample_aspect_ratio;
-	    VdpauUpdateOutput(decoder);
-	}
-#endif
 
 	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
 	    && interlaced) {
 	    // FIXME: software deinterlace avpicture_deinterlace
 	    // FIXME: VdpauCpuDeinterlace(decoder, surface);
 	} else {
-	    // FIXME: should be done by init
-	    if (decoder->Interlaced != interlaced
-		|| decoder->TopFieldFirst != frame->top_field_first) {
-
-		Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
-		    interlaced, frame->top_field_first);
-
-		decoder->Interlaced = interlaced;
-		decoder->TopFieldFirst = frame->top_field_first;
-		decoder->SurfaceField = 0;
-
-	    }
 	    VdpauQueueSurface(decoder, surface, 0);
 	}
 
@@ -6102,8 +6089,6 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     } else {
 	void const *data[3];
 	uint32_t pitches[3];
-
-	// FIXME: aspect change not supported!
 
 	//
 	//	Check image, format, size
@@ -6126,10 +6111,6 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    //
 	    Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
 		frame->interlaced_frame, frame->top_field_first);
-
-	    decoder->Interlaced = frame->interlaced_frame;
-	    decoder->TopFieldFirst = frame->top_field_first;
-	    decoder->SurfaceField = 0;
 	    // FIXME: I hope this didn't change in the middle of the stream
 
 	    VdpauCleanup(decoder);
