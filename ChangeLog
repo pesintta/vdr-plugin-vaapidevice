@@ -1,5 +1,10 @@
+User HelAu
+Date: Mon Jan 30 16:54:47 CET 2012
+
+    Add support to start the plugin in suspended mode.
+
 User johns
-Date:
+Date: Mon Jan 30 15:58:21 CET 2012
 
     Finished rewrite of video code, to support output modules.
     Add aspect change support to software decoder path.

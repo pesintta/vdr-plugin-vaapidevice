@@ -61,6 +61,8 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #endif
 
 static char ConfigFullscreen;		///< fullscreen modus
+static char ConfigStartSuspended;	///< flag to start in suspend mode
+static char ConfigStartX11Server;	///< flag start the x11 server
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
@@ -894,6 +896,10 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 */
 void SetPlayMode(void)
 {
+    if (ConfigStartSuspended) {		// ignore first call, if start suspended
+	ConfigStartSuspended = 0;
+	return;
+    }
     Resume();
     if (MyVideoDecoder) {
 	if (VideoCodecID != CODEC_ID_NONE) {
@@ -1079,8 +1085,6 @@ void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 
 //////////////////////////////////////////////////////////////////////////////
 
-static char ConfigStartX11Server;	///< flag start the x11 server
-
 /**
 **	Return command line help string.
 */
@@ -1091,7 +1095,7 @@ const char *CommandLineHelp(void)
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
-	"  -x\t\tstart x11 server\n";
+	"  -x\t\tstart x11 server\n" "	-s\t\tstart in suspended mode\n";
 }
 
 /**
@@ -1106,7 +1110,7 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:p:d:fg:x")) {
+	switch (getopt(argc, argv, "-a:p:d:fg:xs")) {
 	    case 'a':			// audio device
 		AudioSetDevice(optarg);
 		continue;
@@ -1129,6 +1133,9 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 'x':			// x11 server
 		ConfigStartX11Server = 1;
+		continue;
+	    case 's':			// start in suspend mode
+		ConfigStartSuspended = 1;
 		continue;
 	    case EOF:
 		break;
@@ -1311,15 +1318,19 @@ void Start(void)
     }
     CodecInit();
 
-    // FIXME: AudioInit for HDMI after X11 startup
-    AudioInit();
-    MyAudioDecoder = CodecAudioNewDecoder();
-    AudioCodecID = CODEC_ID_NONE;
+    if (!ConfigStartSuspended) {
+	// FIXME: AudioInit for HDMI after X11 startup
+	AudioInit();
+	MyAudioDecoder = CodecAudioNewDecoder();
+	AudioCodecID = CODEC_ID_NONE;
 
-    if (!ConfigStartX11Server) {
-	StartVideo();
+	if (!ConfigStartX11Server) {
+	    StartVideo();
+	}
+    } else {
+	SkipVideo = 1;
+	SkipAudio = 1;
     }
-
     pthread_mutex_init(&SuspendLockMutex, NULL);
 }
 
