@@ -1576,7 +1576,9 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	VaapiDestroyDeinterlaceImages(decoder);
     }
 
-    decoder->FrameCounter = 0;
+    decoder->SurfaceField = 1;
+
+    //decoder->FrameCounter = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
