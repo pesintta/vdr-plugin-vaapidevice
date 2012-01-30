@@ -740,6 +740,10 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
     return true;
 }
 
+/**
+**	Gets the current System Time Counter, which can be used to
+**	synchronize audio, video and subtitles.
+*/
 int64_t cSoftHdDevice::GetSTC(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);

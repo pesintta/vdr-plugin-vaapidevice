@@ -24,6 +24,7 @@ missing:
     zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop and restart X11
+    suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
     Make output drivers better modular (under construction).
 
@@ -74,6 +75,8 @@ libva-xvba-driver:
 
 x11:
     disable screensaver
+    skip multiple configure-notify, handle only the last one.
+    support embedded mode
 
 audio:
     write TS -> PES parser, which feeds audio before the next start packet

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Finished rewrite of video code, to support output modules.
     Add aspect change support to software decoder path.
     Repair software decoder with vaapi vdpau backend.
     Add workaround for Intel VA-API MPEG GPU hung.

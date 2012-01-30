@@ -47,15 +47,16 @@ extern unsigned VideoGetSurface(VideoHwDecoder *);
 extern void VideoReleaseSurface(VideoHwDecoder *, unsigned);
 
 #ifdef LIBAVCODEC_VERSION
-    /// Render a ffmpeg frame.
-extern void VideoRenderFrame(VideoHwDecoder *, AVCodecContext *, AVFrame *);
-
-    /// Get ffmpeg vaapi context.
-extern struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder *);
-
     /// Callback to negotiate the PixelFormat.
 extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
     const enum PixelFormat *);
+
+    /// Render a ffmpeg frame.
+extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *,
+    const AVFrame *);
+
+    /// Get ffmpeg vaapi context.
+extern struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder *);
 
 #ifdef AVCODEC_VDPAU_H
     /// Draw vdpau render state.

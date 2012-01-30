@@ -201,9 +201,20 @@ typedef struct _video_module_
 {
     const char *Name;			///< video output module name
 
+    char Enabled;			///< flag output module enabled
+
     /// allocate new video hw decoder
     VideoHwDecoder *(*const NewHwDecoder)(void);
     void (*const DelHwDecoder) (VideoHwDecoder *);
+    unsigned (*const GetSurface) (VideoHwDecoder *);
+    void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
+    enum PixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *,
+	const enum PixelFormat *);
+    void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *,
+	const AVFrame *);
+    uint8_t *(*const GrabOutput)(int *, int *, int *);
+    void (*const SetVideoMode) (void);
+    void (*const ResetAutoCrop) (void);
 
     void (*const Thread) (void);	///< module display handler thread
 
@@ -213,7 +224,7 @@ typedef struct _video_module_
     void (*const OsdInit) (int, int);	///< initialize OSD
     void (*const OsdExit) (void);	///< cleanup OSD
 
-    void (*const Init) (const char *);	///< initialize video output module
+    int (*const Init) (const char *);	///< initialize video output module
     void (*const Exit) (void);		///< cleanup video output module
 } VideoModule;
 
@@ -326,6 +337,9 @@ static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
+
+    /// update video stream PTS
+static void VideoSetPts(int64_t *, int, const AVFrame *);
 
 //----------------------------------------------------------------------------
 //	GLX
@@ -1032,7 +1046,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 
 #ifdef USE_VAAPI
 
-static int VideoVaapiEnabled = 1;	///< use VA-API decoder
 static int VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
 static int VaapiBuggyIntel;		///< fix libva-driver-intel bugs
 
@@ -1631,7 +1644,9 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
 ///
 ///	@param display_name	x11/xcb display name
 ///
-static void VaapiInit(const char *display_name)
+///	@returns true if VA-API could be initialized, false otherwise.
+///
+static int VaapiInit(const char *display_name)
 {
     int major;
     int minor;
@@ -1652,9 +1667,7 @@ static void VaapiInit(const char *display_name)
     if (!VaDisplay) {
 	Error(_("video/vaapi: Can't connect VA-API to X11 server on '%s'"),
 	    display_name);
-	// FIXME: no fatal for plugin
-	VideoVaapiEnabled = 0;
-	return;
+	return 0;
     }
 
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
@@ -1662,8 +1675,7 @@ static void VaapiInit(const char *display_name)
 	    display_name);
 	vaTerminate(VaDisplay);
 	VaDisplay = NULL;
-	VideoVaapiEnabled = 0;
-	return;
+	return 0;
     }
     s = vaQueryVendorString(VaDisplay);
     Info(_("video/vaapi: libva %d.%d (%s) initialized\n"), major, minor, s);
@@ -1698,6 +1710,7 @@ static void VaapiInit(const char *display_name)
     //
     attr.type = VAConfigAttribRTFormat attr.flags = VA_DISPLAY_ATTRIB_GETTABLE;
 #endif
+    return 1;
 }
 
 ///
@@ -3687,6 +3700,8 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
@@ -3746,7 +3761,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 {
     // pts is the timestamp of the latest decoded frame
-    if ((uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+    if (!decoder || (uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
 	return AV_NOPTS_VALUE;
     }
     // subtract buffered decoded frames
@@ -3757,6 +3772,18 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
     }
     return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
 	1);
+}
+
+///
+///	Set VA-API video mode.
+///
+static void VaapiSetVideoMode(void)
+{
+    int i;
+
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	VaapiUpdateOutput(VaapiDecoders[i]);
+    }
 }
 
 #ifdef USE_VIDEO_THREAD
@@ -3917,6 +3944,7 @@ static void VaapiOsdInit(int width, int height)
     unsigned format_n;
     unsigned u;
     unsigned v;
+    int i;
     static uint32_t wanted_formats[] =
 	{ VA_FOURCC('B', 'G', 'R', 'A'), VA_FOURCC_RGBA };
 
@@ -3990,6 +4018,14 @@ static void VaapiOsdInit(int width, int height)
 	return;
     }
     // FIXME: must store format, to convert ARGB to it.
+
+    // restore osd association
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	if (VaapiDecoders[i]->InputWidth && VaapiDecoders[i]->InputHeight) {
+	    VaapiAssociate(VaapiDecoders[i], VaapiDecoders[i]->InputWidth,
+		VaapiDecoders[i]->InputHeight);
+	}
+    }
 }
 
 ///
@@ -4025,8 +4061,19 @@ static void VaapiOsdExit(void)
 ///
 static const VideoModule VaapiModule = {
     .Name = "va-api",
+    .Enabled = 1,
     .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelDecoder,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *))VaapiGetSurface,
+    .ReleaseSurface =
+	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
+    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
+    .RenderFrame = (void (*const) (VideoHwDecoder *,
+	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .GrabOutput = NULL,
+    .SetVideoMode = VaapiSetVideoMode,
+    .ResetAutoCrop = VaapiResetAutoCrop,
     .Thread = VaapiDisplayHandlerThread,
     .OsdClear = VaapiOsdClear,
     .OsdDrawARGB = VaapiOsdDrawARGB,
@@ -4113,7 +4160,6 @@ typedef struct _vdpau_decoder_
     int FramesDisplayed;		///< number of frames displayed
 } VdpauDecoder;
 
-static int VideoVdpauEnabled = 1;	///< use VDPAU decoder
 static volatile char VdpauPreemption;	///< flag preemption happened.
 
 static VdpauDecoder *VdpauDecoders[1];	///< open decoder streams
@@ -4759,6 +4805,7 @@ static inline void VdpauGetProc(const VdpFuncId id, void *addr,
     if (status != VDP_STATUS_OK) {
 	Fatal(_("video/vdpau: Can't get function address of '%s': %s\n"), name,
 	    VdpauGetErrorString(status));
+	// FIXME: rewrite none fatal
     }
 }
 
@@ -4873,7 +4920,9 @@ static void VdpauPreemptionCallback(VdpDevice device, __attribute__ ((unused))
 ///
 ///	@param display_name	x11/xcb display name
 ///
-static void VdpauInit(const char *display_name)
+///	@returns true if VDPAU could be initialized, false otherwise.
+///
+static int VdpauInit(const char *display_name)
 {
     VdpStatus status;
     VdpGetApiVersion *get_api_version;
@@ -4891,8 +4940,7 @@ static void VdpauInit(const char *display_name)
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: Can't create vdp device on display '%s'\n"),
 	    display_name);
-	VideoVdpauEnabled = 0;
-	return;
+	return 0;
     }
     // get error function first, for better error messages
     status =
@@ -4901,9 +4949,8 @@ static void VdpauInit(const char *display_name)
     if (status != VDP_STATUS_OK) {
 	Error(_
 	    ("video/vdpau: Can't get function address of 'GetErrorString'\n"));
-	VideoVdpauEnabled = 0;
 	// FIXME: destroy_x11 VdpauDeviceDestroy
-	return;
+	return 0;
     }
     // get destroy device next, for cleaning up
     VdpauGetProc(VDP_FUNC_ID_DEVICE_DESTROY, &VdpauDeviceDestroy,
@@ -5269,6 +5316,8 @@ static void VdpauInit(const char *display_name)
     //	Create presentation queue, only one queue pro window
     //
     VdpauInitOutputQueue();
+
+    return 1;
 }
 
 ///
@@ -5506,7 +5555,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	       p = VaapiFindProfile(profiles, profile_n,
 	       VAProfileMPEG4AdvancedSimple);
 	     */
-	    break;
+	    goto slow_path;
 	case CODEC_ID_H264:
 	    // FIXME: can calculate level 4.1 limits
 	    max_refs = 16;
@@ -5542,12 +5591,12 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
 	     */
-	    break;
+	    goto slow_path;
 	case CODEC_ID_VC1:
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
 	     */
-	    break;
+	    goto slow_path;
 	default:
 	    goto slow_path;
     }
@@ -5664,7 +5713,9 @@ static void VdpauGrabVideoSurface(VdpauDecoder * decoder)
 ///
 ///	Grab output surface.
 ///
-///	@param decoder	VDPAU hw decoder
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
 ///
 static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     int *ret_height)
@@ -5715,6 +5766,7 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
 	case VDP_RGBA_FORMAT_R10G10B10A2:
 	case VDP_RGBA_FORMAT_B10G10R10A2:
 	case VDP_RGBA_FORMAT_A8:
+	default:
 	    Error(_("video/vdpau: unsupported rgba format %d\n"), rgba_format);
 	    return NULL;
     }
@@ -6636,6 +6688,8 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+
     if (VdpauPreemption) {		// display preempted
 	return;
     }
@@ -6701,7 +6755,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 {
     // pts is the timestamp of the latest decoded frame
-    if ((uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+    if (!decoder || (uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
 	return AV_NOPTS_VALUE;
     }
     // subtract buffered decoded frames
@@ -6760,6 +6814,21 @@ static int VdpauPreemptionRecover(void)
     VdpauOsdInit(OsdWidth, OsdHeight);
 
     return 1;
+}
+
+///
+///	Set VA-API video mode.
+///
+static void VdpauSetVideoMode(void)
+{
+    int i;
+
+    VdpauExitOutputQueue();
+
+    VdpauInitOutputQueue();
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	VdpauUpdateOutput(VdpauDecoders[i]);
+    }
 }
 
 #ifdef USE_VIDEO_THREAD
@@ -7077,8 +7146,19 @@ static void VdpauOsdExit(void)
 ///
 static const VideoModule VdpauModule = {
     .Name = "vdpau",
+    .Enabled = 1,
     .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelDecoder,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *))VdpauGetSurface,
+    .ReleaseSurface =
+	(void (*const) (VideoHwDecoder *, unsigned))VdpauReleaseSurface,
+    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum PixelFormat *))Vdpau_get_format,
+    .RenderFrame = (void (*const) (VideoHwDecoder *,
+	    const AVCodecContext *, const AVFrame *))VdpauSyncRenderFrame,
+    .GrabOutput = VdpauGrabOutputSurface,
+    .SetVideoMode = VdpauSetVideoMode,
+    .ResetAutoCrop = VdpauResetAutoCrop,
     .Thread = VdpauDisplayHandlerThread,
     .OsdClear = VdpauOsdClear,
     .OsdDrawARGB = VdpauOsdDrawARGB,
@@ -7378,17 +7458,10 @@ static void VideoDisplayFrame(void)
 	glClear(GL_COLOR_BUFFER_BIT);
     }
 #endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiDisplayFrame();
-	return;
+
+    if (VideoUsedModule) {
+	VideoUsedModule->DisplayFrame();
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return;
-    }
-#endif
 }
 
 #endif
@@ -7625,6 +7698,21 @@ void VideoDisplayWakeup(void)
 //	Video API
 //----------------------------------------------------------------------------
 
+//----------------------------------------------------------------------------
+
+///
+///	Table of all audio modules.
+///
+static const VideoModule *VideoModules[] = {
+#ifdef USE_VDPAU
+    &VdpauModule,
+#endif
+#ifdef USE_VAAPI
+    &VaapiModule,
+#endif
+    //&NoopModule
+};
+
 ///
 ///	Video hardware decoder
 ///
@@ -7671,19 +7759,13 @@ void VideoDelHwDecoder(VideoHwDecoder * decoder)
 ///
 ///	@param decoder	video hardware decoder
 ///
+///	@returns the oldest free surface or invalid surface
+///
 unsigned VideoGetSurface(VideoHwDecoder * decoder)
 {
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	return VaapiGetSurface(&decoder->Vaapi);
+    if (VideoUsedModule) {
+	return VideoUsedModule->GetSurface(decoder);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return VdpauGetSurface(&decoder->Vdpau);
-    }
-#endif
-    (void)decoder;
     return -1;
 }
 
@@ -7699,19 +7781,9 @@ void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
     if (!XlibDisplay) {			// no init or failed
 	return;
     }
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiReleaseSurface(&decoder->Vaapi, surface);
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->ReleaseSurface(decoder, surface);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return VdpauReleaseSurface(&decoder->Vdpau, surface);
-    }
-#endif
-    (void)decoder;
-    (void)surface;
 }
 
 ///
@@ -7724,19 +7796,9 @@ void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
 enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	return Vaapi_get_format(&decoder->Vaapi, video_ctx, fmt);
+    if (VideoUsedModule) {
+	return VideoUsedModule->get_format(decoder, video_ctx, fmt);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return Vdpau_get_format(&decoder->Vdpau, video_ctx, fmt);
-    }
-#endif
-    (void)decoder;
-    (void)video_ctx;
-    (void)fmt;
     return fmt[0];
 }
 
@@ -7797,29 +7859,15 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 ///	@param video_ctx	ffmpeg video codec context
 ///	@param frame		frame to display
 ///
-void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
-    AVFrame * frame)
+void VideoRenderFrame(VideoHwDecoder * decoder,
+    const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     if (frame->repeat_pict) {
-	Warning("video: repeated pict found, but not handled\n");
+	Warning(_("video: repeated pict found, but not handled\n"));
     }
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VideoSetPts(&decoder->Vaapi.PTS, decoder->Vaapi.Interlaced, frame);
-	VaapiSyncRenderFrame(&decoder->Vaapi, video_ctx, frame);
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->RenderFrame(decoder, video_ctx, frame);
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VideoSetPts(&decoder->Vdpau.PTS, decoder->Vdpau.Interlaced, frame);
-	VdpauSyncRenderFrame(&decoder->Vdpau, video_ctx, frame);
-	return;
-    }
-#endif
-    (void)decoder;
-    (void)video_ctx;
-    (void)frame;
 }
 
 ///
@@ -7830,7 +7878,7 @@ void VideoRenderFrame(VideoHwDecoder * decoder, AVCodecContext * video_ctx,
 struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 {
 #ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
+    if (VideoUsedModule == &VaapiModule) {
 	return decoder->Vaapi.VaapiContext;
     }
 #endif
@@ -7849,7 +7897,7 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
     struct vdpau_render_state *vrs)
 {
-    if (VideoVdpauEnabled) {
+    if (VideoUsedModule == &VdpauModule) {
 	VdpStatus status;
 	uint32_t start;
 	uint32_t end;
@@ -7900,6 +7948,8 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 ///
 ///	Video render.
 ///
+///	@FIXME: old, not used and not uptodate code path
+///
 void VideoDisplayHandler(void)
 {
     uint32_t now;
@@ -7919,17 +7969,6 @@ void VideoDisplayHandler(void)
     VaapiBlackSurface(VaapiDecoders[0]);
 
     return;
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiDisplayFrame();
-	return;
-    }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	return;
-    }
-#endif
     VideoDisplayFrame();
 }
 
@@ -7944,14 +7983,14 @@ void VideoDisplayHandler(void)
 ///
 int64_t VideoGetClock(void)
 {
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled && VaapiDecoders[0]) {
-	return VaapiGetClock(VaapiDecoders[0]);
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	return VdpauGetClock(VdpauDecoders[0]);
     }
 #endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled && VdpauDecoders[0]) {
-	return VdpauGetClock(VdpauDecoders[0]);
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	return VaapiGetClock(VaapiDecoders[0]);
     }
 #endif
     return 0L;
@@ -7960,13 +7999,16 @@ int64_t VideoGetClock(void)
 ///
 ///	Grab full screen image.
 ///
+///	@param size[out]	size of allocated image
+///	@param width[in,out]	width of image
+///	@param height[in,out]	height of image
+///
 uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 {
     Debug(3, "video: grab\n");
 
 #ifdef USE_GRAB
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
+    if (VideoUsedModule && VideoUsedModule->GrabOutput) {
 	uint8_t *data;
 	uint8_t *rgb;
 	char buf[64];
@@ -7983,79 +8025,80 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 
 	scale_width = *width;
 	scale_height = *height;
-	data = VdpauGrabOutputSurface(size, width, height);
+	data = VideoUsedModule->GrabOutput(size, width, height);
 
-#if 1
 	if (scale_width <= 0) {
 	    scale_width = *width;
 	}
 	if (scale_height <= 0) {
 	    scale_height = *height;
 	}
-	n = 0;
-	if (write_header) {
-	    n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", scale_width,
-		scale_height);
-	}
-	rgb = malloc(scale_width * scale_height * 3 + n);
-	if (!rgb) {
-	    Error(_("video: out of memory\n"));
-	    free(data);
-	    return NULL;
-	}
-	*size = scale_width * scale_height * 3 + n;
-	memcpy(rgb, buf, n);		// header
+	// hardware didn't scale for us, use simple software scaler
+	if (scale_width != *width && scale_height != *height) {
+	    n = 0;
+	    if (write_header) {
+		n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n",
+		    scale_width, scale_height);
+	    }
+	    rgb = malloc(scale_width * scale_height * 3 + n);
+	    if (!rgb) {
+		Error(_("video: out of memory\n"));
+		free(data);
+		return NULL;
+	    }
+	    *size = scale_width * scale_height * 3 + n;
+	    memcpy(rgb, buf, n);	// header
 
-	scale_x = (double)*width / scale_width;
-	scale_y = (double)*height / scale_height;
+	    scale_x = (double)*width / scale_width;
+	    scale_y = (double)*height / scale_height;
 
-	src_y = 0.0;
-	for (y = 0; y < scale_height; y++) {
-	    int o;
+	    src_y = 0.0;
+	    for (y = 0; y < scale_height; y++) {
+		int o;
 
-	    src_x = 0.0;
-	    o = (int)src_y **width;
+		src_x = 0.0;
+		o = (int)src_y **width;
 
-	    for (x = 0; x < scale_width; x++) {
-		i = 4 * (o + (int)src_x);
+		for (x = 0; x < scale_width; x++) {
+		    i = 4 * (o + (int)src_x);
 
-		rgb[n + (x + y * scale_width) * 3 + 0] = data[i + 2];
-		rgb[n + (x + y * scale_width) * 3 + 1] = data[i + 1];
-		rgb[n + (x + y * scale_width) * 3 + 2] = data[i + 0];
+		    rgb[n + (x + y * scale_width) * 3 + 0] = data[i + 2];
+		    rgb[n + (x + y * scale_width) * 3 + 1] = data[i + 1];
+		    rgb[n + (x + y * scale_width) * 3 + 2] = data[i + 0];
 
-		src_x += scale_x;
+		    src_x += scale_x;
+		}
+
+		src_y += scale_y;
 	    }
 
-	    src_y += scale_y;
+	    *width = scale_width;
+	    *height = scale_height;
+
+	    // grabed image of correct size convert BGRA -> RGB
+	} else {
+	    n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width,
+		*height);
+	    rgb = malloc(*width * *height * 3 + n);
+	    if (!rgb) {
+		Error(_("video: out of memory\n"));
+		free(data);
+		return NULL;
+	    }
+	    memcpy(rgb, buf, n);	// header
+
+	    for (i = 0; i < *size / 4; ++i) {	// convert bgra -> rgb
+		rgb[n + i * 3 + 0] = data[i * 4 + 2];
+		rgb[n + i * 3 + 1] = data[i * 4 + 1];
+		rgb[n + i * 3 + 2] = data[i * 4 + 0];
+	    }
+
+	    *size = *width * *height * 3 + n;
 	}
-
-	*width = scale_width;
-	*height = scale_height;
-
 	free(data);
-#else
-	n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width, *height);
-	rgb = malloc(*width * *height * 3 + n);
-	if (!rgb) {
-	    Error(_("video: out of memory\n"));
-	    free(data);
-	    return NULL;
-	}
-	memcpy(rgb, buf, n);		// header
-
-	for (i = 0; i < *size / 4; ++i) {	// convert bgra -> rgb
-	    rgb[n + i * 3 + 0] = data[i * 4 + 2];
-	    rgb[n + i * 3 + 1] = data[i * 4 + 1];
-	    rgb[n + i * 3 + 2] = data[i * 4 + 0];
-	}
-
-	free(data);
-	*size = *width * *height * 3 + n;
-#endif
 
 	return rgb;
     }
-#endif
 #endif
     (void)size;
     (void)width;
@@ -8216,8 +8259,14 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     y = (y * VideoWindowHeight) / OsdHeight;
     width = (width * VideoWindowWidth) / OsdWidth;
     height = (height * VideoWindowHeight) / OsdHeight;
+    if (VideoThread) {
+	VideoThreadLock();
+    }
+    if (VideoUsedModule) {
+	// FIXME: what stream?
+    }
 #ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
+    if (VideoUsedModule == &VdpauModule) {
 	VdpauSetOutputPosition(VdpauDecoders[0], x, y, width, height);
     }
 #endif
@@ -8225,6 +8274,9 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     // FIXME: not supported by vaapi without unscaled OSD,
     // FIXME: if used to position video inside osd
 #endif
+    if (VideoThread) {
+	VideoThreadUnlock();
+    }
 }
 
 ///
@@ -8248,40 +8300,21 @@ void VideoSetVideoMode( __attribute__ ((unused))
 	return;				// same size nothing todo
     }
 
-    if (!VideoThread) {			// thread not yet running
-	return;
-    }
-    //VideoThreadLock();		// FIXME: vaapi can crash
+    VideoOsdExit();
+    // FIXME: must tell VDR that the OsdSize has been changed!
 
+    if (VideoThread) {
+	VideoThreadLock();
+    }
     VideoWindowWidth = width;
     VideoWindowHeight = height;
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled && VaapiDecoders[0]) {
-	VideoOsdExit();
-
-	VideoOsdInit();
-	if (VaapiDecoders[0]->InputWidth && VaapiDecoders[0]->InputHeight) {
-	    VaapiAssociate(VaapiDecoders[0], VaapiDecoders[0]->InputWidth,
-		VaapiDecoders[0]->InputHeight);
-	}
-	VaapiUpdateOutput(VaapiDecoders[0]);
-	//VideoThreadUnlock();
-	return;
+    if (VideoUsedModule) {
+	VideoUsedModule->SetVideoMode();
     }
-#endif
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled && VdpauDecoders[0]) {
-	VdpauExitOutputQueue();
-	VideoOsdExit();
-
-	VideoOsdInit();
-	VdpauInitOutputQueue();
-	VdpauUpdateOutput(VdpauDecoders[0]);
-	//VideoThreadUnlock();
-	return;
+    if (VideoThread) {
+	VideoThreadUnlock();
     }
-#endif
-    //VideoThreadUnlock();
+    VideoOsdInit();
 }
 
 ///
@@ -8406,19 +8439,20 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
     AutoCropInterval = interval;
     AutoCropDelay = delay;
     AutoCropTolerance = tolerance;
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauResetAutoCrop();
+
+    if (VideoThread) {
+	VideoThreadLock();
     }
-#endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiResetAutoCrop();
+    if (VideoUsedModule) {
+	VideoUsedModule->ResetAutoCrop();
     }
-#endif
+    if (VideoThread) {
+	VideoThreadUnlock();
+    }
 #else
     (void)interval;
     (void)delay;
+    (void)tolerance;
 #endif
 }
 
@@ -8518,27 +8552,16 @@ void VideoInit(const char *display_name)
 
     //
     //	prepare hardware decoder VA-API/VDPAU
+    //	FIXME: make the used output modules configurable
     //
-#ifdef USE_VDPAU
-    if (VideoVdpauEnabled) {
-	VdpauInit(display_name);
-	if (VideoVdpauEnabled) {
-	    VideoUsedModule = &VdpauModule;
-#ifdef USE_VAAPI
-	    // disable va-api, if vdpau succeeded
-	    VideoVaapiEnabled = 0;
-#endif
+    for (i = 0; i < (int)(sizeof(VideoModules) / sizeof(*VideoModules)); ++i) {
+	if (VideoModules[i]->Enabled) {
+	    if (VideoModules[i]->Init(display_name)) {
+		VideoUsedModule = VideoModules[i];
+		break;
+	    }
 	}
     }
-#endif
-#ifdef USE_VAAPI
-    if (VideoVaapiEnabled) {
-	VaapiInit(display_name);
-	if (VideoVaapiEnabled) {
-	    VideoUsedModule = &VaapiModule;
-	}
-    }
-#endif
 
     // FIXME: make it configurable from gui
     VideoHardwareDecoder = -1;
