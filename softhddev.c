@@ -516,7 +516,6 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 		continue;
 	    }
 	    // packet has already an picture header
-	    printf("split\n");
 	    tmp->size = p - tmp->data;
 	    CodecVideoDecode(MyVideoDecoder, tmp);
 	    tmp->data = p;
