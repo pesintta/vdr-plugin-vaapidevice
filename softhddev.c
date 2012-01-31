@@ -488,6 +488,48 @@ static void VideoNextPacket(int codec_id)
 }
 
 /**
+**	Fix packet for FFMpeg.
+**
+**	Some tv-stations sends mulitple pictures in a singe PES packet.
+**	Current ffmpeg 0.10 and libav-0.8 has problems with this.
+**	Split the packet into single picture packets.
+*/
+void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
+{
+    uint8_t *p;
+    int n;
+    AVPacket tmp[1];
+    int first;
+
+    p = avpkt->data;
+    n = avpkt->size;
+    *tmp = *avpkt;
+
+    first = 1;
+    while (n > 4) {
+	// scan for picture header
+	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
+	    if (first) {
+		first = 0;
+		n -= 4;
+		p += 4;
+		continue;
+	    }
+	    // packet has already an picture header
+	    printf("split\n");
+	    tmp->size = p - tmp->data;
+	    CodecVideoDecode(MyVideoDecoder, tmp);
+	    tmp->data = p;
+	    tmp->size = n;
+	}
+	--n;
+	++p;
+    }
+
+    CodecVideoDecode(MyVideoDecoder, tmp);
+}
+
+/**
 **	Decode from PES packet ringbuffer.
 */
 int VideoDecode(void)
@@ -561,7 +603,33 @@ int VideoDecode(void)
     avpkt->size = avpkt->stream_index;
     avpkt->stream_index = 0;
 
-    CodecVideoDecode(MyVideoDecoder, avpkt);
+    if (0) {
+	static int done;
+
+	if (done < 2) {
+	    int fildes;
+	    int who_designed_this_is____;
+
+	    if (done == 0)
+		fildes =
+		    open("frame0.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
+	    else if (done == 1)
+		fildes =
+		    open("frame1.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
+	    else
+		fildes =
+		    open("frame2.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
+	    done++;
+	    who_designed_this_is____ = write(fildes, avpkt->data, avpkt->size);
+	    close(fildes);
+	}
+    }
+
+    if (last_codec_id == CODEC_ID_MPEG2VIDEO) {
+	FixPacketForFFMpeg(MyVideoDecoder, avpkt);
+    } else {
+	CodecVideoDecode(MyVideoDecoder, avpkt);
+    }
 
     avpkt->size = saved_size;
 

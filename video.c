@@ -2167,6 +2167,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	    usleep(1 * 1000);
 	}
     }
+    usleep(1 * 1000);
 }
 
 #ifdef USE_GLX
@@ -2785,6 +2786,10 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 		    decoder->Image->buf) != VA_STATUS_SUCCESS) {
 		Error(_("video/vaapi: can't unmap the image!\n"));
 	    }
+	    if (vaDestroyImage(VaDisplay,
+		    decoder->Image->image_id) != VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't destroy image!\n"));
+	    }
 	}
 	// FIXME: intel didn't support put image.
 	if (0
@@ -2835,6 +2840,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	!= VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
+    usleep(1 * 1000);
 }
 
 ///
@@ -3470,6 +3476,12 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    Error(_("video/vaapi: can't put image err:%d!\n"), i);
 	}
 
+	if (!decoder->PutImage
+	    && vaDestroyImage(VaDisplay,
+		decoder->Image->image_id) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+
 	VaapiQueueSurface(decoder, surface, 1);
     }
 
@@ -3532,6 +3544,12 @@ static void VaapiAdvanceFrame(void)
 		atomic_read(&VideoPacketsFilled));
 	    if (!(decoder->FramesDisplayed % 300)) {
 		VaapiPrintFrames(decoder);
+	    }
+	    // wait for rendering finished
+	    surface = decoder->SurfacesRb[decoder->SurfaceRead];
+	    if (vaSyncSurface(decoder->VaDisplay, surface)
+		!= VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: vaSyncSurface failed\n"));
 	    }
 	}
     }

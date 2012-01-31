@@ -1,7 +1,9 @@
 User johns
 Date:
 
-    Fix bug: Nur schwarzes Bild bei VA-API hw decoder.
+    Workaround for mpeg2 FFMpeg + VA-API + Intel GPU hung.
+    Fix bug: Missing vaSyncSurface and vaDestroyImage.
+    Fix bug: Only black picture with VA-API hw decoder.
 
 User HelAu
 Date: Mon Jan 30 16:54:47 CET 2012
