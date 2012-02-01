@@ -338,6 +338,29 @@ static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 
+#if defined(DEBUG) || defined(AV_INFO)
+///
+///	Nice time-stamp string.
+///
+static const char *VideoTimeStampString(int64_t ts)
+{
+    static char buf[64];
+    int hh;
+    int mm;
+    int ss;
+    int uu;
+
+    ts = ts / 90;
+    uu = ts % 1000;
+    ss = (ts / 1000) % 60;
+    mm = (ts / 60000) % 60;
+    hh = ts / 3600000;
+    snprintf(buf, sizeof(buf), "%2d:%02d:%02d.%03d", hh, mm, ss, uu);
+
+    return buf;
+}
+#endif
+
 ///
 ///	Update video pts.
 ///
@@ -3683,6 +3706,7 @@ static void VaapiAdvanceFrame(void)
 	} else if (filled == 1) {
 	    ++decoder->FramesDuped;
 	    decoder->DropNextFrame = 0;
+	    // FIXME: don't warn after stream start
 	    Warning(_
 		("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		decoder->FramesDuped, decoder->FrameCounter,
@@ -3837,20 +3861,14 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	    decoder->DropNextFrame = 1;
 	}
     }
-#ifdef DEBUG
+#if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
-	static int64_t last_video_clock;
-
-	Debug(3,
-	    "video: %6" PRId64 " %6" PRId64 " pts %+4d %4" PRId64 " %+4" PRId64
-	    " ms %3d bufs\n", video_clock - last_video_clock,
-	    audio_clock - video_clock, (int)(audio_clock - video_clock) / 90,
-	    AudioGetDelay() / 90, VideoDeltaPTS / 90,
-	    atomic_read(&VideoPacketsFilled));
-
-	last_video_clock = video_clock;
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
+	    VideoTimeStampString(video_clock),
+	    (video_clock - audio_clock) / 90, AudioGetDelay() / 90,
+	    (int)VideoDeltaPTS / 90, atomic_read(&VideoPacketsFilled));
     }
 #endif
 }
@@ -6620,6 +6638,7 @@ static void VdpauAdvanceFrame(void)
 		// keep use of last surface
 		++decoder->FramesDuped;
 		decoder->DropNextFrame = 0;
+		// FIXME: don't warn after stream start
 		Warning(_
 		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		    decoder->FramesDuped, decoder->FrameCounter,
@@ -6775,20 +6794,14 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    decoder->DropNextFrame = 1;
 	}
     }
-#ifdef DEBUG
+#if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
-	static int64_t last_video_clock;
-
-	Debug(3,
-	    "video: %6" PRId64 " %6" PRId64 " pts %+4d %4" PRId64 " %+4" PRId64
-	    " ms %3d bufs\n", video_clock - last_video_clock,
-	    audio_clock - video_clock, (int)(audio_clock - video_clock) / 90,
-	    AudioGetDelay() / 90, VideoDeltaPTS / 90,
-	    atomic_read(&VideoPacketsFilled));
-
-	last_video_clock = video_clock;
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
+	    VideoTimeStampString(video_clock),
+	    (video_clock - audio_clock) / 90, AudioGetDelay() / 90,
+	    (int)VideoDeltaPTS / 90, atomic_read(&VideoPacketsFilled));
     }
 #endif
 }

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add A-V info output and compile time option.
     Fix bug: VA-API intel software decoder broken by aspect commit.
     Add support for 4:3 output modes.
     Quicker auto-crop after channel switch.
