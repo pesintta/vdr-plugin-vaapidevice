@@ -127,5 +127,6 @@ future features (not planed for 1.0 - 1.5)
     atmolight support
     multistream handling
     pip support
+    save and use auto-crop with channel zapping
 
     upmix stereo to AC-3

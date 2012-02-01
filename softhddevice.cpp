@@ -625,6 +625,7 @@ class cSoftHdDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
+    virtual void SetVideoDisplayFormat(eVideoDisplayFormat);
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
@@ -846,6 +847,26 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 }
 
 // ----------------------------------------------------------------------------
+
+/**
+**	Sets the video display format to the given one (only useful if this
+**	device has an MPEG decoder).
+*/
+void cSoftHdDevice::SetVideoDisplayFormat(
+    eVideoDisplayFormat video_display_format)
+{
+    static int last = -1;
+
+    cDevice::SetVideoDisplayFormat(video_display_format);
+
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
+
+    // called on every channel switch, no need to kill osd...
+    if (last != video_display_format) {
+	last = video_display_format;
+	::VideoSetDisplayFormat(video_display_format);
+    }
+}
 
 /**
 **	Returns the width, height and video_aspect ratio of the currently

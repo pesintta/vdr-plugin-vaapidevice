@@ -507,7 +507,7 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 
     first = 1;
     while (n > 4) {
-	// scan for picture header
+	// scan for picture header 0x00000100
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
 	    if (first) {
 		first = 0;
@@ -518,6 +518,9 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 	    // packet has already an picture header
 	    tmp->size = p - tmp->data;
 	    CodecVideoDecode(MyVideoDecoder, tmp);
+	    // time-stamp only valid for first packet
+	    tmp->pts = AV_NOPTS_VALUE;
+	    tmp->dts = AV_NOPTS_VALUE;
 	    tmp->data = p;
 	    tmp->size = n;
 	}

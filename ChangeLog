@@ -1,6 +1,10 @@
 User johns
 Date:
 
+    Add support for 4:3 output modes.
+    Quicker auto-crop after channel switch.
+    Add auto-crop support for Intel VA-API backend.
+    Fix bug: Auto-Crop logo skip didn't use displayed width.
     Workaround for mpeg2 FFMpeg + VA-API + Intel GPU hung.
     Fix bug: Missing vaSyncSurface and vaDestroyImage.
     Fix bug: Only black picture with VA-API hw decoder.

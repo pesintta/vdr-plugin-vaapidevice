@@ -80,6 +80,9 @@ extern void VideoSetOutputPosition(int, int, int, int);
     /// Set video mode.
 extern void VideoSetVideoMode(int, int, int, int);
 
+    /// Set display format.
+extern void VideoSetDisplayFormat(int);
+
     /// Set video fullscreen mode.
 extern void VideoSetFullscreen(int);
 

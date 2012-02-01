@@ -190,7 +190,7 @@ typedef enum _video_zoom_modes_
 {
     VideoNormal,			///< normal
     VideoStretch,			///< stretch to all edges
-    VideoZoom,				///< zoom out
+    VideoCenterCutOut,			///< center and cut out
     VideoAnamorphic,			///< anamorphic scaled (unsupported)
 } VideoZoomModes;
 
@@ -332,14 +332,174 @@ static int OsdDirtyHeight;		///< osd dirty area height
 static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
 //----------------------------------------------------------------------------
-//	Functions
+//	Common Functions
 //----------------------------------------------------------------------------
 
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 
-    /// update video stream PTS
-static void VideoSetPts(int64_t *, int, const AVFrame *);
+///
+///	Update video pts.
+///
+///	@param pts_p		pointer to pts
+///	@param interlaced	interlaced flag (frame isn't right)
+///	@param frame		frame to display
+///
+///	@note frame->interlaced_frame can't be used for interlace detection
+///
+static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
+{
+    int64_t pts;
+
+    // update video clock
+    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	*pts_p += interlaced ? 40 * 90 : 20 * 90;
+    }
+    //pts = frame->best_effort_timestamp;
+    pts = frame->pkt_pts;
+    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
+	// libav: 0.8pre didn't set pts
+	pts = frame->pkt_dts;
+    }
+    // libav: sets only pkt_dts which can be 0
+    if (pts && (uint64_t) pts != AV_NOPTS_VALUE) {
+	// build a monotonic pts
+	if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	    int64_t delta;
+
+	    delta = pts - *pts_p;
+	    // ignore negative jumps
+	    if (delta > -600 * 90 && delta <= -40 * 90) {
+		if (-delta > VideoDeltaPTS) {
+		    VideoDeltaPTS = -delta;
+		    Debug(4,
+			"video: %#012" PRIx64 "->%#012" PRIx64 " delta+%4"
+			PRId64 " pts\n", *pts_p, pts, pts - *pts_p);
+		}
+		return;
+	    }
+	}
+	if (*pts_p != pts) {
+	    Debug(4,
+		"video: %#012" PRIx64 "->%#012" PRIx64 " delta=%4" PRId64
+		" pts\n", *pts_p, pts, pts - *pts_p);
+	    *pts_p = pts;
+	}
+    }
+}
+
+///
+///	Update output for new size or aspect ratio.
+///
+///	@param input_aspect_ratio	video stream aspect
+///
+static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
+    int input_height, int *output_x, int *output_y, int *output_width,
+    int *output_height, int *crop_x, int *crop_y, int *crop_width,
+    int *crop_height)
+{
+    AVRational display_aspect_ratio;
+
+    if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
+	input_aspect_ratio.num = 1;
+	input_aspect_ratio.den = 1;
+	Debug(3, "video: aspect defaults to %d:%d\n", input_aspect_ratio.num,
+	    input_aspect_ratio.den);
+    }
+
+    av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	input_width * input_aspect_ratio.num,
+	input_height * input_aspect_ratio.den, 1024 * 1024);
+
+    // InputWidth/Height can be zero = uninitialized
+    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
+	display_aspect_ratio.num = 1;
+	display_aspect_ratio.den = 1;
+    }
+
+    Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
+	display_aspect_ratio.den);
+
+    *crop_x = 0;
+    *crop_y = VideoSkipLines;
+    *crop_width = input_width;
+    *crop_height = input_height - VideoSkipLines * 2;
+
+    // FIXME: store different positions for the ratios
+    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	switch (Video4to3ZoomMode) {
+	    case VideoNormal:
+		goto normal;
+	    case VideoStretch:
+		goto stretch;
+	    case VideoCenterCutOut:
+		goto center_cut_out;
+	    case VideoAnamorphic:
+		// FIXME: rest should be done by hardware
+		goto stretch;
+	}
+    }
+    // FIXME: this overwrites user choosen output position
+
+  normal:
+    *output_x = 0;
+    *output_y = 0;
+    *output_width = (VideoWindowHeight * display_aspect_ratio.num)
+	/ display_aspect_ratio.den;
+    *output_height = (VideoWindowWidth * display_aspect_ratio.den)
+	/ display_aspect_ratio.num;
+    if ((unsigned)*output_width > VideoWindowWidth) {
+	*output_width = VideoWindowWidth;
+	*output_y = (VideoWindowHeight - *output_height) / 2;
+    } else if ((unsigned)*output_height > VideoWindowHeight) {
+	*output_height = VideoWindowHeight;
+	*output_x = (VideoWindowWidth - *output_width) / 2;
+    }
+    Debug(3, "video: aspect output %dx%d+%d+%d\n", *output_width,
+	*output_height, *output_x, *output_y);
+    return;
+
+  stretch:
+    *output_x = 0;
+    *output_y = 0;
+    *output_width = VideoWindowWidth;
+    *output_height = VideoWindowHeight;
+    return;
+
+  center_cut_out:
+    *output_x = 0;
+    *output_y = 0;
+    *output_height = VideoWindowHeight;
+    *output_width = VideoWindowWidth;
+
+    *crop_width = (VideoWindowHeight * display_aspect_ratio.num)
+	/ display_aspect_ratio.den;
+    *crop_height = (VideoWindowWidth * display_aspect_ratio.den)
+	/ display_aspect_ratio.num;
+
+    // look which side must be cut
+    if ((unsigned)*crop_width > VideoWindowWidth) {
+	*crop_height = input_height;
+
+	// adjust scaiing
+	*crop_x = ((*crop_width - (signed)VideoWindowWidth) * input_width)
+	    / (2 * VideoWindowWidth);
+	*crop_width = input_width - *crop_x * 2;
+    } else if ((unsigned)*crop_height > VideoWindowHeight) {
+	*crop_width = input_width;
+
+	// adjust scaiing
+	*crop_y = ((*crop_height - (signed)VideoWindowHeight) * input_height)
+	    / (2 * VideoWindowHeight);
+	*crop_height = input_height - *crop_y * 2;
+    } else {
+	*crop_width = input_width;
+	*crop_height = input_height;
+    }
+    Debug(3, "video: aspect crop %dx%d+%d+%d\n", *crop_width, *crop_height,
+	*crop_x, *crop_y);
+    return;
+}
 
 //----------------------------------------------------------------------------
 //	GLX
@@ -972,7 +1132,7 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
     //
     for (y = SKIP_Y; y < y1; ++y) {
 	if (!AutoCropIsBlackLineY(data_y + logo_skip + y * length_y,
-		(length_y - 2 * logo_skip) / 8, 8)) {
+		(width - 2 * logo_skip) / 8, 8)) {
 	    if (y == SKIP_Y) {
 		y = 0;
 	    }
@@ -985,7 +1145,7 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
     //
     for (y = height - SKIP_Y - 1; y > y2; --y) {
 	if (!AutoCropIsBlackLineY(data_y + logo_skip + y * length_y,
-		(length_y - 2 * logo_skip) / 8, 8)) {
+		(width - 2 * logo_skip) / 8, 8)) {
 	    if (y == height - SKIP_Y - 1) {
 		y = height - 1;
 	    }
@@ -1006,7 +1166,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 	    break;
 	}
     }
-
     //
     //	search right
     //
@@ -1084,7 +1243,7 @@ struct _vaapi_decoder_
 
     VAImage DeintImages[5];		///< deinterlace image buffers
 
-    int PutImage;			///< flag put image can be used
+    int GetPutImage;			///< flag get/put image can be used
     VAImage Image[1];			///< image buffer to update surface
 
     struct vaapi_context VaapiContext[1];	///< ffmpeg VA-API context
@@ -1301,6 +1460,9 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     // FIXME surfaces used for output
 }
 
+    /// forward definition release surface
+static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
+
 ///
 ///	Get a free surface.
 ///
@@ -1311,25 +1473,41 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
 {
     VASurfaceID surface;
+    VASurfaceStatus status;
     int i;
 
-    if (!decoder->SurfaceFreeN) {
-	Error(_("video/vaapi: out of surfaces\n"));
-	return VA_INVALID_ID;
-    }
-    // use oldest surface
-    surface = decoder->SurfacesFree[0];
-
-    decoder->SurfaceFreeN--;
+    // try to use oldest surface
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
-	decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
+	surface = decoder->SurfacesFree[i];
+	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaQuerySurface failed\n"));
+	    status = VASurfaceReady;
+	}
+	// surface still in use, try next
+	if (status != VASurfaceReady) {
+	    Debug("video/vaapi: surface %#010x not ready: %d\n", surface,
+		status);
+	    if (!VaapiBuggyVdpau || i < 1) {
+		continue;
+	    }
+	    usleep(1 * 1000);
+	}
+	// copy remaining surfaces down
+	decoder->SurfaceFreeN--;
+	for (; i < decoder->SurfaceFreeN; ++i) {
+	    decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
+	}
+	decoder->SurfacesFree[i] = VA_INVALID_ID;
+
+	// save as used
+	decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
+
+	return surface;
     }
-    decoder->SurfacesFree[i] = VA_INVALID_ID;
 
-    // save as used
-    decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
-
-    return surface;
+    Error(_("video/vaapi: out of surfaces\n"));
+    return VA_INVALID_ID;
 }
 
 ///
@@ -1351,7 +1529,7 @@ static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 	    return;
 	}
     }
-    Error(_("video/vaapi: release surface %#x, which is not in use\n"),
+    Error(_("video/vaapi: release surface %#010x, which is not in use\n"),
 	surface);
 }
 
@@ -1495,7 +1673,7 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
-    decoder->PutImage = !VaapiBuggyIntel;
+    decoder->GetPutImage = !VaapiBuggyIntel;
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
 
@@ -1746,64 +1924,15 @@ static void VaapiExit(void)
 ///
 ///	@param decoder	VA-API decoder
 ///
-///	@todo combine VaapiUpdateOutput and VdpauUpdateOutput
-///
 static void VaapiUpdateOutput(VaapiDecoder * decoder)
 {
-    AVRational input_aspect_ratio;
-    AVRational display_aspect_ratio;
-
-    input_aspect_ratio = decoder->InputAspect;
-    if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
-	input_aspect_ratio.num = 1;
-	input_aspect_ratio.den = 1;
-	Debug(3, "video: aspect defaults to %d:%d\n", input_aspect_ratio.num,
-	    input_aspect_ratio.den);
-    }
-
-    av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-	decoder->InputWidth * input_aspect_ratio.num,
-	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
-
-    // InputWidth/Height can be zero = uninitialized
-    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
-	display_aspect_ratio.num = 1;
-	display_aspect_ratio.den = 1;
-    }
-
-    Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
-	display_aspect_ratio.den);
-
-    // FIXME: store different positions for the ratios
-    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
-	switch (Video4to3ZoomMode) {
-	    case VideoNormal:
-	    case VideoStretch:
-	    case VideoZoom:
-	    case VideoAnamorphic:
-		break;
-	}
-    }
-    // FIXME: this overwrites user choosen output position
-    decoder->OutputX = 0;
-    decoder->OutputY = 0;
-    decoder->OutputWidth = (VideoWindowHeight * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
-    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.den)
-	/ display_aspect_ratio.num;
-    if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
-	decoder->OutputWidth = VideoWindowWidth;
-	decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
-    } else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
-	decoder->OutputHeight = VideoWindowHeight;
-	decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
-    }
-    Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
-	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
-
+    VideoUpdateOutput(decoder->InputAspect, decoder->InputWidth,
+	decoder->InputHeight, &decoder->OutputX, &decoder->OutputY,
+	&decoder->OutputWidth, &decoder->OutputHeight, &decoder->CropX,
+	&decoder->CropY, &decoder->CropWidth, &decoder->CropHeight);
 #ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
-    decoder->AutoCrop->Count = 0;
+    decoder->AutoCrop->Count = AutoCropDelay;
 #endif
 }
 
@@ -2027,12 +2156,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	goto slow_path;
     }
 
-    decoder->CropX = 0;
-    decoder->CropY = VideoSkipLines;
-    decoder->CropWidth = video_ctx->width;
-    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
-
-    decoder->PixFmt = video_ctx->pix_fmt;
+    decoder->PixFmt = *fmt_idx;
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -2146,7 +2270,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	}
 	if (status != VASurfaceReady) {
 	    Warning(_
-		("video/vaapi: surface %#x not ready: still displayed %d\n"),
+		("video/vaapi: surface %#010x not ready: still displayed %d\n"),
 		surface, status);
 	    return;
 	}
@@ -2359,7 +2483,8 @@ static void VaapiSetup(VaapiDecoder * decoder,
     VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
 
     // FIXME: this image is only needed for software decoder and auto-crop
-    if (vaCreateImage(VaDisplay, format, width, height,
+    if (decoder->GetPutImage
+	&& vaCreateImage(VaDisplay, format, width, height,
 	    decoder->Image) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't create image!\n"));
     }
@@ -2417,7 +2542,8 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
     width = decoder->InputWidth;
     height = decoder->InputHeight;
 
-    if (decoder->Image->image_id == VA_INVALID_ID) {
+  again:
+    if (decoder->GetPutImage && decoder->Image->image_id == VA_INVALID_ID) {
 	VAImageFormat format[1];
 
 	Debug(3, "video/vaapi: download image not available\n");
@@ -2439,7 +2565,16 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	    1) % VIDEO_SURFACES_MAX];
 
     //	Copy data from frame to image
-    if ((i = vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
+    if (!decoder->GetPutImage
+	&& vaDeriveImage(decoder->VaDisplay, surface,
+	    decoder->Image) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaDeriveImage failed\n"));
+	decoder->GetPutImage = 1;
+	goto again;
+    }
+    if (decoder->GetPutImage
+	&& (i =
+	    vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
 		decoder->InputHeight,
 		decoder->Image->image_id)) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't get auto-crop image %d\n"), i);
@@ -2461,6 +2596,13 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
     if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap auto-crop image!\n"));
+    }
+    if (!decoder->GetPutImage) {
+	if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+	decoder->Image->image_id = VA_INVALID_ID;
     }
     // FIXME: this a copy of vdpau, combine the two same things
 
@@ -2515,9 +2657,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	    break;
     }
 
-    decoder->AutoCrop->Count = 0;
     decoder->AutoCrop->State = next_state;
-
     if (next_state) {
 	decoder->CropX = 0;
 	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
@@ -2526,6 +2666,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
 	// FIXME: this overwrites user choosen output position
 	// FIXME: resize kills the auto crop values
+	// FIXME: support other 4:3 zoom modes
 	decoder->OutputX = 0;
 	decoder->OutputY = 0;
 	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
@@ -2541,13 +2682,10 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
-	decoder->CropX = 0;
-	decoder->CropY = VideoSkipLines;
-	decoder->CropWidth = decoder->InputWidth;
-	decoder->CropHeight = decoder->InputHeight - VideoSkipLines * 2;
-
+	// sets AutoCrop->Count
 	VaapiUpdateOutput(decoder);
     }
+    decoder->AutoCrop->Count = 0;
 }
 
 ///
@@ -2648,7 +2786,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	}
 	if (status != VASurfaceReady) {
 	    Warning(_
-		("video/vaapi: surface %#x not ready: still displayed %d\n"),
+		("video/vaapi: surface %#010x not ready: still displayed %d\n"),
 		old, status);
 	    if (0
 		&& vaSyncSurface(decoder->VaDisplay,
@@ -3344,7 +3482,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	}
 
 	surface = (unsigned)(size_t) frame->data[3];
-	Debug(4, "video/vaapi: hw render hw surface %#x\n", surface);
+	Debug(4, "video/vaapi: hw render hw surface %#010x\n", surface);
 
 	if (interlaced
 	    && VideoDeinterlace[decoder->Resolution] ==
@@ -3379,11 +3517,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    Debug(3,
 		"video/vaapi: stream <-> surface size/interlace mismatch\n");
 
-	    decoder->CropX = 0;
-	    decoder->CropY = VideoSkipLines;
-	    decoder->CropWidth = width;
-	    decoder->CropHeight = height - VideoSkipLines * 2;
-
 	    decoder->PixFmt = video_ctx->pix_fmt;
 	    // FIXME: aspect done above!
 	    decoder->InputWidth = width;
@@ -3393,17 +3526,25 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    VaapiUpdateOutput(decoder);
 	}
 	// FIXME: Need to insert software deinterlace here
-	// FIXME: can/must insert auto-crop here
+	// FIXME: can/must insert auto-crop here (is done after upload)
 
 	// get a free surface and upload the image
 	surface = VaapiGetSurface(decoder);
 	Debug(4, "video/vaapi: video surface %#010x displayed\n", surface);
 
-	if (!decoder->PutImage
+	if (!decoder->GetPutImage
 	    && vaDeriveImage(decoder->VaDisplay, surface,
 		decoder->Image) != VA_STATUS_SUCCESS) {
+	    VAImageFormat format[1];
+
 	    Error(_("video/vaapi: vaDeriveImage failed\n"));
-	    decoder->PutImage = 1;
+
+	    decoder->GetPutImage = 1;
+	    VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
+	    if (vaCreateImage(VaDisplay, format, width, height,
+		    decoder->Image) != VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't create image!\n"));
+	    }
 	}
 	//
 	//	Copy data from frame to image
@@ -3468,7 +3609,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	Debug(4, "video/vaapi: buffer %dx%d <- %dx%d\n", decoder->Image->width,
 	    decoder->Image->height, width, height);
 
-	if (decoder->PutImage
+	if (decoder->GetPutImage
 	    && (i =
 		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0,
 		    width, height, 0, 0, width,
@@ -3476,10 +3617,12 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    Error(_("video/vaapi: can't put image err:%d!\n"), i);
 	}
 
-	if (!decoder->PutImage
-	    && vaDestroyImage(VaDisplay,
-		decoder->Image->image_id) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't destroy image!\n"));
+	if (!decoder->GetPutImage) {
+	    if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
+		!= VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't destroy image!\n"));
+	    }
+	    decoder->Image->image_id = VA_INVALID_ID;
 	}
 
 	VaapiQueueSurface(decoder, surface, 1);
@@ -4427,7 +4570,7 @@ static void VdpauReleaseSurface(VdpauDecoder * decoder, unsigned surface)
 	    return;
 	}
     }
-    Error(_("video/vdpau: release surface %#x, which is not in use\n"),
+    Error(_("video/vdpau: release surface %#08x, which is not in use\n"),
 	surface);
 }
 
@@ -5371,67 +5514,15 @@ static void VdpauExit(void)
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
-///	@todo combine VaapiUpdateOutput and VdpauUpdateOutput
-///
 static void VdpauUpdateOutput(VdpauDecoder * decoder)
 {
-    AVRational input_aspect_ratio;
-    AVRational display_aspect_ratio;
-
-    input_aspect_ratio = decoder->InputAspect;
-    Debug(3, "video: input aspect %d:%d\n", input_aspect_ratio.num,
-	input_aspect_ratio.den);
-    if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
-	input_aspect_ratio.num = 1;
-	input_aspect_ratio.den = 1;
-	Debug(3, "video: aspect defaults to %d:%d\n", input_aspect_ratio.num,
-	    input_aspect_ratio.den);
-    }
-
-    av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-	decoder->InputWidth * input_aspect_ratio.num,
-	decoder->InputHeight * input_aspect_ratio.den, 1024 * 1024);
-
-    // InputWidth/Height can be zero = uninitialized
-    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
-	display_aspect_ratio.num = 1;
-	display_aspect_ratio.den = 1;
-    }
-
-    Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
-	display_aspect_ratio.den);
-
-    // FIXME: store different positions for the ratios
-    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
-	switch (Video4to3ZoomMode) {
-	    case VideoNormal:
-	    case VideoStretch:
-	    case VideoZoom:
-	    case VideoAnamorphic:
-		// AutoCrop
-		break;
-	}
-    }
-    // FIXME: this overwrites user choosen output position
-    decoder->OutputX = 0;
-    decoder->OutputY = 0;
-    decoder->OutputWidth = (VideoWindowHeight * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
-    decoder->OutputHeight = (VideoWindowWidth * display_aspect_ratio.den)
-	/ display_aspect_ratio.num;
-    if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
-	decoder->OutputWidth = VideoWindowWidth;
-	decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
-    } else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
-	decoder->OutputHeight = VideoWindowHeight;
-	decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
-    }
-    Debug(3, "video: aspect output %dx%d+%d+%d\n", decoder->OutputWidth,
-	decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
-
+    VideoUpdateOutput(decoder->InputAspect, decoder->InputWidth,
+	decoder->InputHeight, &decoder->OutputX, &decoder->OutputY,
+	&decoder->OutputWidth, &decoder->OutputHeight, &decoder->CropX,
+	&decoder->CropY, &decoder->CropWidth, &decoder->CropHeight);
 #ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
-    decoder->AutoCrop->Count = 0;
+    decoder->AutoCrop->Count = AutoCropDelay;
 #endif
 }
 
@@ -5645,7 +5736,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->CropWidth = video_ctx->width;
     decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
-    decoder->PixFmt = video_ctx->pix_fmt;
+    decoder->PixFmt = *fmt_idx;
     decoder->InputWidth = video_ctx->width;
     decoder->InputHeight = video_ctx->height;
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
@@ -5937,9 +6028,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	    break;
     }
 
-    decoder->AutoCrop->Count = 0;
     decoder->AutoCrop->State = next_state;
-
     if (next_state) {
 	decoder->CropX = 0;
 	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
@@ -5948,6 +6037,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 
 	// FIXME: this overwrites user choosen output position
 	// FIXME: resize kills the auto crop values
+	// FIXME: support other 4:3 zoom modes
 	decoder->OutputX = 0;
 	decoder->OutputY = 0;
 	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
@@ -5968,8 +6058,10 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	decoder->CropWidth = decoder->InputWidth;
 	decoder->CropHeight = decoder->InputHeight - VideoSkipLines * 2;
 
+	// sets AutoCrop->Count
 	VdpauUpdateOutput(decoder);
     }
+    decoder->AutoCrop->Count = 0;
 }
 
 ///
@@ -6064,7 +6156,7 @@ static void VdpauQueueSurface(VdpauDecoder * decoder, VdpVideoSurface surface,
 	}
     }
 
-    Debug(4, "video/vdpau: yy video surface %#x@%d ready\n", surface,
+    Debug(4, "video/vdpau: yy video surface %#08x@%d ready\n", surface,
 	decoder->SurfaceWrite);
 
     decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
@@ -6145,7 +6237,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 
 	vrs = (struct vdpau_render_state *)frame->data[0];
 	surface = vrs->surface;
-	Debug(4, "video/vdpau: hw render hw surface %#x\n", surface);
+	Debug(4, "video/vdpau: hw render hw surface %#08x\n", surface);
 
 	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
 	    && interlaced) {
@@ -6454,7 +6546,7 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 	    VdpauGetErrorString(status));
     }
 
-    Debug(4, "video/vdpau: yy video surface %#x@%d displayed\n", current,
+    Debug(4, "video/vdpau: yy video surface %#08x@%d displayed\n", current,
 	decoder->SurfaceRead);
 }
 
@@ -7823,56 +7915,6 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 }
 
 ///
-///	Update video pts.
-///
-///	@param pts_p		pointer to pts
-///	@param interlaced	interlaced flag (frame isn't right)
-///	@param frame		frame to display
-///
-///	@note frame->interlaced_frame can't be used for interlace detection
-///
-static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
-{
-    int64_t pts;
-
-    // update video clock
-    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
-	*pts_p += interlaced ? 40 * 90 : 20 * 90;
-    }
-    //pts = frame->best_effort_timestamp;
-    pts = frame->pkt_pts;
-    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
-	// libav: 0.8pre didn't set pts
-	pts = frame->pkt_dts;
-    }
-    // libav: sets only pkt_dts which can be 0
-    if (pts && (uint64_t) pts != AV_NOPTS_VALUE) {
-	// build a monotonic pts
-	if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
-	    int64_t delta;
-
-	    delta = pts - *pts_p;
-	    // ignore negative jumps
-	    if (delta > -600 * 90 && delta <= -40 * 90) {
-		if (-delta > VideoDeltaPTS) {
-		    VideoDeltaPTS = -delta;
-		    Debug(4,
-			"video: %#012" PRIx64 "->%#012" PRIx64 " delta+%4"
-			PRId64 " pts\n", *pts_p, pts, pts - *pts_p);
-		}
-		return;
-	    }
-	}
-	if (*pts_p != pts) {
-	    Debug(4,
-		"video: %#012" PRIx64 "->%#012" PRIx64 " delta=%4" PRId64
-		" pts\n", *pts_p, pts, pts - *pts_p);
-	    *pts_p = pts;
-	}
-    }
-}
-
-///
 ///	Display a ffmpeg frame
 ///
 ///	@param decoder		VDPAU video hardware decoder
@@ -8328,6 +8370,39 @@ void VideoSetVideoMode( __attribute__ ((unused))
     }
     VideoWindowWidth = width;
     VideoWindowHeight = height;
+    if (VideoUsedModule) {
+	VideoUsedModule->SetVideoMode();
+    }
+    if (VideoThread) {
+	VideoThreadUnlock();
+    }
+    VideoOsdInit();
+}
+
+///
+///	Set video display format.
+///
+void VideoSetDisplayFormat(int format)
+{
+    VideoOsdExit();
+    // FIXME: must tell VDR that the OsdSize has been changed!
+
+    if (VideoThread) {
+	VideoThreadLock();
+    }
+
+    switch (format) {
+	case 0:			// pan&scan (we have no pan&scan)
+	    Video4to3ZoomMode = VideoStretch;
+	    break;
+	case 1:			// letter box
+	    Video4to3ZoomMode = VideoNormal;
+	    break;
+	case 2:			// center cut-out
+	    Video4to3ZoomMode = VideoCenterCutOut;
+	    break;
+    }
+
     if (VideoUsedModule) {
 	VideoUsedModule->SetVideoMode();
     }
