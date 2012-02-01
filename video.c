@@ -2188,6 +2188,8 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
   slow_path:
     // no accelerated format found
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
+    decoder->InputWidth = 0;
+    decoder->InputHeight = 0;
     video_ctx->hwaccel_context = NULL;
     return avcodec_default_get_format(video_ctx, fmt);
 }
@@ -3509,7 +3511,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	//
 	//	Check image, format, size
 	//
-	if (decoder->Image->image_id == VA_INVALID_ID
+	if ((decoder->GetPutImage && decoder->Image->image_id == VA_INVALID_ID)
 	    || decoder->PixFmt != video_ctx->pix_fmt
 	    || width != decoder->InputWidth
 	    || height != decoder->InputHeight) {
@@ -5744,12 +5746,13 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     VdpauSetupOutput(decoder);
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
-
     return *fmt_idx;
 
   slow_path:
     // no accelerated format found
-    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX;
+    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
+    decoder->InputWidth = 0;
+    decoder->InputHeight = 0;
     video_ctx->hwaccel_context = NULL;
     return avcodec_default_get_format(video_ctx, fmt);
 }
