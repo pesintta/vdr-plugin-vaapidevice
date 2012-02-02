@@ -61,6 +61,8 @@ static const char *const Resolution[RESOLUTIONS] = {
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
+static int ConfigVideoSkipLines;	///< config skip lines top/bottom
+
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
 
@@ -77,7 +79,6 @@ static int ConfigVideoSharpen[RESOLUTIONS];
 static int ConfigVideoScaling[RESOLUTIONS];
 
 static int ConfigVideoAudioDelay;	///< config audio delay
-static int ConfigVideoSkipLines;	///< config skip lines top/bottom
 static int ConfigAudioPassthrough;	///< config audio pass-through
 
 static int ConfigAutoCropInterval;	///< auto crop detection interval
@@ -364,6 +365,7 @@ class cMenuSetupSoft:public cMenuSetupPage
   protected:
     int MakePrimary;
     int HideMainMenuEntry;
+    int SkipLines;
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
@@ -428,6 +430,11 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     //	video
     //
     Add(SeparatorItem(tr("Video")));
+
+    SkipLines = ConfigVideoSkipLines;
+    Add(new cMenuEditIntItem(tr("Skip lines top+bot (pixel)"), &SkipLines, 0,
+	    64));
+
     for (i = 0; i < RESOLUTIONS; ++i) {
 	Add(SeparatorItem(resolution[i]));
 	Scaling[i] = ConfigVideoScaling[i];
@@ -491,6 +498,9 @@ void cMenuSetupSoft::Store(void)
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
 	HideMainMenuEntry);
 
+    SetupStore("SkipLines", ConfigVideoSkipLines = SkipLines);
+    VideoSetSkipLines(ConfigVideoSkipLines);
+
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
 
@@ -520,8 +530,10 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
-    SetupStore("AutoCrop.Tolerance", ConfigAutoCropTolerance = AutoCropTolerance);
-    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay, ConfigAutoCropTolerance);
+    SetupStore("AutoCrop.Tolerance", ConfigAutoCropTolerance =
+	AutoCropTolerance);
+    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
+	ConfigAutoCropTolerance);
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
@@ -851,9 +863,11 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 /**
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
+**
+**	@note FIXME: this function isn't called on the initial channel
 */
-void cSoftHdDevice::SetVideoDisplayFormat(
-    eVideoDisplayFormat video_display_format)
+void cSoftHdDevice::
+SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
@@ -1193,6 +1207,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
+    if (!strcmp(name, "SkipLines")) {
+	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
+	return true;
+    }
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
 
@@ -1229,10 +1247,6 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	}
     }
 
-    if (!strcmp(name, "SkipLines")) {
-	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
-	return true;
-    }
     if (!strcmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;
@@ -1253,7 +1267,8 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
     if (!strcmp(name, "AutoCrop.Tolerance")) {
-	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay, ConfigAutoCropTolerance = atoi(value));
+	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
+	    ConfigAutoCropTolerance = atoi(value));
 	return true;
     }
 
@@ -1293,10 +1308,8 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 {
     // FIXME: translation?
     static const char *text[] = {
-	"SUSP\n"
-	"    Suspend plugin.\n",
-	"RESU\n"
-	"    Resume plugin.\n",
+	"SUSP\n" "    Suspend plugin.\n",
+	"RESU\n" "    Resume plugin.\n",
 	NULL
     };
 
