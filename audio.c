@@ -137,7 +137,7 @@ static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
-static const int AudioBufferTime = 450;	///< audio buffer time in ms
+static const int AudioBufferTime = 350;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
@@ -146,6 +146,8 @@ static pthread_cond_t AudioStartCond;	///< condition variable
 #else
 static const int AudioThread;		///< dummy audio thread
 #endif
+
+extern int VideoAudioDelay;		/// import audio/video delay
 
 #ifdef USE_AUDIORING
 
@@ -900,6 +902,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     snd_pcm_uframes_t period_size;
     int err;
     int ret;
+    int delay;
     snd_pcm_t *handle;
 
     if (!AlsaPCMHandle) {		// alsa not running yet
@@ -1085,11 +1088,14 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
 
     AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
     // buffer time/delay in ms
+    delay = AudioBufferTime;
+    if (VideoAudioDelay > -100) {
+	delay += 100 + VideoAudioDelay / 90;
+    }
     if (AlsaStartThreshold <
-	(*freq * *channels * AudioBytesProSample * AudioBufferTime) / 1000U) {
+	(*freq * *channels * AudioBytesProSample * delay) / 1000U) {
 	AlsaStartThreshold =
-	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-	    1000U;
+	    (*freq * *channels * AudioBytesProSample * delay) / 1000U;
     }
     // no bigger, than the buffer
     if (AlsaStartThreshold > RingBufferFreeBytes(AlsaRingBuffer)) {
@@ -1622,6 +1628,7 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 {
     int ret;
     int tmp;
+    int delay;
 
     if (OssPcmFildes == -1) {		// OSS not ready
 	return -1;
@@ -1708,12 +1715,14 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 	// start when enough bytes for initial write
 	OssStartThreshold = bi.bytes + tmp;
 	// buffer time/delay in ms
+	delay = AudioBufferTime;
+	if (VideoAudioDelay > -100) {
+	    delay += 100 + VideoAudioDelay / 90;
+	}
 	if (OssStartThreshold <
-	    (*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-	    1000U) {
+	    (*freq * *channels * AudioBytesProSample * delay) / 1000U) {
 	    OssStartThreshold =
-		(*freq * *channels * AudioBytesProSample * AudioBufferTime) /
-		1000U;
+		(*freq * *channels * AudioBytesProSample * delay) / 1000U;
 	}
 	// no bigger, than the buffer
 	if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
