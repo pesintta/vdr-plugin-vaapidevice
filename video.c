@@ -296,7 +296,7 @@ static int VideoSharpen[VideoResolutionMax];
 static VideoScalingModes VideoScaling[VideoResolutionMax];
 
     /// Default audio/video delay
-static int VideoAudioDelay;
+int VideoAudioDelay;
 
     /// Default zoom mode
 static VideoZoomModes Video4to3ZoomMode;
@@ -344,20 +344,22 @@ static void VideoThreadUnlock(void);	///< unlock video thread
 ///
 static const char *VideoTimeStampString(int64_t ts)
 {
-    static char buf[64];
+    static char buf[2][32];
+    static int idx;
     int hh;
     int mm;
     int ss;
     int uu;
 
+    idx ^= 1;				// support two static buffers
     ts = ts / 90;
     uu = ts % 1000;
     ss = (ts / 1000) % 60;
     mm = (ts / 60000) % 60;
     hh = ts / 3600000;
-    snprintf(buf, sizeof(buf), "%2d:%02d:%02d.%03d", hh, mm, ss, uu);
+    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d", hh, mm, ss, uu);
 
-    return buf;
+    return buf[idx];
 }
 #endif
 
@@ -1335,10 +1337,8 @@ static void VaapiDestroyDeinterlaceImages(VaapiDecoder *);
 ///	Associate OSD with surface.
 ///
 ///	@param decoder	VA-API decoder
-///	@param width	surface source/video width
-///	@param height	surface source/video height
 ///
-static void VaapiAssociate(VaapiDecoder * decoder, int width, int height)
+static void VaapiAssociate(VaapiDecoder * decoder)
 {
     int x;
     int y;
@@ -1374,18 +1374,19 @@ static void VaapiAssociate(VaapiDecoder * decoder, int width, int height)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
     } else {
-	// FIXME: auto-crop wrong position
 	if (decoder->SurfaceFreeN
 	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w, h, 0, 0,
-		width, height, 0)
+		decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w, h,
+		decoder->CropX, decoder->CropY / 2, decoder->CropWidth,
+		decoder->CropHeight, 0)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
 	if (decoder->SurfaceUsedN
 	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w, h, 0, 0,
-		width, height, 0)
+		decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w, h,
+		decoder->CropX, decoder->CropY / 2, decoder->CropWidth,
+		decoder->CropHeight, 0)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
@@ -1445,10 +1446,6 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	    decoder->SurfaceFreeN);
 	// FIXME: write error handler / fallback
     }
-    //
-    //	update OSD associate
-    //
-    VaapiAssociate(decoder, width, height);
 }
 
 ///
@@ -2185,6 +2182,10 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     decoder->InputAspect = video_ctx->sample_aspect_ratio;
     VaapiUpdateOutput(decoder);
 
+    //
+    //	update OSD associate
+    //
+    VaapiAssociate(decoder);
 #ifdef USE_GLX
     if (GlxEnabled) {
 	GlxSetupDecoder(decoder);
@@ -2486,6 +2487,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 ///	@param decoder	VA-API decoder
 ///
 ///	@note called only for software decoder.
+///	@note FIXME: combine with hardware decoder setup.
 ///
 static void VaapiSetup(VaapiDecoder * decoder,
     const AVCodecContext * video_ctx)
@@ -2542,6 +2544,12 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	 */
     }
 #endif
+    VaapiUpdateOutput(decoder);
+
+    //
+    //	update OSD associate
+    //
+    VaapiAssociate(decoder);
 }
 
 #ifdef USE_AUTOCROP
@@ -2711,6 +2719,12 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	VaapiUpdateOutput(decoder);
     }
     decoder->AutoCrop->Count = 0;
+
+    //
+    //	update OSD associate
+    //
+    VaapiDeassociate(decoder);
+    VaapiAssociate(decoder);
 }
 
 ///
@@ -2719,11 +2733,13 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 ///	@param decoder	VA-API hw decoder
 ///
 ///	@note a copy of VdpauCheckAutoCrop
+///	@note auto-crop only supported with normal 4:3 display mode
 ///
 static void VaapiCheckAutoCrop(VaapiDecoder * decoder)
 {
     // reduce load, check only n frames
-    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
+    if (Video4to3ZoomMode == VideoNormal && AutoCropInterval
+	&& !(decoder->FrameCounter % AutoCropInterval)) {
 	AVRational display_aspect_ratio;
 
 	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
@@ -3548,7 +3564,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    decoder->InputHeight = height;
 
 	    VaapiSetup(decoder, video_ctx);
-	    VaapiUpdateOutput(decoder);
 	}
 	// FIXME: Need to insert software deinterlace here
 	// FIXME: can/must insert auto-crop here (is done after upload)
@@ -3842,6 +3857,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     // FIXME: audio not known assume 333ms delay
 
     if (decoder->DupNextFrame) {
+	++decoder->FramesDuped;
 	decoder->DupNextFrame--;
     } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
 	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
@@ -3852,7 +3868,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	} else if (video_clock > audio_clock + VideoAudioDelay + 80 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame += 2;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 40 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame++;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 40 * 90
@@ -4048,10 +4064,9 @@ static void VaapiOsdClear(void)
     if (OsdDirtyWidth && OsdDirtyHeight) {
 	int o;
 
-	Debug(3, "video/vaapi: handle osd dirty area\n");
 	for (o = 0; o < OsdDirtyHeight; ++o) {
 	    memset(image_buffer + (OsdDirtyX + (o +
-			OsdDirtyY) * VaOsdImage.width) * 4, 0,
+			OsdDirtyY) * VaOsdImage.width) * 4, 0x00,
 		OsdDirtyWidth * 4);
 	}
     } else {
@@ -4204,9 +4219,9 @@ static void VaapiOsdInit(int width, int height)
 
     // restore osd association
     for (i = 0; i < VaapiDecoderN; ++i) {
+	// only if input already setup
 	if (VaapiDecoders[i]->InputWidth && VaapiDecoders[i]->InputHeight) {
-	    VaapiAssociate(VaapiDecoders[i], VaapiDecoders[i]->InputWidth,
-		VaapiDecoders[i]->InputHeight);
+	    VaapiAssociate(VaapiDecoders[i]);
 	}
     }
 }
@@ -6091,11 +6106,13 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 ///	@param decoder	VDPAU hw decoder
 ///
 ///	@note a copy of VaapiCheckAutoCrop
+///	@note auto-crop only supported with normal 4:3 display mode
 ///
 static void VdpauCheckAutoCrop(VdpauDecoder * decoder)
 {
     // reduce load, check only n frames
-    if (AutoCropInterval && !(decoder->FrameCounter % AutoCropInterval)) {
+    if (Video4to3ZoomMode == VideoNormal && AutoCropInterval
+	&& !(decoder->FrameCounter % AutoCropInterval)) {
 	AVRational display_aspect_ratio;
 
 	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
@@ -6785,7 +6802,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	} else if (video_clock > audio_clock + VideoAudioDelay + 80 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame += 2;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 40 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame++;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 40 * 90
@@ -7481,6 +7498,8 @@ void VideoOsdExit(void)
     if (VideoThread) {
 	VideoThreadUnlock();
     }
+    OsdDirtyWidth = 0;
+    OsdDirtyHeight = 0;
 }
 
 #if 0

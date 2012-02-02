@@ -1,6 +1,11 @@
 User johns
 Date:
 
+    Release Version 0.4.6
+    Increase audio buffer, if bigger audio delay is used.
+    Makes SkipLines configure in setup menu.
+    Auto-crop only enabled with normal 4:3 display mode.
+    Vaapi updates OSD when cropping changes.
     Add A-V info output and compile time option.
     Fix bug: VA-API intel software decoder broken by aspect commit.
     Add support for 4:3 output modes.

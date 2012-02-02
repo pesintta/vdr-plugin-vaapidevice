@@ -21,12 +21,10 @@ $Id: $
 missing:
     software deinterlace (yadif, ...)
     software decoder with software deinterlace
-    zoom/fit-zoom 4:3 (SetVideoDisplayFormat, SetVideoFormat?)
     ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop and restart X11
     suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
-    Make output drivers better modular (under construction).
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
@@ -40,8 +38,6 @@ video:
 	(must detect video format to show image)
     hard channel switch
     skip lines not configurable from setup menu.
-    software decoder path didn't support auto-crop
-    software decoder path didn't support correct 4:3 16:9
     OSD can only be shown after some stream could be shown
 
 vdpau:
@@ -60,6 +56,7 @@ libva: branch vaapi-ext
     add support for vaapi-ext
 
 libva-intel-driver:
+    deinterlace only supported with vaapi-ext
     1080i does no v-sync (sometimes correct working with vaapi-ext)
     OSD has sometimes wrong size (workaround written)
     sometimes software decoder deinterlace isn't working and 1080i channels
@@ -69,10 +66,9 @@ libva-vdpau-driver:
     G210/GT520 OSD update too slow (needs hardware problem workaround)
     hangup on exit (VaapiDelDecoder -> VaapiCleanup
 	-> vaDestroyContext -> pthread_rwlock_wrlock)
-    with auto-crop OSD has wrong position
+    OSD still has some problems with auto-crop and 4:3 zoom.
 
 libva-xvba-driver:
-    with auto-crop OSD has wrong position
 
 x11:
     disable screensaver
