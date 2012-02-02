@@ -1,7 +1,8 @@
 User johns
-Date:
+Date: Thu Feb  2 23:29:35 CET 2012
 
     Release Version 0.4.6
+    Warn only on the first duplicated frame in sequence.
     Increase audio buffer, if bigger audio delay is used.
     Makes SkipLines configure in setup menu.
     Auto-crop only enabled with normal 4:3 display mode.

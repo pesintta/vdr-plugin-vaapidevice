@@ -1465,14 +1465,14 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree,
 	    decoder->SurfaceFreeN)
 	!= VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces\n",
+	Error(_("video/vaapi: can't destroy %d surfaces\n"),
 	    decoder->SurfaceFreeN);
     }
     decoder->SurfaceFreeN = 0;
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesUsed,
 	    decoder->SurfaceUsedN)
 	!= VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces\n",
+	Error(_("video/vaapi: can't destroy %d surfaces\n"),
 	    decoder->SurfaceUsedN);
     }
     decoder->SurfaceUsedN = 0;
@@ -1506,7 +1506,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
 	}
 	// surface still in use, try next
 	if (status != VASurfaceReady) {
-	    Debug("video/vaapi: surface %#010x not ready: %d\n", surface,
+	    Debug(3, "video/vaapi: surface %#010x not ready: %d\n", surface,
 		status);
 	    if (!VaapiBuggyVdpau || i < 1) {
 		continue;
@@ -1839,6 +1839,111 @@ static void VaapiDelDecoder(VaapiDecoder * decoder)
     free(decoder);
 }
 
+static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n,
+    VAProfile profile);
+static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints,
+    unsigned n, VAEntrypoint entrypoint);
+
+///
+///	1080i
+///
+static void Vaapi1080i(void)
+{
+    VAProfile profiles[vaMaxNumProfiles(VaDisplay)];
+    int profile_n;
+    VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
+    int entrypoint_n;
+    int p;
+    int e;
+    VAConfigAttrib attrib;
+    VAConfigID config_id;
+    VAContextID context_id;
+    VASurfaceID surfaces[32];
+    int n;
+    uint32_t start_tick;
+    uint32_t tick;
+
+    p = -1;
+    e = -1;
+
+    //	prepare va-api profiles
+    if (vaQueryConfigProfiles(VaDisplay, profiles, &profile_n)) {
+	Error(_("codec: vaQueryConfigProfiles failed"));
+	return;
+    }
+    // check profile
+    p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
+    if (p == -1) {
+	Debug(3, "\tno profile found\n");
+	return;
+    }
+    // prepare va-api entry points
+    if (vaQueryConfigEntrypoints(VaDisplay, p, entrypoints, &entrypoint_n)) {
+	Error(_("codec: vaQueryConfigEntrypoints failed"));
+	return;
+    }
+    e = VaapiFindEntrypoint(entrypoints, entrypoint_n, VAEntrypointVLD);
+    if (e == -1) {
+	Warning(_("codec: unsupported: slow path\n"));
+	return;
+    }
+    memset(&attrib, 0, sizeof(attrib));
+    attrib.type = VAConfigAttribRTFormat;
+    attrib.value = VA_RT_FORMAT_YUV420;
+    // create a configuration for the decode pipeline
+    if (vaCreateConfig(VaDisplay, p, e, &attrib, 1, &config_id)) {
+	Error(_("codec: can't create config"));
+	return;
+    }
+    if (vaCreateSurfaces(VaDisplay, 1920, 1080, VA_RT_FORMAT_YUV420, 32,
+	    surfaces) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't create surfaces\n"));
+	return;
+    }
+    // bind surfaces to context
+    if (vaCreateContext(VaDisplay, config_id, 1920, 1080, VA_PROGRESSIVE,
+	    surfaces, 32, &context_id)) {
+	Error(_("codec: can't create context"));
+	return;
+    }
+
+    start_tick = GetMsTicks();
+    for (n = 1; n < 10000; ++n) {
+	if (vaPutSurface(VaDisplay, surfaces[0], VideoWindow,
+		// decoder src
+		0, 0, 1920, 1080,
+		// video dst
+		0, 0, 1920, 1080, NULL, 0, VA_TOP_FIELD | VA_CLEAR_DRAWABLE)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaPutSurface failed\n"));
+	}
+	if (vaPutSurface(VaDisplay, surfaces[0], VideoWindow,
+		// decoder src
+		0, 0, 1920, 1080,
+		// video dst
+		0, 0, 1920, 1080, NULL, 0, VA_BOTTOM_FIELD | VA_CLEAR_DRAWABLE)
+	    != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaPutSurface failed\n"));
+	}
+	tick = GetMsTicks();
+	if (!(n % 100)) {
+	    fprintf(stderr, "%d ms / frame\n", (tick - start_tick) / n);
+	}
+    }
+
+    // destory the stuff.
+    if (vaDestroyContext(VaDisplay, context_id) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy context!\n"));
+    }
+    if (vaDestroySurfaces(VaDisplay, surfaces, 32) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy surfaces\n"));
+    }
+    if (vaDestroyConfig(VaDisplay, config_id) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't destroy config!\n"));
+    }
+    printf("done\n");
+}
+
 ///
 ///	VA-API setup.
 ///
@@ -1909,7 +2014,9 @@ static int VaapiInit(const char *display_name)
     //	check the chroma format
     //
     attr.type = VAConfigAttribRTFormat attr.flags = VA_DISPLAY_ATTRIB_GETTABLE;
+    Vaapi1080i();
 #endif
+
     return 1;
 }
 
@@ -3719,13 +3826,18 @@ static void VaapiAdvanceFrame(void)
 	    }
 	    // debug duplicate frames
 	} else if (filled == 1) {
+	    static int last_warned_frame;
+
 	    ++decoder->FramesDuped;
 	    decoder->DropNextFrame = 0;
-	    // FIXME: don't warn after stream start
-	    Warning(_
-		("video: display buffer empty, duping frame (%d/%d) %d\n"),
-		decoder->FramesDuped, decoder->FrameCounter,
-		atomic_read(&VideoPacketsFilled));
+	    // FIXME: don't warn after stream start, don't warn during pause
+	    if (last_warned_frame != decoder->FrameCounter) {
+		Warning(_
+		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
+		    decoder->FramesDuped, decoder->FrameCounter,
+		    atomic_read(&VideoPacketsFilled));
+	    }
+	    last_warned_frame = decoder->FrameCounter;
 	    if (!(decoder->FramesDisplayed % 300)) {
 		VaapiPrintFrames(decoder);
 	    }
@@ -6652,14 +6764,19 @@ static void VdpauAdvanceFrame(void)
 	    // need 4 frames for interlaced
 	    filled = atomic_read(&decoder->SurfacesFilled);
 	    if (filled <= 1 + 2 * decoder->Interlaced) {
+		static int last_warned_frame;
+
 		// keep use of last surface
 		++decoder->FramesDuped;
 		decoder->DropNextFrame = 0;
-		// FIXME: don't warn after stream start
-		Warning(_
-		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
-		    decoder->FramesDuped, decoder->FrameCounter,
-		    atomic_read(&VideoPacketsFilled));
+		// FIXME: don't warn after stream start, don't warn during pause
+		if (last_warned_frame != decoder->FrameCounter) {
+		    Warning(_
+			("video: display buffer empty, duping frame (%d/%d) %d\n"),
+			decoder->FramesDuped, decoder->FrameCounter,
+			atomic_read(&VideoPacketsFilled));
+		}
+		last_warned_frame = decoder->FrameCounter;
 		if (!(decoder->FramesDisplayed % 300)) {
 		    VdpauPrintFrames(decoder);
 		}
