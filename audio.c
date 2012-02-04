@@ -123,6 +123,8 @@ static const AudioModule NoopModule;	///< forward definition of noop module
 //	Variables
 //----------------------------------------------------------------------------
 
+char AudioAlsaDriverBroken;		///< disable broken driver message
+
 static const char *AudioModuleName;	///< which audio module to use
 
     /// Selected audio module.
@@ -334,7 +336,9 @@ static int AlsaPlayRingbuffer(void)
 	    if (first) {
 		// happens with broken alsa drivers
 		if (AudioThread) {
-		    Error(_("audio/alsa: broken driver %d\n"), avail);
+		    if (!AudioAlsaDriverBroken) {
+			Error(_("audio/alsa: broken driver %d\n"), avail);
+		    }
 		    usleep(5 * 1000);
 		}
 	    }

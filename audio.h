@@ -47,4 +47,10 @@ extern void AudioSetDeviceAC3(const char *);	///< set Passthrough device
 extern void AudioInit(void);		///< setup audio module
 extern void AudioExit(void);		///< cleanup and exit audio module
 
+//----------------------------------------------------------------------------
+//	Variables
+//----------------------------------------------------------------------------
+
+extern char AudioAlsaDriverBroken;	///< disable broken driver message
+
 /// @}

@@ -1165,7 +1165,11 @@ const char *CommandLineHelp(void)
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
-	"  -x\t\tstart x11 server\n" "	-s\t\tstart in suspended mode\n";
+	"  -x\t\tstart x11 server\n" "	-s\t\tstart in suspended mode\n"
+	"  -w workaround\tenable/disable workarounds\n"
+	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
+	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
+	"\talsa-driver-broken\tdisable broken alsa driver message\n";
 }
 
 /**
@@ -1180,7 +1184,7 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:p:d:fg:xs")) {
+	switch (getopt(argc, argv, "-a:d:fg:p:sw:x")) {
 	    case 'a':			// audio device
 		AudioSetDevice(optarg);
 		continue;
@@ -1206,6 +1210,17 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 's':			// start in suspend mode
 		ConfigStartSuspended = 1;
+		continue;
+	    case 'w':			// workarounds
+		if (!strcasecmp("no-hw-decoder", optarg)) {
+		} else if (!strcasecmp("no-mpeg-hw-decoder", optarg)) {
+		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
+		    AudioAlsaDriverBroken = 1;
+		} else {
+		    fprintf(stderr, _("Workaround '%s' unsupported\n"),
+			optarg);
+		    return 0;
+		}
 		continue;
 	    case EOF:
 		break;
