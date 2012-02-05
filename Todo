@@ -81,6 +81,9 @@ audio:
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.
     software volume support
+    add pause support for replay pause
+    some plugin send a private LPCM stream (CODEC_ID_PCM_DVD), which
+    isn't supported by ffmpeg, write own parser.
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware
@@ -113,6 +116,7 @@ setup:
 unsorted:
     Menu -> Setup -> Plugins -> skingenigmang -> General
 	-> Try 8bpp single area: no, has missing parts.
+    FSE Skin anthra FSE has missing parts
     stoping vdr while plugin is suspended opens and closes a window.
 
 future features (not planed for 1.0 - 1.5)

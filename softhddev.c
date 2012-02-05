@@ -261,7 +261,7 @@ int PlayAudio(const uint8_t * data, int size,
 	return osize;
     }
     // Detect audio code
-    // MPEG-PS mp2 MPEG1, MPEG2, AC3
+    // MPEG-PS mp2 MPEG1, MPEG2, AC3, LPCM
 
     // Syncword - 0x0B77
     if (data[0] == 0x0B && data[1] == 0x77) {
@@ -278,6 +278,14 @@ int PlayAudio(const uint8_t * data, int size,
 	    CodecAudioClose(MyAudioDecoder);
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
+	}
+	// Private stram + LPCM ID
+    } else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
+	if (AudioCodecID != CODEC_ID_PCM_DVD) {
+	    Debug(3, "[softhddev]%s: LPCM %d\n", __FUNCTION__, id);
+	    CodecAudioClose(MyAudioDecoder);
+	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
+	    AudioCodecID = CODEC_ID_PCM_DVD;
 	}
     } else {
 	// no start package
@@ -307,8 +315,9 @@ int PlayAudio(const uint8_t * data, int size,
 
     avpkt->data = (void *)data;
     avpkt->size = size;
-    //memset(avpkt->data + avpkt->size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-    CodecAudioDecode(MyAudioDecoder, avpkt);
+    if (AudioCodecID != CODEC_ID_PCM_DVD) {
+	CodecAudioDecode(MyAudioDecoder, avpkt);
+    }
 
     return osize;
 }
