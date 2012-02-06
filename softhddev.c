@@ -282,8 +282,20 @@ int PlayAudio(const uint8_t * data, int size,
 	// Private stram + LPCM ID
     } else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
 	if (AudioCodecID != CODEC_ID_PCM_DVD) {
-	    Debug(3, "[softhddev]%s: LPCM %d\n", __FUNCTION__, id);
+	    int samplerate;
+	    int channels;
+
+	    Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
+		__FUNCTION__, id, data[5] >> 6,
+		(((data[5] >> 4) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
 	    CodecAudioClose(MyAudioDecoder);
+
+	    // FIXME: check supported formats.
+
+	    samplerate = 48000;
+	    channels = 2;
+	    AudioSetup(&samplerate, &channels, 0);
+	    printf("%d\n", size);
 	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
 	    AudioCodecID = CODEC_ID_PCM_DVD;
 	}
@@ -313,9 +325,21 @@ int PlayAudio(const uint8_t * data, int size,
 	}
     }
 
-    avpkt->data = (void *)data;
-    avpkt->size = size;
-    if (AudioCodecID != CODEC_ID_PCM_DVD) {
+    if (AudioCodecID == CODEC_ID_PCM_DVD) {
+	if (size > 7) {
+	    char *buf;
+
+	    if (!(buf = malloc(size - 7))) {
+		Error(_("softhddev: out of memory\n"));
+	    } else {
+		swab(data + 7, buf, size - 7);
+		AudioEnqueue(buf, size - 7);
+		free(buf);
+	    }
+	}
+    } else {
+	avpkt->data = (void *)data;
+	avpkt->size = size;
 	CodecAudioDecode(MyAudioDecoder, avpkt);
     }
 
