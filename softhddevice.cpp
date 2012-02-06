@@ -42,7 +42,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.4.6";
+static const char *const VERSION = "0.4.7";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -148,8 +148,33 @@ class cSoftOsd:public cOsd
      cSoftOsd(int, int, uint);
      virtual ~ cSoftOsd(void);
     virtual void Flush(void);
-    // virtual void SetActive(bool);
+    virtual void SetActive(bool);
 };
+
+static volatile char OsdDirty;		///< flag force redraw everything
+
+/**
+**	Sets this OSD to be the active one.
+**
+**	@param on	true on, false off
+**
+**	@note only needed as workaround for text2skin plugin with
+**	undrawn areas.
+*/
+void cSoftOsd::SetActive(bool on)
+{
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
+
+    if (Active() == on) {
+	return;				// already active, no action
+    }
+    cOsd::SetActive(on);
+    if (on) {
+	OsdDirty = 1;
+    } else {
+	OsdClose();
+    }
+}
 
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
@@ -167,6 +192,7 @@ cSoftOsd::~cSoftOsd(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     SetActive(false);
+    // done by SetActive: OsdClose();
 
 #ifdef USE_YAEPG
     // support yaepghd, video window
@@ -180,12 +206,11 @@ cSoftOsd::~cSoftOsd(void)
 	VideoSetOutputPosition(0, 0, width, height);
     }
 #endif
-    OsdClose();
 }
 
-///
-///	Actually commits all data to the OSD hardware.
-///
+/**
+**	Actually commits all data to the OSD hardware.
+*/
 void cSoftOsd::Flush(void)
 {
     cPixmapMemory *pm;
@@ -228,43 +253,32 @@ void cSoftOsd::Flush(void)
 	    int y2;
 
 	    // get dirty bounding box
-	    if (!bitmap->Dirty(x1, y1, x2, y2)) {
+	    if (OsdDirty) {		// forced complete update
+		x1 = 0;
+		y1 = 0;
+		x2 = bitmap->Width() - 1;
+		y2 = bitmap->Height() - 1;
+	    } else if (!bitmap->Dirty(x1, y1, x2, y2)) {
 		continue;		// nothing dirty continue
 	    }
-#if 0
-	    // FIXME: need only to convert and upload dirty areas
-
-	    // DrawBitmap(bitmap);
-	    w = bitmap->Width();
-	    h = bitmap->Height();
-	    argb = (uint8_t *) malloc(w * h * sizeof(uint32_t));
-
-	    for (y = 0; y < h; ++y) {
-		for (x = 0; x < w; ++x) {
-		    ((uint32_t *) argb)[x + y * w] = bitmap->GetColor(x, y);
-		}
-	    }
-	    // check if subtitles
-	    if (this->Level == OSD_LEVEL_SUBTITLES) {
-		int video_width;
-		int video_height;
-
-		if (0) {
-		    dsyslog("[softhddev]%s: subtitle %d, %d\n", __FUNCTION__,
-			Left() + bitmap->X0(), Top() + bitmap->Y0());
-		}
-		video_width = 1920;
-		video_height = 1080;
-		OsdDrawARGB((1920 - video_width) / 2 + Left() + bitmap->X0(),
-		    1080 - video_height + Top() + bitmap->Y0(), w, h, argb);
-	    } else {
-		OsdDrawARGB(Left() + bitmap->X0(), Top() + bitmap->Y0(), w, h,
-		    argb);
-	    }
-#else
 	    // convert and upload only dirty areas
 	    w = x2 - x1 + 1;
 	    h = y2 - y1 + 1;
+	    if (1) {			// just for the case it makes trouble
+		int width;
+		int height;
+		double video_aspect;
+
+		::GetOsdSize(&width, &height, &video_aspect);
+		if (w > width) {
+		    w = width;
+		    x2 = x1 + width - 1;
+		}
+		if (h > height) {
+		    h = height;
+		    y2 = y1 + height - 1;
+		}
+	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
 		esyslog(tr("softhdev: dirty area too big\n"));
@@ -278,14 +292,14 @@ void cSoftOsd::Flush(void)
 			bitmap->GetColor(x, y);
 		}
 	    }
-	    // check if subtitles
 	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
 		w, h, argb);
-#endif
 
 	    bitmap->Clean();
+	    // FIXME: reuse argb
 	    free(argb);
 	}
+	OsdDirty = 0;
 	return;
     }
 
@@ -330,6 +344,10 @@ cOsd *cSoftOsdProvider::Osd;		///< single osd
 
 /**
 **	Create a new OSD.
+**
+**	@param left	x-coordinate of OSD
+**	@param top	y-coordinate of OSD
+**	@param level	layer level of OSD
 */
 cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
@@ -878,7 +896,9 @@ SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
     // called on every channel switch, no need to kill osd...
     if (last != video_display_format) {
 	last = video_display_format;
+
 	::VideoSetDisplayFormat(video_display_format);
+	OsdDirty = 1;
     }
 }
 
@@ -940,9 +960,9 @@ int cSoftHdDevice::GetAudioChannelDevice(void)
 
 // ----------------------------------------------------------------------------
 
-///
-///	Play a video packet.
-///
+/**
+**	Play a video packet.
+*/
 int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {
     //dsyslog("[softhddev]%s: %p %d\n", __FUNCTION__, data, length);

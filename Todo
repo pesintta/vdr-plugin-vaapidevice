@@ -37,8 +37,8 @@ video:
     suspendoutput didn't show logo or black pictures
 	(must detect video format to show image)
     hard channel switch
-    skip lines not configurable from setup menu.
     OSD can only be shown after some stream could be shown
+    yaepghd changed position is lost on channel switch
 
 vdpau:
     software decoder path not working
@@ -114,9 +114,6 @@ setup:
 	Can a notice be added to the setup menu?
 
 unsorted:
-    Menu -> Setup -> Plugins -> skingenigmang -> General
-	-> Try 8bpp single area: no, has missing parts.
-    FSE Skin anthra FSE has missing parts
     stoping vdr while plugin is suspended opens and closes a window.
 
 future features (not planed for 1.0 - 1.5)

@@ -105,7 +105,7 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.HideMainMenuEntry = 0
 	0 = show softhddevice main menu entry, 1 = hide entry
 
-	<res> of the next parameters is 567i, 720p, 1080i_fake or 1080i.
+	<res> of the next parameters is 576i, 720p, 1080i_fake or 1080i.
 	1080i_fake is 1280x1080 or 1440x1080
 	1080i is "real" 1920x1080
 

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Workaround for text2skin undrawn OSD areas.
     Detect dvb LPCM stream and ignore it.
 
 User johns

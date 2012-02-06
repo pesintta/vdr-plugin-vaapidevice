@@ -992,8 +992,8 @@ void SetPlayMode(void)
 	}
     }
     VideoFreezed = 0;
-    SkipAudio = 0;
-    SkipVideo = 0;
+    // done by Resume: SkipAudio = 0;
+    // done by Resume: SkipVideo = 0;
 }
 
 /**
