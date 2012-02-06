@@ -282,20 +282,36 @@ int PlayAudio(const uint8_t * data, int size,
 	// Private stram + LPCM ID
     } else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
 	if (AudioCodecID != CODEC_ID_PCM_DVD) {
+	    static int samplerates[] = { 48000, 96000, 44100, 32000 };
 	    int samplerate;
 	    int channels;
+	    int bits_per_sample;
 
 	    Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
-		__FUNCTION__, id, data[5] >> 6,
-		(((data[5] >> 4) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
+		__FUNCTION__, id, data[5] >> 4,
+		(((data[5] >> 6) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
 	    CodecAudioClose(MyAudioDecoder);
 
-	    // FIXME: check supported formats.
-
-	    samplerate = 48000;
-	    channels = 2;
+	    bits_per_sample = (((data[5] >> 6) & 0x3) + 4) * 4;
+	    if (bits_per_sample != 16) {
+		Error(_
+		    ("softhddev: LPCM %d bits per sample aren't supported\n"),
+		    bits_per_sample);
+		// FIXME: handle unsupported formats.
+	    }
+	    samplerate = samplerates[data[5] >> 4];
+	    channels = (data[5] & 0x7) + 1;
 	    AudioSetup(&samplerate, &channels, 0);
-	    printf("%d\n", size);
+	    if (samplerate != samplerates[data[5] >> 4]) {
+		Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
+		    samplerates[data[5] >> 4]);
+		// FIXME: support resample
+	    }
+	    if (channels != (data[5] & 0x7) + 1) {
+		Error(_("softhddev: LPCM %d channels are unsupported\n"),
+		    (data[5] & 0x7) + 1);
+		// FIXME: support resample
+	    }
 	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
 	    AudioCodecID = CODEC_ID_PCM_DVD;
 	}
