@@ -1859,6 +1859,7 @@ static void Vaapi1080i(void)
     VAConfigID config_id;
     VAContextID context_id;
     VASurfaceID surfaces[32];
+    VAImage image[1];
     int n;
     uint32_t start_tick;
     uint32_t tick;
@@ -1906,9 +1907,27 @@ static void Vaapi1080i(void)
 	Error(_("codec: can't create context"));
 	return;
     }
+#if 1
+    // without this 1080i will crash
+    image->image_id = VA_INVALID_ID;
+    if (vaDeriveImage(VaDisplay, surfaces[0], image)
+	!= VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaDeriveImage failed\n"));
+    }
+    if (image->image_id != VA_INVALID_ID) {
+	if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't destroy image!\n"));
+	}
+    }
+#else
+    vaBeginPicture(VaDisplay, context_id, surfaces[0]);
+    vaRenderPicture(VaDisplay, context_id, NULL, 0);
+    // aborts without valid buffers upload
+    vaEndPicture(VaDisplay, context_id);
+#endif
 
     start_tick = GetMsTicks();
-    for (n = 1; n < 10000; ++n) {
+    for (n = 1; n < 2; ++n) {
 	if (vaPutSurface(VaDisplay, surfaces[0], VideoWindow,
 		// decoder src
 		0, 0, 1920, 1080,
@@ -1926,7 +1945,7 @@ static void Vaapi1080i(void)
 	    Error(_("video/vaapi: vaPutSurface failed\n"));
 	}
 	tick = GetMsTicks();
-	if (!(n % 100)) {
+	if (!(n % 10)) {
 	    fprintf(stderr, "%d ms / frame\n", (tick - start_tick) / n);
 	}
     }
@@ -1941,7 +1960,7 @@ static void Vaapi1080i(void)
     if (vaDestroyConfig(VaDisplay, config_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't destroy config!\n"));
     }
-    printf("done\n");
+    fprintf(stderr, "done\n");
 }
 
 ///
@@ -1970,13 +1989,13 @@ static int VaapiInit(const char *display_name)
 	VaDisplay = vaGetDisplay(XlibDisplay);
     }
     if (!VaDisplay) {
-	Error(_("video/vaapi: Can't connect VA-API to X11 server on '%s'"),
+	Error(_("video/vaapi: Can't connect VA-API to X11 server on '%s'\n"),
 	    display_name);
 	return 0;
     }
 
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: Can't inititialize VA-API on '%s'"),
+	Error(_("video/vaapi: Can't inititialize VA-API on '%s'\n"),
 	    display_name);
 	vaTerminate(VaDisplay);
 	VaDisplay = NULL;
@@ -2300,14 +2319,14 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 		decoder->GlTexture[0], &decoder->GlxSurface[0])
 	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces"));
+	    Fatal(_("video/glx: can't create glx surfaces\n"));
 	}
 	// FIXME: this isn't usable with vdpau-backend
 	/*
 	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 	   decoder->GlTexture[1], &decoder->GlxSurface[1])
 	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video/glx: can't create glx surfaces"));
+	   Fatal(_("video/glx: can't create glx surfaces\n"));
 	   }
 	 */
     }
@@ -2640,13 +2659,13 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 		decoder->GlTexture[0], &decoder->GlxSurface[0])
 	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces"));
+	    Fatal(_("video/glx: can't create glx surfaces\n"));
 	}
 	/*
 	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
 	   decoder->GlTexture[1], &decoder->GlxSurface[1])
 	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video/glx: can't create glx surfaces"));
+	   Fatal(_("video/glx: can't create glx surfaces\n"));
 	   }
 	 */
     }
@@ -2985,27 +3004,6 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
 }
 
-#if 0
-
-    /// Return the absolute value of an integer.
-#define ABS(i)	((i) >= 0 ? (i) : (-(i)))
-
-///
-///	ELA Edge-based Line Averaging
-///	Low-Complexity Interpolation Method
-///
-///	abcdefg	   abcdefg	abcdefg	 abcdefg    abcdefg
-///	   x	     x		  x	    x		 x
-///	hijklmn	 hijklmn    hijklmn	   hijklmn	 hijklmn
-///
-static void FilterLine(const uint8_t * past, const uint8_t * cur,
-    const uint8_t * future, int width, int above, int below)
-{
-    int a, b, c, d, e, f, g, h, i, j, k, l, m, n;
-}
-
-#endif
-
 ///
 ///	Create and display a black empty surface.
 ///
@@ -3127,6 +3125,216 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
     usleep(1 * 1000);
+}
+
+    /// Return the absolute value of an integer.
+#define ABS(i)	((i) >= 0 ? (i) : (-(i)))
+
+///
+///	ELA Edge-based Line Averaging
+///	Low-Complexity Interpolation Method
+///
+///	abcdefg	   abcdefg	abcdefg	 abcdefg    abcdefg
+///	   x	     x		  x	    x		 x
+///	hijklmn	 hijklmn    hijklmn	   hijklmn	 hijklmn
+///
+static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width,
+    int above, int below, int next)
+{
+    int a, b, c, d, e, f, g, h, i, j, k, l, m, n;
+    int spatial_pred;
+    int spatial_score;
+    int score;
+    int x;
+
+    for (x = 0; x < width; ++x) {
+	a = cur[above + x - 3 * next];	// ignore bound violation
+	b = cur[above + x - 2 * next];
+	c = cur[above + x - 1 * next];
+	d = cur[above + x + 0 * next];
+	e = cur[above + x + 1 * next];
+	f = cur[above + x + 2 * next];
+	g = cur[above + x + 3 * next];
+
+	h = cur[below + x - 3 * next];
+	i = cur[below + x - 2 * next];
+	j = cur[below + x - 1 * next];
+	k = cur[below + x + 0 * next];
+	l = cur[below + x + 1 * next];
+	m = cur[below + x + 2 * next];
+	n = cur[below + x + 3 * next];
+
+	spatial_pred = (d + k) / 2;	// 0 pixel
+	spatial_score = ABS(c - j) + ABS(d - k) + ABS(e - l);
+
+	score = ABS(b - k) + ABS(c - l) + ABS(d - m);
+	if (score < spatial_score) {
+	    spatial_pred = (c + l) / 2;	// 1 pixel
+	    spatial_score = score;
+	    score = ABS(a - l) + ABS(b - m) + ABS(c - n);
+	    if (score < spatial_score) {
+		spatial_pred = (b + m) / 2;	// 2 pixel
+		spatial_score = score;
+	    }
+	}
+	score = ABS(d - i) + ABS(e - j) + ABS(f - k);
+	if (score < spatial_score) {
+	    spatial_pred = (e + j) / 2;	// -1 pixel
+	    spatial_score = score;
+	    score = ABS(e - h) + ABS(f - i) + ABS(g - j);
+	    if (score < spatial_score) {
+		spatial_pred = (f + i) / 2;	// -2 pixel
+		spatial_score = score;
+	    }
+	}
+
+	dst[x + 0] = spatial_pred;
+    }
+}
+
+///
+///	Vaapi spatial deinterlace.
+///
+///	@note FIXME: use common software deinterlace functions.
+///
+static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
+    VAImage * dst2)
+{
+    uint32_t tick1;
+    uint32_t tick2;
+    uint32_t tick3;
+    uint32_t tick4;
+    uint32_t tick5;
+    uint32_t tick6;
+    uint32_t tick7;
+    uint32_t tick8;
+    void *src_base;
+    void *dst1_base;
+    void *dst2_base;
+    unsigned y;
+    unsigned p;
+    uint8_t *tmp;
+    int pitch;
+    int width;
+
+    tick1 = GetMsTicks();
+    if (vaMapBuffer(decoder->VaDisplay, src->buf,
+	    &src_base) != VA_STATUS_SUCCESS) {
+	Fatal("video/vaapi: can't map the image!\n");
+    }
+    tick2 = GetMsTicks();
+    if (vaMapBuffer(decoder->VaDisplay, dst1->buf,
+	    &dst1_base) != VA_STATUS_SUCCESS) {
+	Fatal("video/vaapi: can't map the image!\n");
+    }
+    tick3 = GetMsTicks();
+    if (vaMapBuffer(decoder->VaDisplay, dst2->buf,
+	    &dst2_base) != VA_STATUS_SUCCESS) {
+	Fatal("video/vaapi: can't map the image!\n");
+    }
+    tick4 = GetMsTicks();
+
+    if (0) {				// test all updated
+	memset(dst1_base, 0x00, dst1->data_size);
+	memset(dst2_base, 0xFF, dst2->data_size);
+    }
+    // use tmp copy
+    tmp = malloc(src->data_size);
+    memcpy(tmp, src_base, src->data_size);
+
+    if (src->num_planes == 2) {		// NV12
+	pitch = src->pitches[0];
+	width = src->width;
+	for (y = 0; y < (unsigned)src->height; y++) {	// Y
+	    const uint8_t *cur;
+
+	    cur = tmp + src->offsets[0] + y * pitch;
+	    if (y & 1) {
+		// copy to 2nd
+		memcpy(dst2_base + src->offsets[0] + y * pitch, cur, width);
+		// create 1st
+		FilterLineSpatial(dst1_base + src->offsets[0] + y * pitch, cur,
+		    width, y ? -pitch : pitch,
+		    y + 1 < (unsigned)src->height ? pitch : -pitch, 1);
+	    } else {
+		// copy to 1st
+		memcpy(dst1_base + src->offsets[0] + y * pitch, cur, width);
+		// create 2nd
+		FilterLineSpatial(dst2_base + src->offsets[0] + y * pitch, cur,
+		    width, y ? -pitch : pitch,
+		    y + 1 < (unsigned)src->height ? pitch : -pitch, 1);
+	    }
+	}
+	for (y = 0; y < (unsigned)src->height / 2; y++) {	// UV
+	    const uint8_t *cur;
+
+	    cur = tmp + src->offsets[1] + y * pitch;
+	    if (y & 1) {
+		// copy to 2nd
+		memcpy(dst2_base + src->offsets[1] + y * pitch, cur, width);
+		// create 1st
+		FilterLineSpatial(dst1_base + src->offsets[1] + y * pitch, cur,
+		    width, y ? -pitch : pitch,
+		    y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
+	    } else {
+		// copy to 1st
+		memcpy(dst1_base + src->offsets[1] + y * pitch, cur, width);
+		// create 2nd
+		FilterLineSpatial(dst2_base + src->offsets[1] + y * pitch, cur,
+		    width, y ? -pitch : pitch,
+		    y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
+	    }
+	}
+    } else {
+	for (p = 0; p < src->num_planes; ++p) {
+	    pitch = src->pitches[p];
+	    width = src->width >> (p != 0);
+	    for (y = 0; y < (unsigned)(src->height >> (p != 0)); y++) {
+		const uint8_t *cur;
+
+		cur = tmp + src->offsets[p] + y * pitch;
+		if (y & 1) {
+		    // copy to 2nd
+		    memcpy(dst2_base + src->offsets[p] + y * pitch, cur,
+			width);
+		    // create 1st
+		    FilterLineSpatial(dst1_base + src->offsets[p] + y * pitch,
+			cur, width, y ? -pitch : pitch,
+			y + 1 < (unsigned)(src->height >> (p != 0))
+			? pitch : -pitch, 1);
+		} else {
+		    // copy to 1st
+		    memcpy(dst1_base + src->offsets[p] + y * pitch, cur,
+			width);
+		    // create 2nd
+		    FilterLineSpatial(dst2_base + src->offsets[p] + y * pitch,
+			cur, width, y ? -pitch : pitch,
+			y + 1 < (unsigned)(src->height >> (p != 0))
+			? pitch : -pitch, 1);
+		}
+	    }
+	}
+    }
+    free(tmp);
+
+    tick5 = GetMsTicks();
+
+    if (vaUnmapBuffer(decoder->VaDisplay, dst2->buf) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't unmap image buffer\n"));
+    }
+    tick6 = GetMsTicks();
+    if (vaUnmapBuffer(decoder->VaDisplay, dst1->buf) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't unmap image buffer\n"));
+    }
+    tick7 = GetMsTicks();
+    if (vaUnmapBuffer(decoder->VaDisplay, src->buf) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't unmap image buffer\n"));
+    }
+    tick8 = GetMsTicks();
+
+    Debug(4, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
+	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
+	tick6 - tick5, tick7 - tick6, tick8 - tick7);
 }
 
 ///
@@ -3299,7 +3507,7 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     }
     tick8 = GetMsTicks();
 
-    Debug(3, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
+    Debug(4, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
 	tick6 - tick5, tick7 - tick6, tick8 - tick7);
 }
@@ -3421,7 +3629,8 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     }
     tick4 = GetMsTicks();
 
-    VaapiBob(decoder, image, dest1, dest2);
+    //VaapiBob(decoder, image, dest1, dest2);
+    VaapiSpatial(decoder, image, dest1, dest2);
     tick5 = GetMsTicks();
 
     if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
@@ -3492,7 +3701,8 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 
     // FIXME: handle top_field_first
 
-    VaapiBob(decoder, img1, img2, img3);
+    //VaapiBob(decoder, img1, img2, img3);
+    VaapiSpatial(decoder, img1, img2, img3);
     tick3 = GetMsTicks();
 
     // get a free surface and upload the image
@@ -3544,10 +3754,10 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 ///
 static void VaapiCpuDeinterlace(VaapiDecoder * decoder, VASurfaceID surface)
 {
-    if (VaapiBuggyIntel) {
-	VaapiCpuDerive(decoder, surface);
-    } else {
+    if (decoder->GetPutImage) {
 	VaapiCpuPut(decoder, surface);
+    } else {
+	VaapiCpuDerive(decoder, surface);
     }
     // FIXME: must release software input surface
 }
@@ -4490,6 +4700,7 @@ static int VdpauInverseTelecine;	///< inverse telecine deint. supported
 static int VdpauNoiseReduction;		///< noise reduction supported
 static int VdpauSharpness;		///< sharpness supported
 static int VdpauSkipChroma;		///< skip chroma deint. supported
+static VdpChromaType VdpauChromaType;	///< best video surface chroma format
 
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
@@ -4928,8 +5139,7 @@ static void VdpauMixerCreate(VdpauDecoder * decoder)
 	features[feature_n++] = i;
     }
 
-    decoder->ChromaType = chroma_type = VDP_CHROMA_TYPE_420;
-    // FIXME: use best chroma
+    decoder->ChromaType = chroma_type = VdpauChromaType;
 
     //
     //	Setup parameter/value tables
@@ -5533,6 +5743,7 @@ static int VdpauInit(const char *display_name)
     if (flag) {
 	Info(_("video/vdpau: 4:2:0 chroma format with %dx%d supported\n"),
 	    max_width, max_height);
+	VdpauChromaType = VDP_CHROMA_TYPE_420;
     }
     flag = VDP_FALSE;
     status =
@@ -5545,6 +5756,7 @@ static int VdpauInit(const char *display_name)
     if (flag) {
 	Info(_("video/vdpau: 4:2:2 chroma format with %dx%d supported\n"),
 	    max_width, max_height);
+	VdpauChromaType = VDP_CHROMA_TYPE_422;
     }
     flag = VDP_FALSE;
     status =
@@ -5557,7 +5769,12 @@ static int VdpauInit(const char *display_name)
     if (flag) {
 	Info(_("video/vdpau: 4:4:4 chroma format with %dx%d supported\n"),
 	    max_width, max_height);
+	VdpauChromaType = VDP_CHROMA_TYPE_444;
     }
+    // FIXME: check if all chroma-types failed
+    // FIXME: vdpau didn't support decode of other chroma types
+    VdpauChromaType = VDP_CHROMA_TYPE_420;
+
     // FIXME: does only check for chroma formats, but no action
     status =
 	VdpauVideoSurfaceQueryGetPutBitsYCbCrCapabilities(VdpauDevice,
@@ -5706,11 +5923,14 @@ static void VdpauSetupOutput(VdpauDecoder * decoder)
 	return;
     }
     // vdpau can choose different sizes, must use them for putbits
-    if (chroma_type != decoder->ChromaType
-	|| width != (uint32_t) decoder->InputWidth
+    if (chroma_type != decoder->ChromaType) {
+	// I request 422 if supported, but get only 420
+	Warning(_("video/vdpau: video surface chroma type mismatch\n"));
+    }
+    if (width != (uint32_t) decoder->InputWidth
 	|| height != (uint32_t) decoder->InputHeight) {
 	// FIXME: must rewrite the code to support this case
-	Fatal(_("video/vdpau: video surface type/size mismatch\n"));
+	Fatal(_("video/vdpau: video surface size mismatch\n"));
     }
 }
 
@@ -8729,13 +8949,13 @@ void VideoInit(const char *display_name)
 	}
     }
     if (!(XlibDisplay = XOpenDisplay(display_name))) {
-	Fatal(_("video: Can't connect to X11 server on '%s'"), display_name);
+	Fatal(_("video: Can't connect to X11 server on '%s'\n"), display_name);
 	// FIXME: we need to retry connection
     }
     // XInitThreads();
     // Convert XLIB display to XCB connection
     if (!(Connection = XGetXCBConnection(XlibDisplay))) {
-	Fatal(_("video: Can't convert XLIB display to XCB connection"));
+	Fatal(_("video: Can't convert XLIB display to XCB connection\n"));
     }
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
