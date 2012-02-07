@@ -739,6 +739,62 @@ void CodecSetAudioPassthrough(int mask)
     (void)mask;
 }
 
+/**
+**	Reorder audio frame.
+**
+**	ffmpeg L  R  C	Ls Rs		-> alsa L R  Ls Rs C
+**	ffmpeg L  R  C	LFE Ls Rs	-> alsa L R  Ls Rs C  LFE
+**	ffmpeg L  R  C	LFE Ls Rs Rl Rr	-> alsa L R  Ls Rs C  LFE Rl Rr
+*/
+static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
+{
+    int i;
+    int c;
+    int ls;
+    int rs;
+    int lfe;
+
+    switch (channels) {
+	case 5:
+	    size /= 2;
+	    for (i = 0; i < size; i += 5) {
+		c = buf[i + 2];
+		ls = buf[i + 3];
+		rs = buf[i + 4];
+		buf[i + 2] = ls;
+		buf[i + 3] = rs;
+		buf[i + 4] = c;
+	    }
+	    break;
+	case 6:
+	    size /= 2;
+	    for (i = 0; i < size; i += 6) {
+		c = buf[i + 2];
+		ls = buf[i + 3];
+		rs = buf[i + 4];
+		lfe = buf[i + 5];
+		buf[i + 2] = ls;
+		buf[i + 3] = rs;
+		buf[i + 4] = c;
+		buf[i + 5] = lfe;
+	    }
+	    break;
+	case 8:
+	    size /= 2;
+	    for (i = 0; i < size; i += 8) {
+		c = buf[i + 2];
+		ls = buf[i + 3];
+		rs = buf[i + 4];
+		lfe = buf[i + 5];
+		buf[i + 2] = ls;
+		buf[i + 3] = rs;
+		buf[i + 4] = c;
+		buf[i + 5] = lfe;
+	    }
+	    break;
+    }
+}
+
 #ifdef USE_AVPARSER
 
 /**
@@ -817,6 +873,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		int err;
 		int isAC3;
 
+		// FIXME: use swr_convert from swresample
+		// FIXME: tell ac3 decoder to use downmix
 		if (audio_decoder->ReSample) {
 		    audio_resample_close(audio_decoder->ReSample);
 		    audio_decoder->ReSample = NULL;
@@ -893,6 +951,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 			    audio_decoder->HwChannels *
 			    av_get_bytes_per_sample(audio_ctx->sample_fmt);
 			Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
+			CodecReorderAudioFrame(outbuf, outlen,
+			    audio_decoder->HwChannels);
 			AudioEnqueue(outbuf, outlen);
 		    }
 		} else {
@@ -971,6 +1031,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		    // True HD?
 #endif
 #endif
+		    CodecReorderAudioFrame(buf, buf_sz,
+			audio_decoder->HwChannels);
 		    AudioEnqueue(buf, buf_sz);
 		}
 	    }
