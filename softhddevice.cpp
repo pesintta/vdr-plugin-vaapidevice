@@ -590,9 +590,8 @@ cSoftHdPlayer::~cSoftHdPlayer()
 */
 class cSoftHdControl:public cControl
 {
-  private:
-    cSoftHdPlayer * Player;
   public:
+    static cSoftHdPlayer *Player;	///< dummy player
     virtual void Hide(void)
     {
     }
@@ -603,6 +602,13 @@ class cSoftHdControl:public cControl
     virtual ~ cSoftHdControl();
 };
 
+cSoftHdPlayer *cSoftHdControl::Player;
+
+/**
+**	Handle a key event.
+**
+**	@param key	key pressed
+*/
 eOSState cSoftHdControl::ProcessKey(eKeys key)
 {
     if (!ISMODELESSKEY(key) || key == kBack || key == kStop) {
@@ -610,8 +616,8 @@ eOSState cSoftHdControl::ProcessKey(eKeys key)
 	    delete Player;
 
 	    Player = NULL;
-	    Resume();
 	}
+	Resume();
 	return osEnd;
     }
     return osContinue;
@@ -884,8 +890,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **
 **	@note FIXME: this function isn't called on the initial channel
 */
-void cSoftHdDevice::
-SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
+void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
+    video_display_format)
 {
     static int last = -1;
 
@@ -1162,12 +1168,14 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     //MyDevice->StopReplay();
-    cControl::Launch(new cSoftHdControl);
-    cControl::Attach();
-    Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
-    if (ShutdownHandler.GetUserInactiveTime()) {
-	dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
-	ShutdownHandler.SetUserInactive();
+    if (!cSoftHdControl::Player) {	// not already suspended
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	if (ShutdownHandler.GetUserInactiveTime()) {
+	    dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
+	    ShutdownHandler.SetUserInactive();
+	}
     }
 
     return NULL;
@@ -1344,6 +1352,10 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     __attribute__ ((unused)) int &reply_code)
 {
     if (!strcasecmp(command, "SUSP")) {
+	if (cSoftHdControl::Player) {	// already suspended
+	    return "SoftHdDevice already suspended";
+	}
+	// should be after suspend, but SetPlayMode resumes
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
@@ -1353,8 +1365,10 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    ShutdownHandler.SetUserInactiveTimeout();
 	}
+	if (cSoftHdControl::Player) {	// suspended
+	    cControl::Shutdown();	// not need, if not suspended
+	}
 	Resume();
-	cControl::Shutdown();		// not need, if not suspended
 	return "SoftHdDevice is resumed";
     }
     return NULL;
