@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: LFE moved to wrong position.
     Guard suspend/resume against multiple calls.
     Add support for AAC LATM audio streams.
     Fix bug: alsa and ffmpeg use different channel layout.

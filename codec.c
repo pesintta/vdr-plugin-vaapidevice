@@ -770,9 +770,9 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 	    size /= 2;
 	    for (i = 0; i < size; i += 6) {
 		c = buf[i + 2];
-		ls = buf[i + 3];
-		rs = buf[i + 4];
-		lfe = buf[i + 5];
+		lfe = buf[i + 3];
+		ls = buf[i + 4];
+		rs = buf[i + 5];
 		buf[i + 2] = ls;
 		buf[i + 3] = rs;
 		buf[i + 4] = c;
@@ -783,9 +783,9 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 	    size /= 2;
 	    for (i = 0; i < size; i += 8) {
 		c = buf[i + 2];
-		ls = buf[i + 3];
-		rs = buf[i + 4];
-		lfe = buf[i + 5];
+		lfe = buf[i + 3];
+		ls = buf[i + 4];
+		rs = buf[i + 5];
 		buf[i + 2] = ls;
 		buf[i + 3] = rs;
 		buf[i + 4] = c;
