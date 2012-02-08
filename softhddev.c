@@ -940,8 +940,20 @@ int PlayVideo(const uint8_t * data, int size)
     return size;
 }
 
-#ifdef USE_JPEG
+#if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80
 
+/**
+**	Create a jpeg image in memory.
+**
+**	@param image		raw RGB image
+**	@param raw_size		size of raw image
+**	@param size[out]	size of jpeg image
+**	@param quality		jpeg quality
+**	@param width		number of horizontal pixels in image
+**	@param height		number of vertical pixels in image
+**
+**	@returns allocated jpeg image.
+*/
 uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality,
     int width, int height)
 {
@@ -994,7 +1006,7 @@ uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality,
 uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 {
     if (jpeg) {
-#ifdef USE_JPEG
+#if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80
 	int raw_size;
 	uint8_t *image;
 	uint8_t *jpg_image;
