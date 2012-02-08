@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add support for AAC LATM audio streams.
     Fix bug: alsa and ffmpeg use different channel layout.
     Support more LPCM sample rates and number of channels.
     Quick&dirty support for mpeg LPCM streams.

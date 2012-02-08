@@ -39,6 +39,7 @@ video:
     hard channel switch
     OSD can only be shown after some stream could be shown
     yaepghd changed position is lost on channel switch
+    use x11 screen size without geometry configuration
 
 vdpau:
     software decoder path not working

@@ -852,6 +852,10 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    dpkt->dts = audio_decoder->AudioParser->dts;
 	    buf_sz = sizeof(buf);
 	    l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, dpkt);
+	    if (l == AVERROR(EAGAIN)) {
+		index += n;		// this is needed for aac latm
+		continue;
+	    }
 	    if (l < 0) {		// no audio frame could be decompressed
 		Error(_("codec: error audio data at %d\n"), index);
 		break;

@@ -261,7 +261,7 @@ int PlayAudio(const uint8_t * data, int size,
 	return osize;
     }
     // Detect audio code
-    // MPEG-PS mp2 MPEG1, MPEG2, AC3, LPCM
+    // MPEG-PS mp2 MPEG1, MPEG2, AC3, LPCM, AAC LATM
 
     // Syncword - 0x0B77
     if (data[0] == 0x0B && data[1] == 0x77) {
@@ -279,7 +279,15 @@ int PlayAudio(const uint8_t * data, int size,
 	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
 	    AudioCodecID = CODEC_ID_MP2;
 	}
-	// Private stram + LPCM ID
+	// latm header 0x56E0 11bits: 0x2B7
+    } else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0) {
+	if (AudioCodecID != CODEC_ID_AAC_LATM) {
+	    Debug(3, "[softhddev]%s: AAC LATM %d\n", __FUNCTION__, id);
+	    CodecAudioClose(MyAudioDecoder);
+	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
+	    AudioCodecID = CODEC_ID_AAC_LATM;
+	}
+	// Private stream + LPCM ID
     } else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
 	if (AudioCodecID != CODEC_ID_PCM_DVD) {
 	    static int samplerates[] = { 48000, 96000, 44100, 32000 };
