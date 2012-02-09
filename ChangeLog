@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Add support for skip chroma deinterlace to software deinterlacer.
+    Type of software deinterlacer now configurable from setup menu.
     Mixer channel could be set through command line option.
     Fix bug: LFE moved to wrong position.
     Guard suspend/resume against multiple calls.

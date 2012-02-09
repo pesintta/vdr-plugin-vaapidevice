@@ -423,7 +423,8 @@ static inline cOsdItem *SeparatorItem(const char *label)
 cMenuSetupSoft::cMenuSetupSoft(void)
 {
     static const char *const deinterlace[] = {
-	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software"
+	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
+	"Software Spatial",
     };
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
@@ -458,7 +459,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	Scaling[i] = ConfigVideoScaling[i];
 	Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4, scaling));
 	Deinterlace[i] = ConfigVideoDeinterlace[i];
-	Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], 5,
+	Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], 6,
 		deinterlace));
 	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
 	Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),

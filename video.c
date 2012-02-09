@@ -169,7 +169,8 @@ typedef enum _video_deinterlace_modes_
     VideoDeinterlaceWeave,		///< weave deinterlace
     VideoDeinterlaceTemporal,		///< temporal deinterlace
     VideoDeinterlaceTemporalSpatial,	///< temporal spatial deinterlace
-    VideoDeinterlaceSoftware,		///< software deinterlace
+    VideoDeinterlaceSoftBob,		///< software bob deinterlace
+    VideoDeinterlaceSoftSpatial,	///< software spatial deinterlace
 } VideoDeinterlaceModes;
 
 ///
@@ -1232,6 +1233,7 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 
 static int VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
 static int VaapiBuggyIntel;		///< fix libva-driver-intel bugs
+static int VaapiNewIntel;		///< new libva-driver-intel driver
 
 static VADisplay *VaDisplay;		///< VA-API display
 
@@ -1506,7 +1508,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
 	}
 	// surface still in use, try next
 	if (status != VASurfaceReady) {
-	    Debug(3, "video/vaapi: surface %#010x not ready: %d\n", surface,
+	    Debug(4, "video/vaapi: surface %#010x not ready: %d\n", surface,
 		status);
 	    if (!VaapiBuggyVdpau || i < 1) {
 		continue;
@@ -1625,7 +1627,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 		//FIXME: private hack
 		//decoder->SurfaceFlagsTable[i] |= 0x00006000;
 		break;
-	    case VideoDeinterlaceSoftware:
+	    default:
 		break;
 	}
     }
@@ -1693,6 +1695,8 @@ static VaapiDecoder *VaapiNewDecoder(void)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    // get/put still not working
+    //decoder->GetPutImage = !VaapiBuggyIntel || VaapiNewIntel;
     decoder->GetPutImage = !VaapiBuggyIntel;
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
@@ -2014,6 +2018,9 @@ static int VaapiInit(const char *display_name)
     }
     if (strstr(s, "Intel i965")) {
 	VaapiBuggyIntel = 1;
+    }
+    if (strstr(s, "Intel i965 driver - 1.0.16.")) {
+	VaapiNewIntel = 1;
     }
     //
     //	check if driver makes a copy of the VA surface for display.
@@ -2365,7 +2372,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 
     // deinterlace
     if (interlaced
-	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceSoftware
+	&& VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
 	    if (field) {
@@ -3127,6 +3134,38 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     usleep(1 * 1000);
 }
 
+#define noUSE_VECTOR			///< use gcc vector extension
+#ifdef USE_VECTOR
+
+typedef int8_t v16qi __attribute__ ((vector_size(16)));
+typedef int16_t v4hi __attribute__ ((vector_size(8)));
+
+///
+///	ELA Edge-based Line Averaging
+///	Low-Complexity Interpolation Method
+///
+///	abcdefg	   abcdefg	abcdefg	 abcdefg    abcdefg
+///	   x	     x		  x	    x		 x
+///	hijklmn	 hijklmn    hijklmn	   hijklmn	 hijklmn
+///
+static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width,
+    int above, int below, int next)
+{
+    int x;
+
+    // 8/16 128bit xmm register
+
+    for (x = 0; x < width; x += 16) {
+	v16qi a;
+
+	// ignore bound violation
+	a = *(v16qi *) & cur[above + x];
+	*(v16qi *) & dst[x] = a;
+    }
+}
+
+#else
+
     /// Return the absolute value of an integer.
 #define ABS(i)	((i) >= 0 ? (i) : (-(i)))
 
@@ -3192,6 +3231,8 @@ static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width,
     }
 }
 
+#endif
+
 ///
 ///	Vaapi spatial deinterlace.
 ///
@@ -3238,7 +3279,7 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 	memset(dst1_base, 0x00, dst1->data_size);
 	memset(dst2_base, 0xFF, dst2->data_size);
     }
-    // use tmp copy
+    // use tmp copy FIXME: only for intel needed
     tmp = malloc(src->data_size);
     memcpy(tmp, src_base, src->data_size);
 
@@ -3265,52 +3306,80 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 		    y + 1 < (unsigned)src->height ? pitch : -pitch, 1);
 	    }
 	}
-	for (y = 0; y < (unsigned)src->height / 2; y++) {	// UV
-	    const uint8_t *cur;
+	if (VideoSkipChromaDeinterlace[decoder->Resolution]) {
+	    for (y = 0; y < (unsigned)src->height / 2; y++) {	// UV
+		const uint8_t *cur;
 
-	    cur = tmp + src->offsets[1] + y * pitch;
-	    if (y & 1) {
-		// copy to 2nd
-		memcpy(dst2_base + src->offsets[1] + y * pitch, cur, width);
-		// create 1st
-		FilterLineSpatial(dst1_base + src->offsets[1] + y * pitch, cur,
-		    width, y ? -pitch : pitch,
-		    y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
-	    } else {
+		cur = tmp + src->offsets[1] + y * pitch;
 		// copy to 1st
 		memcpy(dst1_base + src->offsets[1] + y * pitch, cur, width);
-		// create 2nd
-		FilterLineSpatial(dst2_base + src->offsets[1] + y * pitch, cur,
-		    width, y ? -pitch : pitch,
-		    y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
+		// copy to 2nd
+		memcpy(dst2_base + src->offsets[1] + y * pitch, cur, width);
+	    }
+	} else {
+	    for (y = 0; y < (unsigned)src->height / 2; y++) {	// UV
+		const uint8_t *cur;
+
+		cur = tmp + src->offsets[1] + y * pitch;
+		if (y & 1) {
+		    // copy to 2nd
+		    memcpy(dst2_base + src->offsets[1] + y * pitch, cur,
+			width);
+		    // create 1st
+		    FilterLineSpatial(dst1_base + src->offsets[1] + y * pitch,
+			cur, width, y ? -pitch : pitch,
+			y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
+		} else {
+		    // copy to 1st
+		    memcpy(dst1_base + src->offsets[1] + y * pitch, cur,
+			width);
+		    // create 2nd
+		    FilterLineSpatial(dst2_base + src->offsets[1] + y * pitch,
+			cur, width, y ? -pitch : pitch,
+			y + 1 < (unsigned)src->height / 2 ? pitch : -pitch, 2);
+		}
 	    }
 	}
-    } else {
+    } else {				// YV12 or I420
 	for (p = 0; p < src->num_planes; ++p) {
 	    pitch = src->pitches[p];
 	    width = src->width >> (p != 0);
-	    for (y = 0; y < (unsigned)(src->height >> (p != 0)); y++) {
-		const uint8_t *cur;
+	    if (VideoSkipChromaDeinterlace[decoder->Resolution] && p) {
+		for (y = 0; y < (unsigned)(src->height >> 1); y++) {
+		    const uint8_t *cur;
 
-		cur = tmp + src->offsets[p] + y * pitch;
-		if (y & 1) {
-		    // copy to 2nd
-		    memcpy(dst2_base + src->offsets[p] + y * pitch, cur,
-			width);
-		    // create 1st
-		    FilterLineSpatial(dst1_base + src->offsets[p] + y * pitch,
-			cur, width, y ? -pitch : pitch,
-			y + 1 < (unsigned)(src->height >> (p != 0))
-			? pitch : -pitch, 1);
-		} else {
+		    cur = tmp + src->offsets[p] + y * pitch;
 		    // copy to 1st
 		    memcpy(dst1_base + src->offsets[p] + y * pitch, cur,
 			width);
-		    // create 2nd
-		    FilterLineSpatial(dst2_base + src->offsets[p] + y * pitch,
-			cur, width, y ? -pitch : pitch,
-			y + 1 < (unsigned)(src->height >> (p != 0))
-			? pitch : -pitch, 1);
+		    // copy to 2nd
+		    memcpy(dst2_base + src->offsets[p] + y * pitch, cur,
+			width);
+		}
+	    } else {
+		for (y = 0; y < (unsigned)(src->height >> (p != 0)); y++) {
+		    const uint8_t *cur;
+
+		    cur = tmp + src->offsets[p] + y * pitch;
+		    if (y & 1) {
+			// copy to 2nd
+			memcpy(dst2_base + src->offsets[p] + y * pitch, cur,
+			    width);
+			// create 1st
+			FilterLineSpatial(dst1_base + src->offsets[p] +
+			    y * pitch, cur, width, y ? -pitch : pitch,
+			    y + 1 < (unsigned)(src->height >> (p != 0))
+			    ? pitch : -pitch, 1);
+		    } else {
+			// copy to 1st
+			memcpy(dst1_base + src->offsets[p] + y * pitch, cur,
+			    width);
+			// create 2nd
+			FilterLineSpatial(dst2_base + src->offsets[p] +
+			    y * pitch, cur, width, y ? -pitch : pitch,
+			    y + 1 < (unsigned)(src->height >> (p != 0))
+			    ? pitch : -pitch, 1);
+		    }
 		}
 	    }
 	}
@@ -3592,6 +3661,27 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     VASurfaceID out2;
 
     tick1 = GetMsTicks();
+#if 0
+    // get image test
+    if (decoder->Image->image_id == VA_INVALID_ID) {
+	VAImageFormat format[1];
+
+	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	if (vaCreateImage(VaDisplay, format, decoder->InputWidth,
+		decoder->InputHeight, decoder->Image) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create image!\n"));
+	}
+    }
+    if (vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
+	    decoder->InputHeight, decoder->Image->image_id)
+	!= VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't get source image\n"));
+	VaapiQueueSurface(decoder, surface, 0);
+	VaapiQueueSurface(decoder, surface, 0);
+	return;
+    }
+    *image = *decoder->Image;
+#else
     if ((status =
 	    vaDeriveImage(decoder->VaDisplay, surface,
 		image)) != VA_STATUS_SUCCESS) {
@@ -3600,6 +3690,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 	VaapiQueueSurface(decoder, surface, 0);
 	return;
     }
+#endif
     tick2 = GetMsTicks();
 
     Debug(4, "video/vaapi: %c%c%c%c %dx%d*%d\n", image->format.fourcc,
@@ -3629,13 +3720,22 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     }
     tick4 = GetMsTicks();
 
-    //VaapiBob(decoder, image, dest1, dest2);
-    VaapiSpatial(decoder, image, dest1, dest2);
+    switch (VideoDeinterlace[decoder->Resolution]) {
+	case VideoDeinterlaceSoftBob:
+	default:
+	    VaapiBob(decoder, image, dest1, dest2);
+	    break;
+	case VideoDeinterlaceSoftSpatial:
+	    VaapiSpatial(decoder, image, dest1, dest2);
+	    break;
+    }
     tick5 = GetMsTicks();
 
+#if 1
     if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't destroy image!\n"));
     }
+#endif
     if (vaDestroyImage(VaDisplay, dest1->image_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't destroy image!\n"));
     }
@@ -3701,8 +3801,15 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 
     // FIXME: handle top_field_first
 
-    //VaapiBob(decoder, img1, img2, img3);
-    VaapiSpatial(decoder, img1, img2, img3);
+    switch (VideoDeinterlace[decoder->Resolution]) {
+	case VideoDeinterlaceSoftBob:
+	default:
+	    VaapiBob(decoder, img1, img2, img3);
+	    break;
+	case VideoDeinterlaceSoftSpatial:
+	    VaapiSpatial(decoder, img1, img2, img3);
+	    break;
+    }
     tick3 = GetMsTicks();
 
     // get a free surface and upload the image
@@ -3714,7 +3821,7 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 	    vaPutImage(VaDisplay, out, img2->image_id, 0, 0, img2->width,
 		img2->height, 0, 0, img2->width,
 		img2->height)) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't put image: %d!\n", status);
+	Error(_("video/vaapi: can't put image: %d!\n"), status);
 	abort();
     }
     VaapiQueueSurface(decoder, out, 1);
@@ -3734,7 +3841,7 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
     if (vaPutImage(VaDisplay, out, img3->image_id, 0, 0, img3->width,
 	    img3->height, 0, 0, img3->width,
 	    img3->height) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't put image!\n");
+	Error(_("video/vaapi: can't put image!\n"));
     }
     VaapiQueueSurface(decoder, out, 1);
     if (0 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
@@ -3843,8 +3950,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	Debug(4, "video/vaapi: hw render hw surface %#010x\n", surface);
 
 	if (interlaced
-	    && VideoDeinterlace[decoder->Resolution] ==
-	    VideoDeinterlaceSoftware) {
+	    && VideoDeinterlace[decoder->Resolution] >=
+	    VideoDeinterlaceSoftBob) {
 	    VaapiCpuDeinterlace(decoder, surface);
 	} else {
 	    VaapiQueueSurface(decoder, surface, 0);
@@ -4010,7 +4117,7 @@ static void VaapiAdvanceFrame(void)
 
 	// 0 -> 1
 	// 1 -> 0 + advance
-	if (VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceSoftware
+	if (VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
 	    && decoder->Interlaced) {
 	    // FIXME: first frame is never shown
 	    if (decoder->SurfaceField) {
@@ -4292,7 +4399,7 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 	    - decoder->SurfaceField);
     }
     return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
-	1);
+	2);
 }
 
 ///
@@ -6609,10 +6716,12 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	surface = vrs->surface;
 	Debug(4, "video/vdpau: hw render hw surface %#08x\n", surface);
 
-	if (VideoDeinterlace[decoder->Resolution] == VideoDeinterlaceSoftware
-	    && interlaced) {
+	if (interlaced
+	    && VideoDeinterlace[decoder->Resolution] >=
+	    VideoDeinterlaceSoftBob) {
 	    // FIXME: software deinterlace avpicture_deinterlace
 	    // FIXME: VdpauCpuDeinterlace(decoder, surface);
+	    VdpauQueueSurface(decoder, surface, 0);
 	} else {
 	    VdpauQueueSurface(decoder, surface, 0);
 	}
@@ -7247,7 +7356,7 @@ static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 	    - decoder->SurfaceField);
     }
     return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
-	1);
+	2);
 }
 
 ///
