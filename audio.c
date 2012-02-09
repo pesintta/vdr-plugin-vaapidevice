@@ -822,7 +822,7 @@ static void AlsaInitMixer(void)
 	    const char *name;
 
 	    name = snd_mixer_selem_get_name(alsa_mixer_elem);
-	    if (strcasecmp(name, alsa_mixer_elem_name) == 0) {
+	    if (!strcasecmp(name, alsa_mixer_elem_name)) {
 		snd_mixer_selem_get_playback_volume_range(alsa_mixer_elem,
 		    &alsa_mixer_elem_min, &alsa_mixer_elem_max);
 		AlsaRatio =
@@ -2148,6 +2148,18 @@ void AudioSetDeviceAC3(const char *device)
 	}
     }
     AudioAC3Device = device;
+}
+
+/**
+**	Set pcm audio mixer channel.
+**
+**	@param channel	name of the mixer channel (fe. PCM or Master)
+**
+**	@note this is currently used to select alsa/OSS output module.
+*/
+void AudioSetChannel(const char *channel)
+{
+    AudioMixerChannel = channel;
 }
 
 /**

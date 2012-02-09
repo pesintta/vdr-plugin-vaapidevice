@@ -1230,7 +1230,8 @@ void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 const char *CommandLineHelp(void)
 {
     return "  -a device\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
-	"  -p device\taudio device (alsa only) for pass-through (hw:0,1)\n"
+	"  -p device\taudio device for pass-through (hw:0,1 or /dev/dsp1)\n"
+	"  -c channel\taudio mixer channel name (fe. PCM)\n"
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
@@ -1253,9 +1254,12 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:d:fg:p:sw:x")) {
-	    case 'a':			// audio device
+	switch (getopt(argc, argv, "-a:c:d:fg:p:sw:x")) {
+	    case 'a':			// audio device for pcm
 		AudioSetDevice(optarg);
+		continue;
+	    case 'c':			// channel of audio mixer
+		AudioSetChannel(optarg);
 		continue;
 	    case 'p':			// pass-through audio device
 		AudioSetDeviceAC3(optarg);

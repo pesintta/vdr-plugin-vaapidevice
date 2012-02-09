@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Mixer channel could be set through command line option.
     Fix bug: LFE moved to wrong position.
     Guard suspend/resume against multiple calls.
     Add support for AAC LATM audio streams.
