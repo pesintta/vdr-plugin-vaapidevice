@@ -3137,8 +3137,10 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 #define noUSE_VECTOR			///< use gcc vector extension
 #ifdef USE_VECTOR
 
-typedef int8_t v16qi __attribute__ ((vector_size(16)));
-typedef int16_t v4hi __attribute__ ((vector_size(8)));
+typedef char v16qi __attribute__ ((vector_size(16)));
+typedef char v8qi __attribute__ ((vector_size(8)));
+typedef int16_t v4hi __attribute__ ((vector_size(4)));
+typedef int16_t v8hi __attribute__ ((vector_size(8)));
 
 ///
 ///	ELA Edge-based Line Averaging
@@ -3155,12 +3157,57 @@ static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width,
 
     // 8/16 128bit xmm register
 
-    for (x = 0; x < width; x += 16) {
-	v16qi a;
+    for (x = 0; x < width; x += 8) {
+	v8qi c;
+	v8qi d;
+	v8qi e;
+	v8qi j;
+	v8qi k;
+	v8qi l;
+	v8qi t1;
+	v8qi t2;
+	v8qi pred;
+	v8qi score_l;
+	v8qi score_h;
+	v8qi t_l;
+	v8qi t_h;
+	v8qi zero;
 
 	// ignore bound violation
-	a = *(v16qi *) & cur[above + x];
-	*(v16qi *) & dst[x] = a;
+	d = *(v8qi *) & cur[above + x];
+	k = *(v8qi *) & cur[below + x];
+	pred = __builtin_ia32_pavgb(d, k);
+
+	// score = ABS(c - j) + ABS(d - k) + ABS(e - l);
+	c = *(v8qi *) & cur[above + x - 1 * next];
+	e = *(v8qi *) & cur[above + x + 1 * next];
+	j = *(v8qi *) & cur[below + x - 1 * next];
+	l = *(v8qi *) & cur[below + x + 1 * next];
+
+	t1 = __builtin_ia32_psubusb(c, j);
+	t2 = __builtin_ia32_psubusb(j, c);
+	t1 = __builtin_ia32_pmaxub(t1, t2);
+	zero ^= zero;
+	score_l = __builtin_ia32_punpcklbw(t1, zero);
+	score_h = __builtin_ia32_punpckhbw(t1, zero);
+
+	t1 = __builtin_ia32_psubusb(d, k);
+	t2 = __builtin_ia32_psubusb(k, d);
+	t1 = __builtin_ia32_pmaxub(t1, t2);
+	t_l = __builtin_ia32_punpcklbw(t1, zero);
+	t_h = __builtin_ia32_punpckhbw(t1, zero);
+	score_l = __builtin_ia32_paddw(score_l, t_l);
+	score_h = __builtin_ia32_paddw(score_h, t_h);
+
+	t1 = __builtin_ia32_psubusb(e, l);
+	t2 = __builtin_ia32_psubusb(l, e);
+	t1 = __builtin_ia32_pmaxub(t1, t2);
+	t_l = __builtin_ia32_punpcklbw(t1, zero);
+	t_h = __builtin_ia32_punpckhbw(t1, zero);
+	score_l = __builtin_ia32_paddw(score_l, t_l);
+	score_h = __builtin_ia32_paddw(score_h, t_h);
+
+	*(v8qi *) & dst[x] = pred;
     }
 }
 
@@ -3401,7 +3448,7 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     }
     tick8 = GetMsTicks();
 
-    Debug(4, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
+    Debug(3, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
 	tick6 - tick5, tick7 - tick6, tick8 - tick7);
 }
@@ -8075,8 +8122,7 @@ static void VideoEvent(void)
 {
     XEvent event;
     KeySym keysym;
-
-    //char buf[32];
+    char buf[32];
 
     XNextEvent(XlibDisplay, &event);
     switch (event.type) {
@@ -8109,27 +8155,14 @@ static void VideoEvent(void)
 	    VideoSetFullscreen(-1);
 	    break;
 	case KeyPress:
-	    keysym = XLookupKeysym(&event.xkey, 0);
-#if 0
-	    switch (keysym) {
-		case XK_d:
-		    break;
-		case XK_S:
-		    break;
-	    }
-#endif
+	    XLookupString(&event.xkey, buf, sizeof(buf), &keysym, NULL);
 	    if (keysym == NoSymbol) {
 		Warning(_("video/event: No symbol for %d\n"),
 		    event.xkey.keycode);
+		break;
 	    }
 	    FeedKeyPress("XKeySym", XKeysymToString(keysym), 0, 0);
-	    /*
-	       if (XLookupString(&event.xkey, buf, sizeof(buf), &keysym, NULL)) {
-	       FeedKeyPress("XKeySym", buf, 0, 0);
-	       } else {
-	       FeedKeyPress("XKeySym", XKeysymToString(keysym), 0, 0);
-	       }
-	     */
+	    break;
 	case KeyRelease:
 	    break;
 	default:
