@@ -21,10 +21,10 @@ $Id: $
 missing:
     software deinterlace (yadif, ...)
     software decoder with software deinterlace
-    ITU BT601, ITU BT709 (HD), RGB studio levels (16-235)?
     suspend output / energie saver: stop and restart X11
     suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
+    ColorSpace and StudioLevels aren't configurable with the gui.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
@@ -85,6 +85,8 @@ audio:
     add pause support for replay pause
     some plugin send a private LPCM stream (CODEC_ID_PCM_DVD), which
     isn't supported by ffmpeg, write own parser.
+    Mute should do a real mute and not only set volume to zero.
+    Starting suspended and muted, didn't register the mute.
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

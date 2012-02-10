@@ -196,6 +196,17 @@ typedef enum _video_zoom_modes_
 } VideoZoomModes;
 
 ///
+///	Video color space conversions.
+///
+typedef enum _video_color_space_
+{
+    VideoColorSpaceNone,		///< no conversion
+    VideoColorSpaceBt601,		///< ITU.BT-601 Y'CbCr
+    VideoColorSpaceBt709,		///< ITU.BT-709 HDTV Y'CbCr
+    VideoColorSpaceSmpte240		///< SMPTE-240M Y'PbPr
+} VideoColorSpace;
+
+///
 ///	Video output module structure and typedef.
 ///
 typedef struct _video_module_
@@ -291,7 +302,14 @@ static int VideoDenoise[VideoResolutionMax];
     /// Default amount of of sharpening, or blurring, to apply (-1000 .. 1000).
 static int VideoSharpen[VideoResolutionMax];
 
-// FIXME: color space / studio levels
+    /// Color space ITU-R BT.601, ITU-R BT.709, ...
+static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
+    VideoColorSpaceBt601, VideoColorSpaceBt709, VideoColorSpaceBt709,
+    VideoColorSpaceBt709
+};
+
+    /// Flag use studio levels
+static char VideoStudioLevels;
 
     /// Default scaling mode
 static VideoScalingModes VideoScaling[VideoResolutionMax];
@@ -1583,15 +1601,22 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 
     for (i = 0; i < VideoResolutionMax; ++i) {
 	decoder->SurfaceFlagsTable[i] = VA_CLEAR_DRAWABLE;
-	// color space conversion none, ITU-R BT.601, ITU-R BT.709
-	if (i > VideoResolution576i) {
-	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT709;
-	} else {
-	    decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
+	// color space conversion none, ITU-R BT.601, ITU-R BT.709, ...
+	switch (VideoColorSpaces[i]) {
+	    case VideoColorSpaceNone:
+		break;
+	    case VideoColorSpaceBt601:
+		decoder->SurfaceFlagsTable[i] |= VA_SRC_BT601;
+		break;
+	    case VideoColorSpaceBt709:
+		decoder->SurfaceFlagsTable[i] |= VA_SRC_BT709;
+		break;
+	    case VideoColorSpaceSmpte240:
+		decoder->SurfaceFlagsTable[i] |= VA_SRC_SMPTE_240;
+		break;
 	}
 
 	// scaling flags FAST, HQ, NL_ANAMORPHIC
-	// FIXME: need to detect the backend to choose the parameter
 	switch (VideoScaling[i]) {
 	    case VideoScalingNormal:
 		decoder->SurfaceFlagsTable[i] |= VA_FILTER_SCALING_DEFAULT;
@@ -1607,7 +1632,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 		break;
 	    case VideoScalingAnamorphic:
 		// intel backend supports only VA_FILTER_SCALING_NL_ANAMORPHIC;
-		// don't use it, its for 4:3 -> 16:9 scaling
+		// FIXME: Highlevel should display 4:3 as 16:9 to support this
 		decoder->SurfaceFlagsTable[i] |=
 		    VA_FILTER_SCALING_NL_ANAMORPHIC;
 		break;
@@ -5123,7 +5148,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     float noise_reduction_level;
     float sharpness_level;
     VdpColorStandard color_standard;
-    VdpCSCMatrix csc_matrix[1];
+    VdpCSCMatrix csc_matrix;
 
     //
     //	Build enables table
@@ -5218,26 +5243,80 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	attribute_value_ptrs[attribute_n++] = &sharpness_level;
 	Debug(3, "video/vdpau: sharpness level %+1.3f\n", sharpness_level);
     }
-    // FIXME: studio colors, VideoColorStandard[decoder->Resolution]
-    if (decoder->InputWidth > 1280 || decoder->InputHeight > 576) {
-	// HDTV
-	color_standard = VDP_COLOR_STANDARD_ITUR_BT_709;
-	Debug(3, "video/vdpau: color space ITU-R BT.709\n");
-    } else {
-	// SDTV
-	color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
-	Debug(3, "video/vdpau: color space ITU-R BT.601\n");
+    switch (VideoColorSpaces[decoder->Resolution]) {
+	case VideoColorSpaceNone:
+	default:
+	    color_standard = 0;
+	    break;
+	case VideoColorSpaceBt601:
+	    color_standard = VDP_COLOR_STANDARD_ITUR_BT_601;
+	    Debug(3, "video/vdpau: color space ITU-R BT.601\n");
+	    break;
+	case VideoColorSpaceBt709:
+	    color_standard = VDP_COLOR_STANDARD_ITUR_BT_709;
+	    Debug(3, "video/vdpau: color space ITU-R BT.709\n");
+	    break;
+	case VideoColorSpaceSmpte240:
+	    color_standard = VDP_COLOR_STANDARD_SMPTE_240M;
+	    Debug(3, "video/vdpau: color space SMPTE-240M\n");
+	    break;
     }
+    //
+    //	Studio levels
+    //
+    //	based on www.nvnews.net forum thread
+    //
+    if (VideoStudioLevels) {
+	static const float color_coeffs[][3] = {
+	    {0.299, 0.587, 0.114},
+	    {0.2125, 0.7154, 0.0721},
+	    {0.2122, 0.7013, 0.0865}
+	};
+	float uvcos, uvsin;
+	float uv_coeffs[3][2];
+	float Kr, Kg, Kb;
+	const int rgbmin = 16;
+	const int rgbr = 235 - rgbmin;
 
-    status =
-	VdpauGenerateCSCMatrix(&decoder->Procamp, color_standard, csc_matrix);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't generate CSC matrix: %s\n"),
-	    VdpauGetErrorString(status));
+	Kr = color_coeffs[color_standard][0];
+	Kg = color_coeffs[color_standard][1];
+	Kb = color_coeffs[color_standard][2];
+
+	uv_coeffs[0][0] = 0.0;
+	uv_coeffs[0][1] = (rgbr / 112.0) * (1.0 - Kr);
+	uv_coeffs[1][0] = -(rgbr / 112.0) * (1.0 - Kb) * Kb / Kg;
+	uv_coeffs[1][1] = -(rgbr / 112.0) * (1.0 - Kr) * Kr / Kg;
+	uv_coeffs[2][0] = (rgbr / 112.0) * (1.0 - Kb);
+	uv_coeffs[2][1] = 0.0;
+
+	uvcos = decoder->Procamp.saturation * cos(decoder->Procamp.hue);
+	uvsin = decoder->Procamp.saturation * sin(decoder->Procamp.hue);
+
+	for (i = 0; i < 3; ++i) {
+	    csc_matrix[i][3] = decoder->Procamp.brightness;
+	    csc_matrix[i][0] = rgbr * decoder->Procamp.contrast / 219;
+	    csc_matrix[i][3] += (-16 / 255.0) * csc_matrix[i][0];
+	    csc_matrix[i][1] =
+		uv_coeffs[i][0] * uvcos + uv_coeffs[i][1] * uvsin;
+	    csc_matrix[i][3] += (-128 / 255.0) * csc_matrix[i][1];
+	    csc_matrix[i][2] =
+		uv_coeffs[i][0] * uvsin + uv_coeffs[i][1] * uvcos;
+	    csc_matrix[i][3] += (-128 / 255.0) * csc_matrix[i][2];
+	    csc_matrix[i][3] += rgbmin / 255.0;
+	    csc_matrix[i][3] += 0.5 - decoder->Procamp.contrast / 2.0;
+	}
+    } else {
+	status =
+	    VdpauGenerateCSCMatrix(&decoder->Procamp, color_standard,
+	    &csc_matrix);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't generate CSC matrix: %s\n"),
+		VdpauGetErrorString(status));
+	}
     }
 
     attributes[attribute_n] = VDP_VIDEO_MIXER_ATTRIBUTE_CSC_MATRIX;
-    attribute_value_ptrs[attribute_n++] = csc_matrix;
+    attribute_value_ptrs[attribute_n++] = &csc_matrix;
 
     status =
 	VdpauVideoMixerSetAttributeValues(decoder->VideoMixer, attribute_n,
@@ -9179,6 +9258,10 @@ void VideoInit(const char *display_name)
     }
     if (getenv("NO_HW")) {
 	VideoHardwareDecoder = 0;
+    }
+    VideoStudioLevels = 0;
+    if (getenv("STUDIO_LEVELS")) {
+	VideoStudioLevels = 1;
     }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
