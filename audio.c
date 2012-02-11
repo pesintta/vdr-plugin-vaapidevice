@@ -2070,13 +2070,7 @@ int64_t AudioGetClock(void)
 */
 void AudioSetVolume(int volume)
 {
-#ifdef USE_ALSA
-    AlsaSetVolume(volume);
-#endif
-#ifdef USE_OSS
-    OssSetVolume(volume);
-#endif
-    (void)volume;
+    return AudioUsedModule->SetVolume(volume);
 }
 
 /**

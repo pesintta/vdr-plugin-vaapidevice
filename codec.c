@@ -877,7 +877,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		int err;
 		int isAC3;
 
-		// FIXME: use swr_convert from swresample
+		// FIXME: use swr_convert from swresample (only in ffmpeg!)
 		// FIXME: tell ac3 decoder to use downmix
 		if (audio_decoder->ReSample) {
 		    audio_resample_close(audio_decoder->ReSample);

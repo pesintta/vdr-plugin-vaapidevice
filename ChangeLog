@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Detect audio stream type only after stream switch.
     Detect more h264 streams with leading zeros.
     VDPAU: support for studio levels added.
     Add support for skip chroma deinterlace to software deinterlacer.

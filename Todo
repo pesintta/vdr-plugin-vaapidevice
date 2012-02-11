@@ -40,6 +40,7 @@ video:
     OSD can only be shown after some stream could be shown
     yaepghd changed position is lost on channel switch
     use x11 screen size without geometry configuration
+    pause (live tv) has sometime problems with SAT1 HD Pro7 HD
 
 vdpau:
     software decoder path not working
@@ -83,10 +84,9 @@ audio:
     selectable.
     software volume support
     add pause support for replay pause
-    some plugin send a private LPCM stream (CODEC_ID_PCM_DVD), which
-    isn't supported by ffmpeg, write own parser.
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
+    switching stero/dolby produces klick sound
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

@@ -76,6 +76,7 @@ static volatile char NewAudioStream;	///< new audio stream
 static volatile char SkipAudio;		///< skip audio stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
+static int AudioChannelID;		///< current audio channel id
 
 /**
 **	mpeg bitrate table.
@@ -202,8 +203,7 @@ static int FindAudioSync(const AVPacket * avpkt)
 **	@param size	size of PES packet
 **	@param id	PES packet type
 */
-int PlayAudio(const uint8_t * data, int size,
-    __attribute__ ((unused)) uint8_t id)
+int PlayAudio(const uint8_t * data, int size, uint8_t id)
 {
     int n;
     int osize;
@@ -263,87 +263,92 @@ int PlayAudio(const uint8_t * data, int size,
     // Detect audio code
     // MPEG-PS mp2 MPEG1, MPEG2, AC3, LPCM, AAC LATM
 
-    // Syncword - 0x0B77
-    if (data[0] == 0x0B && data[1] == 0x77) {
-	if (AudioCodecID != CODEC_ID_AC3) {
-	    Debug(3, "[softhddev]%s: AC-3 %d\n", __FUNCTION__, id);
-	    CodecAudioClose(MyAudioDecoder);
-	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
-	    AudioCodecID = CODEC_ID_AC3;
-	}
-	// Syncword - 0xFFFC - 0xFFFF
-    } else if (data[0] == 0xFF && (data[1] & 0xFC) == 0xFC) {
-	if (AudioCodecID != CODEC_ID_MP2) {
-	    Debug(3, "[softhddev]%s: MP2 %d\n", __FUNCTION__, id);
-	    CodecAudioClose(MyAudioDecoder);
-	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
-	    AudioCodecID = CODEC_ID_MP2;
-	}
-	// latm header 0x56E0 11bits: 0x2B7
-    } else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0) {
-	if (AudioCodecID != CODEC_ID_AAC_LATM) {
-	    Debug(3, "[softhddev]%s: AAC LATM %d\n", __FUNCTION__, id);
-	    CodecAudioClose(MyAudioDecoder);
-	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
-	    AudioCodecID = CODEC_ID_AAC_LATM;
-	}
-	// Private stream + LPCM ID
-    } else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
-	if (AudioCodecID != CODEC_ID_PCM_DVD) {
-	    static int samplerates[] = { 48000, 96000, 44100, 32000 };
-	    int samplerate;
-	    int channels;
-	    int bits_per_sample;
-
-	    Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
-		__FUNCTION__, id, data[5] >> 4,
-		(((data[5] >> 6) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
-	    CodecAudioClose(MyAudioDecoder);
-
-	    bits_per_sample = (((data[5] >> 6) & 0x3) + 4) * 4;
-	    if (bits_per_sample != 16) {
-		Error(_
-		    ("softhddev: LPCM %d bits per sample aren't supported\n"),
-		    bits_per_sample);
-		// FIXME: handle unsupported formats.
+    // only if unknown or new channel id
+    if (AudioCodecID == CODEC_ID_NONE || AudioChannelID != id) {
+	AudioChannelID = id;
+	// Syncword - 0x0B77
+	if (data[0] == 0x0B && data[1] == 0x77) {
+	    if (AudioCodecID != CODEC_ID_AC3) {
+		Debug(3, "[softhddev]%s: AC-3 %d\n", __FUNCTION__, id);
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
+		AudioCodecID = CODEC_ID_AC3;
 	    }
-	    samplerate = samplerates[data[5] >> 4];
-	    channels = (data[5] & 0x7) + 1;
-	    AudioSetup(&samplerate, &channels, 0);
-	    if (samplerate != samplerates[data[5] >> 4]) {
-		Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
-		    samplerates[data[5] >> 4]);
-		// FIXME: support resample
+	    // Syncword - 0xFFFC - 0xFFFF
+	} else if (data[0] == 0xFF && (data[1] & 0xFC) == 0xFC) {
+	    if (AudioCodecID != CODEC_ID_MP2) {
+		Debug(3, "[softhddev]%s: MP2 %d\n", __FUNCTION__, id);
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
+		AudioCodecID = CODEC_ID_MP2;
 	    }
-	    if (channels != (data[5] & 0x7) + 1) {
-		Error(_("softhddev: LPCM %d channels are unsupported\n"),
-		    (data[5] & 0x7) + 1);
-		// FIXME: support resample
+	    // latm header 0x56E0 11bits: 0x2B7
+	} else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0) {
+	    // && (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)) < size
+	    if (AudioCodecID != CODEC_ID_AAC_LATM) {
+		Debug(3, "[softhddev]%s: AAC LATM %d\n", __FUNCTION__, id);
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
+		AudioCodecID = CODEC_ID_AAC_LATM;
 	    }
-	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
-	    AudioCodecID = CODEC_ID_PCM_DVD;
-	}
-    } else {
-	// no start package
-	// FIXME: Nick/Viva sends this shit, need to find sync in packet
-	// FIXME: otherwise it takes too long until sound appears
+	    // Private stream + LPCM ID
+	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
+	    if (AudioCodecID != CODEC_ID_PCM_DVD) {
+		static int samplerates[] = { 48000, 96000, 44100, 32000 };
+		int samplerate;
+		int channels;
+		int bits_per_sample;
 
-	if (AudioCodecID == CODEC_ID_NONE) {
-	    Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
-	    avpkt->data = (void *)data;
-	    avpkt->size = size;
-	    n = FindAudioSync(avpkt);
-	    if (n < 0) {
-		return osize;
-	    }
+		Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
+		    __FUNCTION__, id, data[5] >> 4,
+		    (((data[5] >> 6) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
+		CodecAudioClose(MyAudioDecoder);
 
-	    avpkt->pts = AV_NOPTS_VALUE;
-	    CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
-	    AudioCodecID = CODEC_ID_MP2;
-	    data += n;
-	    size -= n;
+		bits_per_sample = (((data[5] >> 6) & 0x3) + 4) * 4;
+		if (bits_per_sample != 16) {
+		    Error(_
+			("softhddev: LPCM %d bits per sample aren't supported\n"),
+			bits_per_sample);
+		    // FIXME: handle unsupported formats.
+		}
+		samplerate = samplerates[data[5] >> 4];
+		channels = (data[5] & 0x7) + 1;
+		AudioSetup(&samplerate, &channels, 0);
+		if (samplerate != samplerates[data[5] >> 4]) {
+		    Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
+			samplerates[data[5] >> 4]);
+		    // FIXME: support resample
+		}
+		if (channels != (data[5] & 0x7) + 1) {
+		    Error(_("softhddev: LPCM %d channels are unsupported\n"),
+			(data[5] & 0x7) + 1);
+		    // FIXME: support resample
+		}
+		//CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
+		AudioCodecID = CODEC_ID_PCM_DVD;
+	    }
+	} else {
+	    // no start package
+	    // FIXME: Nick/Viva sends this shit, need to find sync in packet
+	    // FIXME: otherwise it takes too long until sound appears
+
+	    if (AudioCodecID == CODEC_ID_NONE) {
+		Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
+		avpkt->data = (void *)data;
+		avpkt->size = size;
+		n = FindAudioSync(avpkt);
+		if (1 && n < 0) {
+		    return osize;
+		}
+
+		avpkt->pts = AV_NOPTS_VALUE;
+		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
+		AudioCodecID = CODEC_ID_MP2;
+		data += n;
+		size -= n;
+	    }
 	}
-	// no decoder or codec known
+	// still no decoder or codec known
 	if (AudioCodecID == CODEC_ID_NONE) {
 	    return osize;
 	}

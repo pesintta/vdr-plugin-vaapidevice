@@ -156,6 +156,11 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.Suspend.X11 = 0
 	1 suspend stops X11 server (not working yet)
 
+	VideoDisplayFormat = ?
+	0 pan and scan
+	1 letter box
+	2 center cut-out
+
 Setup: /etc/vdr/remote.conf
 ------
 
