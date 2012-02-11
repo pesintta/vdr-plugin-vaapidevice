@@ -803,6 +803,8 @@ int PlayVideo(const uint8_t * data, int size)
     const uint8_t *check;
     int64_t pts;
     int n;
+    int z;
+    int l;
 
     if (Usr1Signal) {			// x11 server ready
 	Usr1Signal = 0;
@@ -877,9 +879,72 @@ int PlayVideo(const uint8_t * data, int size)
 
     check = data + 9 + n;
     if (0) {
-	printf("%02x: %02x %02x %02x %02x %02x\n", data[6], check[0], check[1],
-	    check[2], check[3], check[4]);
+	printf("%02x: %02x %02x %02x %02x %02x %02x %02x\n", data[6], check[0],
+	    check[1], check[2], check[3], check[4], check[5], check[6]);
     }
+#if 1					// FIXME: test code for better h264 detection
+    z = 0;
+    l = size - 9 - n;
+    while (!*check) {			// count leading zeros
+	if (--l < 4) {
+	    Error(_("[softhddev] invalid video packet %d bytes\n"), size);
+	    return size;
+	}
+	++check;
+	++z;
+    }
+
+    // H264 Access Unit Delimiter 0x00 0x00 0x00 0x01 0x09
+    if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
+	&& check[1] == 0x09) {
+	if (VideoCodecID == CODEC_ID_H264) {
+	    VideoNextPacket(CODEC_ID_H264);
+	} else {
+	    Debug(3, "video: h264 detected\n");
+	    VideoCodecID = CODEC_ID_H264;
+	}
+	// SKIP PES header
+	VideoEnqueue(pts, check - 5, l + 5);
+	return size;
+    }
+    // PES start code 0x00 0x00 0x01
+    if (z > 1 && check[0] == 0x01) {
+	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
+	} else {
+	    Debug(3, "video: mpeg2 detected ID %02x\n", check[3]);
+	    VideoCodecID = CODEC_ID_MPEG2VIDEO;
+	}
+#ifdef DEBUG
+	if (ValidateMpeg(data, size)) {
+	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
+	}
+#endif
+	// SKIP PES header
+	VideoEnqueue(pts, check - 3, l + 3);
+	return size;
+    }
+    // this happens when vdr sends incomplete packets
+
+    if (VideoCodecID == CODEC_ID_NONE) {
+	Debug(3, "video: not detected\n");
+	return size;
+    }
+    // SKIP PES header
+    VideoEnqueue(pts, data + 9 + n, size - 9 - n);
+
+    // incomplete packets produce artefacts after channel switch
+    // packet < 65526 is the last split packet, detect it here for
+    // better latency
+    if (size < 65526 && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
+	// mpeg codec supports incomplete packets
+	// waiting for a full complete packages, increases needed delays
+	VideoNextPacket(CODEC_ID_MPEG2VIDEO);
+	return size;
+    }
+
+    return size;
+#else
     // FIXME: no valid mpeg2/h264 detection yet
     // FIXME: better skip all zero's >3 && 0x01 0x09 h264, >2 && 0x01 -> mpeg2
 
@@ -938,6 +1003,7 @@ int PlayVideo(const uint8_t * data, int size)
     VideoEnqueue(pts, check, size - 9 - n);
 
     return size;
+#endif
 }
 
 #if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80

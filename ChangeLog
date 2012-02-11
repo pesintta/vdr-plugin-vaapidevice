@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Detect more h264 streams with leading zeros.
     VDPAU: support for studio levels added.
     Add support for skip chroma deinterlace to software deinterlacer.
     Type of software deinterlacer now configurable from setup menu.
