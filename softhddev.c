@@ -337,7 +337,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		avpkt->data = (void *)data;
 		avpkt->size = size;
 		n = FindAudioSync(avpkt);
-		if (1 && n < 0) {
+		if (n < 0) {
 		    return osize;
 		}
 
