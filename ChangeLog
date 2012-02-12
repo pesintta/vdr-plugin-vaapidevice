@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add play/pause audio support.
     Fix bug: audible glitch when switching AC-3 pass-through <-> none.
     Fix bug: mpeg stills not displayed.
     Detect audio stream type only after stream switch.

@@ -113,6 +113,8 @@ typedef struct _audio_module_
      uint64_t(*GetDelay) (void);	///< get current audio delay
     void (*SetVolume) (int);		///< set output volume
     int (*Setup) (int *, int *, int);	///< setup channels, samplerate
+    void (*Play) (void);		///< play
+    void (*Pause) (void);		///< pause
     void (*Init) (void);		///< initialize audio output module
     void (*Exit) (void);		///< cleanup audio output module
 } AudioModule;
@@ -134,7 +136,7 @@ static const char *AudioAC3Device;	///< alsa/OSS AC3 device name
 static const char *AudioMixerDevice;	///< alsa/OSS mixer device name
 static const char *AudioMixerChannel;	///< alsa/OSS mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
-static int AudioPaused;			///< audio paused
+static volatile char AudioPaused;	///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
@@ -567,7 +569,6 @@ static void AlsaEnqueue(const void *samples, int count)
 	    state = snd_pcm_state(AlsaPCMHandle);
 	    Debug(3, "audio/alsa: state %s\n", snd_pcm_state_name(state));
 	    Debug(3, "audio/alsa: unpaused\n");
-	    AudioPaused = 0;
 	}
     }
     // Update audio clock
@@ -626,6 +627,9 @@ static void AlsaThread(void)
 	    AlsaFlushBuffer = 0;
 	    break;
 	}
+	if (AudioPaused) {
+	    break;
+	}
 	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 100)) < 0) {
 	    Error(_("audio/alsa: wait underrun error?\n"));
@@ -637,7 +641,7 @@ static void AlsaThread(void)
 	    usleep(100 * 1000);
 	    continue;
 	}
-	if (AlsaFlushBuffer) {
+	if (AlsaFlushBuffer || AudioPaused) {
 	    continue;
 	}
 	if ((err = AlsaPlayRingbuffer())) {	// empty / error
@@ -1112,6 +1116,47 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
 }
 
 /**
+**	Play audio.
+*/
+void AlsaPlay(void)
+{
+    int err;
+
+    if (AlsaCanPause) {
+	if ((err = snd_pcm_pause(AlsaPCMHandle, 0))) {
+	    Error(_("audio/alsa: snd_pcm_pause(): %s\n"), snd_strerror(err));
+	}
+    } else {
+	if ((err = snd_pcm_prepare(AlsaPCMHandle)) < 0) {
+	    Error(_("audio/alsa: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+	}
+    }
+#ifdef DEBUG
+    if (snd_pcm_state(AlsaPCMHandle) == SND_PCM_STATE_PAUSED) {
+	Error(_("audio/alsa: still paused\n"));
+    }
+#endif
+}
+
+/**
+**	Pause audio.
+*/
+void AlsaPause(void)
+{
+    int err;
+
+    if (AlsaCanPause) {
+	if ((err = snd_pcm_pause(AlsaPCMHandle, 1))) {
+	    Error(_("snd_pcm_pause(): %s\n"), snd_strerror(err));
+	}
+    } else {
+	if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
+	    Error(_("snd_pcm_drop(): %s\n"), snd_strerror(err));
+	}
+    }
+}
+
+/**
 **	Empty log callback
 */
 static void AlsaNoopCallback( __attribute__ ((unused))
@@ -1179,6 +1224,8 @@ static const AudioModule AlsaModule = {
     .GetDelay = AlsaGetDelay,
     .SetVolume = AlsaSetVolume,
     .Setup = AlsaSetup,
+    .Play = AlsaPlay,
+    .Pause = AlsaPause,
     .Init = AlsaInit,
     .Exit = AlsaExit,
 };
@@ -1388,6 +1435,9 @@ static void OssThread(void)
 	    OssFlushBuffer = 0;
 	    break;
 	}
+	if (AudioPaused) {
+	    break;
+	}
 
 	fds[0].fd = OssPcmFildes;
 	fds[0].events = POLLOUT | POLLERR;
@@ -1399,7 +1449,7 @@ static void OssThread(void)
 	    continue;
 	}
 
-	if (OssFlushBuffer) {
+	if (OssFlushBuffer || AudioPaused) {
 	    continue;
 	}
 
@@ -1741,6 +1791,20 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 }
 
 /**
+**	Play audio.
+*/
+void OssPlay(void)
+{
+}
+
+/**
+**	Pause audio.
+*/
+void OssPause(void)
+{
+}
+
+/**
 **	Initialize OSS audio output module.
 */
 static void OssInit(void)
@@ -1785,6 +1849,8 @@ static const AudioModule OssModule = {
     .GetDelay = OssGetDelay,
     .SetVolume = OssSetVolume,
     .Setup = OssSetup,
+    .Play = OssPlay,
+    .Pause = OssPause,
     .Init = OssInit,
     .Exit = OssExit,
 };
@@ -1868,6 +1934,8 @@ static const AudioModule NoopModule = {
     .GetDelay = NoopGetDelay,
     .SetVolume = NoopSetVolume,
     .Setup = NoopSetup,
+    .Play = NoopVoid,
+    .Pause = NoopVoid,
     .Init = NoopVoid,
     .Exit = NoopVoid,
 };
@@ -2105,6 +2173,32 @@ int AudioSetup(int *freq, int *channels, int use_ac3)
 }
 
 /**
+**	Play audio.
+*/
+void AudioPlay(void)
+{
+    if (!AudioPaused) {
+	Warning("audio: not paused, check the code\n");
+	return;
+    }
+    Debug(3, "audio: resumed\n");
+    AudioPaused = 0;
+}
+
+/**
+**	Pause audio.
+*/
+void AudioPause(void)
+{
+    if (AudioPaused) {
+	Warning("audio: already paused, check the code\n");
+	return;
+    }
+    Debug(3, "audio: paused\n");
+    AudioPaused = 1;
+}
+
+/**
 **	Set pcm audio device.
 **
 **	@param device	name of pcm device (fe. "hw:0,9" or "/dev/dsp")
@@ -2207,8 +2301,7 @@ void AudioInit(void)
 	AudioInitThread();
     }
 #endif
-
-    AudioPaused = 1;
+    AudioPaused = 0;
 }
 
 /**

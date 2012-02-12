@@ -66,7 +66,7 @@ static char ConfigStartX11Server;	///< flag start the x11 server
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
-static volatile char VideoFreezed;	///< video freezed
+static volatile char StreamFreezed;	///< stream freezed
 
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
@@ -211,7 +211,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
-    if (VideoFreezed) {			// video freezed
+    if (StreamFreezed) {		// stream freezed
 	return 0;
     }
     if (SkipAudio || !MyAudioDecoder) {	// skip audio
@@ -376,11 +376,12 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 }
 
 /**
-**	Mute audio device.
+**	Turns off audio while replaying.
 */
 void Mute(void)
 {
     SkipAudio = 1;
+    AudioFlushBuffers();
     //AudioSetVolume(0);
 }
 
@@ -604,7 +605,7 @@ int VideoDecode(void)
     int saved_size;
     static int last_codec_id = CODEC_ID_NONE;
 
-    if (VideoFreezed) {
+    if (StreamFreezed) {		// stream freezed
 	return 1;
     }
     if (VideoClearBuffers) {
@@ -822,7 +823,7 @@ int PlayVideo(const uint8_t * data, int size)
     if (SkipVideo) {			// skip video
 	return size;
     }
-    if (VideoFreezed) {			// video freezed
+    if (StreamFreezed) {		// stream freezed
 	return 0;
     }
     if (NewVideoStream) {		// channel switched
@@ -1123,9 +1124,7 @@ void SetPlayMode(void)
 	    NewAudioStream = 1;
 	}
     }
-    VideoFreezed = 0;
-    // done by Resume: SkipAudio = 0;
-    // done by Resume: SkipVideo = 0;
+    StreamFreezed = 0;
 }
 
 /**
@@ -1150,9 +1149,9 @@ void Clear(void)
 */
 void Play(void)
 {
-    VideoFreezed = 0;
+    StreamFreezed = 0;
     SkipAudio = 0;
-    // FIXME: restart audio
+    AudioPlay();
 }
 
 /**
@@ -1160,9 +1159,8 @@ void Play(void)
 */
 void Freeze(void)
 {
-    VideoFreezed = 1;
-    // FIXME: freeze audio
-    AudioFlushBuffers();
+    StreamFreezed = 1;
+    AudioPause();
 }
 
 /**

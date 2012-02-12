@@ -657,7 +657,6 @@ class cSoftHdDevice:public cDevice
     virtual void Play(void);
     virtual void Freeze(void);
     virtual void Mute(void);
-    virtual void SetVolumeDevice(int);
     virtual void StillPicture(const uchar *, int);
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
@@ -675,6 +674,7 @@ class cSoftHdDevice:public cDevice
     virtual int GetAudioChannelDevice(void);
     virtual void SetDigitalAudioDevice(bool);
     virtual void SetAudioTrackDevice(eTrackType);
+    virtual void SetVolumeDevice(int);
     virtual int PlayAudio(const uchar *, int, uchar);
 
 // Image Grab facilities
@@ -700,6 +700,7 @@ cSoftHdDevice::cSoftHdDevice(void)
 #if 0
     spuDecoder = NULL;
 #endif
+    SetVideoDisplayFormat(eVideoDisplayFormat(Setup.VideoDisplayFormat));
 }
 
 cSoftHdDevice::~cSoftHdDevice(void)
@@ -826,19 +827,15 @@ void cSoftHdDevice::Freeze(void)
     ::Freeze();
 }
 
+/**
+**	Turns off audio while replaying.
+*/
 void cSoftHdDevice::Mute(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Mute();
     ::Mute();
-}
-
-void cSoftHdDevice::SetVolumeDevice(int volume)
-{
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
-
-    ::SetVolumeDevice(volume);
 }
 
 /**
@@ -891,8 +888,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **
 **	@note FIXME: this function isn't called on the initial channel
 */
-void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
-    video_display_format)
+void cSoftHdDevice::SetVideoDisplayFormat(
+    eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
@@ -963,6 +960,18 @@ int cSoftHdDevice::GetAudioChannelDevice(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
     return 0;
+}
+
+/**
+**	Sets the audio volume on this device (Volume = 0...255).
+**
+**	@param volume	device volume
+*/
+void cSoftHdDevice::SetVolumeDevice(int volume)
+{
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
+
+    ::SetVolumeDevice(volume);
 }
 
 // ----------------------------------------------------------------------------

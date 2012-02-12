@@ -39,8 +39,8 @@ extern int64_t AudioGetClock();		///< get current audio clock
 extern void AudioSetVolume(int);	///< set volume
 extern int AudioSetup(int *, int *, int);	///< setup audio output
 
-//extern void AudioPlay(void);		///< play audio
-//extern void AudioPause(void);		///< pause audio
+extern void AudioPlay(void);		///< play audio
+extern void AudioPause(void);		///< pause audio
 
 extern void AudioSetDevice(const char *);	///< set PCM audio device
 extern void AudioSetDeviceAC3(const char *);	///< set pass-through device

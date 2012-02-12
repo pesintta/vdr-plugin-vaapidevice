@@ -80,7 +80,7 @@ audio:
     Combine alsa+oss ringbuffer code.
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.
-    software volume support
+    software volume support (could be done with asound.conf)
     add pause support for replay pause
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
