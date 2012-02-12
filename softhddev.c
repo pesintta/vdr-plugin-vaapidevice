@@ -485,6 +485,7 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 	// new + grow reserves FF_INPUT_BUFFER_PADDING_SIZE
 	av_grow_packet(avpkt, ((size + VIDEO_BUFFER_SIZE / 2)
 		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
+	// FIXME: out of memory!
 #ifdef DEBUG
 	if (avpkt->size <= avpkt->stream_index + size) {
 	    fprintf(stderr, "%d %d %d\n", avpkt->size, avpkt->stream_index,
@@ -1166,6 +1167,9 @@ void Freeze(void)
 
 /**
 **	Display the given I-frame as a still picture.
+**
+**	@param data	pes frame data
+**	@param size	number of bytes in frame
 */
 void StillPicture(const uint8_t * data, int size)
 {
@@ -1178,10 +1182,10 @@ void StillPicture(const uint8_t * data, int size)
 	Error(_("[softhddev] invalid still video packet\n"));
 	return;
     }
+
     if (VideoCodecID == CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
 	Error(_("[softhddev] no codec known for still picture\n"));
-	return;
     }
     //Clear();				// flush video buffers
 
@@ -1191,28 +1195,42 @@ void StillPicture(const uint8_t * data, int size)
 	const uint8_t *split;
 	int n;
 
-	// split the I-frame into single pes packets
-	split = data;
-	n = size;
-	do {
-	    int len;
+	if ((data[3] & 0xF0) == 0xE0) {	// PES packet
+	    split = data;
+	    n = size;
+	    // split the I-frame into single pes packets
+	    do {
+		int len;
 
-	    len = (split[4] << 8) + split[5];
-	    if (len > n) {
-		break;
+		len = (split[4] << 8) + split[5];
+		if (!len || len + 6 > n) {
+		    PlayVideo(split, n);	// feed remaining bytes
+		    break;
+		}
+		PlayVideo(split, len + 6);	// feed it
+		split += 6 + len;
+		n -= 6 + len;
+	    } while (n > 6);
+	    VideoNextPacket(VideoCodecID);	// terminate last packet
+
+	    if (VideoCodecID == CODEC_ID_H264) {
+		VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264,
+		    sizeof(seq_end_h264));
+	    } else {
+		VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg,
+		    sizeof(seq_end_mpeg));
 	    }
-	    PlayVideo(split, len + 6);	// feed it
-	    split += 6 + len;
-	    n -= 6 + len;
-	} while (n > 6);
-	VideoNextPacket(VideoCodecID);	// terminate last packet
+	    VideoNextPacket(VideoCodecID);	// terminate last packet
+	} else {			// ES packet
 
-	if (VideoCodecID == CODEC_ID_H264) {
-	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264, sizeof(seq_end_h264));
-	} else {
+	    if (VideoCodecID != CODEC_ID_MPEG2VIDEO) {
+		VideoNextPacket(CODEC_ID_NONE);	// close last stream
+		VideoCodecID = CODEC_ID_MPEG2VIDEO;
+	    }
+	    VideoEnqueue(AV_NOPTS_VALUE, data, size);
 	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg, sizeof(seq_end_mpeg));
+	    VideoNextPacket(VideoCodecID);	// terminate last packet
 	}
-	VideoNextPacket(VideoCodecID);	// terminate last packet
     }
 }
 
@@ -1497,7 +1515,7 @@ void SoftHdDeviceExit(void)
     StopVideo();
 
     CodecExit();
-    VideoPacketExit();
+    //VideoPacketExit();
 
     if (ConfigStartX11Server) {
 	Debug(3, "x-setup: Stop x11 server\n");
