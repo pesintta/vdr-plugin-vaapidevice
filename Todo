@@ -34,8 +34,6 @@ video:
     subtitle could be asyncron
     reduce warnings after channel switch
     grab image with hardware and better scaling support
-    suspendoutput didn't show logo or black pictures
-	(must detect video format to show image)
     hard channel switch
     OSD can only be shown after some stream could be shown
     yaepghd changed position is lost on channel switch
@@ -86,7 +84,6 @@ audio:
     add pause support for replay pause
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
-    switching stero/dolby produces klick sound
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

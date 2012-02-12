@@ -605,6 +605,7 @@ struct _audio_decoder_
 
     /// audio parser to support insane dvb streaks
     AVCodecParserContext *AudioParser;
+    int PassthroughAC3;			///< current ac-3 pass-through
     int SampleRate;			///< current stream sample rate
     int Channels;			///< current stream channels
 
@@ -621,6 +622,9 @@ static char CodecPassthroughAC3;	///< pass ac3 through
 
 //static char CodecPassthroughDTS;	///< pass dts through (unsupported)
 //static char CodecPassthroughMPA;	///< pass mpa through (unsupported)
+#else
+
+static const int CodecPassthroughAC3 = 0;
 #endif
 
 /**
@@ -872,11 +876,13 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		AudioSetClock(dpkt->pts);
 	    }
 	    // FIXME: must first play remainings bytes, than change and play new.
-	    if (audio_decoder->SampleRate != audio_ctx->sample_rate
+	    if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
+		|| audio_decoder->SampleRate != audio_ctx->sample_rate
 		|| audio_decoder->Channels != audio_ctx->channels) {
 		int err;
 		int isAC3;
 
+		audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
 		// FIXME: use swr_convert from swresample (only in ffmpeg!)
 		// FIXME: tell ac3 decoder to use downmix
 		if (audio_decoder->ReSample) {
@@ -887,14 +893,11 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		audio_decoder->SampleRate = audio_ctx->sample_rate;
 		audio_decoder->HwSampleRate = audio_ctx->sample_rate;
 		audio_decoder->Channels = audio_ctx->channels;
-#ifdef USE_PASSTHROUGH
 		// SPDIF/HDMI passthrough
 		if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
 		    audio_decoder->HwChannels = 2;
 		    isAC3 = 1;
-		} else
-#endif
-		{
+		} else {
 		    audio_decoder->HwChannels = audio_ctx->channels;
 		    isAC3 = 0;
 		}
