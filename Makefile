@@ -24,15 +24,15 @@ CONFIG += -DAV_INFO
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
-CONFIG += $(shell ls /usr/lib/libjpeg* >/dev/null 2>&1 && echo "-DUSE_JPEG")
 CONFIG += -DUSE_OSS
 
 ### The C++ compiler and options:
 
-CC       ?= gcc
-CXX      ?= g++
-CFLAGS   ?=	-g -O2 -W -Wall -Wextra -Winit-self \
-		-Wdeclaration-after-statement
+CC	 ?= gcc
+CXX	 ?= g++
+CFLAGS	 ?=	-g -O2 -W -Wall -Wextra -Winit-self \
+		-Wdeclaration-after-statement \
+		-ftree-vectorize -msse3 -flax-vector-conversions
 CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Woverloaded-virtual
 
 ### The directory environment:
@@ -71,15 +71,15 @@ _CFLAGS = $(DEFINES) $(INCLUDES) \
 		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
 	`pkg-config --cflags gl glu` \
 	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-	            `pkg-config --cflags vdpau`) \
+		    `pkg-config --cflags vdpau`) \
 	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-	            `pkg-config --cflags libva-x11 libva-glx libva`) \
+		    `pkg-config --cflags libva-x11 libva-glx libva`) \
 	$(if $(findstring USE_ALSA,$(CONFIG)), \
-	            `pkg-config --cflags alsa`)
+		    `pkg-config --cflags alsa`)
 
 #override _CFLAGS  += -Werror
 override CXXFLAGS += $(_CFLAGS)
-override CFLAGS   += $(_CFLAGS)
+override CFLAGS	  += $(_CFLAGS)
 
 LIBS += -lrt \
 	$(shell pkg-config --libs libavcodec libavformat) \
@@ -87,13 +87,11 @@ LIBS += -lrt \
 		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
 	`pkg-config --libs gl glu` \
 	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-	            `pkg-config --libs vdpau`) \
+		    `pkg-config --libs vdpau`) \
 	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-	            `pkg-config --libs libva-x11 libva-glx libva`) \
+		    `pkg-config --libs libva-x11 libva-glx libva`) \
 	$(if $(findstring USE_ALSA,$(CONFIG)), \
-	            `pkg-config --libs alsa`) \
-	$(if $(findstring USE_JPEG,$(CONFIG)), \
-	            -ljpeg)
+		    `pkg-config --libs alsa`)
 
 ### The object files (add further files here):
 
@@ -122,11 +120,11 @@ $(OBJS): Makefile
 
 ### Internationalization (I18N):
 
-PODIR     = po
+PODIR	  = po
 LOCALEDIR = $(VDRDIR)/locale
-I18Npo    = $(wildcard $(PODIR)/*.po)
+I18Npo	  = $(wildcard $(PODIR)/*.po)
 I18Nmsgs  = $(addprefix $(LOCALEDIR)/, $(addsuffix /LC_MESSAGES/vdr-$(PLUGIN).mo, $(notdir $(foreach file, $(I18Npo), $(basename $(file))))))
-I18Npot   = $(PODIR)/$(PLUGIN).pot
+I18Npot	  = $(PODIR)/$(PLUGIN).pot
 
 %.mo: %.po
 	msgfmt -c -o $@ $<

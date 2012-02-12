@@ -1,5 +1,10 @@
+User m.Rcu
+Date: Sun Feb 12 20:28:22 CET 2012
+
+    Jpeg screengrab use VDR RgbToJpeg function.
+
 User johns
-Date:
+Date: Sun Feb 12 20:14:43 CET 2012
 
     Add play/pause audio support.
     Fix bug: audible glitch when switching AC-3 pass-through <-> none.

@@ -886,16 +886,16 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 **
-**	@note FIXME: this function isn't called on the initial channel
+**	@note this function isn't called on the initial channel
 */
 void cSoftHdDevice::SetVideoDisplayFormat(
     eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
-    cDevice::SetVideoDisplayFormat(video_display_format);
-
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
+
+    cDevice::SetVideoDisplayFormat(video_display_format);
 
     // called on every channel switch, no need to kill osd...
     if (last != video_display_format) {
@@ -1031,6 +1031,16 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
 	quality, width, height);
 
     return::GrabImage(&size, jpeg, quality, width, height);
+}
+
+/**
+**	Call rgb to jpeg for C Plugin.
+*/
+extern "C" uint8_t * CreateJpeg(uint8_t * image, int *size, int quality,
+    int width, int height)
+{
+    return (uint8_t *) RgbToJpeg((uchar *) image, width, height, *size,
+	quality);
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -39,9 +39,6 @@
 #define __USE_GNU
 #endif
 #include <pthread.h>
-#ifdef USE_JPEG
-#include <jpeglib.h>
-#endif
 
 #include "misc.h"
 #include "softhddev.h"
@@ -1013,6 +1010,9 @@ int PlayVideo(const uint8_t * data, int size)
 #endif
 }
 
+    /// call VDR support function
+extern uint8_t *CreateJpeg(uint8_t *, int *, int, int, int);
+
 #if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80
 
 /**
@@ -1079,21 +1079,15 @@ uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality,
 uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 {
     if (jpeg) {
-#if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80
-	int raw_size;
-	uint8_t *image;
 	uint8_t *jpg_image;
+	uint8_t *image;
+	int raw_size = 0;
 
-	raw_size = 0;
 	image = VideoGrab(&raw_size, &width, &height, 0);
-	jpg_image = CreateJpeg(image, raw_size, size, quality, width, height);
+	jpg_image = CreateJpeg(image, size, quality, width, height);
+
 	free(image);
 	return jpg_image;
-#else
-	(void)quality;
-	Error(_("softhddev: jpeg grabbing not supported\n"));
-	return NULL;
-#endif
     }
     if (width != -1 && height != -1) {
 	Warning(_("softhddev: scaling unsupported\n"));
