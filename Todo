@@ -25,6 +25,7 @@ missing:
     suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
     ColorSpace aren't configurable with the gui.
+    Inverse telecine isn't configurable with the gui.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait

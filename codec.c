@@ -739,7 +739,6 @@ void CodecSetAudioPassthrough(int mask)
 #ifdef USE_PASSTHROUGH
     CodecPassthroughAC3 = mask & 1 ? 1 : 0;
 #endif
-    // FIXME: must update audio decoder (nr. of channels wrong)
     (void)mask;
 }
 
