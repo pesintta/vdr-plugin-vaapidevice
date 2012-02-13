@@ -24,7 +24,7 @@ missing:
     suspend output / energie saver: stop and restart X11
     suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
-    ColorSpace and StudioLevels aren't configurable with the gui.
+    ColorSpace aren't configurable with the gui.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
@@ -37,7 +37,6 @@ video:
     hard channel switch
     OSD can only be shown after some stream could be shown
     yaepghd changed position is lost on channel switch
-    use x11 screen size without geometry configuration
     pause (live tv) has sometime problems with SAT1 HD Pro7 HD
 
 vdpau:
@@ -81,7 +80,6 @@ audio:
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.
     software volume support (could be done with asound.conf)
-    add pause support for replay pause
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
 
@@ -98,8 +96,6 @@ audio/oss:
 
 HDMI/SPDIF Passthrough:
     only AC-3 written
-    Channels are wrong setup, if changing setting during operation.
-    support oss pass-through
 
 playback of recording
     pause is not reset, when replay exit
@@ -127,4 +123,4 @@ future features (not planed for 1.0 - 1.5)
     pip support
     save and use auto-crop with channel zapping
 
-    upmix stereo to AC-3
+    upmix stereo to AC-3 (supported by alsa plugin)

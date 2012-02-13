@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.4.7
+    VDPAU: Studio levels could be configured in the setup menu.
     Window size defaults to fullscreen, if no geometry is given.
 
 User m.Rcu

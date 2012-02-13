@@ -62,6 +62,7 @@ static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
 static int ConfigVideoSkipLines;	///< config skip lines top/bottom
+static int ConfigVideoStudioLevels;	///< config use studio levels
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -384,6 +385,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int MakePrimary;
     int HideMainMenuEntry;
     int SkipLines;
+    int StudioLevels;
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
@@ -453,6 +455,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     SkipLines = ConfigVideoSkipLines;
     Add(new cMenuEditIntItem(tr("Skip lines top+bot (pixel)"), &SkipLines, 0,
 	    64));
+    StudioLevels = ConfigVideoStudioLevels;
+    Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
+	    &StudioLevels, trVDR("no"), trVDR("yes")));
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	Add(SeparatorItem(resolution[i]));
@@ -519,6 +524,8 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("SkipLines", ConfigVideoSkipLines = SkipLines);
     VideoSetSkipLines(ConfigVideoSkipLines);
+    SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
+    VideoSetStudioLevels(ConfigVideoStudioLevels);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -1257,6 +1264,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcmp(name, "SkipLines")) {
 	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "StudioLevels")) {
+	VideoSetStudioLevels(ConfigVideoStudioLevels = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {

@@ -283,6 +283,7 @@ static char VideoSurfaceModesChanged;	///< flag surface modes changed
 static const char VideoTransparentOsd = 1;
 
 static int VideoSkipLines;		///< skip video lines top/bottom
+static char VideoStudioLevels;		///< flag use studio levels
 
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
@@ -307,9 +308,6 @@ static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
     VideoColorSpaceBt601, VideoColorSpaceBt709, VideoColorSpaceBt709,
     VideoColorSpaceBt709
 };
-
-    /// Flag use studio levels
-static char VideoStudioLevels;
 
     /// Default scaling mode
 static VideoScalingModes VideoScaling[VideoResolutionMax];
@@ -9109,6 +9107,16 @@ void VideoSetSkipLines(int lines)
 }
 
 ///
+///	Set studio levels.
+///
+///	@param onoff	flag on/off
+///
+void VideoSetStudioLevels(int onoff)
+{
+    VideoStudioLevels = onoff;
+}
+
+///
 ///	Set audio delay.
 ///
 ///	@param ms	delay in ms
@@ -9261,7 +9269,6 @@ void VideoInit(const char *display_name)
     if (getenv("NO_HW")) {
 	VideoHardwareDecoder = 0;
     }
-    VideoStudioLevels = 0;
     if (getenv("STUDIO_LEVELS")) {
 	VideoStudioLevels = 1;
     }

@@ -104,6 +104,9 @@ extern void VideoSetSharpen(int[]);
     /// Set skip lines.
 extern void VideoSetSkipLines(int);
 
+    /// Set studio levels.
+extern void VideoSetStudioLevels(int);
+
     /// Set audio delay.
 extern void VideoSetAudioDelay(int);
 
