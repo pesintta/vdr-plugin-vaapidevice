@@ -76,6 +76,13 @@ Setup:	environment
 
 	DISPLAY=:0.0
 		x11 display name
+	NO_HW=1
+		if set don't use the hardware decoders
+	NO_MPEG_HW=1
+		if set don't use the hardware decoder for mpeg1/2
+	STUDIO_LEVELS=1
+		if set use studio levels with vdpau (deprecated use setup)
+
     only if alsa is configured
 	ALSA_DEVICE=default
 		alsa PCM device name
@@ -85,6 +92,7 @@ Setup:	environment
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
 		alsa control channel name
+
     only if oss is configured
 	OSS_AUDIODEV=/dev/dsp
 		oss dsp device name
@@ -148,6 +156,10 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.SkipLines = 0
 	skip 'n' lines at top and bottom of the video picture.
+
+	softhddevice.StudioLevels = 0
+		0 use PC levels (0-255) with vdpau.
+		1 use studio levels (16-235) with vdpau.
 
 	softhddevice.Suspend.Close = 0
 	1 suspend closes x11 window, connection and audio device.
