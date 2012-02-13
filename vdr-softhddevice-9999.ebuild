@@ -23,19 +23,19 @@ SLOT="0"
 KEYWORDS="~x86 ~amd64"
 IUSE="vaapi vdpau alsa oss yaepg opengl jpeg"
 
-DEPEND=">=x11-libs/libxcb-1.7
+DEPEND=">=x11-libs/libxcb-1.8
 		x11-libs/xcb-util
 		x11-libs/xcb-util-wm
 		x11-libs/xcb-util-keysyms
 		x11-libs/xcb-util-renderutil
 		x11-libs/libX11
 		opengl? ( virtual/opengl )
-		>=media-video/ffmpeg-0.7
+		>=virtual/ffmpeg-0.7
 		sys-devel/gettext
 		sys-devel/make
 		dev-util/pkgconfig
-		yaepg? ( >=media-video/vdr-1.7[yaepg] )
-		!yaepg? ( >=media-video/vdr-1.7 )
+		yaepg? ( >=media-video/vdr-1.7.23[yaepg] )
+		!yaepg? ( >=media-video/vdr-1.7.23 )
 		vdpau? ( x11-libs/libvdpau )
 		vaapi? ( x11-libs/libva )
 		alsa? ( media-libs/alsa-lib )
@@ -64,10 +64,11 @@ src_compile() {
 src_install() {
 		vdr-plugin_src_install
 
-		dodir /etc/vdr/plugins || die
+		dodoc README.txt
 
-		insinto /etc/vdr/plugins
-		fowners -R vdr:vdr /etc/vdr || die
+		#dodir /etc/vdr/plugins || die
+		#insinto /etc/vdr/plugins
+		#fowners -R vdr:vdr /etc/vdr || die
 
 		#insinto /etc/conf.d
 		#doins vdr.softhddevice
