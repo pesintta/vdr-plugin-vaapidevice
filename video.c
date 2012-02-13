@@ -9162,21 +9162,21 @@ void VideoInit(const char *display_name)
     }
     // Open the connection to the X server.
     // use the DISPLAY environment variable as the default display name
-    if (!display_name) {
-	display_name = getenv("DISPLAY");
-	if (!display_name) {
-	    // use :0.0 as default display name
-	    display_name = ":0.0";
-	}
+    if (!display_name && !(display_name = getenv("DISPLAY"))) {
+	// if no environment variable, use :0.0 as default display name
+	display_name = ":0.0";
     }
     if (!(XlibDisplay = XOpenDisplay(display_name))) {
-	Fatal(_("video: Can't connect to X11 server on '%s'\n"), display_name);
+	Error(_("video: Can't connect to X11 server on '%s'\n"), display_name);
 	// FIXME: we need to retry connection
+	return;
     }
     // XInitThreads();
     // Convert XLIB display to XCB connection
     if (!(Connection = XGetXCBConnection(XlibDisplay))) {
-	Fatal(_("video: Can't convert XLIB display to XCB connection\n"));
+	Error(_("video: Can't convert XLIB display to XCB connection\n"));
+	VideoExit();
+	return;
     }
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
@@ -9201,8 +9201,10 @@ void VideoInit(const char *display_name)
     if (!VideoWindowHeight) {
 	if (VideoWindowWidth) {
 	    VideoWindowHeight = (VideoWindowWidth * 9) / 16;
+	} else {			// default to fullscreen
+	    VideoWindowHeight = screen->height_in_pixels;
+	    VideoWindowWidth = screen->width_in_pixels;
 	}
-	VideoWindowHeight = 576;
     }
     if (!VideoWindowWidth) {
 	VideoWindowWidth = (VideoWindowHeight * 16) / 9;
@@ -9265,6 +9267,13 @@ void VideoInit(const char *display_name)
     }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
+
+    // I would like to start threads here, but this produces:
+    // [xcb] Unknown sequence number while processing queue
+    // [xcb] Most likely this is a multi-threaded client and XInitThreads
+    // has not been called
+    //VideoPollEvent();
+    //VideoThreadInit();
 }
 
 ///
