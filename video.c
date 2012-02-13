@@ -8678,6 +8678,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 
 	scale_width = *width;
 	scale_height = *height;
+	n = 0;
 	data = VideoUsedModule->GrabOutput(size, width, height);
 
 	if (scale_width <= 0) {
@@ -8688,7 +8689,6 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	}
 	// hardware didn't scale for us, use simple software scaler
 	if (scale_width != *width && scale_height != *height) {
-	    n = 0;
 	    if (write_header) {
 		n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n",
 		    scale_width, scale_height);
@@ -8730,8 +8730,10 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 
 	    // grabed image of correct size convert BGRA -> RGB
 	} else {
-	    n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width,
-		*height);
+	    if (write_header) {
+		n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", *width,
+		    *height);
+	    }
 	    rgb = malloc(*width * *height * 3 + n);
 	    if (!rgb) {
 		Error(_("video: out of memory\n"));

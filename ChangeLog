@@ -2,6 +2,15 @@ User johns
 Date:
 
     Release Version 0.4.7
+
+User FireFly
+Date: Mon Feb 13 20:14:11 CET 2012
+
+    Fix bug: unscaled jpeg includes PNG header.
+
+User johns
+Date: Mon Feb 13 14:58:26 CET 2012
+
     VDPAU: Studio levels could be configured in the setup menu.
     Window size defaults to fullscreen, if no geometry is given.
 
