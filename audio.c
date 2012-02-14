@@ -290,9 +290,11 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
 	// FIXME: should skip more, longer skip, but less often?
     }
     // Update audio clock
-    AudioPTS +=
-	((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
-	AudioBytesProSample);
+    if (AudioPTS != INT64_C(0x8000000000000000)) {
+	AudioPTS +=
+	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
+	    AudioBytesProSample);
+    }
 
     if (!AudioRunning) {
 	if (AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
@@ -1275,9 +1277,11 @@ static int OssAddToRingbuffer(const void *samples, int count)
 	// FIXME: should skip more, longer skip, but less often?
     }
     // Update audio clock
-    AudioPTS +=
-	((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
-	AudioBytesProSample);
+    if (AudioPTS != INT64_C(0x8000000000000000)) {
+	AudioPTS +=
+	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
+	    AudioBytesProSample);
+    }
 
     if (!AudioRunning) {
 	if (OssStartThreshold < RingBufferUsedBytes(OssRingBuffer)) {
