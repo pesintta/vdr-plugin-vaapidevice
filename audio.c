@@ -289,8 +289,8 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
 	// too many bytes are lost
 	// FIXME: should skip more, longer skip, but less often?
     }
-    // Update audio clock
-    if (AudioPTS != INT64_C(0x8000000000000000)) {
+    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
+    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
 	AudioPTS +=
 	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample);
@@ -1276,8 +1276,8 @@ static int OssAddToRingbuffer(const void *samples, int count)
 	// too many bytes are lost
 	// FIXME: should skip more, longer skip, but less often?
     }
-    // Update audio clock
-    if (AudioPTS != INT64_C(0x8000000000000000)) {
+    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
+    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
 	AudioPTS +=
 	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample);
@@ -2125,7 +2125,8 @@ void AudioSetClock(int64_t pts)
 */
 int64_t AudioGetClock(void)
 {
-    if ((uint64_t) AudioPTS != INT64_C(0x8000000000000000)) {
+    // (cast) needed for the evil gcc
+    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
 	int64_t delay;
 
 	if ((delay = AudioGetDelay())) {
