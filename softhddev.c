@@ -194,6 +194,89 @@ static int FindAudioSync(const AVPacket * avpkt)
 }
 
 /**
+**	Possible AC3 frame sizes.
+**
+**	from ATSC A/52 table 5.18 frame size code table.
+*/
+const uint16_t Ac3FrameSizeTable[38][3] = {
+    {64, 69, 96},
+    {64, 70, 96},
+    {80, 87, 120},
+    {80, 88, 120},
+    {96, 104, 144},
+    {96, 105, 144},
+    {112, 121, 168},
+    {112, 122, 168},
+    {128, 139, 192},
+    {128, 140, 192},
+    {160, 174, 240},
+    {160, 175, 240},
+    {192, 208, 288},
+    {192, 209, 288},
+    {224, 243, 336},
+    {224, 244, 336},
+    {256, 278, 384},
+    {256, 279, 384},
+    {320, 348, 480},
+    {320, 349, 480},
+    {384, 417, 576},
+    {384, 418, 576},
+    {448, 487, 672},
+    {448, 488, 672},
+    {512, 557, 768},
+    {512, 558, 768},
+    {640, 696, 960},
+    {640, 697, 960},
+    {768, 835, 1152},
+    {768, 836, 1152},
+    {896, 975, 1344},
+    {896, 976, 1344},
+    {1024, 1114, 1536},
+    {1024, 1115, 1536},
+    {1152, 1253, 1728},
+    {1152, 1254, 1728},
+    {1280, 1393, 1920},
+    {1280, 1394, 1920},
+};
+
+/**
+**	Find dolby sync in audio packet.
+**
+**	@param avpkt	audio packet
+*/
+static int FindDolbySync(const AVPacket * avpkt)
+{
+    int i;
+    const uint8_t *data;
+
+    i = 0;
+    data = avpkt->data;
+    while (i < avpkt->size - 5) {
+	if (data[i] == 0x0B && data[i + 1] == 0x77) {
+	    int fscod;
+	    int frmsizcod;
+	    int frame_size;
+
+	    // crc1 crc1 fscod|frmsizcod
+	    fscod = data[i + 4] >> 6;
+	    frmsizcod = data[i + 4] & 0x3F;
+	    frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
+
+	    // check if after this frame a new ac-3 frame starts
+	    if (i + frame_size < avpkt->size - 5
+		&& data[i + frame_size] == 0x0B
+		&& data[i + frame_size + 1] == 0x77) {
+		Debug(3, "audio: ac-3 found at %d\n", i);
+		return i;
+	    }
+	    // no valid frame size or no continuation, try next
+	}
+	i++;
+    }
+    return -1;
+}
+
+/**
 **	Play audio packet.
 **
 **	@param data	data of exactly one complete PES packet
@@ -297,6 +380,9 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		AudioCodecID = CODEC_ID_AAC_LATM;
 	    }
 	    // Private stream + LPCM ID
+	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0x80) {
+	    Debug(3, "[softhddev]%s: DVD Audio %d\n", __FUNCTION__, id);
+	    // Private stream + LPCM ID
 	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
 	    if (AudioCodecID != CODEC_ID_PCM_DVD) {
 		static int samplerates[] = { 48000, 96000, 44100, 32000 };
@@ -338,19 +424,27 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    // FIXME: otherwise it takes too long until sound appears
 
 	    if (AudioCodecID == CODEC_ID_NONE) {
+		int id;
+
 		Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
 		avpkt->data = (void *)data;
 		avpkt->size = size;
-		n = FindAudioSync(avpkt);
+		if (AudioChannelID == 0xBD) {
+		    n = FindDolbySync(avpkt);
+		    id = CODEC_ID_AC3;
+		} else {
+		    n = FindAudioSync(avpkt);
+		    id = CODEC_ID_MP2;
+		}
 		if (n < 0) {
 		    return osize;
 		}
 
-		avpkt->pts = AV_NOPTS_VALUE;
-		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
-		AudioCodecID = CODEC_ID_MP2;
+		CodecAudioOpen(MyAudioDecoder, NULL, id);
+		AudioCodecID = id;
 		data += n;
 		size -= n;
+		avpkt->pts = AV_NOPTS_VALUE;
 	    }
 	}
 	// still no decoder or codec known
