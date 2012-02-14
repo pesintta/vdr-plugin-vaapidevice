@@ -92,6 +92,9 @@ extern void VideoSetDeinterlace(int[]);
     /// Set skip chroma deinterlace.
 extern void VideoSetSkipChromaDeinterlace(int[]);
 
+    /// Set inverse telecine.
+extern void VideoSetInverseTelecine(int[]);
+
     /// Set scaling.
 extern void VideoSetScaling(int[]);
 

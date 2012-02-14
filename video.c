@@ -291,11 +291,11 @@ static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
     /// Default number of deinterlace surfaces
 static const int VideoDeinterlaceSurfaces = 4;
 
-    /// Default Inverse telecine flag (VDPAU only).
-static char VideoInverseTelecine[VideoResolutionMax];
-
     /// Default skip chroma deinterlace flag (VDPAU only).
 static char VideoSkipChromaDeinterlace[VideoResolutionMax];
+
+    /// Default inverse telecine flag (VDPAU only).
+static char VideoInverseTelecine[VideoResolutionMax];
 
     /// Default amount of noise reduction algorithm to apply (0 .. 1000).
 static int VideoDenoise[VideoResolutionMax];
@@ -9057,6 +9057,18 @@ void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
     VideoSkipChromaDeinterlace[1] = onoff[1];
     VideoSkipChromaDeinterlace[2] = onoff[2];
     VideoSkipChromaDeinterlace[3] = onoff[3];
+    VideoSurfaceModesChanged = 1;
+}
+
+///
+///	Set inverse telecine on/off.
+///
+void VideoSetInverseTelecine(int onoff[VideoResolutionMax])
+{
+    VideoInverseTelecine[0] = onoff[0];
+    VideoInverseTelecine[1] = onoff[1];
+    VideoInverseTelecine[2] = onoff[2];
+    VideoInverseTelecine[3] = onoff[3];
     VideoSurfaceModesChanged = 1;
 }
 

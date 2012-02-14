@@ -70,6 +70,9 @@ static int ConfigVideoDeinterlace[RESOLUTIONS];
     /// config skip chroma
 static int ConfigVideoSkipChromaDeinterlace[RESOLUTIONS];
 
+    /// config inverse telecine
+static int ConfigVideoInverseTelecine[RESOLUTIONS];
+
     /// config denoise
 static int ConfigVideoDenoise[RESOLUTIONS];
 
@@ -389,6 +392,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
+    int InverseTelecine[RESOLUTIONS];
     int Denoise[RESOLUTIONS];
     int Sharpen[RESOLUTIONS];
     int AudioDelay;
@@ -469,6 +473,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
 	Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
 		&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
+	InverseTelecine[i] = ConfigVideoInverseTelecine[i];
+	Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
+		&InverseTelecine[i], trVDR("no"), trVDR("yes")));
 	Denoise[i] = ConfigVideoDenoise[i];
 	Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"), &Denoise[i],
 		0, 1000));
@@ -538,6 +545,8 @@ void cMenuSetupSoft::Store(void)
 	    "SkipChromaDeinterlace");
 	SetupStore(buf, ConfigVideoSkipChromaDeinterlace[i] =
 	    SkipChromaDeinterlace[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "InverseTelecine");
+	SetupStore(buf, ConfigVideoInverseTelecine[i] = InverseTelecine[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
 	SetupStore(buf, ConfigVideoDenoise[i] = Denoise[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
@@ -546,6 +555,7 @@ void cMenuSetupSoft::Store(void)
     VideoSetScaling(ConfigVideoScaling);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
     VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
+    VideoSetInverseTelecine(ConfigVideoInverseTelecine);
     VideoSetDenoise(ConfigVideoDenoise);
     VideoSetSharpen(ConfigVideoSharpen);
 
@@ -1290,6 +1300,12 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	if (!strcmp(name, buf)) {
 	    ConfigVideoSkipChromaDeinterlace[i] = atoi(value);
 	    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "InverseTelecine");
+	if (!strcmp(name, buf)) {
+	    ConfigVideoInverseTelecine[i] = atoi(value);
+	    VideoSetInverseTelecine(ConfigVideoInverseTelecine);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");

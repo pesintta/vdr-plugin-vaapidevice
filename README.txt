@@ -127,6 +127,9 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.<res>.SkipChromaDeinterlace = 0
 	0 = disabled, 1 = enabled (for slower cards, poor qualität)
 
+	softhddevice.<res>.InverseTelecine = 0
+	0 = disabled, 1 = enabled
+
 	softhddevice.<res>.Denoise = 0
 	0 .. 1000 noise reduction level (0 off, 1000 max)
 
