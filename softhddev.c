@@ -179,12 +179,12 @@ static int FindAudioSync(const AVPacket * avpkt)
 		"audio: mpeg%s layer%d bitrate=%d samplerate=%d %d bytes\n",
 		mpeg25 ? "2.5" : mpeg2 ? "2" : "1", layer, bit_rate,
 		sample_rate, frame_size);
-	    if (i + frame_size < avpkt->size - 4) {
-		if (data[i + frame_size] == 0xFF
-		    && (data[i + frame_size + 1] & 0xFC) == 0xFC) {
-		    Debug(3, "audio: mpeg1/2 found at %d\n", i);
-		    return i;
-		}
+	    // check if after this frame a new mpeg frame starts
+	    if (i + frame_size < avpkt->size - 3
+		&& data[i + frame_size] == 0xFF
+		&& (data[i + frame_size + 1] & 0xFC) == 0xFC) {
+		Debug(3, "audio: mpeg1/2 found at %d\n", i);
+		return i;
 	    }
 	    // no valid frame size or no continuation, try next
 	}
@@ -280,9 +280,17 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		AudioCodecID = CODEC_ID_MP2;
 	    }
 	    // latm header 0x56E0 11bits: 0x2B7
-	} else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0) {
-	    // && (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)) < size
+	} else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0
+	    && (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)) < size) {
 	    if (AudioCodecID != CODEC_ID_AAC_LATM) {
+#if 0
+		// test harder check
+		printf("%d %d\n", (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)),
+		    size);
+		printf("%p %x %x\n", data,
+		    data[3 + (((data[1] & 0x1F) << 8) + (data[2] & 0xFF))],
+		    data[4 + (((data[1] & 0x1F) << 8) + (data[2] & 0xFF))]);
+#endif
 		Debug(3, "[softhddev]%s: AAC LATM %d\n", __FUNCTION__, id);
 		CodecAudioClose(MyAudioDecoder);
 		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
@@ -505,6 +513,19 @@ static void VideoEnqueue(int64_t pts, const void *data, int size)
 }
 
 /**
+**	Reset current packet.
+*/
+static void VideoResetPacket(void)
+{
+    AVPacket *avpkt;
+
+    avpkt = &VideoPacketRb[VideoPacketWrite];
+    avpkt->stream_index = 0;
+    avpkt->pts = AV_NOPTS_VALUE;
+    avpkt->dts = AV_NOPTS_VALUE;
+}
+
+/**
 **	Finish current packet advance to next.
 **
 **	@param codec_id	codec id of packet (MPEG/H264)
@@ -542,10 +563,7 @@ static void VideoNextPacket(int codec_id)
     VideoDisplayWakeup();
 
     // intialize next package to use
-    avpkt = &VideoPacketRb[VideoPacketWrite];
-    avpkt->stream_index = 0;
-    avpkt->pts = AV_NOPTS_VALUE;
-    avpkt->dts = AV_NOPTS_VALUE;
+    VideoResetPacket();
 }
 
 /**
@@ -891,7 +909,7 @@ int PlayVideo(const uint8_t * data, int size)
     l = size - 9 - n;
     while (!*check) {			// count leading zeros
 	if (--l < 4) {
-	    Error(_("[softhddev] invalid video packet %d bytes\n"), size);
+	    Warning(_("[softhddev] empty video packet %d bytes\n"), size);
 	    return size;
 	}
 	++check;
@@ -1128,10 +1146,10 @@ void Clear(void)
 {
     int i;
 
-    VideoNextPacket(VideoCodecID);	// terminate work
+    VideoResetPacket();			// terminate work
     VideoClearBuffers = 1;
-    // FIXME: avcodec_flush_buffers
     AudioFlushBuffers();
+    // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
 
     for (i = 0; VideoClearBuffers && i < 20; ++i) {
 	usleep(1 * 1000);
@@ -1241,7 +1259,7 @@ int Poll(int timeout)
 	}
 	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX / 2;
     }
-    return 0;
+    return 1;
 }
 
 /**
@@ -1316,7 +1334,7 @@ const char *CommandLineHelp(void)
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
-	"  -x\t\tstart x11 server\n" "	-s\t\tstart in suspended mode\n"
+	"  -s\t\tstart in suspended mode\n" "  -x\t\tstart x11 server\n"
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
