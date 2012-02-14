@@ -424,24 +424,24 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    // FIXME: otherwise it takes too long until sound appears
 
 	    if (AudioCodecID == CODEC_ID_NONE) {
-		int id;
+		int codec_id;
 
 		Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
 		avpkt->data = (void *)data;
 		avpkt->size = size;
 		if (AudioChannelID == 0xBD) {
 		    n = FindDolbySync(avpkt);
-		    id = CODEC_ID_AC3;
+		    codec_id = CODEC_ID_AC3;
 		} else {
 		    n = FindAudioSync(avpkt);
-		    id = CODEC_ID_MP2;
+		    codec_id = CODEC_ID_MP2;
 		}
 		if (n < 0) {
 		    return osize;
 		}
 
-		CodecAudioOpen(MyAudioDecoder, NULL, id);
-		AudioCodecID = id;
+		CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+		AudioCodecID = codec_id;
 		data += n;
 		size -= n;
 		avpkt->pts = AV_NOPTS_VALUE;
