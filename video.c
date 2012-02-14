@@ -6819,7 +6819,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     }
 #else
     if (decoder->InputWidth && decoder->InputHeight
-	&& av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
+	&& av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
 	Debug(3, "video/vdpau: aspect ratio changed\n");
 
 	decoder->InputAspect = video_ctx->sample_aspect_ratio;
