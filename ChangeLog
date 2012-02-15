@@ -1,5 +1,6 @@
 User johns
 
+    Fix bug: wrong start of video packet.
     VDPAU: Enables inverse telecine configuration.
     Find AC3 (Dolby Digital) inside PES packet.
     Fix bug: audio increments invalid audio PTS.

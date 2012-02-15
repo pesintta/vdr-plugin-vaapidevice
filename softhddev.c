@@ -71,6 +71,7 @@ static volatile char StreamFreezed;	///< stream freezed
 
 static volatile char NewAudioStream;	///< new audio stream
 static volatile char SkipAudio;		///< skip audio stream
+static char AudioRawAc3;		///< flag raw ac3 stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 static int AudioChannelID;		///< current audio channel id
@@ -199,44 +200,16 @@ static int FindAudioSync(const AVPacket * avpkt)
 **	from ATSC A/52 table 5.18 frame size code table.
 */
 const uint16_t Ac3FrameSizeTable[38][3] = {
-    {64, 69, 96},
-    {64, 70, 96},
-    {80, 87, 120},
-    {80, 88, 120},
-    {96, 104, 144},
-    {96, 105, 144},
-    {112, 121, 168},
-    {112, 122, 168},
-    {128, 139, 192},
-    {128, 140, 192},
-    {160, 174, 240},
-    {160, 175, 240},
-    {192, 208, 288},
-    {192, 209, 288},
-    {224, 243, 336},
-    {224, 244, 336},
-    {256, 278, 384},
-    {256, 279, 384},
-    {320, 348, 480},
-    {320, 349, 480},
-    {384, 417, 576},
-    {384, 418, 576},
-    {448, 487, 672},
-    {448, 488, 672},
-    {512, 557, 768},
-    {512, 558, 768},
-    {640, 696, 960},
-    {640, 697, 960},
-    {768, 835, 1152},
-    {768, 836, 1152},
-    {896, 975, 1344},
-    {896, 976, 1344},
-    {1024, 1114, 1536},
-    {1024, 1115, 1536},
-    {1152, 1253, 1728},
-    {1152, 1254, 1728},
-    {1280, 1393, 1920},
-    {1280, 1394, 1920},
+    {64, 69, 96}, {64, 70, 96}, {80, 87, 120}, {80, 88, 120},
+    {96, 104, 144}, {96, 105, 144}, {112, 121, 168}, {112, 122, 168},
+    {128, 139, 192}, {128, 140, 192}, {160, 174, 240}, {160, 175, 240},
+    {192, 208, 288}, {192, 209, 288}, {224, 243, 336}, {224, 244, 336},
+    {256, 278, 384}, {256, 279, 384}, {320, 348, 480}, {320, 349, 480},
+    {384, 417, 576}, {384, 418, 576}, {448, 487, 672}, {448, 488, 672},
+    {512, 557, 768}, {512, 558, 768}, {640, 696, 960}, {640, 697, 960},
+    {768, 835, 1152}, {768, 836, 1152}, {896, 975, 1344}, {896, 976, 1344},
+    {1024, 1114, 1536}, {1024, 1115, 1536}, {1152, 1253, 1728},
+    {1152, 1254, 1728}, {1280, 1393, 1920}, {1280, 1394, 1920},
 };
 
 /**
@@ -354,6 +327,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
 		AudioCodecID = CODEC_ID_AC3;
 	    }
+	    AudioRawAc3 = 1;
 	    // Syncword - 0xFFFC - 0xFFFF
 	} else if (data[0] == 0xFF && (data[1] & 0xFC) == 0xFC) {
 	    if (AudioCodecID != CODEC_ID_MP2) {
@@ -379,9 +353,16 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
 		AudioCodecID = CODEC_ID_AAC_LATM;
 	    }
-	    // Private stream + LPCM ID
-	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0x80) {
-	    Debug(3, "[softhddev]%s: DVD Audio %d\n", __FUNCTION__, id);
+	    // Private stream + DVD Track ID Syncword - 0x0B77
+	} else if (data[-n - 9 + 3] == 0xBD && (data[0] & 0xF0) == 0x80
+	    && data[4] == 0x0B && data[5] == 0x77) {
+	    if (AudioCodecID != CODEC_ID_AC3) {
+		Debug(3, "[softhddev]%s: DVD Audio %d\n", __FUNCTION__, id);
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
+		AudioCodecID = CODEC_ID_AC3;
+	    }
+	    AudioRawAc3 = 0;
 	    // Private stream + LPCM ID
 	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
 	    if (AudioCodecID != CODEC_ID_PCM_DVD) {
@@ -432,9 +413,12 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		if (AudioChannelID == 0xBD) {
 		    n = FindDolbySync(avpkt);
 		    codec_id = CODEC_ID_AC3;
-		} else {
+		    AudioRawAc3 = 1;
+		} else if (0xC0 <= AudioChannelID && AudioChannelID <= 0xDF) {
 		    n = FindAudioSync(avpkt);
 		    codec_id = CODEC_ID_MP2;
+		} else {
+		    n = -1;
 		}
 		if (n < 0) {
 		    return osize;
@@ -452,11 +436,23 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    return osize;
 	}
     }
-
-    if (AudioCodecID == CODEC_ID_PCM_DVD) {
+    // convert data, if needed for ffmpeg
+    if (AudioCodecID == CODEC_ID_AC3 && !AudioRawAc3
+	&& (data[0] & 0xF0) == 0x80) {
+	avpkt->data = (void *)data + 4;	// skip track header
+	avpkt->size = size - 4;
+	if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
+	    avpkt->pts += 200 * 90;	// FIXME: needs bigger buffer
+	}
+	CodecAudioDecode(MyAudioDecoder, avpkt);
+    } else if (AudioCodecID == CODEC_ID_PCM_DVD) {
 	if (size > 7) {
 	    char *buf;
 
+	    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
+		// FIXME: needs bigger buffer
+		AudioSetClock(avpkt->pts + 200 * 90);
+	    }
 	    if (!(buf = malloc(size - 7))) {
 		Error(_("softhddev: out of memory\n"));
 	    } else {
@@ -1020,7 +1016,7 @@ int PlayVideo(const uint8_t * data, int size)
 	    VideoCodecID = CODEC_ID_H264;
 	}
 	// SKIP PES header
-	VideoEnqueue(pts, check - 5, l + 5);
+	VideoEnqueue(pts, check - 3, l + 3);
 	return size;
     }
     // PES start code 0x00 0x00 0x01
@@ -1037,7 +1033,7 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 #endif
 	// SKIP PES header
-	VideoEnqueue(pts, check - 3, l + 3);
+	VideoEnqueue(pts, check - 2, l + 2);
 	return size;
     }
     // this happens when vdr sends incomplete packets
@@ -1056,7 +1052,6 @@ int PlayVideo(const uint8_t * data, int size)
 	// mpeg codec supports incomplete packets
 	// waiting for a full complete packages, increases needed delays
 	VideoNextPacket(CODEC_ID_MPEG2VIDEO);
-	return size;
     }
 
     return size;
@@ -1243,6 +1238,7 @@ void Clear(void)
     VideoResetPacket();			// terminate work
     VideoClearBuffers = 1;
     AudioFlushBuffers();
+    //NewAudioStream = 1;
     // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
 
     for (i = 0; VideoClearBuffers && i < 20; ++i) {
@@ -1347,8 +1343,7 @@ int Poll(int timeout)
 {
     // buffers are too full
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
-	if (timeout) {
-	    // let display thread work
+	if (timeout) {			// let display thread work
 	    usleep(timeout * 1000);
 	}
 	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX / 2;
