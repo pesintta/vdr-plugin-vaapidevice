@@ -2188,6 +2188,7 @@ void AudioPlay(void)
     }
     Debug(3, "audio: resumed\n");
     AudioPaused = 0;
+    AudioEnqueue(NULL, 0);		// wakeup thread
 }
 
 /**
