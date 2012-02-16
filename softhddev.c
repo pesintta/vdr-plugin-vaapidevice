@@ -1454,7 +1454,8 @@ const char *CommandLineHelp(void)
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
-	"\talsa-driver-broken\tdisable broken alsa driver message\n";
+	"\talsa-driver-broken\tdisable broken alsa driver message\n"
+	"\tignore-repeat-pict\tdisable repeat pict message\n";
 }
 
 /**
@@ -1504,6 +1505,8 @@ int ProcessArgs(int argc, char *const argv[])
 		} else if (!strcasecmp("no-mpeg-hw-decoder", optarg)) {
 		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
+		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
+		    VideoIgnoreRepeatPict = 1;
 		} else {
 		    fprintf(stderr, _("Workaround '%s' unsupported\n"),
 			optarg);

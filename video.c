@@ -262,6 +262,8 @@ typedef struct _video_module_
 //	Variables
 //----------------------------------------------------------------------------
 
+char VideoIgnoreRepeatPict;		///< disable repeat pict warning
+
 static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
@@ -8519,8 +8521,9 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
 void VideoRenderFrame(VideoHwDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
-    if (frame->repeat_pict) {
-	Warning(_("video: repeated pict found, but not handled\n"));
+    if (frame->repeat_pict && !VideoIgnoreRepeatPict) {
+	Warning(_("video: repeated pict %d found, but not handled\n"),
+	    frame->repeat_pict);
     }
     if (VideoUsedModule) {
 	VideoUsedModule->RenderFrame(decoder, video_ctx, frame);
