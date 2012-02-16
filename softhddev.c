@@ -471,16 +471,6 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 }
 
 /**
-**	Turns off audio while replaying.
-*/
-void Mute(void)
-{
-    SkipAudio = 1;
-    AudioFlushBuffers();
-    //AudioSetVolume(0);
-}
-
-/**
 **	Set volume of audio device.
 **
 **	@param volume	VDR volume (0 .. 255)
@@ -513,8 +503,11 @@ static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
 atomic_t VideoPacketsFilled;		///< how many of the buffer is used
+
 static volatile char VideoClearBuffers;	///< clear video buffers
 static volatile char SkipVideo;		///< skip video
+static volatile char VideoTrickSpeed;	///< current trick speed
+static volatile char VideoTrickCounter;	///< current trick speed counter
 
 #ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -721,6 +714,13 @@ int VideoDecode(void)
 	}
 	VideoClearBuffers = 0;
 	return 1;
+    }
+    if (VideoTrickSpeed) {
+	if (VideoTrickCounter++ < VideoTrickSpeed * 2) {
+	    usleep(5 * 1000);
+	    return 1;
+	}
+	VideoTrickCounter = 0;
     }
 
     filled = atomic_read(&VideoPacketsFilled);
@@ -1225,6 +1225,21 @@ void SetPlayMode(void)
 	    NewAudioStream = 1;
 	}
     }
+    Play();
+}
+
+/**
+**	Set trick play speed.
+**
+**	Every single frame shall then be displayed the given number of
+**	times.
+**
+**	@param speed	trick speed
+*/
+void TrickSpeed(int speed)
+{
+    VideoTrickSpeed = speed;
+    VideoTrickCounter = 0;
     StreamFreezed = 0;
 }
 
@@ -1251,6 +1266,8 @@ void Clear(void)
 */
 void Play(void)
 {
+    VideoTrickSpeed = 0;
+    VideoTrickCounter = 0;
     StreamFreezed = 0;
     SkipAudio = 0;
     AudioPlay();
@@ -1263,6 +1280,16 @@ void Freeze(void)
 {
     StreamFreezed = 1;
     AudioPause();
+}
+
+/**
+**	Turns off audio while replaying.
+*/
+void Mute(void)
+{
+    SkipAudio = 1;
+    AudioFlushBuffers();
+    //AudioSetVolume(0);
 }
 
 /**

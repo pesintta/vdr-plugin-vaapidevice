@@ -42,7 +42,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.4.8";
+static const char *const VERSION = "0.4.9";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -144,12 +144,15 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 //	OSD
 //////////////////////////////////////////////////////////////////////////////
 
+/**
+**	Soft device plugin OSD class.
+*/
 class cSoftOsd:public cOsd
 {
-    int Level;				///< level: subtitle
+    //int Level;				///< level: subtitle
 
   public:
-     cSoftOsd(int, int, uint);
+    cSoftOsd(int, int, uint);
      virtual ~ cSoftOsd(void);
     virtual void Flush(void);
     virtual void SetActive(bool);
@@ -167,7 +170,7 @@ static volatile char OsdDirty;		///< flag force redraw everything
 */
 void cSoftOsd::SetActive(bool on)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
+    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
 
     if (Active() == on) {
 	return;				// already active, no action
@@ -188,7 +191,7 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
        OsdHeight(), left, top, level);
      */
 
-    this->Level = level;
+    //this->Level = level;
     SetActive(true);
 }
 
@@ -334,6 +337,9 @@ void cSoftOsd::Flush(void)
 //	OSD provider
 //////////////////////////////////////////////////////////////////////////////
 
+/**
+**	Soft device plugin OSD provider class.
+*/
 class cSoftOsdProvider:public cOsdProvider
 {
   private:
@@ -357,12 +363,13 @@ cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
     //dsyslog("[softhddev]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
 
-    Osd = new cSoftOsd(left, top, level);
-    return Osd;
+    return Osd = new cSoftOsd(left, top, level);
 }
 
 /**
-**	 Returns true if this OSD provider is able to handle a true color OSD.
+**	Check if this OSD provider is able to handle a true color OSD.
+**
+**	@returns true we are able to handle a true color OSD.
 */
 bool cSoftOsdProvider::ProvidesTrueColor(void)
 {
@@ -810,13 +817,21 @@ int64_t cSoftHdDevice::GetSTC(void)
 /**
 **	Set trick play speed.
 **
+**	Every single frame shall then be displayed the given number of
+**	times.
+**
 **	@param speed	trick speed
 */
 void cSoftHdDevice::TrickSpeed(int speed)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, speed);
+
+    ::TrickSpeed(speed);
 }
 
+/**
+**	Clears all video and audio data from the device.
+*/
 void cSoftHdDevice::Clear(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
@@ -825,6 +840,9 @@ void cSoftHdDevice::Clear(void)
     ::Clear();
 }
 
+/**
+**	Sets the device into play mode (after a previous trick mode)
+*/
 void cSoftHdDevice::Play(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);

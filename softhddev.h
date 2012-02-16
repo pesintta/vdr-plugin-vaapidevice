@@ -37,8 +37,6 @@ extern "C"
 
     /// C plugin play audio packet
     extern int PlayAudio(const uint8_t *, int, uint8_t);
-    /// C plugin mute audio
-    extern void Mute(void);
     /// C plugin set audio volume
     extern void SetVolumeDevice(int);
 
@@ -51,12 +49,16 @@ extern "C"
 
     /// C plugin set play mode
     extern void SetPlayMode(void);
+    /// C plugin set trick speed
+    extern void TrickSpeed(int);
     /// C plugin clears all video and audio data from the device
     extern void Clear(void);
     /// C plugin sets the device into play mode
     extern void Play(void);
     /// C plugin sets the device into "freeze frame" mode
     extern void Freeze(void);
+    /// C plugin mute audio
+    extern void Mute(void);
     /// C plugin display I-frame as a still picture.
     extern void StillPicture(const uint8_t *, int);
     /// C plugin poll if ready
