@@ -5950,9 +5950,13 @@ static int VdpauInit(const char *display_name)
 
     // VDP_VIDEO_MIXER_ATTRIBUTE_BACKGROUND_COLOR
 
-    Info(_("video/vdpau: highest supported high quality scaling %d\n"),
-	VdpauHqScalingMax - VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1 +
-	1);
+    if (VdpauHqScalingMax) {
+	Info(_("video/vdpau: highest supported high quality scaling %d\n"),
+	    VdpauHqScalingMax -
+	    VDP_VIDEO_MIXER_FEATURE_HIGH_QUALITY_SCALING_L1 + 1);
+    } else {
+	Info(_("video/vdpau: high quality scaling unsupported\n"));
+    }
     Info(_("video/vdpau: feature deinterlace temporal %s\n"),
 	VdpauTemporal ? _("supported") : _("unsupported"));
     Info(_("video/vdpau: feature deinterlace temporal spatial %s\n"),
@@ -7965,7 +7969,7 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
     if (y + height > OsdDirtyY + OsdDirtyHeight) {
 	OsdDirtyHeight = y + height - OsdDirtyY;
     }
-    Debug(3, "video: osd dirty %dx%d+%d+%d -> %dx%d+%d+%d\n", width, height, x,
+    Debug(4, "video: osd dirty %dx%d+%d+%d -> %dx%d+%d+%d\n", width, height, x,
 	y, OsdDirtyWidth, OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
 
 #ifdef USE_GLX
