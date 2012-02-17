@@ -686,6 +686,7 @@ class cSoftHdDevice:public cDevice
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
     virtual void SetVideoDisplayFormat(eVideoDisplayFormat);
+    virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
@@ -724,7 +725,6 @@ cSoftHdDevice::cSoftHdDevice(void)
 #if 0
     spuDecoder = NULL;
 #endif
-    SetVideoDisplayFormat(eVideoDisplayFormat(Setup.VideoDisplayFormat));
 }
 
 cSoftHdDevice::~cSoftHdDevice(void)
@@ -920,8 +920,6 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 /**
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
-**
-**	@note this function isn't called on the initial channel
 */
 void cSoftHdDevice::SetVideoDisplayFormat(
     eVideoDisplayFormat video_display_format)
@@ -939,6 +937,23 @@ void cSoftHdDevice::SetVideoDisplayFormat(
 	::VideoSetDisplayFormat(video_display_format);
 	OsdDirty = 1;
     }
+}
+
+/**
+**	Sets the output video format to either 16:9 or 4:3 (only useful
+**	if this device has an MPEG decoder).
+**
+**	Should call SetVideoDisplayFormat.
+**
+**	@param video_format16_9	flag true 16:9.
+*/
+void cSoftHdDevice::SetVideoFormat(bool video_format16_9)
+{
+    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_format16_9);
+
+    // FIXME: 4:3 / 16:9 video format not supported.
+
+    SetVideoDisplayFormat(eVideoDisplayFormat(Setup.VideoDisplayFormat));
 }
 
 /**
