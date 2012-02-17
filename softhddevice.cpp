@@ -137,7 +137,11 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
     }
 
     //dsyslog("[softhddev]%s %s, %s\n", __FUNCTION__, keymap, key);
-    csoft->Put(key, repeat, release);
+    if (key[1]) {			// no single character
+	csoft->Put(key, repeat, release);
+    } else if (!csoft->Put(key, repeat, release)) {
+	cRemote::Put(KBDKEY(key[0]));	// feed it for edit mode
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
