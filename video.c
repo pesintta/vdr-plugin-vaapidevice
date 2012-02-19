@@ -4384,8 +4384,10 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    VideoTimeStampString(video_clock),
-	    (video_clock - audio_clock) / 90, AudioGetDelay() / 90,
-	    (int)VideoDeltaPTS / 90, atomic_read(&VideoPacketsFilled));
+	    abs((video_clock - audio_clock) / 90) <
+	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
+	    atomic_read(&VideoPacketsFilled));
     }
 #endif
 }
@@ -7393,8 +7395,10 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	|| !(decoder->FramesDisplayed % (50 * 10))) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    VideoTimeStampString(video_clock),
-	    (video_clock - audio_clock) / 90, AudioGetDelay() / 90,
-	    (int)VideoDeltaPTS / 90, atomic_read(&VideoPacketsFilled));
+	    abs((video_clock - audio_clock) / 90) <
+	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
+	    atomic_read(&VideoPacketsFilled));
     }
 #endif
 }
@@ -8599,7 +8603,6 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 	return;
     }
     Error(_("video/vdpau: draw render state, without vdpau enabled\n"));
-    return;
 }
 #endif
 
