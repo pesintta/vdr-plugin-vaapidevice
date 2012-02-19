@@ -1186,15 +1186,20 @@ uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality,
 uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 {
     if (jpeg) {
-	uint8_t *jpg_image;
 	uint8_t *image;
-	int raw_size = 0;
+	int raw_size;
 
+	raw_size = 0;
 	image = VideoGrab(&raw_size, &width, &height, 0);
-	jpg_image = CreateJpeg(image, size, quality, width, height);
+	if (image) {			// can fail, suspended, ...
+	    uint8_t *jpg_image;
 
-	free(image);
-	return jpg_image;
+	    jpg_image = CreateJpeg(image, size, quality, width, height);
+
+	    free(image);
+	    return jpg_image;
+	}
+	return NULL;
     }
     if (width != -1 && height != -1) {
 	Warning(_("softhddev: scaling unsupported\n"));
