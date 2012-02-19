@@ -46,7 +46,7 @@ static const char *const VERSION = "0.4.9";
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
-static const char *MAINMENUENTRY = trNOOP("Suspend Soft-HD-Device");
+static const char *MAINMENUENTRY = trNOOP("SoftHdDevice");
 static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -292,7 +292,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		esyslog(tr("softhdev: dirty area too big\n"));
+		esyslog(tr("softhddev: dirty area too big\n"));
 		abort();
 	    }
 #endif
@@ -393,9 +393,15 @@ cSoftOsdProvider::cSoftOsdProvider(void)
 //	cMenuSetupPage
 //////////////////////////////////////////////////////////////////////////////
 
+/**
+**	Soft device plugin menu setup page class.
+*/
 class cMenuSetupSoft:public cMenuSetupPage
 {
   protected:
+    ///
+    /// local copies of global setup variables:
+    /// @{
     int MakePrimary;
     int HideMainMenuEntry;
     int SkipLines;
@@ -413,6 +419,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AutoCropTolerance;
     int SuspendClose;
     int SuspendX11;
+    /// @}
   protected:
      virtual void Store(void);
   public:
@@ -652,11 +659,17 @@ eOSState cSoftHdControl::ProcessKey(eKeys key)
     return osContinue;
 }
 
+/**
+**	Player control constructor.
+*/
 cSoftHdControl::cSoftHdControl(void)
 :  cControl(Player = new cSoftHdPlayer)
 {
 }
 
+/**
+**	Player control destructor.
+*/
 cSoftHdControl::~cSoftHdControl()
 {
     if (Player) {
@@ -668,6 +681,134 @@ cSoftHdControl::~cSoftHdControl()
 }
 
 //////////////////////////////////////////////////////////////////////////////
+//	cOsdMenu
+//////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Soft device plugin menu class.
+*/
+class cSoftHdMenu:public cOsdMenu
+{
+    int HotkeyState;			///< current hot-key state
+    int HotkeyCode;			///< current hot-key code
+  public:
+     cSoftHdMenu(const char *, int = 0, int = 0, int = 0, int = 0, int = 0);
+     virtual ~ cSoftHdMenu();
+    virtual eOSState ProcessKey(eKeys);
+};
+
+/**
+**	Soft device menu constructor.
+*/
+cSoftHdMenu::cSoftHdMenu(const char *title, int c0, int c1, int c2, int c3,
+    int c4)
+:cOsdMenu(title, c0, c1, c2, c3, c4)
+{
+    HotkeyState = 0;
+
+    SetHasHotkeys();
+    Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+}
+
+/**
+**	Soft device menu destructor.
+*/
+cSoftHdMenu::~cSoftHdMenu()
+{
+}
+
+/**
+**	Handle hot key commands.
+*/
+static void HandleHotkey(int code)
+{
+    switch (code) {
+	case 10:			// disable pass-through
+	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 0);
+	    break;
+	case 11:			// enable pass-through
+	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 1);
+	    break;
+	case 12:			// toggle pass-through
+	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
+	    break;
+	default:
+	    esyslog(tr("softhddev: hot key %d is not supported\n"), code);
+	    break;
+    }
+}
+
+/**
+**	Handle key event.
+**
+**	@param key	key event
+*/
+eOSState cSoftHdMenu::ProcessKey(eKeys key)
+{
+    eOSState state;
+
+    //dsyslog("[softhddev]%s: %x\n", __FUNCTION__, key);
+
+    switch (HotkeyState) {
+	case 0:			// initial state, waiting for hot key
+	    if (key == kBlue) {
+		HotkeyState = 1;
+		return osContinue;
+	    }
+	    break;
+	case 1:
+	    if (k0 <= key && key <= k9) {
+		HotkeyCode = key - k0;
+		HotkeyState = 2;
+		return osContinue;
+	    }
+	    HotkeyState = 0;
+	    break;
+	case 2:
+	    if (k0 <= key && key <= k9) {
+		HotkeyCode *= 10;
+		HotkeyCode += key - k0;
+		HotkeyState = 0;
+		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
+		    HotkeyCode);
+		HandleHotkey(HotkeyCode);
+		return osEnd;
+	    }
+	    if (key == kOk) {
+		HotkeyState = 0;
+		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
+		    HotkeyCode);
+		HandleHotkey(HotkeyCode);
+		return osEnd;
+	    }
+	    HotkeyState = 0;
+	    break;
+    }
+
+    // call standard function
+    state = cOsdMenu::ProcessKey(key);
+
+    switch (state) {
+	case osUser1:
+	    if (!cSoftHdControl::Player) {	// not already suspended
+		cControl::Launch(new cSoftHdControl);
+		cControl::Attach();
+		Suspend(ConfigSuspendClose, ConfigSuspendClose,
+		    ConfigSuspendX11);
+		if (ShutdownHandler.GetUserInactiveTime()) {
+		    dsyslog("[softhddev]%s: set user inactive\n",
+			__FUNCTION__);
+		    ShutdownHandler.SetUserInactive();
+		}
+	    }
+	    return osEnd;
+	default:
+	    break;
+    }
+    return state;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 //	cDevice
 //////////////////////////////////////////////////////////////////////////////
 
@@ -675,7 +816,7 @@ class cSoftHdDevice:public cDevice
 {
   public:
     cSoftHdDevice(void);
-     virtual ~ cSoftHdDevice(void);
+    virtual ~ cSoftHdDevice(void);
 
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
@@ -713,13 +854,13 @@ class cSoftHdDevice:public cDevice
 #if 0
 // SPU facilities
   private:
-     cDvbSpuDecoder * spuDecoder;
+    cDvbSpuDecoder * spuDecoder;
   public:
-     virtual cSpuDecoder * GetSpuDecoder(void);
+    virtual cSpuDecoder * GetSpuDecoder(void);
 #endif
 
   protected:
-     virtual void MakePrimaryDevice(bool);
+    virtual void MakePrimaryDevice(bool);
 };
 
 cSoftHdDevice::cSoftHdDevice(void)
@@ -925,8 +1066,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice::SetVideoDisplayFormat(
-    eVideoDisplayFormat video_display_format)
+void cSoftHdDevice::
+SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
@@ -1050,7 +1191,7 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 }
 #endif
 
-#ifndef USE_AUDIO_THREAD		// FIXME: testing none threaded
+#if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
 
 ///
 ///	Play a TS audio packet.
@@ -1062,9 +1203,13 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 ///
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
+#ifdef USE_TS_AUDIO
+    return::PlayTsAudio(data, length);
+#else
     AudioPoller();
 
     return cDevice::PlayTsAudio(data, length);
+#endif
 }
 
 #endif
@@ -1241,6 +1386,7 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
+#if 0
     //MyDevice->StopReplay();
     if (!cSoftHdControl::Player) {	// not already suspended
 	cControl::Launch(new cSoftHdControl);
@@ -1253,6 +1399,8 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
     }
 
     return NULL;
+#endif
+    return new cSoftHdMenu("SoftHdDevice");
 }
 
 /**

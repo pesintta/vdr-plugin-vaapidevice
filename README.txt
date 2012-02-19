@@ -212,6 +212,17 @@ SVDRP:
 	Use 'svdrpsend.pl plug softhddevice HELP' to see the SVDRP commands
 	help and which are supported by the plugin.
 
+Keymacros:
+----------
+
+	See keymacros.conf how to setup the macros.
+
+	This are the supported key sequences:
+
+	@softhddevice Blue 1 0		disable pass-through
+	@softhddevice Blue 1 1		enable pass-through
+	@softhddevice Blue 1 2		toggle pass-through
+
 Running:
 --------
 
