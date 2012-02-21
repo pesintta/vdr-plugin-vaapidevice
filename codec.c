@@ -628,6 +628,7 @@ static char CodecPassthroughAC3;	///< pass ac3 through
 
 static const int CodecPassthroughAC3 = 0;
 #endif
+static char CodecDownmix;		///< enable ac-3 downmix
 
 /**
 **	Allocate a new audio decoder context.
@@ -677,6 +678,12 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 
     if (!(audio_decoder->AudioCtx = avcodec_alloc_context3(audio_codec))) {
 	Fatal(_("codec: can't allocate audio codec context\n"));
+    }
+
+    if (CodecDownmix) {
+	audio_decoder->AudioCtx->request_channels = 2;
+	audio_decoder->AudioCtx->request_channel_layout =
+	    AV_CH_LAYOUT_STEREO_DOWNMIX;
     }
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
@@ -746,6 +753,16 @@ void CodecSetAudioPassthrough(int mask)
     CodecPassthroughAC3 = mask & 1 ? 1 : 0;
 #endif
     (void)mask;
+}
+
+/**
+**	Set audio downmix.
+**
+**	@param onoff	enable/disable downmix.
+*/
+void CodecSetAudioDownmix(int onoff)
+{
+    CodecDownmix = onoff;
 }
 
 /**
@@ -889,7 +906,6 @@ void CodecAudioDecodeOld(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
 		audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
 		// FIXME: use swr_convert from swresample (only in ffmpeg!)
-		// FIXME: tell ac3 decoder to use downmix
 		if (audio_decoder->ReSample) {
 		    audio_resample_close(audio_decoder->ReSample);
 		    audio_decoder->ReSample = NULL;
@@ -1089,7 +1105,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	int buf_sz;
 
 	buf_sz = sizeof(buf);
-	l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *)avpkt);
+	l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *) avpkt);
 	if (l == AVERROR(EAGAIN)) {
 	    Error(_("codec: latm\n"));
 	    break;
@@ -1118,7 +1134,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
 	    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
 	    // FIXME: use swr_convert from swresample (only in ffmpeg!)
-	    // FIXME: tell ac3 decoder to use downmix
 	    if (audio_decoder->ReSample) {
 		audio_resample_close(audio_decoder->ReSample);
 		audio_decoder->ReSample = NULL;

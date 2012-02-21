@@ -139,11 +139,16 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.AudioDelay = 0
 	+n or -n ms
+	delay audio or delay video
 
 	softhddevice.AudioPassthrough = 0
 	0 = none, 1 = AC-3
 
 	for AC-3 the pass-through device is used.
+
+	softhddevice.AudioDownmix = 0
+	0 = none, 1 = downmix
+	downmix AC-3 to stero.
 
 	softhddevice.AutoCrop.Interval = 0
 	0 disables auto-crop

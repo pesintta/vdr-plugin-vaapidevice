@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Support downmix of AC-3 to stero.
     New audio PES packet parser.
     Fix bug: Grabbing a JPG image fails while suspended.
     Add support for hot keys.

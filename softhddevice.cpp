@@ -38,6 +38,7 @@ extern "C"
 #include "video.h"
     extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
+    extern void CodecSetAudioDownmix(int);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -84,6 +85,7 @@ static int ConfigVideoScaling[RESOLUTIONS];
 
 static int ConfigVideoAudioDelay;	///< config audio delay
 static int ConfigAudioPassthrough;	///< config audio pass-through
+static int ConfigAudioDownmix;		///< config audio downmix
 
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
@@ -414,6 +416,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen[RESOLUTIONS];
     int AudioDelay;
     int AudioPassthrough;
+    int AudioDownmix;
     int AutoCropInterval;
     int AutoCropDelay;
     int AutoCropTolerance;
@@ -511,6 +514,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioPassthrough = ConfigAudioPassthrough;
     Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough, 2,
 	    passthrough));
+    AudioDownmix = ConfigAudioDownmix;
+    Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
+	    trVDR("no"), trVDR("yes")));
     //
     //	auto-crop
     //
@@ -581,6 +587,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
+    SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
+    CodecSetAudioDownmix(ConfigAudioDownmix);
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
@@ -1525,6 +1533,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcmp(name, "AudioPassthrough")) {
 	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
+	return true;
+    }
+    if (!strcmp(name, "AudioDownmix")) {
+	CodecSetAudioDownmix(ConfigAudioDownmix = atoi(value));
 	return true;
     }
 
