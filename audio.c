@@ -141,7 +141,7 @@ static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
-static const int AudioBufferTime = 350;	///< audio buffer time in ms
+static int AudioBufferTime = 216;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
@@ -151,7 +151,8 @@ static pthread_cond_t AudioStartCond;	///< condition variable
 static const int AudioThread;		///< dummy audio thread
 #endif
 
-extern int VideoAudioDelay;		/// import audio/video delay
+extern int VideoAudioDelay;		///< import audio/video delay
+extern int VideoGetBuffers(void);	///< Get number of input buffers.
 
 #ifdef USE_AUDIORING
 
@@ -297,7 +298,17 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	if (AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
+	Debug(3, "audio/alsa: start %zd ms %d\n",
+	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
+	    VideoGetBuffers());
+	// forced start
+	if (AlsaStartThreshold * 2 < RingBufferUsedBytes(AlsaRingBuffer)) {
+	    return 1;
+	}
+	// enough video + audio buffered
+	if (VideoGetBuffers() > 1
+	    && AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
 	    // restart play-back
 	    return 1;
 	}
@@ -654,7 +665,8 @@ static void AlsaThread(void)
 	    }
 	    state = snd_pcm_state(AlsaPCMHandle);
 	    if (state != SND_PCM_STATE_RUNNING) {
-		Debug(3, "audio/alsa: stopping play\n");
+		Debug(3, "audio/alsa: stopping play '%s'\n",
+		    snd_pcm_state_name(state));
 		break;
 	    }
 	    pthread_yield();
@@ -720,12 +732,11 @@ static snd_pcm_t *AlsaOpenPCM(int use_ac3)
 
     // &&|| hell
     if (!(use_ac3 && ((device = AudioAC3Device)
-		|| (device = getenv("ALSA_AC3_DEVICE"))
-		|| (device = getenv("ALSA_PASSTHROUGH_DEVICE"))))
+		|| (device = getenv("ALSA_AC3_DEVICE"))))
 	&& !(device = AudioPCMDevice) && !(device = getenv("ALSA_DEVICE"))) {
 	device = "default";
     }
-    Debug(3, "audio/alsa: &&|| hell '%s'\n", device);
+    Info(_("audio/alsa: using device '%s'\n"), device);
 
     // open none blocking; if device is already used, we don't want wait
     if ((err =
@@ -752,7 +763,8 @@ static void AlsaInitPCM(void)
     snd_pcm_t *handle;
     snd_pcm_hw_params_t *hw_params;
     int err;
-    snd_pcm_uframes_t buffer_size;
+
+    //snd_pcm_uframes_t buffer_size;
 
     if (!(handle = AlsaOpenPCM(0))) {
 	return;
@@ -767,8 +779,9 @@ static void AlsaInitPCM(void)
     }
     AlsaCanPause = snd_pcm_hw_params_can_pause(hw_params);
     Info(_("audio/alsa: supports pause: %s\n"), AlsaCanPause ? "yes" : "no");
-    snd_pcm_hw_params_get_buffer_size_max(hw_params, &buffer_size);
-    Info(_("audio/alsa: max buffer size %lu\n"), buffer_size);
+    // needs audio setup
+    //snd_pcm_hw_params_get_buffer_size_max(hw_params, &buffer_size);
+    //Info(_("audio/alsa: max buffer size %lu\n"), buffer_size);
 
     AlsaPCMHandle = handle;
 }
@@ -941,7 +954,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
 	    snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
 		AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
 		SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
-		125 * 1000))) {
+		96 * 1000))) {
 	Error(_("audio/alsa: set params error: %s\n"), snd_strerror(err));
 
 	/*
@@ -1053,7 +1066,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     // FIXME: use hw_params for buffer_size period_size
 #endif
 
-#if 1
+#if 0
     if (0) {				// no underruns allowed, play silence
 	snd_pcm_sw_params_t *sw_params;
 	snd_pcm_uframes_t boundary;
@@ -1091,16 +1104,21 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
-    Info(_("audio/alsa: buffer size %lu, period size %lu\n"), buffer_size,
-	period_size);
+    Info(_("audio/alsa: buffer size %lu %lums, period size %lu %lums\n"),
+	buffer_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
+	    buffer_size) * 1000 / (AudioSampleRate * AudioChannels *
+	    AudioBytesProSample), period_size,
+	snd_pcm_frames_to_bytes(AlsaPCMHandle,
+	    period_size) * 1000 / (AudioSampleRate * AudioChannels *
+	    AudioBytesProSample));
     Debug(3, "audio/alsa: state %s\n",
 	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 
     AlsaStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
     // buffer time/delay in ms
     delay = AudioBufferTime;
-    if (VideoAudioDelay > -100) {
-	delay += 100 + VideoAudioDelay / 90;
+    if (VideoAudioDelay > 0) {
+	delay += VideoAudioDelay / 90;
     }
     if (AlsaStartThreshold <
 	(*freq * *channels * AudioBytesProSample * delay) / 1000U) {
@@ -1284,7 +1302,17 @@ static int OssAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	if (OssStartThreshold < RingBufferUsedBytes(OssRingBuffer)) {
+	Debug(3, "audio/oss: start %zd ms %d\n",
+	    (RingBufferUsedBytes(OssRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
+	    VideoGetBuffers());
+	// forced start
+	if (OssStartThreshold * 2 < RingBufferUsedBytes(OssRingBuffer)) {
+	    return 1;
+	}
+	// enough video + audio buffered
+	if (VideoGetBuffers() > 1
+	    && OssStartThreshold < RingBufferUsedBytes(OssRingBuffer)) {
 	    // restart play-back
 	    return 1;
 	}
@@ -1522,7 +1550,7 @@ static int OssOpenPCM(int use_ac3)
 	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
 	device = "/dev/dsp";
     }
-    Debug(3, "audio/oss: &&|| hell '%s'\n", device);
+    Info(_("audio/oss: using device '%s'\n"), device);
 
     if ((fildes = open(device, O_WRONLY)) < 0) {
 	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
@@ -1774,8 +1802,8 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 	OssStartThreshold = bi.bytes + tmp;
 	// buffer time/delay in ms
 	delay = AudioBufferTime;
-	if (VideoAudioDelay > -100) {
-	    delay += 100 + VideoAudioDelay / 90;
+	if (VideoAudioDelay > 0) {
+	    delay += VideoAudioDelay / 90;
 	}
 	if (OssStartThreshold <
 	    (*freq * *channels * AudioBytesProSample * delay) / 1000U) {
@@ -1964,6 +1992,9 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    pthread_cond_wait(&AudioStartCond, &AudioMutex);
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
+	Debug(3, "audio/alsa: ----> %zd ms\n",
+	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
 	pthread_mutex_unlock(&AudioMutex);
 
 #ifdef USE_AUDIORING
@@ -2064,6 +2095,21 @@ static const AudioModule *AudioModules[] = {
 */
 void AudioEnqueue(const void *samples, int count)
 {
+    if (0) {
+	static uint32_t last;
+	static uint32_t tick;
+	static uint32_t max = 110;
+	uint64_t delay;
+
+	delay = AudioGetDelay();
+	tick = GetMsTicks();
+	if ((last && tick - last > max) || delay < 80 * 90) {
+
+	    //max = tick - last;
+	    Debug(3, "audio: packet delta %d %lu\n", tick - last, delay / 90);
+	}
+	last = tick;
+    }
     AudioUsedModule->Enqueue(samples, count);
 }
 
@@ -2183,7 +2229,7 @@ int AudioSetup(int *freq, int *channels, int use_ac3)
 void AudioPlay(void)
 {
     if (!AudioPaused) {
-	Warning("audio: not paused, check the code\n");
+	Debug(3, "audio: not paused, check the code\n");
 	return;
     }
     Debug(3, "audio: resumed\n");
@@ -2197,11 +2243,22 @@ void AudioPlay(void)
 void AudioPause(void)
 {
     if (AudioPaused) {
-	Warning("audio: already paused, check the code\n");
+	Debug(3, "audio: already paused, check the code\n");
 	return;
     }
     Debug(3, "audio: paused\n");
     AudioPaused = 1;
+}
+
+/**
+**	Set audio buffer time.
+*/
+void AudioSetBufferTime(int delay)
+{
+    if (!delay) {
+	delay = 216;
+    }
+    AudioBufferTime = delay;
 }
 
 /**

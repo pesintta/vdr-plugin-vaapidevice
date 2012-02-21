@@ -26,6 +26,8 @@ missing:
     Option deinterlace off / deinterlace force!
     ColorSpace aren't configurable with the gui.
     Inverse telecine isn't configurable with the gui.
+    Replay of old vdr 1.6 recordings.
+    svdrp support for hot-keys.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
@@ -99,8 +101,11 @@ HDMI/SPDIF Passthrough:
     only AC-3 written
 
 playback of recording
-    pause is not reset, when replay exit
-    replay/pause need 100% cpu
+    pause is not reset, when replay exit (fixed?)
+    replay/pause need 100% cpu (fixed?)
+
+plugins:
+    mp3 plugin needs 100% cpu (OSD updates?)
 
 setup:
     Setup of decoder type.

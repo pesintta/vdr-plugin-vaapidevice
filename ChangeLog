@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    New audio PES packet parser.
     Fix bug: Grabbing a JPG image fails while suspended.
     Add support for hot keys.
     Add support to use characters input in edit mode.

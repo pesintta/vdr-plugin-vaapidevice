@@ -68,6 +68,9 @@ extern void CodecAudioOpen(AudioDecoder *, const char *, int);
 extern void CodecAudioClose(AudioDecoder *);
 
     /// Decode an audio packet.
+extern void CodecAudioDecodeOld(AudioDecoder *, const AVPacket *);
+
+    /// Decode an audio packet.
 extern void CodecAudioDecode(AudioDecoder *, const AVPacket *);
 
     /// Flush audio buffers.

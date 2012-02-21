@@ -835,9 +835,11 @@ class cSoftHdDevice:public cDevice
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
-
+#ifndef xxUSE_TS_AUDIO
+    virtual int PlayAudio(const uchar *, int, uchar);
+#endif
     //virtual int PlayTsVideo(const uchar *, int);
-#ifndef USE_AUDIO_THREAD		// FIXME: testing none threaded
+#if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
     virtual int PlayTsAudio(const uchar *, int);
 #endif
     virtual void SetAudioChannelDevice(int);
@@ -845,7 +847,6 @@ class cSoftHdDevice:public cDevice
     virtual void SetDigitalAudioDevice(bool);
     virtual void SetAudioTrackDevice(eTrackType);
     virtual void SetVolumeDevice(int);
-    virtual int PlayAudio(const uchar *, int, uchar);
 
 // Image Grab facilities
 
@@ -1066,8 +1067,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice::
-SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
+void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
+    video_display_format)
 {
     static int last = -1;
 
@@ -1124,8 +1125,14 @@ void cSoftHdDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 
 // ----------------------------------------------------------------------------
 
+#ifndef xxUSE_TS_AUDIO
+
 /**
 **	Play a audio packet.
+**
+**	@param data	exactly one complete PES packet (which is incomplete)
+**	@param length	length of PES packet
+**	@param id	type of audio data this packet holds
 */
 int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
@@ -1133,6 +1140,8 @@ int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
 
     return::PlayAudio(data, length, id);
 }
+
+#endif
 
 void cSoftHdDevice::SetAudioTrackDevice(
     __attribute__ ((unused)) eTrackType type)
@@ -1173,6 +1182,9 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 
 /**
 **	Play a video packet.
+**
+**	@param data	exactly one complete PES packet (which is incomplete)
+**	@param length	length of PES packet
 */
 int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {

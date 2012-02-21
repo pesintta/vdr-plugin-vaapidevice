@@ -37,6 +37,8 @@ extern "C"
 
     /// C plugin play audio packet
     extern int PlayAudio(const uint8_t *, int, uint8_t);
+    /// C plugin play TS audio packet
+    extern int PlayTsAudio(const uint8_t *, int);
     /// C plugin set audio volume
     extern void SetVolumeDevice(int);
 

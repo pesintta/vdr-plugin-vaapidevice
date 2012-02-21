@@ -71,16 +71,22 @@ static volatile char StreamFreezed;	///< stream freezed
 
 static volatile char NewAudioStream;	///< new audio stream
 static volatile char SkipAudio;		///< skip audio stream
-static char AudioRawAc3;		///< flag raw ac3 stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 static int AudioChannelID;		///< current audio channel id
 
-/**
-**	mpeg bitrate table.
-**
-**	BitRateTable[Version][Layer][Index]
-*/
+#define AUDIO_BUFFER_SIZE (512 * 1024)	///< audio PES buffer default size
+static AVPacket AudioAvPkt[1];		///< audio a/v packet
+
+//////////////////////////////////////////////////////////////////////////////
+//	Audio codec parser
+//////////////////////////////////////////////////////////////////////////////
+
+///
+///	Mpeg bitrate table.
+///
+///	BitRateTable[Version][Layer][Index]
+///
 static const uint16_t BitRateTable[2][4][16] = {
     // MPEG Version 1
     {{},
@@ -96,109 +102,187 @@ static const uint16_t BitRateTable[2][4][16] = {
 	}
 };
 
-/**
-**	mpeg samperate table.
-*/
+///
+///	Mpeg samperate table.
+///
 static const uint16_t SampleRateTable[4] = {
     44100, 48000, 32000, 0
 };
 
-/**
-**	Find sync in audio packet.
-**
-**	@param avpkt	audio packet
-**
-**	From: http://www.mpgedit.org/mpgedit/mpeg_format/mpeghdr.htm
-**
-**	AAAAAAAA AAABBCCD EEEEFFGH IIJJKLMM
-**
-**	o a 11x	frame sync
-**	o b 2x	mpeg audio version (2.5, reserved, 2, 1)
-**	o c 2x	layer (reserved, III, II, I)
-**	o e 2x	BitRate index
-**	o f 2x	SampleRate index
-**	o g 1x	Paddding bit
-**	o ..	doesn't care
-**
-**	frame length:
-**	Layer I:
-**		FrameLengthInBytes = (12 * BitRate / SampleRate + Padding) * 4
-**	Layer II & III:
-**		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
-**
-**	@todo sometimes detects wrong position
-*/
-static int FindAudioSync(const AVPacket * avpkt)
+///
+///	Fast check for Mpeg audio.
+///
+///	4 bytes 0xFFExxxxx Mpeg audio
+///
+static inline int FastMpegCheck(const uint8_t * p)
 {
-    int i;
-    const uint8_t *data;
-
-    i = 0;
-    data = avpkt->data;
-    while (i < avpkt->size - 4) {
-	if (data[i] == 0xFF && (data[i + 1] & 0xFC) == 0xFC) {
-	    int mpeg2;
-	    int mpeg25;
-	    int layer;
-	    int bit_rate_index;
-	    int sample_rate_index;
-	    int padding;
-	    int bit_rate;
-	    int sample_rate;
-	    int frame_size;
-
-	    mpeg2 = !(data[i + 1] & 0x08) && (data[i + 1] & 0x10);
-	    mpeg25 = !(data[i + 1] & 0x08) && !(data[i + 1] & 0x10);
-	    layer = 4 - ((data[i + 1] >> 1) & 0x03);
-	    bit_rate_index = (data[i + 2] >> 4) & 0x0F;
-	    sample_rate_index = (data[i + 2] >> 2) & 0x03;
-	    padding = (data[i + 2] >> 1) & 0x01;
-
-	    sample_rate = SampleRateTable[sample_rate_index];
-	    if (!sample_rate) {		// no valid sample rate try next
-		i++;
-		continue;
-	    }
-	    sample_rate >>= mpeg2;	// mpeg 2 half rate
-	    sample_rate >>= mpeg25;	// mpeg 2.5 quarter rate
-
-	    bit_rate = BitRateTable[mpeg2 | mpeg25][layer][bit_rate_index];
-	    bit_rate *= 1000;
-	    switch (layer) {
-		case 1:
-		    frame_size = (12 * bit_rate) / sample_rate;
-		    frame_size = (frame_size + padding) * 4;
-		    break;
-		case 2:
-		case 3:
-		default:
-		    frame_size = (144 * bit_rate) / sample_rate;
-		    frame_size = frame_size + padding;
-		    break;
-	    }
-	    Debug(3,
-		"audio: mpeg%s layer%d bitrate=%d samplerate=%d %d bytes\n",
-		mpeg25 ? "2.5" : mpeg2 ? "2" : "1", layer, bit_rate,
-		sample_rate, frame_size);
-	    // check if after this frame a new mpeg frame starts
-	    if (i + frame_size < avpkt->size - 3
-		&& data[i + frame_size] == 0xFF
-		&& (data[i + frame_size + 1] & 0xFC) == 0xFC) {
-		Debug(3, "audio: mpeg1/2 found at %d\n", i);
-		return i;
-	    }
-	    // no valid frame size or no continuation, try next
-	}
-	i++;
+    if (p[0] != 0xFF) {			// 11bit frame sync
+	return 0;
     }
-    return -1;
+    if ((p[1] & 0xE0) != 0xE0) {
+	return 0;
+    }
+    if ((p[1] & 0x18) == 0x08) {	// version ID - 01 reserved
+	return 0;
+    }
+    if (!(p[1] & 0x06)) {		// layer description - 00 reserved
+	return 0;
+    }
+    if ((p[2] & 0xF0) == 0xF0) {	// bitrate index - 1111 reserved
+	return 0;
+    }
+    if ((p[2] & 0x0C) == 0x0C) {	// sampling rate index - 11 reserved
+	return 0;
+    }
+    return 1;
 }
 
-/**
-**	Possible AC3 frame sizes.
-**
-**	from ATSC A/52 table 5.18 frame size code table.
-*/
+///
+///	Check for Mpeg audio.
+///
+///	0xFFEx already checked.
+///
+///	@param data	incomplete PES packet
+///	@param size	number of bytes
+///
+///	@retval <0	possible mpeg audio, but need more data
+///	@retval 0	no valid mpeg audio
+///	@retval >0	valid mpeg audio
+///
+///	From: http://www.mpgedit.org/mpgedit/mpeg_format/mpeghdr.htm
+///
+///	AAAAAAAA AAABBCCD EEEEFFGH IIJJKLMM
+///
+///	o a 11x Frame sync
+///	o b 2x	Mpeg audio version (2.5, reserved, 2, 1)
+///	o c 2x	Layer (reserved, III, II, I)
+///	o e 2x	BitRate index
+///	o f 2x	SampleRate index (4100, 48000, 32000, 0)
+///	o g 1x	Paddding bit
+///	o ..	Doesn't care
+///
+///	frame length:
+///	Layer I:
+///		FrameLengthInBytes = (12 * BitRate / SampleRate + Padding) * 4
+///	Layer II & III:
+///		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
+///
+static int MpegCheck(const uint8_t * data, int size)
+{
+    int mpeg2;
+    int mpeg25;
+    int layer;
+    int bit_rate_index;
+    int sample_rate_index;
+    int padding;
+    int bit_rate;
+    int sample_rate;
+    int frame_size;
+
+    mpeg2 = !(data[1] & 0x08) && (data[1] & 0x10);
+    mpeg25 = !(data[1] & 0x08) && !(data[1] & 0x10);
+    layer = 4 - ((data[1] >> 1) & 0x03);
+    bit_rate_index = (data[2] >> 4) & 0x0F;
+    sample_rate_index = (data[2] >> 2) & 0x03;
+    padding = (data[2] >> 1) & 0x01;
+
+    sample_rate = SampleRateTable[sample_rate_index];
+    if (!sample_rate) {			// no valid sample rate try next
+	// moved into fast check
+	abort();
+	return 0;
+    }
+    sample_rate >>= mpeg2;		// mpeg 2 half rate
+    sample_rate >>= mpeg25;		// mpeg 2.5 quarter rate
+
+    bit_rate = BitRateTable[mpeg2 | mpeg25][layer][bit_rate_index];
+    if (!bit_rate) {			// no valid bit-rate try next
+	// FIXME: move into fast check?
+	return 0;
+    }
+    bit_rate *= 1000;
+    switch (layer) {
+	case 1:
+	    frame_size = (12 * bit_rate) / sample_rate;
+	    frame_size = (frame_size + padding) * 4;
+	    break;
+	case 2:
+	case 3:
+	default:
+	    frame_size = (144 * bit_rate) / sample_rate;
+	    frame_size = frame_size + padding;
+	    break;
+    }
+    if (0) {
+	Debug(3,
+	    "pesdemux: mpeg%s layer%d bitrate=%d samplerate=%d %d bytes\n",
+	    mpeg25 ? "2.5" : mpeg2 ? "2" : "1", layer, bit_rate, sample_rate,
+	    frame_size);
+    }
+
+    if (frame_size + 4 > size) {
+	return -frame_size - 4;
+    }
+    // check if after this frame a new mpeg frame starts
+    if (FastMpegCheck(data + frame_size)) {
+	return frame_size;
+    }
+
+    return 0;
+}
+
+///
+///	Fast check for AAC LATM audio.
+///
+///	3 bytes 0x56Exxx AAC LATM audio
+///
+static inline int FastLatmCheck(const uint8_t * p)
+{
+    if (p[0] != 0x56) {			// 11bit sync
+	return 0;
+    }
+    if ((p[1] & 0xE0) != 0xE0) {
+	return 0;
+    }
+    return 1;
+}
+
+///
+///	Check for AAC LATM audio.
+///
+///	0x56Exxx already checked.
+///
+///	@param data	incomplete PES packet
+///	@param size	number of bytes
+///
+///	@retval <0	possible AAC LATM audio, but need more data
+///	@retval 0	no valid AAC LATM audio
+///	@retval >0	valid AAC LATM audio
+///
+static int LatmCheck(const uint8_t * data, int size)
+{
+    int frame_size;
+
+    // 13 bit frame size without header
+    frame_size = ((data[1] & 0x1F) << 8) + data[2];
+    frame_size += 3;
+
+    if (frame_size + 2 > size) {
+	return -frame_size - 2;
+    }
+    // check if after this frame a new AAC LATM frame starts
+    if (FastLatmCheck(data + frame_size)) {
+	return frame_size;
+    }
+
+    return 0;
+}
+
+///
+///	Possible AC3 frame sizes.
+///
+///	from ATSC A/52 table 5.18 frame size code table.
+///
 const uint16_t Ac3FrameSizeTable[38][3] = {
     {64, 69, 96}, {64, 70, 96}, {80, 87, 120}, {80, 88, 120},
     {96, 104, 144}, {96, 105, 144}, {112, 121, 168}, {112, 122, 168},
@@ -212,42 +296,543 @@ const uint16_t Ac3FrameSizeTable[38][3] = {
     {1152, 1254, 1728}, {1280, 1393, 1920}, {1280, 1394, 1920},
 };
 
-/**
-**	Find dolby sync in audio packet.
-**
-**	@param avpkt	audio packet
-*/
-static int FindDolbySync(const AVPacket * avpkt)
+///
+///	Fast check for AC3 audio.
+///
+///	5 bytes 0x0B77xxxxxx AC3 audio
+///
+static inline int FastAc3Check(const uint8_t * p)
 {
-    int i;
-    const uint8_t *data;
-
-    i = 0;
-    data = avpkt->data;
-    while (i < avpkt->size - 5) {
-	if (data[i] == 0x0B && data[i + 1] == 0x77) {
-	    int fscod;
-	    int frmsizcod;
-	    int frame_size;
-
-	    // crc1 crc1 fscod|frmsizcod
-	    fscod = data[i + 4] >> 6;
-	    frmsizcod = data[i + 4] & 0x3F;
-	    frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
-
-	    // check if after this frame a new ac-3 frame starts
-	    if (i + frame_size < avpkt->size - 5
-		&& data[i + frame_size] == 0x0B
-		&& data[i + frame_size + 1] == 0x77) {
-		Debug(3, "audio: ac-3 found at %d\n", i);
-		return i;
-	    }
-	    // no valid frame size or no continuation, try next
-	}
-	i++;
+    if (p[0] != 0x0B) {			// 16bit sync
+	return 0;
     }
-    return -1;
+    if (p[1] != 0x77) {
+	return 0;
+    }
+    return 1;
 }
+
+///
+///	Check for AC-3 audio.
+///
+///	0x0B77xxxxxx already checked.
+///
+///	@param data	incomplete PES packet
+///	@param size	number of bytes
+///
+///	@retval <0	possible AC-3 audio, but need more data
+///	@retval 0	no valid AC-3 audio
+///	@retval >0	valid AC-3 audio
+///
+static int Ac3Check(const uint8_t * data, int size)
+{
+    int fscod;
+    int frmsizcod;
+    int frame_size;
+
+    // crc1 crc1 fscod|frmsizcod
+    fscod = data[4] >> 6;
+    frmsizcod = data[4] & 0x3F;
+    frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
+
+    if (frame_size + 2 > size) {
+	return -frame_size - 2;
+    }
+    // check if after this frame a new AC-3 frame starts
+    if (FastAc3Check(data + frame_size)) {
+	return frame_size;
+    }
+
+    return 0;
+}
+
+#ifdef USE_TS_AUDIO
+
+//////////////////////////////////////////////////////////////////////////////
+//	PES Demux
+//////////////////////////////////////////////////////////////////////////////
+
+///
+///	PES type.
+///
+enum
+{
+    PES_PROG_STREAM_MAP = 0xBC,
+    PES_PRIVATE_STREAM1 = 0xBD,
+    PES_PADDING_STREAM = 0xBE,		///< filler, padding stream
+    PES_PRIVATE_STREAM2 = 0xBF,
+    PES_AUDIO_STREAM_S = 0xC0,
+    PES_AUDIO_STREAM_E = 0xDF,
+    PES_VIDEO_STREAM_S = 0xE0,
+    PES_VIDEO_STREAM_E = 0xEF,
+    PES_ECM_STREAM = 0xF0,
+    PES_EMM_STREAM = 0xF1,
+    PES_DSM_CC_STREAM = 0xF2,
+    PES_ISO13522_STREAM = 0xF3,
+    PES_TYPE_E_STREAM = 0xF8,		///< ITU-T rec. h.222.1 type E stream
+    PES_PROG_STREAM_DIR = 0xFF,
+};
+
+///
+///	PES parser state.
+///
+enum
+{
+    PES_INIT,				///< unknown codec
+
+    PES_SKIP,				///< skip packet
+    PES_SYNC,				///< search packet sync byte
+    PES_HEADER,				///< copy header
+    PES_START,				///< pes packet start found
+    PES_PAYLOAD,			///< copy payload
+
+    PES_LPCM_HEADER,			///< copy lcpm header
+    PES_LPCM_PAYLOAD,			///< copy lcpm payload
+};
+
+#define PES_START_CODE_SIZE 6		///< size of pes start code with length
+#define PES_HEADER_SIZE 9		///< size of pes header
+#define PES_MAX_HEADER_SIZE (PES_HEADER_SIZE + 256)	///< maximal header size
+#define PES_MAX_PAYLOAD	(512 * 1024)	///< max pay load size
+
+///
+///	PES demuxer.
+///
+typedef struct _pes_demux_
+{
+    //int Pid;				///< packet id
+    //int PcrPid;			///< program clock reference pid
+    //int StreamType;			///< stream type
+
+    int State;				///< parsing state
+    uint8_t Header[PES_MAX_HEADER_SIZE];	///< buffer for pes header
+    int HeaderIndex;			///< header index
+    int HeaderSize;			///< size of pes header
+    uint8_t *Buffer;			///< payload buffer
+    int Index;				///< buffer index
+    int Skip;				///< buffer skip
+    int Size;				///< size of payload buffer
+
+    uint8_t StartCode;			///< pes packet start code
+
+    int64_t PTS;			///< presentation time stamp
+    int64_t DTS;			///< decode time stamp
+} PesDemux;
+
+///
+///	Initialize a packetized elementary stream demuxer.
+///
+///	@param pesdx	packetized elementary stream demuxer
+///
+void PesInit(PesDemux * pesdx)
+{
+    memset(pesdx, 0, sizeof(*pesdx));
+    pesdx->Size = PES_MAX_PAYLOAD;
+    pesdx->Buffer = av_malloc(PES_MAX_PAYLOAD + FF_INPUT_BUFFER_PADDING_SIZE);
+    if (!pesdx->Buffer) {
+	Fatal(_("pesdemux: out of memory\n"));
+    }
+    pesdx->PTS = AV_NOPTS_VALUE;	// reset
+    pesdx->DTS = AV_NOPTS_VALUE;
+}
+
+///
+///	Reset packetized elementary stream demuxer.
+///
+void PesReset(PesDemux * pesdx)
+{
+    pesdx->State = PES_INIT;
+    pesdx->Skip = 0;
+    pesdx->PTS = AV_NOPTS_VALUE;
+    pesdx->DTS = AV_NOPTS_VALUE;
+}
+
+///
+///	Parse packetized elementary stream.
+///
+///	@param pesdx	packetized elementary stream demuxer
+///	@param data	payload data of transport stream
+///	@param size	number of payload data bytes
+///	@param is_start flag, start of pes packet
+///
+void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
+{
+    const uint8_t *p;
+    const uint8_t *q;
+
+    if (is_start) {			// start of pes packet
+	if (pesdx->Index && pesdx->Skip) {
+	    // copy remaining bytes down
+	    pesdx->Index -= pesdx->Skip;
+	    memmove(pesdx->Buffer, pesdx->Buffer + pesdx->Skip, pesdx->Index);
+	    pesdx->Skip = 0;
+	}
+	pesdx->State = PES_SYNC;
+	pesdx->HeaderIndex = 0;
+	pesdx->PTS = AV_NOPTS_VALUE;	// reset if not yet used
+	pesdx->DTS = AV_NOPTS_VALUE;
+    }
+
+    p = data;
+    do {
+	int n;
+
+	switch (pesdx->State) {
+	    case PES_SKIP:		// skip this packet
+		return;
+
+	    case PES_START:		// at start of pes packet payload
+		// FIXME: need 0x80 -- 0xA0 state
+		if (AudioCodecID == CODEC_ID_NONE) {
+		    if ((*p & 0xF0) == 0x80) {	// AC-3 & DTS
+			Debug(3, "pesdemux: dvd ac-3\n");
+		    } else if ((*p & 0xFF) == 0xA0) {	// LPCM
+			Debug(3, "pesdemux: dvd lpcm\n");
+			pesdx->State = PES_LPCM_HEADER;
+			pesdx->HeaderIndex = 0;
+			pesdx->HeaderSize = 7;
+			break;
+		    }
+		}
+
+	    case PES_INIT:		// find start of audio packet
+		// FIXME: increase if needed the buffer
+
+		// fill buffer
+		n = pesdx->Size - pesdx->Index;
+		if (n > size) {
+		    n = size;
+		}
+		memcpy(pesdx->Buffer + pesdx->Index, p, n);
+		pesdx->Index += n;
+		p += n;
+		size -= n;
+
+		q = pesdx->Buffer + pesdx->Skip;
+		n = pesdx->Index - pesdx->Skip;
+		while (n >= 5) {
+		    int r;
+		    unsigned codec_id;
+
+		    // 4 bytes 0xFFExxxxx Mpeg audio
+		    // 3 bytes 0x56Exxx AAC LATM audio
+		    // 5 bytes 0x0B77xxxxxx AC3 audio
+		    // PCM audio can't be found
+		    r = 0;
+		    if (FastMpegCheck(q)) {
+			r = MpegCheck(q, n);
+			codec_id = CODEC_ID_MP2;
+		    }
+		    if (!r && FastAc3Check(q)) {
+			r = Ac3Check(q, n);
+			codec_id = CODEC_ID_AC3;
+		    }
+		    if (!r && FastLatmCheck(q)) {
+			r = LatmCheck(q, n);
+			codec_id = CODEC_ID_AAC_LATM;
+		    }
+		    if (r < 0) {	// need more bytes
+			break;
+		    }
+		    if (r > 0) {
+			AVPacket avpkt[1];
+
+			// new codec id, close and open new
+			if (AudioCodecID != codec_id) {
+			    CodecAudioClose(MyAudioDecoder);
+			    CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+			    AudioCodecID = codec_id;
+			}
+			av_init_packet(avpkt);
+			avpkt->data = (void *)q;
+			avpkt->size = r;
+			avpkt->pts = pesdx->PTS;
+			avpkt->dts = pesdx->DTS;
+			CodecAudioDecode(MyAudioDecoder, avpkt);
+			pesdx->PTS = AV_NOPTS_VALUE;
+			pesdx->DTS = AV_NOPTS_VALUE;
+			pesdx->Skip += r;
+			// FIXME: switch to decoder state
+			//pesdx->State = PES_MPEG_DECODE;
+			break;
+		    }
+		    // try next byte
+		    ++pesdx->Skip;
+		    ++q;
+		    --n;
+		}
+		break;
+
+	    case PES_SYNC:		// wait for pes sync
+		n = PES_START_CODE_SIZE - pesdx->HeaderIndex;
+		if (n > size) {
+		    n = size;
+		}
+		memcpy(pesdx->Header + pesdx->HeaderIndex, p, n);
+		pesdx->HeaderIndex += n;
+		p += n;
+		size -= n;
+
+		// have complete packet start code
+		if (pesdx->HeaderIndex >= PES_START_CODE_SIZE) {
+		    unsigned code;
+
+		    // bad mpeg pes packet start code prefix 0x00001xx
+		    if (pesdx->Header[0] || pesdx->Header[1]
+			|| pesdx->Header[2] != 0x01) {
+			Debug(3, "pesdemux: bad pes packet\n");
+			pesdx->State = PES_SKIP;
+			return;
+		    }
+		    code = pesdx->Header[3];
+		    if (code != pesdx->StartCode) {
+			Debug(3, "pesdemux: pes start code id %#02x\n", code);
+			// FIXME: need to save start code id?
+			pesdx->StartCode = code;
+		    }
+
+		    pesdx->State = PES_HEADER;
+		    pesdx->HeaderSize = PES_HEADER_SIZE;
+		}
+		break;
+
+	    case PES_HEADER:		// parse PES header
+		n = pesdx->HeaderSize - pesdx->HeaderIndex;
+		if (n > size) {
+		    n = size;
+		}
+		memcpy(pesdx->Header + pesdx->HeaderIndex, p, n);
+		pesdx->HeaderIndex += n;
+		p += n;
+		size -= n;
+
+		// have header upto size bits
+		if (pesdx->HeaderIndex == PES_HEADER_SIZE) {
+		    if ((pesdx->Header[6] & 0xC0) == 0x80) {
+			pesdx->HeaderSize += pesdx->Header[8];
+		    } else {
+			Error(_("pesdemux: mpeg1 pes packet unsupported\n"));
+			pesdx->State = PES_SKIP;
+			return;
+		    }
+		    // have complete header
+		} else if (pesdx->HeaderIndex == pesdx->HeaderSize) {
+		    int64_t pts;
+		    int64_t dts;
+
+		    if ((pesdx->Header[7] & 0xC0) == 0x80) {
+			pts =
+			    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 |
+			    (data[11] & 0xFE) << 14 | data[12] << 7 | (data[13]
+			    & 0xFE) >> 1;
+			Debug(4, "pesdemux: pts %#012" PRIx64 "\n", pts);
+			pesdx->PTS = pts;
+		    } else if ((pesdx->Header[7] & 0xC0) == 0xC0) {
+			pts =
+			    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 |
+			    (data[11] & 0xFE) << 14 | data[12] << 7 | (data[13]
+			    & 0xFE) >> 1;
+			pesdx->PTS = pts;
+			dts =
+			    (int64_t) (data[14] & 0x0E) << 29 | data[15] << 22
+			    | (data[16] & 0xFE) << 14 | data[17] << 7 |
+			    (data[18] & 0xFE) >> 1;
+			pesdx->DTS = dts;
+			Debug(4,
+			    "pesdemux: pts %#012" PRIx64 " %#012" PRIx64 "\n",
+			    pts, dts);
+		    }
+
+		    pesdx->State = PES_INIT;
+		    if (pesdx->StartCode == PES_PRIVATE_STREAM1) {
+			// only private stream 1, has sub streams
+			pesdx->State = PES_START;
+		    }
+		    //pesdx->HeaderIndex = 0;
+		    //pesdx->Index = 0;
+		}
+		break;
+
+	    case PES_LPCM_HEADER:	// lpcm header
+		n = pesdx->HeaderSize - pesdx->HeaderIndex;
+		if (n > size) {
+		    n = size;
+		}
+		memcpy(pesdx->Header + pesdx->HeaderIndex, p, n);
+		pesdx->HeaderIndex += n;
+		p += n;
+		size -= n;
+
+		if (pesdx->HeaderIndex == pesdx->HeaderSize) {
+		    static int samplerates[] = { 48000, 96000, 44100, 32000 };
+		    int samplerate;
+		    int channels;
+		    int bits_per_sample;
+		    const uint8_t *q;
+
+		    if (AudioCodecID != CODEC_ID_PCM_DVD) {
+
+			q = pesdx->Header;
+			Debug(3, "pesdemux: LPCM %d sr:%d bits:%d chan:%d\n",
+			    q[0], q[5] >> 4, (((q[5] >> 6) & 0x3) + 4) * 4,
+			    (q[5] & 0x7) + 1);
+			CodecAudioClose(MyAudioDecoder);
+
+			bits_per_sample = (((q[5] >> 6) & 0x3) + 4) * 4;
+			if (bits_per_sample != 16) {
+			    Error(_
+				("softhddev: LPCM %d bits per sample aren't supported\n"),
+				bits_per_sample);
+			    // FIXME: handle unsupported formats.
+			}
+			samplerate = samplerates[q[5] >> 4];
+			channels = (q[5] & 0x7) + 1;
+			AudioSetup(&samplerate, &channels, 0);
+			if (samplerate != samplerates[q[5] >> 4]) {
+			    Error(_
+				("softhddev: LPCM %d sample-rate is unsupported\n"),
+				samplerates[q[5] >> 4]);
+			    // FIXME: support resample
+			}
+			if (channels != (q[5] & 0x7) + 1) {
+			    Error(_
+				("softhddev: LPCM %d channels are unsupported\n"),
+				(q[5] & 0x7) + 1);
+			    // FIXME: support resample
+			}
+			//CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
+			AudioCodecID = CODEC_ID_PCM_DVD;
+		    }
+		    pesdx->State = PES_LPCM_PAYLOAD;
+		    pesdx->Index = 0;
+		    pesdx->Skip = 0;
+		}
+		break;
+
+	    case PES_LPCM_PAYLOAD:	// lpcm payload
+		// fill buffer
+		n = pesdx->Size - pesdx->Index;
+		if (n > size) {
+		    n = size;
+		}
+		memcpy(pesdx->Buffer + pesdx->Index, p, n);
+		pesdx->Index += n;
+		p += n;
+		size -= n;
+
+		if (pesdx->PTS != (int64_t) AV_NOPTS_VALUE) {
+		    // FIXME: needs bigger buffer
+		    AudioSetClock(pesdx->PTS);
+		    pesdx->PTS = AV_NOPTS_VALUE;
+		}
+		swab(pesdx->Buffer, pesdx->Buffer, pesdx->Index);
+		AudioEnqueue(pesdx->Buffer, pesdx->Index);
+		pesdx->Index = 0;
+		break;
+	}
+    } while (size > 0);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//	Transport stream demux
+//////////////////////////////////////////////////////////////////////////////
+
+    /// Transport stream packet size
+#define TS_PACKET_SIZE	188
+    /// Transport stream packet sync byte
+#define TS_PACKET_SYNC	0x47
+
+///
+///	transport stream demuxer typedef.
+///
+typedef struct _ts_demux_ TsDemux;
+
+///
+///	transport stream demuxer structure.
+///
+struct _ts_demux_
+{
+    int Packets;			///< packets between PCR
+};
+
+static PesDemux PesDemuxAudio[1];	///< audio demuxer
+
+///
+///	Transport stream demuxer.
+///
+///	@param tsdx	transport stream demuxer
+///	@param data	buffer of transport stream packets
+///	@param size	size of buffer
+///
+///	@returns number of bytes consumed from buffer.
+///
+int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size)
+{
+    const uint8_t *p;
+
+    p = data;
+    while (size >= TS_PACKET_SIZE) {
+	int pid;
+	int payload;
+
+	if (p[0] != TS_PACKET_SYNC) {
+	    Error(_("tsdemux: transport stream out of sync\n"));
+	    // FIXME: kill all buffers
+	    return size;
+	}
+	++tsdx->Packets;
+	if (p[1] & 0x80) {		// error indicator
+	    Debug(3, "tsdemux: transport error\n");
+	    // FIXME: kill all buffers
+	    goto next_packet;
+	}
+
+	pid = (p[1] & 0x1F) << 8 | p[2];
+	Debug(4, "tsdemux: PID: %#04x%s%s\n", pid, p[1] & 0x40 ? " start" : "",
+	    p[3] & 0x10 ? " payload" : "");
+
+	// skip adaptation field
+	switch (p[3] & 0x30) {		// adaption field
+	    case 0x00:			// reserved
+	    case 0x20:			// adaptation field only
+	    default:
+		goto next_packet;
+	    case 0x10:			// only payload
+		payload = 4;
+		break;
+	    case 0x30:			// skip adapation field
+		payload = 5 + p[4];
+		// illegal length, ignore packet
+		if (payload >= TS_PACKET_SIZE) {
+		    Debug(3, "tsdemux: illegal adaption field length\n");
+		    goto next_packet;
+		}
+		break;
+	}
+
+	PesParse(PesDemuxAudio, p + payload, TS_PACKET_SIZE - payload,
+	    p[1] & 0x40);
+#if 0
+	int tmp;
+
+	//	check continuity
+	tmp = p[3] & 0x0F;		// continuity counter
+	if (((tsdx->CC + 1) & 0x0F) != tmp) {
+	    Debug(3, "tsdemux: OUT OF SYNC: %d %d\n", tmp, tsdx->CC);
+	    //TS discontinuity (received 8, expected 0) for PID
+	}
+	tsdx->CC = tmp;
+#endif
+
+      next_packet:
+	p += TS_PACKET_SIZE;
+	size -= TS_PACKET_SIZE;
+    }
+
+    return p - data;
+}
+
+#endif
 
 /**
 **	Play audio packet.
@@ -259,8 +844,7 @@ static int FindDolbySync(const AVPacket * avpkt)
 int PlayAudio(const uint8_t * data, int size, uint8_t id)
 {
     int n;
-    int osize;
-    AVPacket avpkt[1];
+    const uint8_t *p;
 
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
@@ -270,17 +854,207 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (SkipAudio || !MyAudioDecoder) {	// skip audio
 	return size;
     }
+
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
+	AudioSetBufferTime(0);
 	AudioCodecID = CODEC_ID_NONE;
+	AudioChannelID = -1;
 	NewAudioStream = 0;
+    }
+    // Don't overrun audio buffers on replay
+    if (AudioFreeBytes() < 3072 * 8 * 8) {	// 8 channels 8 packets
+	return 0;
     }
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
-    if (size < 9) {
-	Error(_("[softhddev] invalid audio packet\n"));
+    // must be a PES start code
+    if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
+	Error(_("[softhddev] invalid PES audio packet\n"));
+	return size;
+    }
+    n = data[8];			// header size
+
+    if (size < 9 + n + 4) {		// wrong size
+	if (size == 9 + n) {
+	    Warning(_("[softhddev] empty audio packet\n"));
+	} else {
+	    Error(_("[softhddev] invalid audio packet %d bytes\n"), size);
+	}
+	return size;
+    }
+
+    if (data[7] & 0x80 && n >= 5) {
+	AudioAvPkt->pts =
+	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
+	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
+	//Debug(3, "audio: pts %#012" PRIx64 "\n", AudioAvPkt->pts);
+    }
+    if (0) {				// dts is unused
+	if (data[7] & 0x40) {
+	    AudioAvPkt->dts =
+		(int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16]
+		& 0xFE) << 14 | data[17] << 7 | (data[18] & 0xFE) >> 1;
+	    Debug(3, "audio: dts %#012" PRIx64 "\n", AudioAvPkt->dts);
+	}
+    }
+
+    p = data + 9 + n;
+    n = size - 9 - n;			// skip pes header
+    if (n + AudioAvPkt->stream_index > AudioAvPkt->size) {
+	Fatal(_("[softhddev] audio buffer too small\n"));
+	AudioAvPkt->stream_index = 0;
+    }
+
+    if (AudioChannelID != id) {
+	AudioChannelID = id;
+	AudioCodecID = CODEC_ID_NONE;
+    }
+    // Private stream + LPCM ID
+    if ((id & 0xF0) == 0xA0) {
+	if (n < 7) {
+	    Error(_("[softhddev] invalid LPCM audio packet %d bytes\n"), size);
+	    return size;
+	}
+	if (AudioCodecID != CODEC_ID_PCM_DVD) {
+	    static int samplerates[] = { 48000, 96000, 44100, 32000 };
+	    int samplerate;
+	    int channels;
+	    int bits_per_sample;
+
+	    Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
+		__FUNCTION__, id, p[5] >> 4, (((p[5] >> 6) & 0x3) + 4) * 4,
+		(p[5] & 0x7) + 1);
+	    CodecAudioClose(MyAudioDecoder);
+
+	    bits_per_sample = (((p[5] >> 6) & 0x3) + 4) * 4;
+	    if (bits_per_sample != 16) {
+		Error(_
+		    ("softhddev: LPCM %d bits per sample aren't supported\n"),
+		    bits_per_sample);
+		// FIXME: handle unsupported formats.
+	    }
+	    samplerate = samplerates[p[5] >> 4];
+	    channels = (p[5] & 0x7) + 1;
+
+	    AudioSetBufferTime(400);
+	    AudioSetup(&samplerate, &channels, 0);
+	    if (samplerate != samplerates[p[5] >> 4]) {
+		Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
+		    samplerates[p[5] >> 4]);
+		// FIXME: support resample
+	    }
+	    if (channels != (p[5] & 0x7) + 1) {
+		Error(_("softhddev: LPCM %d channels are unsupported\n"),
+		    (p[5] & 0x7) + 1);
+		// FIXME: support resample
+	    }
+	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
+	    AudioCodecID = CODEC_ID_PCM_DVD;
+	}
+
+	if (AudioAvPkt->pts != (int64_t) AV_NOPTS_VALUE) {
+	    AudioSetClock(AudioAvPkt->pts);
+	    AudioAvPkt->pts = AV_NOPTS_VALUE;
+	}
+	swab(p + 7, AudioAvPkt->data, n - 7);
+	AudioEnqueue(AudioAvPkt->data, n - 7);
+
+	return size;
+    }
+    // DVD track header
+    if ((id & 0xF0) == 0x80 && (p[0] & 0xF0) == 0x80) {
+	p += 4;
+	n -= 4;				// skip track header
+	if (AudioCodecID == CODEC_ID_NONE) {
+	    AudioSetBufferTime(400);
+	}
+    }
+    // append new packet, to partial old data
+    memcpy(AudioAvPkt->data + AudioAvPkt->stream_index, p, n);
+    AudioAvPkt->stream_index += n;
+
+    n = AudioAvPkt->stream_index;
+    p = AudioAvPkt->data;
+    while (n >= 5) {
+	int r;
+	unsigned codec_id;
+
+	// 4 bytes 0xFFExxxxx Mpeg audio
+	// 3 bytes 0x56Exxx AAC LATM audio
+	// 5 bytes 0x0B77xxxxxx AC3 audio
+	// PCM audio can't be found
+	r = 0;
+	codec_id = CODEC_ID_NONE;	// keep compiler happy
+	if (id != 0xbd && FastMpegCheck(p)) {
+	    r = MpegCheck(p, n);
+	    codec_id = CODEC_ID_MP2;
+	}
+	if (id != 0xbd && !r && FastLatmCheck(p)) {
+	    r = LatmCheck(p, n);
+	    codec_id = CODEC_ID_AAC_LATM;
+	}
+	if ((id == 0xbd || (id & 0xF0) == 0x80) && !r && FastAc3Check(p)) {
+	    r = Ac3Check(p, n);
+	    codec_id = CODEC_ID_AC3;
+	}
+	if (r < 0) {			// need more bytes
+	    break;
+	}
+	if (r > 0) {
+	    AVPacket avpkt[1];
+
+	    // new codec id, close and open new
+	    if (AudioCodecID != codec_id) {
+		CodecAudioClose(MyAudioDecoder);
+		CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+		AudioCodecID = codec_id;
+	    }
+	    av_init_packet(avpkt);
+	    avpkt->data = (void *)p;
+	    avpkt->size = r;
+	    avpkt->pts = AudioAvPkt->pts;
+	    avpkt->dts = AudioAvPkt->dts;
+	    CodecAudioDecode(MyAudioDecoder, avpkt);
+	    AudioAvPkt->pts = AV_NOPTS_VALUE;
+	    AudioAvPkt->dts = AV_NOPTS_VALUE;
+	    p += r;
+	    n -= r;
+	    continue;
+	}
+	++p;
+	--n;
+    }
+
+    // copy remaining bytes to start of packet
+    if (n) {
+	memmove(AudioAvPkt->data, p, n);
+    }
+    AudioAvPkt->stream_index = n;
+
+    return size;
+}
+
+#ifdef USE_TS_AUDIO
+
+/**
+**	Play transport stream audio packet.
+**
+**	@param data	data of exactly one complete TS packet
+**	@param size	size of TS packet (always TS_PACKET_SIZE)
+**
+**	@returns number of bytes consumed;
+*/
+int PlayTsAudio(const uint8_t * data, int size)
+{
+    static TsDemux tsdx[1];
+
+    if (StreamFreezed) {		// stream freezed
+	return 0;
+    }
+    if (SkipAudio || !MyAudioDecoder) {	// skip audio
 	return size;
     }
     // Don't overrun audio buffers on replay
@@ -288,187 +1062,17 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	return 0;
     }
 
-    n = data[8];			// header size
-
-    av_init_packet(avpkt);
-    if (data[7] & 0x80 && n >= 5) {
-	avpkt->pts =
-	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
-	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-	//Debug(3, "audio: pts %#012" PRIx64 "\n", avpkt->pts);
+    if (NewAudioStream) {
+	// FIXME: does this clear the audio ringbuffer?
+	CodecAudioClose(MyAudioDecoder);
+	AudioCodecID = CODEC_ID_NONE;
+	NewAudioStream = 0;
+	PesReset(PesDemuxAudio);
     }
-    if (0) {				// dts is unused
-	if (data[7] & 0x40) {
-	    avpkt->dts =
-		(int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16]
-		& 0xFE) << 14 | data[17] << 7 | (data[18] & 0xFE) >> 1;
-	    Debug(3, "audio: dts %#012" PRIx64 "\n", avpkt->dts);
-	}
-    }
-
-    osize = size;
-    data += 9 + n;
-    size -= 9 + n;			// skip pes header
-    if (size <= 0) {
-	Error(_("[softhddev] invalid audio packet\n"));
-	return osize;
-    }
-    // Detect audio code
-    // MPEG-PS mp2 MPEG1, MPEG2, AC3, LPCM, AAC LATM
-
-    // only if unknown or new channel id
-    if (AudioCodecID == CODEC_ID_NONE || AudioChannelID != id) {
-	AudioChannelID = id;
-	// Syncword - 0x0B77
-	if (data[0] == 0x0B && data[1] == 0x77) {
-	    if (AudioCodecID != CODEC_ID_AC3) {
-		Debug(3, "[softhddev]%s: AC-3 %d\n", __FUNCTION__, id);
-		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
-		AudioCodecID = CODEC_ID_AC3;
-	    }
-	    AudioRawAc3 = 1;
-	    // Syncword - 0xFFFC - 0xFFFF
-	} else if (data[0] == 0xFF && (data[1] & 0xFC) == 0xFC) {
-	    if (AudioCodecID != CODEC_ID_MP2) {
-		Debug(3, "[softhddev]%s: MP2 %d\n", __FUNCTION__, id);
-		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_MP2);
-		AudioCodecID = CODEC_ID_MP2;
-	    }
-	    // latm header 0x56E0 11bits: 0x2B7
-	} else if (data[0] == 0x56 && (data[1] & 0xE0) == 0xE0
-	    && (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)) < size) {
-	    if (AudioCodecID != CODEC_ID_AAC_LATM) {
-#if 0
-		// test harder check
-		printf("%d %d\n", (((data[1] & 0x1F) << 8) + (data[2] & 0xFF)),
-		    size);
-		printf("%p %x %x\n", data,
-		    data[3 + (((data[1] & 0x1F) << 8) + (data[2] & 0xFF))],
-		    data[4 + (((data[1] & 0x1F) << 8) + (data[2] & 0xFF))]);
-#endif
-		Debug(3, "[softhddev]%s: AAC LATM %d\n", __FUNCTION__, id);
-		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AAC_LATM);
-		AudioCodecID = CODEC_ID_AAC_LATM;
-	    }
-	    // Private stream + DVD Track ID Syncword - 0x0B77
-	} else if (data[-n - 9 + 3] == 0xBD && (data[0] & 0xF0) == 0x80
-	    && data[4] == 0x0B && data[5] == 0x77) {
-	    if (AudioCodecID != CODEC_ID_AC3) {
-		Debug(3, "[softhddev]%s: DVD Audio %d\n", __FUNCTION__, id);
-		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_AC3);
-		AudioCodecID = CODEC_ID_AC3;
-	    }
-	    AudioRawAc3 = 0;
-	    // Private stream + LPCM ID
-	} else if (data[-n - 9 + 3] == 0xBD && data[0] == 0xA0) {
-	    if (AudioCodecID != CODEC_ID_PCM_DVD) {
-		static int samplerates[] = { 48000, 96000, 44100, 32000 };
-		int samplerate;
-		int channels;
-		int bits_per_sample;
-
-		Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n",
-		    __FUNCTION__, id, data[5] >> 4,
-		    (((data[5] >> 6) & 0x3) + 4) * 4, (data[5] & 0x7) + 1);
-		CodecAudioClose(MyAudioDecoder);
-
-		bits_per_sample = (((data[5] >> 6) & 0x3) + 4) * 4;
-		if (bits_per_sample != 16) {
-		    Error(_
-			("softhddev: LPCM %d bits per sample aren't supported\n"),
-			bits_per_sample);
-		    // FIXME: handle unsupported formats.
-		}
-		samplerate = samplerates[data[5] >> 4];
-		channels = (data[5] & 0x7) + 1;
-		AudioSetup(&samplerate, &channels, 0);
-		if (samplerate != samplerates[data[5] >> 4]) {
-		    Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
-			samplerates[data[5] >> 4]);
-		    // FIXME: support resample
-		}
-		if (channels != (data[5] & 0x7) + 1) {
-		    Error(_("softhddev: LPCM %d channels are unsupported\n"),
-			(data[5] & 0x7) + 1);
-		    // FIXME: support resample
-		}
-		//CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
-		AudioCodecID = CODEC_ID_PCM_DVD;
-	    }
-	} else {
-	    // no start package
-	    // FIXME: Nick/Viva sends this shit, need to find sync in packet
-	    // FIXME: otherwise it takes too long until sound appears
-
-	    if (AudioCodecID == CODEC_ID_NONE) {
-		int codec_id;
-
-		Debug(3, "[softhddev]%s: ??? %d\n", __FUNCTION__, id);
-		avpkt->data = (void *)data;
-		avpkt->size = size;
-		if (AudioChannelID == 0xBD) {
-		    n = FindDolbySync(avpkt);
-		    codec_id = CODEC_ID_AC3;
-		    AudioRawAc3 = 1;
-		} else if (0xC0 <= AudioChannelID && AudioChannelID <= 0xDF) {
-		    n = FindAudioSync(avpkt);
-		    codec_id = CODEC_ID_MP2;
-		} else {
-		    n = -1;
-		}
-		if (n < 0) {
-		    return osize;
-		}
-
-		CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
-		AudioCodecID = codec_id;
-		data += n;
-		size -= n;
-		avpkt->pts = AV_NOPTS_VALUE;
-	    }
-	}
-	// still no decoder or codec known
-	if (AudioCodecID == CODEC_ID_NONE) {
-	    return osize;
-	}
-    }
-    // convert data, if needed for ffmpeg
-    if (AudioCodecID == CODEC_ID_AC3 && !AudioRawAc3
-	&& (data[0] & 0xF0) == 0x80) {
-	avpkt->data = (void *)data + 4;	// skip track header
-	avpkt->size = size - 4;
-	if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-	    avpkt->pts += 200 * 90;	// FIXME: needs bigger buffer
-	}
-	CodecAudioDecode(MyAudioDecoder, avpkt);
-    } else if (AudioCodecID == CODEC_ID_PCM_DVD) {
-	if (size > 7) {
-	    char *buf;
-
-	    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-		// FIXME: needs bigger buffer
-		AudioSetClock(avpkt->pts + 200 * 90);
-	    }
-	    if (!(buf = malloc(size - 7))) {
-		Error(_("softhddev: out of memory\n"));
-	    } else {
-		swab(data + 7, buf, size - 7);
-		AudioEnqueue(buf, size - 7);
-		free(buf);
-	    }
-	}
-    } else {
-	avpkt->data = (void *)data;
-	avpkt->size = size;
-	CodecAudioDecode(MyAudioDecoder, avpkt);
-    }
-
-    return osize;
+    return TsDemuxer(tsdx, data, size);
 }
+
+#endif
 
 /**
 **	Set volume of audio device.
@@ -495,14 +1099,13 @@ static enum CodecID VideoCodecID;	///< current codec id
 static const char *X11DisplayName;	///< x11 display name
 static volatile char Usr1Signal;	///< true got usr1 signal
 
-    /// video PES buffer default size
-#define VIDEO_BUFFER_SIZE (512 * 1024)
-#define VIDEO_PACKET_MAX 128		///< max number of video packets
+#define VIDEO_BUFFER_SIZE (512 * 1024)	///< video PES buffer default size
+#define VIDEO_PACKET_MAX 192		///< max number of video packets
     /// video PES packet ring buffer
 static AVPacket VideoPacketRb[VIDEO_PACKET_MAX];
 static int VideoPacketWrite;		///< write pointer
 static int VideoPacketRead;		///< read pointer
-atomic_t VideoPacketsFilled;		///< how many of the buffer is used
+static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
 
 static volatile char VideoClearBuffers;	///< clear video buffers
 static volatile char SkipVideo;		///< skip video
@@ -813,6 +1416,14 @@ int VideoDecode(void)
 }
 
 /**
+**	Get number of video buffers.
+*/
+int VideoGetBuffers(void)
+{
+    return atomic_read(&VideoPacketsFilled);
+}
+
+/**
 **	Try video start.
 **
 **	NOT TRUE: Could be called, when already started.
@@ -949,9 +1560,13 @@ int PlayVideo(const uint8_t * data, int size)
 	return size;
     }
     n = data[8];			// header size
-    // wrong size
-    if (size < 9 + n + 4) {
-	Error(_("[softhddev] invalid video packet %d bytes\n"), size);
+
+    if (size < 9 + n + 4) {		// wrong size
+	if (size == 9 + n) {
+	    Warning(_("[softhddev] empty video packet\n"));
+	} else {
+	    Error(_("[softhddev] invalid video packet %d bytes\n"), size);
+	}
 	return size;
     }
     // buffer full: needed for replay
@@ -1374,11 +1989,11 @@ void StillPicture(const uint8_t * data, int size)
 int Poll(int timeout)
 {
     // buffers are too full
-    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX / 2) {
+    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3) {
 	if (timeout) {			// let display thread work
 	    usleep(timeout * 1000);
 	}
-	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX / 2;
+	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX * 2 / 3;
     }
     return 1;
 }
@@ -1645,6 +2260,7 @@ void SoftHdDeviceExit(void)
 	MyAudioDecoder = NULL;
     }
     NewAudioStream = 0;
+    av_free_packet(AudioAvPkt);
 
     StopVideo();
 
@@ -1702,8 +2318,10 @@ void Start(void)
     if (!ConfigStartSuspended) {
 	// FIXME: AudioInit for HDMI after X11 startup
 	AudioInit();
+	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
 	AudioCodecID = CODEC_ID_NONE;
+	AudioChannelID = -1;
 
 	if (!ConfigStartX11Server) {
 	    StartVideo();
@@ -1713,6 +2331,10 @@ void Start(void)
 	SkipAudio = 1;
     }
     pthread_mutex_init(&SuspendLockMutex, NULL);
+
+#ifdef USE_TS_AUDIO
+    PesInit(PesDemuxAudio);
+#endif
 }
 
 /**
@@ -1770,6 +2392,7 @@ void Suspend(int video, int audio, int dox11)
 		MyAudioDecoder = NULL;
 	    }
 	    NewAudioStream = 0;
+	    av_free_packet(AudioAvPkt);
 	}
 	if (video) {
 	    StopVideo();
@@ -1801,8 +2424,10 @@ void Resume(void)
     }
     if (!MyAudioDecoder) {		// audio not running
 	AudioInit();
+	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
 	AudioCodecID = CODEC_ID_NONE;
+	AudioChannelID = -1;
     }
 
     SkipVideo = 0;

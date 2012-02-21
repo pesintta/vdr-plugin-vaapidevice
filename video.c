@@ -329,7 +329,6 @@ static xcb_atom_t NetWmState;		///< wm-state message atom
 static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 
 extern uint32_t VideoSwitch;		///< ticks for channel switch
-extern atomic_t VideoPacketsFilled;	///< how many of the buffer is used
 
 #ifdef USE_VIDEO_THREAD
 
@@ -396,19 +395,19 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
     int64_t pts;
 
     // update video clock
-    if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+    if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
 	*pts_p += interlaced ? 40 * 90 : 20 * 90;
     }
     //pts = frame->best_effort_timestamp;
     pts = frame->pkt_pts;
-    if ((uint64_t) pts == AV_NOPTS_VALUE || !pts) {
+    if (pts == (int64_t) AV_NOPTS_VALUE || !pts) {
 	// libav: 0.8pre didn't set pts
 	pts = frame->pkt_dts;
     }
     // libav: sets only pkt_dts which can be 0
-    if (pts && (uint64_t) pts != AV_NOPTS_VALUE) {
+    if (pts && pts != (int64_t) AV_NOPTS_VALUE) {
 	// build a monotonic pts
-	if ((uint64_t) * pts_p != AV_NOPTS_VALUE) {
+	if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
 	    int64_t delta;
 
 	    delta = pts - *pts_p;
@@ -4224,7 +4223,7 @@ static void VaapiAdvanceFrame(void)
 		Warning(_
 		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		    decoder->FramesDuped, decoder->FrameCounter,
-		    atomic_read(&VideoPacketsFilled));
+		    VideoGetBuffers());
 	    }
 	    last_warned_frame = decoder->FrameCounter;
 	    if (!(decoder->FramesDisplayed % 300)) {
@@ -4358,10 +4357,10 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     // FIXME: audio not known assume 333ms delay
 
     if (decoder->DupNextFrame) {
-	++decoder->FramesDuped;
 	decoder->DupNextFrame--;
-    } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
-	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
+	++decoder->FramesDuped;
+    } else if (audio_clock != (int64_t) AV_NOPTS_VALUE
+	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
@@ -4377,6 +4376,12 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	    Debug(3, "video: speed up video\n");
 	    decoder->DropNextFrame = 1;
 	}
+    } else if (audio_clock == (int64_t) AV_NOPTS_VALUE
+	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
+	if (VideoGetBuffers() < 4) {
+	    Debug(3, "video: initial slow down video\n");
+	    decoder->DupNextFrame++;
+	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
@@ -4386,8 +4391,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	    VideoTimeStampString(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
-	    atomic_read(&VideoPacketsFilled));
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
     }
 #endif
 }
@@ -4463,7 +4467,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 {
     // pts is the timestamp of the latest decoded frame
-    if (!decoder || (uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+    if (!decoder || decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
 	return AV_NOPTS_VALUE;
     }
     // subtract buffered decoded frames
@@ -7235,7 +7239,7 @@ static void VdpauAdvanceFrame(void)
 		    Warning(_
 			("video: display buffer empty, duping frame (%d/%d) %d\n"),
 			decoder->FramesDuped, decoder->FrameCounter,
-			atomic_read(&VideoPacketsFilled));
+			VideoGetBuffers());
 		}
 		last_warned_frame = decoder->FrameCounter;
 		if (!(decoder->FramesDisplayed % 300)) {
@@ -7371,8 +7375,9 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 
     if (decoder->DupNextFrame) {
 	decoder->DupNextFrame--;
-    } else if ((uint64_t) audio_clock != AV_NOPTS_VALUE
-	&& (uint64_t) video_clock != AV_NOPTS_VALUE) {
+	++decoder->FramesDuped;
+    } else if (audio_clock != (int64_t) AV_NOPTS_VALUE
+	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
@@ -7388,6 +7393,12 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    Debug(3, "video: speed up video\n");
 	    decoder->DropNextFrame = 1;
 	}
+    } else if (audio_clock == (int64_t) AV_NOPTS_VALUE
+	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
+	if (VideoGetBuffers() < 4) {
+	    Debug(3, "video: initial slow down video\n");
+	    decoder->DupNextFrame++;
+	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
@@ -7397,8 +7408,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	    VideoTimeStampString(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
-	    atomic_read(&VideoPacketsFilled));
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
     }
 #endif
 }
@@ -7480,7 +7490,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 {
     // pts is the timestamp of the latest decoded frame
-    if (!decoder || (uint64_t) decoder->PTS == AV_NOPTS_VALUE) {
+    if (!decoder || decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
 	return AV_NOPTS_VALUE;
     }
     // subtract buffered decoded frames
@@ -9324,6 +9334,7 @@ void VideoExit(void)
     if (VideoUsedModule) {
 	VideoUsedModule->Exit();
     }
+    VideoUsedModule = NULL;		// FIXME: NoopModule;
 #ifdef USE_GLX
     if (GlxEnabled) {
 	GlxExit();

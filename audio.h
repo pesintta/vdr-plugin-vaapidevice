@@ -42,6 +42,8 @@ extern int AudioSetup(int *, int *, int);	///< setup audio output
 extern void AudioPlay(void);		///< play audio
 extern void AudioPause(void);		///< pause audio
 
+extern void AudioSetBufferTime(int);	///< set audio buffer time
+
 extern void AudioSetDevice(const char *);	///< set PCM audio device
 extern void AudioSetDeviceAC3(const char *);	///< set pass-through device
 extern void AudioSetChannel(const char *);	///< set mixer channel
