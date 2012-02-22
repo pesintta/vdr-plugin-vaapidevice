@@ -41,10 +41,13 @@
 #define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
 #define noUSE_DOUBLEBUFFER		///< use GLX double buffers
-
 //#define USE_VAAPI				///< enable vaapi support
 //#define USE_VDPAU				///< enable vdpau support
 #define noUSE_BITMAP			///< use vdpau bitmap surface
+//#define AV_INFO				///< log a/v sync informations
+#ifndef AV_INFO_TIME
+#define AV_INFO_TIME (50 * 60)		///< a/v info every minute
+#endif
 
 #define USE_VIDEO_THREAD		///< run decoder in an own thread
 
@@ -4386,7 +4389,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
-	|| !(decoder->FramesDisplayed % (50 * 10))) {
+	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    VideoTimeStampString(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
@@ -7403,7 +7406,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (decoder->DupNextFrame || decoder->DropNextFrame
-	|| !(decoder->FramesDisplayed % (50 * 10))) {
+	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    VideoTimeStampString(video_clock),
 	    abs((video_clock - audio_clock) / 90) <

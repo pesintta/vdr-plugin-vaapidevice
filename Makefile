@@ -19,7 +19,7 @@ GIT_REV = $(shell git describe --always 2>/dev/null)
 ### Configuration (edit this for your needs)
 
 CONFIG := #-DDEBUG
-CONFIG += -DAV_INFO			# debug a/v sync
+CONFIG += -DAV_INFO -DAV_INFO_TIME=60	# debug a/v sync
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DUSE_TS_AUDIO		# build new ts audio parser
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
