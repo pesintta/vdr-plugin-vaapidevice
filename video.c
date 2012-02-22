@@ -130,6 +130,11 @@ typedef enum
 #ifdef USE_GLX
 #include <va/va_glx.h>
 #endif
+#ifndef VA_SURFACE_ATTRIB_SETTABLE
+/// make source compatible with old libva
+#define vaCreateSurfaces(d, f, w, h, s, ns, a, na) \
+    vaCreateSurfaces(d, w, h, f, ns, s)
+#endif
 #endif
 
 #ifdef USE_VDPAU
@@ -1461,9 +1466,9 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 
     decoder->SurfaceFreeN = decoder->SurfacesNeeded;
     // VA_RT_FORMAT_YUV420 VA_RT_FORMAT_YUV422 VA_RT_FORMAT_YUV444
-    if (vaCreateSurfaces(decoder->VaDisplay, width, height,
-	    VA_RT_FORMAT_YUV420, decoder->SurfaceFreeN,
-	    decoder->SurfacesFree) != VA_STATUS_SUCCESS) {
+    if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width,
+	    height, decoder->SurfacesFree, decoder->SurfaceFreeN,
+	    NULL, 0) != VA_STATUS_SUCCESS) {
 	Fatal(_("video/vaapi: can't create %d surfaces\n"),
 	    decoder->SurfaceFreeN);
 	// FIXME: write error handler / fallback
@@ -1927,8 +1932,8 @@ static void Vaapi1080i(void)
 	Error(_("codec: can't create config"));
 	return;
     }
-    if (vaCreateSurfaces(VaDisplay, 1920, 1080, VA_RT_FORMAT_YUV420, 32,
-	    surfaces) != VA_STATUS_SUCCESS) {
+    if (vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, 1920, 1080,
+	    surfaces, 32, NULL, 0) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't create surfaces\n"));
 	return;
     }
@@ -3057,9 +3062,9 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     }
 
     if (decoder->BlackSurface == VA_INVALID_ID) {
-	if (vaCreateSurfaces(decoder->VaDisplay, VideoWindowWidth,
-		VideoWindowHeight, VA_RT_FORMAT_YUV420, 1,
-		&decoder->BlackSurface) != VA_STATUS_SUCCESS) {
+	if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420,
+		VideoWindowWidth, VideoWindowHeight,
+		&decoder->BlackSurface, 1, NULL, 0) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create a surface\n"));
 	    return;
 	}
