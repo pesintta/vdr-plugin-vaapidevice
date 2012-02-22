@@ -8914,6 +8914,17 @@ int VideoSetGeometry(const char *geometry)
     return 0;
 }
 
+///	Set 60hz display mode.
+///
+///	Pull up 50 Hz video for 60 Hz display.
+///
+///	@param onoff	enable / disable the 60 Hz mode.
+///
+void VideoSet60HzMode(int onoff)
+{
+    Video60HzMode = onoff;
+}
+
 ///
 ///	Set video output position.
 ///

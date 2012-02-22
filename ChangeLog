@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Makes 60Hz display mode configurable with setup.conf.
     Support downmix of AC-3 to stero.
     New audio PES packet parser.
     Fix bug: Grabbing a JPG image fails while suspended.

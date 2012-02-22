@@ -176,6 +176,10 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.Suspend.X11 = 0
 	1 suspend stops X11 server (not working yet)
 
+	softhddevice.60HzMode = 0
+	0 disable 60Hz display mode
+	1 enable 60Hz display mode
+
 	VideoDisplayFormat = ?
 	0 pan and scan
 	1 letter box

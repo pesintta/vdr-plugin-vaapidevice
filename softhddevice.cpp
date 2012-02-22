@@ -64,6 +64,7 @@ static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
 static int ConfigVideoSkipLines;	///< config skip lines top/bottom
 static int ConfigVideoStudioLevels;	///< config use studio levels
+static int ConfigVideo60HzMode;		///< config use 60Hz display mode
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -950,7 +951,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    Suspend(1, 1, 0);
 	    return true;
 	default:
-	    dsyslog("[softhddev]playmode not implemented... %d\n", play_mode);
+	    dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
 	    break;
     }
     ::SetPlayMode();
@@ -1469,98 +1470,102 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 
     //dsyslog("[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
-    if (!strcmp(name, "MakePrimary")) {
+    if (!strcasecmp(name, "MakePrimary")) {
 	ConfigMakePrimary = atoi(value);
 	return true;
     }
-    if (!strcmp(name, "HideMainMenuEntry")) {
+    if (!strcasecmp(name, "HideMainMenuEntry")) {
 	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
-    if (!strcmp(name, "SkipLines")) {
+    if (!strcasecmp(name, "SkipLines")) {
 	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
 	return true;
     }
-    if (!strcmp(name, "StudioLevels")) {
+    if (!strcasecmp(name, "StudioLevels")) {
 	VideoSetStudioLevels(ConfigVideoStudioLevels = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "60HzMode")) {
+	VideoSet60HzMode(ConfigVideo60HzMode = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
 
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Scaling");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoScaling[i] = atoi(value);
 	    VideoSetScaling(ConfigVideoScaling);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Deinterlace");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoDeinterlace[i] = atoi(value);
 	    VideoSetDeinterlace(ConfigVideoDeinterlace);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i],
 	    "SkipChromaDeinterlace");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoSkipChromaDeinterlace[i] = atoi(value);
 	    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "InverseTelecine");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoInverseTelecine[i] = atoi(value);
 	    VideoSetInverseTelecine(ConfigVideoInverseTelecine);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoDenoise[i] = atoi(value);
 	    VideoSetDenoise(ConfigVideoDenoise);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
-	if (!strcmp(name, buf)) {
+	if (!strcasecmp(name, buf)) {
 	    ConfigVideoSharpen[i] = atoi(value);
 	    VideoSetSharpen(ConfigVideoSharpen);
 	    return true;
 	}
     }
 
-    if (!strcmp(name, "AudioDelay")) {
+    if (!strcasecmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;
     }
-    if (!strcmp(name, "AudioPassthrough")) {
+    if (!strcasecmp(name, "AudioPassthrough")) {
 	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
 	return true;
     }
-    if (!strcmp(name, "AudioDownmix")) {
+    if (!strcasecmp(name, "AudioDownmix")) {
 	CodecSetAudioDownmix(ConfigAudioDownmix = atoi(value));
 	return true;
     }
 
-    if (!strcmp(name, "AutoCrop.Interval")) {
+    if (!strcasecmp(name, "AutoCrop.Interval")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval =
 	    atoi(value), ConfigAutoCropDelay, ConfigAutoCropTolerance);
 	return true;
     }
-    if (!strcmp(name, "AutoCrop.Delay")) {
+    if (!strcasecmp(name, "AutoCrop.Delay")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay =
 	    atoi(value), ConfigAutoCropTolerance);
 	return true;
     }
-    if (!strcmp(name, "AutoCrop.Tolerance")) {
+    if (!strcasecmp(name, "AutoCrop.Tolerance")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
 	    ConfigAutoCropTolerance = atoi(value));
 	return true;
     }
 
-    if (!strcmp(name, "Suspend.Close")) {
+    if (!strcasecmp(name, "Suspend.Close")) {
 	ConfigSuspendClose = atoi(value);
 	return true;
     }
-    if (!strcmp(name, "Suspend.X11")) {
+    if (!strcasecmp(name, "Suspend.X11")) {
 	ConfigSuspendX11 = atoi(value);
 	return true;
     }

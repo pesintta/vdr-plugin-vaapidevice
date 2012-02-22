@@ -80,6 +80,9 @@ extern void VideoDisplayWakeup(void);
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
 
+    /// Set 60Hz display mode.
+extern void VideoSet60HzMode(int);
+
     /// Set video output position.
 extern void VideoSetOutputPosition(int, int, int, int);
 
