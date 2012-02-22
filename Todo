@@ -37,7 +37,6 @@ video:
     reduce warnings after channel switch
     grab image with hardware and better scaling support
     hard channel switch
-    OSD can only be shown after some stream could be shown
     yaepghd changed position is lost on channel switch
     pause (live tv) has sometime problems with SAT1 HD Pro7 HD
 
@@ -77,7 +76,6 @@ x11:
     support embedded mode
 
 audio:
-    write TS -> PES parser, which feeds audio before the next start packet
     Combine alsa+oss ringbuffer code.
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.

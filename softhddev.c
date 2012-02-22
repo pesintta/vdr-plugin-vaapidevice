@@ -1834,6 +1834,7 @@ void SetPlayMode(void)
 	return;
     }
     Resume();
+    VideoDisplayWakeup();
     if (MyVideoDecoder) {
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
