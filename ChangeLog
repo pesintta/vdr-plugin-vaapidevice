@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: 100% cpu use with plugins like mp3.
     Wakeup display thread on channel switch, osd can now be shown without
     video.
     Makes 60Hz display mode configurable with setup.conf.

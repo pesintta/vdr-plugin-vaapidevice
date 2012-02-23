@@ -50,7 +50,7 @@ extern "C"
     extern uint8_t *GrabImage(int *, int, int, int, int);
 
     /// C plugin set play mode
-    extern void SetPlayMode(void);
+    extern int SetPlayMode(int);
     /// C plugin set trick speed
     extern void TrickSpeed(int);
     /// C plugin clears all video and audio data from the device

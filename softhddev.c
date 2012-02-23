@@ -75,6 +75,8 @@ static AudioDecoder *MyAudioDecoder;	///< audio decoder
 static enum CodecID AudioCodecID;	///< current codec id
 static int AudioChannelID;		///< current audio channel id
 
+    /// Minimum free space in audio buffer 8 packets for 8 channels
+#define AUDIO_MIN_BUFFER_FREE (3072 * 8 * 8)
 #define AUDIO_BUFFER_SIZE (512 * 1024)	///< audio PES buffer default size
 static AVPacket AudioAvPkt[1];		///< audio a/v packet
 
@@ -864,7 +866,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	NewAudioStream = 0;
     }
     // Don't overrun audio buffers on replay
-    if (AudioFreeBytes() < 3072 * 8 * 8) {	// 8 channels 8 packets
+    if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
     // PES header 0x00 0x00 0x01 ID
@@ -1058,7 +1060,7 @@ int PlayTsAudio(const uint8_t * data, int size)
 	return size;
     }
     // Don't overrun audio buffers on replay
-    if (AudioFreeBytes() < 3072 * 8 * 8) {	// 8 channels 8 packets
+    if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
 
@@ -1827,7 +1829,7 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 /**
 **	Set play mode, called on channel switch.
 */
-void SetPlayMode(void)
+int SetPlayMode(int play_mode)
 {
     if (ConfigStartSuspended) {		// ignore first call, if start suspended
 	ConfigStartSuspended = 0;
@@ -1835,18 +1837,23 @@ void SetPlayMode(void)
     }
     Resume();
     VideoDisplayWakeup();
-    if (MyVideoDecoder) {
+    if (MyVideoDecoder) {		// tell video parser we have new stream
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
 	    VideoSwitch = GetMsTicks();
 	}
     }
-    if (MyAudioDecoder) {
+    if (MyAudioDecoder) {		// tell audio parser we have new stream
 	if (AudioCodecID != CODEC_ID_NONE) {
 	    NewAudioStream = 1;
 	}
     }
+    if (play_mode == 2 || play_mode == 3 ) {
+	Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+    }
     Play();
+
+    return 1;
 }
 
 /**
@@ -1990,11 +1997,13 @@ void StillPicture(const uint8_t * data, int size)
 int Poll(int timeout)
 {
     // buffers are too full
-    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3) {
+    if ( atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3
+	|| AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE * 2) {
 	if (timeout) {			// let display thread work
 	    usleep(timeout * 1000);
 	}
-	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX * 2 / 3;
+	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX * 2 / 3
+	    && AudioFreeBytes() > AUDIO_MIN_BUFFER_FREE;
     }
     return 1;
 }

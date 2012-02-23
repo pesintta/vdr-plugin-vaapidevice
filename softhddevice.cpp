@@ -295,7 +295,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		esyslog(tr("softhddev: dirty area too big\n"));
+		esyslog(tr("[softhddev]: dirty area too big\n"));
 		abort();
 	    }
 #endif
@@ -742,7 +742,7 @@ static void HandleHotkey(int code)
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
 	    break;
 	default:
-	    esyslog(tr("softhddev: hot key %d is not supported\n"), code);
+	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
     }
 }
@@ -954,8 +954,8 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
 	    break;
     }
-    ::SetPlayMode();
-    return true;
+
+    return ::SetPlayMode(play_mode);
 }
 
 /**
