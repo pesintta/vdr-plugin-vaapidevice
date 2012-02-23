@@ -1848,7 +1848,7 @@ int SetPlayMode(int play_mode)
 	    NewAudioStream = 1;
 	}
     }
-    if (play_mode == 2 || play_mode == 3 ) {
+    if (play_mode == 2 || play_mode == 3) {
 	Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
     }
     Play();
@@ -1997,7 +1997,7 @@ void StillPicture(const uint8_t * data, int size)
 int Poll(int timeout)
 {
     // buffers are too full
-    if ( atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3
+    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3
 	|| AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE * 2) {
 	if (timeout) {			// let display thread work
 	    usleep(timeout * 1000);

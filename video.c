@@ -73,6 +73,7 @@
 #endif
 #include <pthread.h>
 #include <time.h>
+#include <signal.h>
 #ifndef HAVE_PTHREAD_NAME
     /// only available with newer glibc
 #define pthread_setname_np(thread, name)
@@ -363,6 +364,7 @@ static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
+static void VideoThreadExit(void);	///< exit/kill video thread
 
 #if defined(DEBUG) || defined(AV_INFO)
 ///
@@ -1354,6 +1356,9 @@ static void VaapiBlackSurface(VaapiDecoder *);
     /// forward destroy deinterlace images
 static void VaapiDestroyDeinterlaceImages(VaapiDecoder *);
 
+    /// forward definition release surface
+static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
+
 //----------------------------------------------------------------------------
 //	VA-API Functions
 //----------------------------------------------------------------------------
@@ -1467,8 +1472,8 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
     decoder->SurfaceFreeN = decoder->SurfacesNeeded;
     // VA_RT_FORMAT_YUV420 VA_RT_FORMAT_YUV422 VA_RT_FORMAT_YUV444
     if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width,
-	    height, decoder->SurfacesFree, decoder->SurfaceFreeN,
-	    NULL, 0) != VA_STATUS_SUCCESS) {
+	    height, decoder->SurfacesFree, decoder->SurfaceFreeN, NULL,
+	    0) != VA_STATUS_SUCCESS) {
 	Fatal(_("video/vaapi: can't create %d surfaces\n"),
 	    decoder->SurfaceFreeN);
 	// FIXME: write error handler / fallback
@@ -1506,9 +1511,6 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 
     // FIXME surfaces used for output
 }
-
-    /// forward definition release surface
-static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 
 ///
 ///	Get a free surface.
@@ -1932,8 +1934,8 @@ static void Vaapi1080i(void)
 	Error(_("codec: can't create config"));
 	return;
     }
-    if (vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, 1920, 1080,
-	    surfaces, 32, NULL, 0) != VA_STATUS_SUCCESS) {
+    if (vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, 1920, 1080, surfaces,
+	    32, NULL, 0) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't create surfaces\n"));
 	return;
     }
@@ -2979,10 +2981,10 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     if ((old = decoder->SurfacesRb[decoder->SurfaceWrite])
 	!= VA_INVALID_ID) {
 
+#if 0
 	if (vaSyncSurface(decoder->VaDisplay, old) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
-#if 0
 	VASurfaceStatus status;
 
 	if (vaQuerySurfaceStatus(decoder->VaDisplay, old, &status)
@@ -3063,8 +3065,8 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 
     if (decoder->BlackSurface == VA_INVALID_ID) {
 	if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420,
-		VideoWindowWidth, VideoWindowHeight,
-		&decoder->BlackSurface, 1, NULL, 0) != VA_STATUS_SUCCESS) {
+		VideoWindowWidth, VideoWindowHeight, &decoder->BlackSurface, 1,
+		NULL, 0) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create a surface\n"));
 	    return;
 	}
@@ -8219,6 +8221,37 @@ static void VideoDisplayFrame(void)
 extern void FeedKeyPress(const char *, const char *, int, int);
 
 ///
+///	Handle XLib I/O Errors.
+///
+///	@param display	display with i/o error
+///
+static int VideoIOErrorHandler( __attribute__ ((unused)) Display * display)
+{
+
+    Error(_("video: fatal i/o error\n"));
+    // should be called from VideoThread
+    if (VideoThread && VideoThread == pthread_self()) {
+	Debug(3, "video: called from video thread\n");
+	VideoUsedModule = NULL;		// FIXME: NoopModule;
+	XlibDisplay = NULL;
+	VideoWindow = XCB_NONE;
+#ifdef USE_VIDEO_THREAD
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	pthread_cond_destroy(&VideoWakeupCond);
+	pthread_mutex_destroy(&VideoLockMutex);
+	pthread_mutex_destroy(&VideoMutex);
+	VideoThread = 0;
+	pthread_exit("video thread exit");
+#endif
+    }
+    do {
+	sleep(1000);
+    } while (1);			// let other threads running
+
+    return -1;
+}
+
+///
 ///	Handle X11 events.
 ///
 ///	@todo	Signal WmDeleteMessage to application.
@@ -9233,6 +9266,9 @@ void VideoInit(const char *display_name)
 	return;
     }
     // XInitThreads();
+    // Register error handler
+    XSetIOErrorHandler(VideoIOErrorHandler);
+
     // Convert XLIB display to XCB connection
     if (!(Connection = XGetXCBConnection(XlibDisplay))) {
 	Error(_("video: Can't convert XLIB display to XCB connection\n"));
