@@ -43,7 +43,11 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.4.9";
+static const char *const VERSION = "0.4.9"
+#ifdef GIT_REV
+    "-GIT" GIT_REV
+#endif
+    ;
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
@@ -955,7 +959,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    break;
     }
 
-    return ::SetPlayMode(play_mode);
+    return::SetPlayMode(play_mode);
 }
 
 /**
@@ -1076,8 +1080,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
-    video_display_format)
+void cSoftHdDevice::
+SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
@@ -1306,6 +1310,11 @@ cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
     ::SoftHdDeviceExit();
 }
 
+/**
+**	Return plugin version number.
+**
+**	@returns version number as constant string.
+*/
 const char *cPluginSoftHdDevice::Version(void)
 {
     return VERSION;
