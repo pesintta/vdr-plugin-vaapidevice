@@ -39,6 +39,8 @@ video:
     hard channel switch
     yaepghd changed position is lost on channel switch
     pause (live tv) has sometime problems with SAT1 HD Pro7 HD
+    radio show black background
+    radio no need to wait on video buffers
 
 vdpau:
     software decoder path not working
@@ -82,6 +84,7 @@ audio:
     software volume support (could be done with asound.conf)
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
+    Relaxed audio sync checks at end of packet and already in sync
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

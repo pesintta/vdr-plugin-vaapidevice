@@ -162,6 +162,12 @@ Setup: /etc/vdr/setup.conf
 	if detected crop area is too small, cut max 'n' pixels at top and
 	bottom.
 
+	softhddevice.Background = 0
+	32bit RGBA background color
+	(Red * 16777216 +  Green * 65536 + Blue * 256 + Alpha)
+	or hex RRGGBBAA
+	grey = 2155905279
+
 	softhddevice.SkipLines = 0
 	skip 'n' lines at top and bottom of the video picture.
 
