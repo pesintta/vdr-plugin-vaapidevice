@@ -234,6 +234,7 @@ typedef struct _video_module_
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *,
 	const AVFrame *);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
+    void (*const SetBackground) (uint32_t);
     void (*const SetVideoMode) (void);
     void (*const ResetAutoCrop) (void);
 
@@ -293,6 +294,7 @@ static char VideoSurfaceModesChanged;	///< flag surface modes changed
     /// flag use transparent OSD.
 static const char VideoTransparentOsd = 1;
 
+static uint32_t VideoBackground;	///< video background color
 static int VideoSkipLines;		///< skip video lines top/bottom
 static char VideoStudioLevels;		///< flag use studio levels
 
@@ -2068,6 +2070,17 @@ static int VaapiInit(const char *display_name)
     Info(_("video/vaapi: VA surface is %s\n"),
 	attr.value ? _("direct mapped") : _("copied"));
     // FIXME: handle the cases: new liba: Don't use it.
+
+    attr.type = VADisplayAttribBackgroundColor;
+    attr.flags = VA_DISPLAY_ATTRIB_SETTABLE;
+    if (vaGetDisplayAttributes(VaDisplay, &attr, 1) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: Can't get background-color attribute\n"));
+	attr.value = 1;
+    }
+    Info(_("video/vaapi: background-color is %s\n"),
+	attr.value ? _("supported") : _("unsupported"));
+
+    // FIXME: VaapiSetBackground(VideoBackground);
 
 #if 0
     //
@@ -4491,6 +4504,16 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 }
 
 ///
+///	Set VA-API background color.
+///
+///	@param rgba	32 bit RGBA color.
+///
+static void VaapiSetBackground( __attribute__ ((unused)) uint32_t rgba)
+{
+    Error(_("video/vaapi: FIXME: SetBackground not supported\n"));
+}
+
+///
 ///	Set VA-API video mode.
 ///
 static void VaapiSetVideoMode(void)
@@ -4787,6 +4810,7 @@ static const VideoModule VaapiModule = {
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
     .GrabOutput = NULL,
+    .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
     .ResetAutoCrop = VaapiResetAutoCrop,
     .Thread = VaapiDisplayHandlerThread,
@@ -4886,8 +4910,9 @@ static VdpGetProcAddress *VdpauGetProcAddress;	///< entry point to use
     /// presentation queue target
 static VdpPresentationQueueTarget VdpauQueueTarget;
 static VdpPresentationQueue VdpauQueue;	///< presentation queue
-static VdpColor VdpauBackgroundColor[1];	///< queue background color
+static VdpColor VdpauQueueBackgroundColor[1];	///< queue background color
 
+static int VdpauBackground;		///< background supported
 static int VdpauHqScalingMax;		///< highest supported scaling level
 static int VdpauTemporal;		///< temporal deinterlacer supported
 static int VdpauTemporalSpatial;	///< temporal spatial deint. supported
@@ -5157,9 +5182,10 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
     VdpVideoMixerFeature features[15];
     VdpBool enables[15];
     int feature_n;
-    VdpVideoMixerAttribute attributes[4];
-    void const *attribute_value_ptrs[4];
+    VdpVideoMixerAttribute attributes[5];
+    void const *attribute_value_ptrs[5];
     int attribute_n;
+    VdpColor background_color[1];
     uint8_t skip_chroma_value;
     float noise_reduction_level;
     float sharpness_level;
@@ -5235,7 +5261,20 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MIN_LUMA
        VDP_VIDEO_MIXER_ATTRIBUTE_LUMA_KEY_MAX_LUMA
      */
+
     attribute_n = 0;
+    // none video-area background color
+    if (VdpauBackground) {
+	background_color->red = (VideoBackground >> 24) / 255.0;
+	background_color->green = ((VideoBackground >> 16) & 0xFF) / 255.0;
+	background_color->blue = ((VideoBackground >> 8) & 0xFF) / 255.0;
+	background_color->alpha = (VideoBackground & 0xFF) / 255.0;
+	attributes[attribute_n] = VDP_VIDEO_MIXER_ATTRIBUTE_BACKGROUND_COLOR;
+	attribute_value_ptrs[attribute_n++] = background_color;
+	Debug(3, "video/vdpau: background color %f/%f/%f/%f\n",
+	    background_color->red, background_color->green,
+	    background_color->blue, background_color->alpha);
+    }
     if (VdpauSkipChroma) {
 	skip_chroma_value = VideoSkipChromaDeinterlace[decoder->Resolution];
 	attributes[attribute_n]
@@ -5606,11 +5645,12 @@ static void VdpauInitOutputQueue(void)
 	return;
     }
 
-    VdpauBackgroundColor->red = 0.01;
-    VdpauBackgroundColor->green = 0.02;
-    VdpauBackgroundColor->blue = 0.03;
-    VdpauBackgroundColor->alpha = 1.00;
-    VdpauPresentationQueueSetBackgroundColor(VdpauQueue, VdpauBackgroundColor);
+    VdpauQueueBackgroundColor->red = 0.01;
+    VdpauQueueBackgroundColor->green = 0.02;
+    VdpauQueueBackgroundColor->blue = 0.03;
+    VdpauQueueBackgroundColor->alpha = 1.00;
+    VdpauPresentationQueueSetBackgroundColor(VdpauQueue,
+	VdpauQueueBackgroundColor);
 
     //
     //	Create display output surfaces
@@ -5908,6 +5948,16 @@ static int VdpauInit(const char *display_name)
     //
     status =
 	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
+	VDP_VIDEO_MIXER_ATTRIBUTE_BACKGROUND_COLOR, &flag);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't query feature '%s': %s\n"),
+	    "background-color", VdpauGetErrorString(status));
+    } else {
+	VdpauBackground = flag;
+    }
+
+    status =
+	VdpauVideoMixerQueryFeatureSupport(VdpauDevice,
 	VDP_VIDEO_MIXER_FEATURE_DEINTERLACE_TEMPORAL, &flag);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't query feature '%s': %s\n"),
@@ -5965,8 +6015,6 @@ static int VdpauInit(const char *display_name)
     } else {
 	VdpauSkipChroma = flag;
     }
-
-    // VDP_VIDEO_MIXER_ATTRIBUTE_BACKGROUND_COLOR
 
     if (VdpauHqScalingMax) {
 	Info(_("video/vdpau: highest supported high quality scaling %d\n"),
@@ -7562,7 +7610,16 @@ static int VdpauPreemptionRecover(void)
 }
 
 ///
-///	Set VA-API video mode.
+///	Set VDPAU background color.
+///
+///	@param rgba	32 bit RGBA color.
+///
+static void VdpauSetBackground( __attribute__ ((unused)) uint32_t rgba)
+{
+}
+
+///
+///	Set VDPAU video mode.
 ///
 static void VdpauSetVideoMode(void)
 {
@@ -7902,6 +7959,7 @@ static const VideoModule VdpauModule = {
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VdpauSyncRenderFrame,
     .GrabOutput = VdpauGrabOutputSurface,
+    .SetBackground = VdpauSetBackground,
     .SetVideoMode = VdpauSetVideoMode,
     .ResetAutoCrop = VdpauResetAutoCrop,
     .Thread = VdpauDisplayHandlerThread,
@@ -9200,6 +9258,19 @@ void VideoSetSkipLines(int lines)
 void VideoSetStudioLevels(int onoff)
 {
     VideoStudioLevels = onoff;
+}
+
+///
+///	Set background color.
+///
+///	@param rgba	32 bit RGBA color.
+///
+void VideoSetBackground(uint32_t rgba)
+{
+    VideoBackground = rgba;		// save for later start
+    if (VideoUsedModule) {
+	VideoUsedModule->SetBackground(rgba);
+    }
 }
 
 ///

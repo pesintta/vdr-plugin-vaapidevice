@@ -66,6 +66,7 @@ static const char *const Resolution[RESOLUTIONS] = {
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
+static uint32_t ConfigVideoBackground;	///< config video background color
 static int ConfigVideoSkipLines;	///< config skip lines top/bottom
 static int ConfigVideoStudioLevels;	///< config use studio levels
 static int ConfigVideo60HzMode;		///< config use 60Hz display mode
@@ -411,6 +412,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     /// @{
     int MakePrimary;
     int HideMainMenuEntry;
+    uint32_t Background;
+    uint32_t BackgroundAlpha;
     int SkipLines;
     int StudioLevels;
     int Scaling[RESOLUTIONS];
@@ -482,6 +485,13 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     //
     Add(SeparatorItem(tr("Video")));
 
+    // no unsigned int menu item supported, split background color/alpha
+    Background = ConfigVideoBackground >> 8;
+    BackgroundAlpha = ConfigVideoBackground & 0xFF;
+    Add(new cMenuEditIntItem(tr("video background color (RGB)"),
+	    (int *)&Background, 0, 0x00FFFFFF));
+    Add(new cMenuEditIntItem(tr("video background color (Alpha)"),
+	    (int *)&BackgroundAlpha, 0, 0xFF));
     SkipLines = ConfigVideoSkipLines;
     Add(new cMenuEditIntItem(tr("Skip lines top+bot (pixel)"), &SkipLines, 0,
 	    64));
@@ -504,10 +514,10 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 		&InverseTelecine[i], trVDR("no"), trVDR("yes")));
 	Denoise[i] = ConfigVideoDenoise[i];
 	Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"), &Denoise[i],
-		0, 1000));
+		0, 1000, tr("off"), tr("max")));
 	Sharpen[i] = ConfigVideoSharpen[i];
 	Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
-		&Sharpen[i], -1000, 1000));
+		&Sharpen[i], -1000, 1000, tr("blur max"), tr("sharpen max")));
     }
     //
     //	audio
@@ -528,7 +538,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Add(SeparatorItem(tr("Auto-crop")));
     AutoCropInterval = ConfigAutoCropInterval;
     Add(new cMenuEditIntItem(tr("autocrop interval (frames)"),
-	    &AutoCropInterval, 0, 200));
+	    &AutoCropInterval, 0, 200, tr("off")));
     AutoCropDelay = ConfigAutoCropDelay;
     Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
 	    &AutoCropDelay, 0, 200));
@@ -558,6 +568,9 @@ void cMenuSetupSoft::Store(void)
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
 	HideMainMenuEntry);
 
+    ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
+    SetupStore("Background", ConfigVideoBackground);
+    VideoSetBackground(ConfigVideoBackground);
     SetupStore("SkipLines", ConfigVideoSkipLines = SkipLines);
     VideoSetSkipLines(ConfigVideoSkipLines);
     SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
@@ -1080,8 +1093,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice::
-SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
+void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
+    video_display_format)
 {
     static int last = -1;
 
@@ -1485,6 +1498,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "HideMainMenuEntry")) {
 	ConfigHideMainMenuEntry = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "Background")) {
+	VideoSetBackground(ConfigVideoBackground = strtoul(value, NULL, 0));
 	return true;
     }
     if (!strcasecmp(name, "SkipLines")) {

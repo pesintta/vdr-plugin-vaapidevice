@@ -119,6 +119,9 @@ extern void VideoSetSkipLines(int);
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
 
+    /// Set background.
+extern void VideoSetBackground(uint32_t);
+
     /// Set audio delay.
 extern void VideoSetAudioDelay(int);
 
