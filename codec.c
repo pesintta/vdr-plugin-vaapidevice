@@ -667,7 +667,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     int codec_id)
 {
     AVCodec *audio_codec;
-    AVDictionary *av_dict;
+    //AVDictionary *av_dict;
 
     if (name && (audio_codec = avcodec_find_decoder_by_name(name))) {
 	Debug(3, "codec: audio decoder '%s' found\n", name);
@@ -694,15 +694,15 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #else
-    av_dict = NULL;
+    //av_dict = NULL;
     //av_dict_set(&av_dict, "dmix_mode", "0", 0);
     //av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
     //av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
-    if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &av_dict) < 0) {
+    if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, NULL) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open audio codec\n"));
     }
-    av_dict_free(&av_dict);
+    //av_dict_free(&av_dict);
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCtx->codec_name);
