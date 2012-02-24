@@ -474,6 +474,13 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 	pesdx->PTS = AV_NOPTS_VALUE;	// reset if not yet used
 	pesdx->DTS = AV_NOPTS_VALUE;
     }
+    // cleanup, if too much cruft
+    if (pesdx->Skip > PES_MAX_PAYLOAD / 2) {
+	// copy remaining bytes down
+	pesdx->Index -= pesdx->Skip;
+	memmove(pesdx->Buffer, pesdx->Buffer + pesdx->Skip, pesdx->Index);
+	pesdx->Skip = 0;
+    }
 
     p = data;
     do {
@@ -1001,6 +1008,11 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	if ((id == 0xbd || (id & 0xF0) == 0x80) && !r && FastAc3Check(p)) {
 	    r = Ac3Check(p, n);
 	    codec_id = CODEC_ID_AC3;
+	    /* faster ac3 detection at end of pes packet (no improvemnts)
+	       if (AudioCodecID == codec_id && -r - 2 == n) {
+	       r = n;
+	       }
+	     */
 	}
 	if (r < 0) {			// need more bytes
 	    break;
@@ -1067,6 +1079,7 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
+	AudioSetBufferTime(216);
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
 	PesReset(PesDemuxAudio);
@@ -1828,12 +1841,14 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 
 /**
 **	Set play mode, called on channel switch.
+**
+**	@param play_mode	play mode (none, video+audio, audio-only, ...)
 */
 int SetPlayMode(int play_mode)
 {
     if (ConfigStartSuspended) {		// ignore first call, if start suspended
 	ConfigStartSuspended = 0;
-	return;
+	return 1;
     }
     Resume();
     VideoDisplayWakeup();
