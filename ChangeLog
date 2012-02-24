@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Increased audio buffer time for PES packets.
     Support configuration and set of video background.
     Survive lost X11 display.
     Fix bug: 100% cpu use with plugins like mp3.

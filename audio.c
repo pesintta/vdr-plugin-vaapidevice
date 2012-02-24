@@ -141,7 +141,7 @@ static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
-static int AudioBufferTime = 216;	///< audio buffer time in ms
+static int AudioBufferTime = 336;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
@@ -303,7 +303,7 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
 	    VideoGetBuffers());
 	// forced start
-	if (AlsaStartThreshold * 2 < RingBufferUsedBytes(AlsaRingBuffer)) {
+	if (AlsaStartThreshold * 3 < RingBufferUsedBytes(AlsaRingBuffer)) {
 	    return 1;
 	}
 	// enough video + audio buffered
@@ -1066,7 +1066,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     // FIXME: use hw_params for buffer_size period_size
 #endif
 
-#if 0
+#if 1
     if (0) {				// no underruns allowed, play silence
 	snd_pcm_sw_params_t *sw_params;
 	snd_pcm_uframes_t boundary;
@@ -1307,7 +1307,7 @@ static int OssAddToRingbuffer(const void *samples, int count)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
 	    VideoGetBuffers());
 	// forced start
-	if (OssStartThreshold * 2 < RingBufferUsedBytes(OssRingBuffer)) {
+	if (OssStartThreshold * 3 < RingBufferUsedBytes(OssRingBuffer)) {
 	    return 1;
 	}
 	// enough video + audio buffered
@@ -2098,12 +2098,12 @@ void AudioEnqueue(const void *samples, int count)
     if (0) {
 	static uint32_t last;
 	static uint32_t tick;
-	static uint32_t max = 110;
+	static uint32_t max = 101;
 	uint64_t delay;
 
 	delay = AudioGetDelay();
 	tick = GetMsTicks();
-	if ((last && tick - last > max) || delay < 80 * 90) {
+	if ((last && tick - last > max) && AudioRunning) {
 
 	    //max = tick - last;
 	    Debug(3, "audio: packet delta %d %lu\n", tick - last, delay / 90);
@@ -2252,11 +2252,15 @@ void AudioPause(void)
 
 /**
 **	Set audio buffer time.
+**
+**	PES audio packets have a max distance of 300 ms.
+**	TS audio packet have a max distance of 100 ms.
+**	The period size of the audio buffer is 24 ms.
 */
 void AudioSetBufferTime(int delay)
 {
     if (!delay) {
-	delay = 216;
+	delay = 336;
     }
     AudioBufferTime = delay;
 }
