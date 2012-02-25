@@ -745,6 +745,8 @@ cSoftHdMenu::~cSoftHdMenu()
 
 /**
 **	Handle hot key commands.
+**
+**	@param code	numeric hot key code
 */
 static void HandleHotkey(int code)
 {
@@ -861,10 +863,10 @@ class cSoftHdDevice:public cDevice
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
-#ifndef xxUSE_TS_AUDIO
     virtual int PlayAudio(const uchar *, int, uchar);
+#ifdef USE_TS_VIDEO
+    virtual int PlayTsVideo(const uchar *, int);
 #endif
-    //virtual int PlayTsVideo(const uchar *, int);
 #if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
     virtual int PlayTsAudio(const uchar *, int);
 #endif
@@ -1094,7 +1096,7 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	device has an MPEG decoder).
 */
 void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
-    video_display_format)
+	video_display_format)
 {
     static int last = -1;
 
@@ -1151,8 +1153,6 @@ void cSoftHdDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 
 // ----------------------------------------------------------------------------
 
-#ifndef xxUSE_TS_AUDIO
-
 /**
 **	Play a audio packet.
 **
@@ -1166,8 +1166,6 @@ int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
 
     return::PlayAudio(data, length, id);
 }
-
-#endif
 
 void cSoftHdDevice::SetAudioTrackDevice(
     __attribute__ ((unused)) eTrackType type)
@@ -1219,14 +1217,18 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
     return::PlayVideo(data, length);
 }
 
-#if 0
+#ifdef USE_TS_VIDEO
+
 ///
 ///	Play a TS video packet.
 ///
+///	@param data	ts data buffer
+///	@param length	ts packet length (188)
+///
 int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
-    // many code to repeat
 }
+
 #endif
 
 #if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
@@ -1234,10 +1236,8 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 ///
 ///	Play a TS audio packet.
 ///
-///	misuse this function as audio poller
-///
 ///	@param data	ts data buffer
-///	@param length	ts packet length
+///	@param length	ts packet length (188)
 ///
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
@@ -1625,6 +1625,7 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
     static const char *text[] = {
 	"SUSP\n" "    Suspend plugin.\n",
 	"RESU\n" "    Resume plugin.\n",
+	"HOTK key\n" "	  Execute hotkey.\n",
 	NULL
     };
 
@@ -1633,6 +1634,10 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 
 /**
 **	Handle SVDRP commands.
+**
+**	@param command		SVDRP command
+**	@param option		all command arguments
+**	@param reply_code	reply code
 */
 cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     __attribute__ ((unused)) const char *option,
@@ -1657,6 +1662,13 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	}
 	Resume();
 	return "SoftHdDevice is resumed";
+    }
+    if (!strcasecmp(command, "HOTK")) {
+	int hotk;
+
+	hotk = strtol(option, NULL, 0);
+	HandleHotkey(hotk);
+	return "hot-key executed";
     }
     return NULL;
 }

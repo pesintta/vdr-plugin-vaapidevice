@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add SVDRP HOTK command support.
     Increased audio buffer time for PES packets.
     Support configuration and set of video background.
     Survive lost X11 display.
