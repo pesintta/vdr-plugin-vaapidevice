@@ -140,6 +140,8 @@ static volatile char AudioPaused;	///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
+static uint32_t AudioTicks;		///< audio ticks
+static uint32_t AudioTickPTS;		///< audio pts of tick
 static int64_t AudioPTS;		///< audio pts clock
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
@@ -290,12 +292,6 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
 	// too many bytes are lost
 	// FIXME: should skip more, longer skip, but less often?
     }
-    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
-    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
-	AudioPTS +=
-	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
-	    AudioBytesProSample);
-    }
 
     if (!AudioRunning) {
 	Debug(3, "audio/alsa: start %zd ms %d\n",
@@ -353,6 +349,15 @@ static int AlsaPlayRingbuffer(void)
 		if (AudioThread) {
 		    if (!AudioAlsaDriverBroken) {
 			Error(_("audio/alsa: broken driver %d\n"), avail);
+			Error("audio/alsa: state %s\n",
+			    snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+		    }
+		    if (snd_pcm_state(AlsaPCMHandle)
+			== SND_PCM_STATE_PREPARED) {
+			if ((err = snd_pcm_start(AlsaPCMHandle)) < 0) {
+			    Error(_("audio/alsa: snd_pcm_start(): %s\n"),
+				snd_strerror(err));
+			}
 		    }
 		    usleep(5 * 1000);
 		}
@@ -364,6 +369,9 @@ static int AlsaPlayRingbuffer(void)
 	n = RingBufferGetReadPointer(AlsaRingBuffer, &p);
 	if (!n) {			// ring buffer empty
 	    if (first) {		// only error on first loop
+		Debug(4, "audio/alsa: empty buffers %d\n", avail);
+		// ring buffer empty
+		// AlsaLowWaterMark = 1;
 		return 1;
 	    }
 	    return 0;
@@ -438,6 +446,7 @@ static void AlsaFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
+    AudioTicks = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -584,8 +593,6 @@ static void AlsaEnqueue(const void *samples, int count)
 	    Debug(3, "audio/alsa: unpaused\n");
 	}
     }
-    // Update audio clock
-    // AudioPTS += (size * 90000) / (AudioSampleRate * AudioChannels * AudioBytesProSample);
 }
 
 #endif
@@ -670,7 +677,7 @@ static void AlsaThread(void)
 		break;
 	    }
 	    pthread_yield();
-	    usleep(20 * 1000);		// let fill/empty the buffers
+	    usleep(24 * 1000);		// let fill/empty the buffers
 	}
     }
 }
@@ -1294,12 +1301,6 @@ static int OssAddToRingbuffer(const void *samples, int count)
 	// too many bytes are lost
 	// FIXME: should skip more, longer skip, but less often?
     }
-    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
-    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
-	AudioPTS +=
-	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
-	    AudioBytesProSample);
-    }
 
     if (!AudioRunning) {
 	Debug(3, "audio/oss: start %zd ms %d\n",
@@ -1386,6 +1387,7 @@ static void OssFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
+    AudioTicks = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -2111,6 +2113,13 @@ void AudioEnqueue(const void *samples, int count)
 	last = tick;
     }
     AudioUsedModule->Enqueue(samples, count);
+
+    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
+    if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
+	AudioPTS +=
+	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
+	    AudioBytesProSample);
+    }
 }
 
 /**
@@ -2176,6 +2185,25 @@ int64_t AudioGetClock(void)
 	int64_t delay;
 
 	if ((delay = AudioGetDelay())) {
+#if 0
+	    int64_t pts;
+	    uint32_t ticks;
+
+	    pts = AudioPTS - delay;
+	    ticks = GetMsTicks();
+	    if (AudioTicks) {
+		static int64_t drift;
+
+		drift += ((pts - AudioTickPTS) - (ticks - AudioTicks) * 90);
+		drift /= 2;
+		if (abs(drift) > 90) {
+		    printf("audio-drift: %d\n", (int)drift);
+		}
+	    }
+	    AudioTicks = ticks;
+	    AudioTickPTS = pts;
+	    return pts;
+#endif
 	    return AudioPTS - delay;
 	}
     }
