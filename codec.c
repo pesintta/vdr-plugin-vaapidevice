@@ -30,8 +30,10 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// compile with passthrough support (experimental)
+    /// compile with passthrough support (stable, ac3 only)
 #define USE_PASSTHROUGH
+    /// compile audio drift correction support (experimental)
+#define noUSE_AUDIO_DRIFT_CORRECTION
 
 #include <stdio.h>
 #include <unistd.h>
@@ -606,6 +608,22 @@ struct _audio_decoder_
     int HwChannels;			///< hw channels
 
     ReSampleContext *ReSample;		///< audio resampling context
+
+    int64_t StartPTS;			///< start PTS
+    struct timespec StartTime;		///< start time
+    int64_t LastPTS;			///< last PTS
+
+    int Drift;				///< drift correction value
+#define AVERAGE 10			///< number of average values
+    int Average[AVERAGE];		///< average for drift calculation
+
+    struct AVResampleContext *AvResample;	///< second audio resample context
+#define MAX_CHANNELS 8			///< max number of channels supported
+    int16_t *Buffer[MAX_CHANNELS];	///< deinterleave sample buffers
+    int BufferSize;			///< size of sample buffer
+    int16_t *Remain[MAX_CHANNELS];	///< filter remaining samples
+    int RemainSize;			///< size of remain buffer
+    int RemainCount;			///< number of remaining samples
 };
 
 #ifdef USE_PASSTHROUGH
@@ -710,6 +728,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     audio_decoder->Channels = 0;
     audio_decoder->HwSampleRate = 0;
     audio_decoder->HwChannels = 0;
+    audio_decoder->StartPTS = AV_NOPTS_VALUE;
 }
 
 /**
@@ -720,6 +739,21 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 void CodecAudioClose(AudioDecoder * audio_decoder)
 {
     // FIXME: output any buffered data
+    if (audio_decoder->AvResample) {
+	int ch;
+
+	av_resample_close(audio_decoder->AvResample);
+	audio_decoder->AvResample = NULL;
+	audio_decoder->RemainCount = 0;
+	audio_decoder->BufferSize = 0;
+	audio_decoder->RemainSize = 0;
+	for (ch = 0; ch < MAX_CHANNELS; ++ch) {
+	    free(audio_decoder->Buffer[ch]);
+	    audio_decoder->Buffer[ch] = NULL;
+	    free(audio_decoder->Remain[ch]);
+	    audio_decoder->Remain[ch] = NULL;
+	}
+    }
     if (audio_decoder->ReSample) {
 	audio_resample_close(audio_decoder->ReSample);
 	audio_decoder->ReSample = NULL;
@@ -810,6 +844,238 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 }
 
 /**
+**	Set/update audio pts clock.
+**
+**	@param audio_decoder	audio decoder data
+*/
+static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
+{
+    struct timespec nowtime;
+    int64_t tim_diff;
+    int64_t pts_diff;
+    int64_t drift;
+
+    AudioSetClock(pts);
+
+    // start drift detection
+    if (audio_decoder->StartPTS == (int64_t) AV_NOPTS_VALUE && AudioGetDelay()) {
+	audio_decoder->StartPTS = AudioGetClock();
+	audio_decoder->LastPTS = audio_decoder->StartPTS;
+	clock_gettime(CLOCK_REALTIME, &audio_decoder->StartTime);
+	return;
+    }
+
+    pts = AudioGetClock();
+    clock_gettime(CLOCK_REALTIME, &nowtime);
+    pts_diff = pts - audio_decoder->StartPTS;
+
+    tim_diff = (nowtime.tv_sec - audio_decoder->StartTime.tv_sec)
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+	audio_decoder->StartTime.tv_nsec);
+    drift = pts_diff * 1000 * 1000 / 90 - tim_diff;
+
+    if (abs(drift) > 100 * 1000 * 1000) {
+	// drift too big, pts changed?
+	audio_decoder->StartPTS = pts;
+	audio_decoder->LastPTS = audio_decoder->StartPTS;
+	audio_decoder->StartTime = nowtime;
+	return;
+    }
+    // collect over some time
+    if (pts - audio_decoder->LastPTS < 10 * 1000 * 90) {
+	return;
+    }
+    audio_decoder->LastPTS = pts;
+
+    audio_decoder->Drift +=
+	(int)((10 * audio_decoder->SampleRate * drift) / tim_diff);
+
+    if (audio_decoder->AvResample) {
+	av_resample_compensate(audio_decoder->AvResample, audio_decoder->Drift,
+	    10 * audio_decoder->SampleRate);
+    }
+
+    Info("codec/audio: drift(%3d) %3" PRId64 "ms %8" PRId64 " %g\n",
+	audio_decoder->Drift, drift / (1000 * 1000), drift,
+	(double)drift / tim_diff);
+    printf("codec/audio: drift(%3d) %3" PRId64 "ms %8" PRId64 " %d\n",
+	audio_decoder->Drift, drift / (1000 * 1000), drift,
+	(int)((10 * audio_decoder->SampleRate * drift) / tim_diff));
+}
+
+/**
+**	Handle audio format changes.
+**
+**	@param audio_decoder	audio decoder data
+*/
+static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
+{
+    const AVCodecContext *audio_ctx;
+    int err;
+    int isAC3;
+
+    audio_ctx = audio_decoder->AudioCtx;
+
+    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
+
+    // FIXME: use swr_convert from swresample (only in ffmpeg!)
+    if (audio_decoder->ReSample) {
+	audio_resample_close(audio_decoder->ReSample);
+	audio_decoder->ReSample = NULL;
+    }
+    if (audio_decoder->AvResample) {
+	av_resample_close(audio_decoder->AvResample);
+	audio_decoder->AvResample = NULL;
+	audio_decoder->RemainCount = 0;
+    }
+
+    audio_decoder->SampleRate = audio_ctx->sample_rate;
+    audio_decoder->HwSampleRate = audio_ctx->sample_rate;
+    audio_decoder->Channels = audio_ctx->channels;
+    // SPDIF/HDMI passthrough
+    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+	audio_decoder->HwChannels = 2;
+	isAC3 = 1;
+    } else {
+	audio_decoder->HwChannels = audio_ctx->channels;
+	isAC3 = 0;
+    }
+
+    // channels not support?
+    if ((err =
+	    AudioSetup(&audio_decoder->HwSampleRate,
+		&audio_decoder->HwChannels, isAC3))) {
+	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
+	    audio_ctx->sample_rate, audio_ctx->channels,
+	    audio_decoder->HwSampleRate, audio_decoder->HwChannels);
+
+	if (err == 1) {
+	    audio_decoder->ReSample =
+		av_audio_resample_init(audio_decoder->HwChannels,
+		audio_ctx->channels, audio_decoder->HwSampleRate,
+		audio_ctx->sample_rate, audio_ctx->sample_fmt,
+		audio_ctx->sample_fmt, 16, 10, 0, 0.8);
+	    // libav-0.8_pre didn't support 6 -> 2 channels
+	    if (!audio_decoder->ReSample) {
+		Error(_("codec/audio: resample setup error\n"));
+		audio_decoder->HwChannels = 0;
+		audio_decoder->HwSampleRate = 0;
+		return;
+	    }
+	} else {
+	    Debug(3, "codec/audio: audio setup error\n");
+	    // FIXME: handle errors
+	    audio_decoder->HwChannels = 0;
+	    audio_decoder->HwSampleRate = 0;
+	    return;
+	}
+    }
+    // prepare audio drift resample
+    if (!isAC3) {
+	audio_decoder->AvResample =
+	    av_resample_init(audio_decoder->HwSampleRate,
+	    audio_decoder->HwSampleRate, 16, 10, 0, 0.8);
+	if (!audio_decoder->AvResample) {
+	    Error(_("codec/audio: AvResample setup error\n"));
+	}
+    }
+}
+
+/**
+**	Codec enqueue audio samples.
+**
+**	@param audio_decoder	audio decoder data
+**	@param data		samples data
+**	@param count		number of samples
+**
+*/
+void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
+{
+#ifdef USE_AUDIO_DRIFT_CORRECTION
+    if (audio_decoder->AvResample) {
+	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
+	    FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
+	int16_t buftmp[MAX_CHANNELS][(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4];
+	int consumed;
+	int i;
+	int n;
+	int ch;
+	int bytes_n;
+
+	bytes_n = count / audio_decoder->HwChannels;
+	// resize sample buffer, if needed
+	if (audio_decoder->RemainCount + bytes_n > audio_decoder->BufferSize) {
+	    audio_decoder->BufferSize = audio_decoder->RemainCount + bytes_n;
+	    for (ch = 0; ch < MAX_CHANNELS; ++ch) {
+		audio_decoder->Buffer[ch] =
+		    realloc(audio_decoder->Buffer[ch],
+		    audio_decoder->BufferSize);
+	    }
+	}
+	// copy remaining bytes into sample buffer
+	for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
+	    memcpy(audio_decoder->Buffer[ch], audio_decoder->Remain[ch],
+		audio_decoder->RemainCount);
+	}
+	// deinterleave samples into sample buffer
+	for (i = 0; i < bytes_n / 2; i++) {
+	    for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
+		audio_decoder->Buffer[ch][audio_decoder->RemainCount / 2 + i]
+		    = data[i * audio_decoder->HwChannels + ch];
+	    }
+	}
+
+	bytes_n += audio_decoder->RemainSize;
+	n = 0;				// keep gcc lucky
+	// resample the sample buffer into tmp buffer
+	for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
+	    n = av_resample(audio_decoder->AvResample, buftmp[ch],
+		audio_decoder->Buffer[ch], &consumed, bytes_n / 2,
+		sizeof(buftmp[ch]) / 2, ch == audio_decoder->HwChannels - 1);
+	    //printf("remain%d: %d = %d/%d\n", ch, n, consumed, bytes_n /2);
+	    // fixme remaining channels
+	    if (bytes_n - consumed * 2 > audio_decoder->RemainSize) {
+		audio_decoder->RemainSize = bytes_n - consumed * 2;
+	    }
+	    audio_decoder->Remain[ch] =
+		realloc(audio_decoder->Remain[ch], audio_decoder->RemainSize);
+	    memcpy(audio_decoder->Remain[ch],
+		audio_decoder->Buffer[ch] + consumed,
+		audio_decoder->RemainSize);
+	    audio_decoder->RemainCount = audio_decoder->RemainSize;
+	}
+
+	// interleave samples from sample buffer
+	for (i = 0; i < n; i++) {
+	    for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
+		buf[i * audio_decoder->HwChannels + ch] = buftmp[ch][i];
+	    }
+	}
+	n *= 2;
+
+#if 0
+	// FIXME: must split channels, filter, join channels
+	n = av_resample(audio_decoder->AvResample, buf, data, &consumed, count,
+	    sizeof(buf), 1);
+	if (n < 0) {
+	    Error(_("codec/audio: can't av_resample\n"));
+	    return;
+	}
+	if (consumed != count) {
+	    Error(_("codec/audio: av_resample didn't consume all samples\n"));
+	}
+#endif
+	n *= audio_decoder->HwChannels;
+	CodecReorderAudioFrame(buf, n, audio_decoder->HwChannels);
+	AudioEnqueue(buf, n);
+	return;
+    }
+#endif
+    CodecReorderAudioFrame(data, count, audio_decoder->HwChannels);
+    AudioEnqueue(data, count);
+}
+
+/**
 **	Decode an audio packet.
 **
 **	PTS must be handled self.
@@ -847,64 +1113,17 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     avcodec_decode_audio4(audio_ctx, frame, &got_frame, avpkt);
 #else
 #endif
-    // Update audio clock
+
+    // update audio clock
     if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-	AudioSetClock(avpkt->pts);
+	CodecAudioSetClock(audio_decoder, avpkt->pts);
+
     }
     // FIXME: must first play remainings bytes, than change and play new.
     if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
 	|| audio_decoder->SampleRate != audio_ctx->sample_rate
 	|| audio_decoder->Channels != audio_ctx->channels) {
-	int err;
-	int isAC3;
-
-	audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
-	// FIXME: use swr_convert from swresample (only in ffmpeg!)
-	if (audio_decoder->ReSample) {
-	    audio_resample_close(audio_decoder->ReSample);
-	    audio_decoder->ReSample = NULL;
-	}
-
-	audio_decoder->SampleRate = audio_ctx->sample_rate;
-	audio_decoder->HwSampleRate = audio_ctx->sample_rate;
-	audio_decoder->Channels = audio_ctx->channels;
-	// SPDIF/HDMI passthrough
-	if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
-	    audio_decoder->HwChannels = 2;
-	    isAC3 = 1;
-	} else {
-	    audio_decoder->HwChannels = audio_ctx->channels;
-	    isAC3 = 0;
-	}
-
-	// channels not support?
-	if ((err =
-		AudioSetup(&audio_decoder->HwSampleRate,
-		    &audio_decoder->HwChannels, isAC3))) {
-	    Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
-		audio_ctx->sample_rate, audio_ctx->channels,
-		audio_decoder->HwSampleRate, audio_decoder->HwChannels);
-
-	    if (err == 1) {
-		audio_decoder->ReSample =
-		    av_audio_resample_init(audio_decoder->HwChannels,
-		    audio_ctx->channels, audio_decoder->HwSampleRate,
-		    audio_ctx->sample_rate, audio_ctx->sample_fmt,
-		    audio_ctx->sample_fmt, 16, 10, 0, 0.8);
-		// libav-0.8_pre didn't support 6 -> 2 channels
-		if (!audio_decoder->ReSample) {
-		    Error(_("codec/audio: resample setup error\n"));
-		    audio_decoder->HwChannels = 0;
-		    audio_decoder->HwSampleRate = 0;
-		}
-	    } else {
-		Debug(3, "codec/audio: audio setup error\n");
-		// FIXME: handle errors
-		audio_decoder->HwChannels = 0;
-		audio_decoder->HwSampleRate = 0;
-		return;
-	    }
-	}
+	CodecAudioUpdateFormat(audio_decoder);
     }
 
     if (audio_decoder->HwSampleRate && audio_decoder->HwChannels) {
@@ -931,9 +1150,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		    audio_decoder->HwChannels *
 		    av_get_bytes_per_sample(audio_ctx->sample_fmt);
 		Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
-		CodecReorderAudioFrame(outbuf, outlen,
-		    audio_decoder->HwChannels);
-		AudioEnqueue(outbuf, outlen);
+		CodecAudioEnqueue(audio_decoder, outbuf, outlen);
 	    }
 	} else {
 #ifdef USE_PASSTHROUGH
@@ -955,6 +1172,10 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		buf[3] = htole16(avpkt->size * 8);
 		swab(avpkt->data, buf + 4, avpkt->size);
 		memset(buf + 4 + avpkt->size / 2, 0, buf_sz - 8 - avpkt->size);
+		// don't play with the ac-3 samples
+		AudioEnqueue(buf, buf_sz);
+		// FIXME: handle drift.
+		return;
 	    }
 #if 0
 	    //
@@ -1008,8 +1229,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    // True HD?
 #endif
 #endif
-	    CodecReorderAudioFrame(buf, buf_sz, audio_decoder->HwChannels);
-	    AudioEnqueue(buf, buf_sz);
+	    CodecAudioEnqueue(audio_decoder, buf, buf_sz);
 	}
     }
 }

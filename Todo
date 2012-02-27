@@ -85,6 +85,8 @@ audio:
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
     Relaxed audio sync checks at end of packet and already in sync
+    samplerate problem resume/suspend.
+    only wait for video buffers, if video is running.
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware
