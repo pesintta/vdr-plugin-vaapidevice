@@ -743,7 +743,8 @@ static snd_pcm_t *AlsaOpenPCM(int use_ac3)
 	&& !(device = AudioPCMDevice) && !(device = getenv("ALSA_DEVICE"))) {
 	device = "default";
     }
-    Info(_("audio/alsa: using device '%s'\n"), device);
+    Info(_("audio/alsa: using %sdevice '%s'\n"), use_ac3 ? "ac3 " : "",
+	device);
 
     // open none blocking; if device is already used, we don't want wait
     if ((err =
@@ -1554,7 +1555,7 @@ static int OssOpenPCM(int use_ac3)
 	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
 	device = "/dev/dsp";
     }
-    Info(_("audio/oss: using device '%s'\n"), device);
+    Info(_("audio/oss: using %sdevice '%s'\n"), use_ac3 ? "ac3" : "", device);
 
     if ((fildes = open(device, O_WRONLY)) < 0) {
 	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
