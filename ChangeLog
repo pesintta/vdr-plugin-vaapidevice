@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Improved audio drift correction support.
     Experimental audio drift correction support.
     Add SVDRP HOTK command support.
     Increased audio buffer time for PES packets.

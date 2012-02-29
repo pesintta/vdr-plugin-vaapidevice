@@ -140,8 +140,6 @@ static volatile char AudioPaused;	///< audio paused
 static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
-static uint32_t AudioTicks;		///< audio ticks
-static uint32_t AudioTickPTS;		///< audio pts of tick
 static int64_t AudioPTS;		///< audio pts clock
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
@@ -294,7 +292,7 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	Debug(3, "audio/alsa: start %zd ms %d\n",
+	Debug(3, "audio/alsa: start %4zd ms %d v-buf\n",
 	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
 	    VideoGetBuffers());
@@ -333,7 +331,8 @@ static int AlsaPlayRingbuffer(void)
 	    if (n == -EAGAIN) {
 		continue;
 	    }
-	    Error(_("audio/alsa: underrun error?\n"));
+	    Error(_("audio/alsa: avail underrun error? '%s'\n"),
+		snd_strerror(n));
 	    err = snd_pcm_recover(AlsaPCMHandle, n, 0);
 	    if (err >= 0) {
 		continue;
@@ -401,7 +400,8 @@ static int AlsaPlayRingbuffer(void)
 		   goto again;
 		   }
 		 */
-		Error(_("audio/alsa: underrun error?\n"));
+		Error(_("audio/alsa: writei underrun error? '%s'\n"),
+		    snd_strerror(err));
 		err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 		if (err >= 0) {
 		    goto again;
@@ -433,7 +433,7 @@ static void AlsaFlushBuffers(void)
 	RingBufferReadAdvance(AlsaRingBuffer,
 	    RingBufferUsedBytes(AlsaRingBuffer));
 	state = snd_pcm_state(AlsaPCMHandle);
-	Debug(3, "audio/alsa: state %d - %s\n", state,
+	Debug(3, "audio/alsa: flush state %d - %s\n", state,
 	    snd_pcm_state_name(state));
 	if (state != SND_PCM_STATE_OPEN) {
 	    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
@@ -446,7 +446,6 @@ static void AlsaFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
-    AudioTicks = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -651,14 +650,15 @@ static void AlsaThread(void)
 	    break;
 	}
 	// wait for space in kernel buffers
-	if ((err = snd_pcm_wait(AlsaPCMHandle, 100)) < 0) {
-	    Error(_("audio/alsa: wait underrun error?\n"));
+	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
+	    Error(_("audio/alsa: wait underrun error? '%s'\n"),
+		snd_strerror(err));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 	    if (err >= 0) {
 		continue;
 	    }
 	    Error(_("audio/alsa: snd_pcm_wait(): %s\n"), snd_strerror(err));
-	    usleep(100 * 1000);
+	    usleep(24 * 1000);
 	    continue;
 	}
 	if (AlsaFlushBuffer || AudioPaused) {
@@ -886,6 +886,9 @@ static uint64_t AlsaGetDelay(void)
     uint64_t pts;
 
     if (!AlsaPCMHandle || !AudioSampleRate) {
+	return 0UL;
+    }
+    if (!AudioRunning) {		// audio not running
 	return 0UL;
     }
     // FIXME: thread safe? __assert_fail_base in snd_pcm_delay
@@ -1303,7 +1306,7 @@ static int OssAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	Debug(3, "audio/oss: start %zd ms %d\n",
+	Debug(3, "audio/oss: start %4zd ms %d v-buf\n",
 	    (RingBufferUsedBytes(OssRingBuffer) * 1000)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
 	    VideoGetBuffers());
@@ -1387,7 +1390,6 @@ static void OssFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
-    AudioTicks = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -1672,8 +1674,7 @@ static uint64_t OssGetDelay(void)
     if (OssPcmFildes == -1) {		// setup failure
 	return 0UL;
     }
-
-    if (!AudioRunning) {
+    if (!AudioRunning) {		// audio not running
 	return 0UL;
     }
     // delay in bytes in kernel buffers
@@ -2185,25 +2186,6 @@ int64_t AudioGetClock(void)
 	int64_t delay;
 
 	if ((delay = AudioGetDelay())) {
-#if 0
-	    int64_t pts;
-	    uint32_t ticks;
-
-	    pts = AudioPTS - delay;
-	    ticks = GetMsTicks();
-	    if (AudioTicks) {
-		static int64_t drift;
-
-		drift += ((pts - AudioTickPTS) - (ticks - AudioTicks) * 90);
-		drift /= 2;
-		if (abs(drift) > 90) {
-		    printf("audio-drift: %d\n", (int)drift);
-		}
-	    }
-	    AudioTicks = ticks;
-	    AudioTickPTS = pts;
-	    return pts;
-#endif
 	    return AudioPTS - delay;
 	}
     }

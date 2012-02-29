@@ -609,13 +609,12 @@ struct _audio_decoder_
 
     ReSampleContext *ReSample;		///< audio resampling context
 
-    int64_t StartPTS;			///< start PTS
-    struct timespec StartTime;		///< start time
+    int64_t LastDelay;			///< last delay
+    struct timespec LastTime;		///< last time
     int64_t LastPTS;			///< last PTS
 
-    int Drift;				///< drift correction value
-#define AVERAGE 10			///< number of average values
-    int Average[AVERAGE];		///< average for drift calculation
+    int Drift;				///< accumulated audio drift
+    int DriftCorr;			///< audio drift correction value
 
     struct AVResampleContext *AvResample;	///< second audio resample context
 #define MAX_CHANNELS 8			///< max number of channels supported
@@ -728,7 +727,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     audio_decoder->Channels = 0;
     audio_decoder->HwSampleRate = 0;
     audio_decoder->HwChannels = 0;
-    audio_decoder->StartPTS = AV_NOPTS_VALUE;
+    audio_decoder->LastDelay = 0;
 }
 
 /**
@@ -851,56 +850,75 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 {
     struct timespec nowtime;
+    int64_t delay;
     int64_t tim_diff;
     int64_t pts_diff;
     int64_t drift;
+    int corr;
 
     AudioSetClock(pts);
 
-    // start drift detection
-    if (audio_decoder->StartPTS == (int64_t) AV_NOPTS_VALUE && AudioGetDelay()) {
-	audio_decoder->StartPTS = AudioGetClock();
-	audio_decoder->LastPTS = audio_decoder->StartPTS;
-	clock_gettime(CLOCK_REALTIME, &audio_decoder->StartTime);
+    delay = AudioGetDelay();
+    if (!delay) {
 	return;
     }
-
-    pts = AudioGetClock();
     clock_gettime(CLOCK_REALTIME, &nowtime);
-    pts_diff = pts - audio_decoder->StartPTS;
-
-    tim_diff = (nowtime.tv_sec - audio_decoder->StartTime.tv_sec)
-	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-	audio_decoder->StartTime.tv_nsec);
-    drift = pts_diff * 1000 * 1000 / 90 - tim_diff;
-
-    if (abs(drift) > 100 * 1000 * 1000) {
-	// drift too big, pts changed?
-	audio_decoder->StartPTS = pts;
-	audio_decoder->LastPTS = audio_decoder->StartPTS;
-	audio_decoder->StartTime = nowtime;
+    if (!audio_decoder->LastDelay) {
+	audio_decoder->LastTime = nowtime;
+	audio_decoder->LastPTS = pts;
+	audio_decoder->LastDelay = delay;
+	audio_decoder->Drift = 0;
+	Debug(3, "codec/audio: inital delay %zd ms\n", delay / 90);
 	return;
     }
     // collect over some time
-    if (pts - audio_decoder->LastPTS < 10 * 1000 * 90) {
+    pts_diff = pts - audio_decoder->LastPTS;
+    if (pts_diff < 10 * 1000 * 90) {
 	return;
     }
+
+    tim_diff = (nowtime.tv_sec - audio_decoder->LastTime.tv_sec)
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+	audio_decoder->LastTime.tv_nsec);
+
+    drift =
+	(tim_diff * 90) / (1000 * 1000) - pts_diff + delay -
+	audio_decoder->LastDelay;
+
+    audio_decoder->LastTime = nowtime;
     audio_decoder->LastPTS = pts;
+    audio_decoder->LastDelay = delay;
 
-    audio_decoder->Drift +=
-	(int)((10 * audio_decoder->SampleRate * drift) / tim_diff);
-
-    if (audio_decoder->AvResample) {
-	av_resample_compensate(audio_decoder->AvResample, audio_decoder->Drift,
-	    10 * audio_decoder->SampleRate);
+    if (1) {
+	Debug(3, "codec/audio: interval P:%5zdms T:%5zdms D:%4zdms %f %d\n",
+	    pts_diff / 90, tim_diff / (1000 * 1000), delay / 90, drift / 90.0,
+	    audio_decoder->DriftCorr);
     }
 
-    Info("codec/audio: drift(%3d) %3" PRId64 "ms %8" PRId64 " %g\n",
-	audio_decoder->Drift, drift / (1000 * 1000), drift,
-	(double)drift / tim_diff);
-    printf("codec/audio: drift(%3d) %3" PRId64 "ms %8" PRId64 " %d\n",
-	audio_decoder->Drift, drift / (1000 * 1000), drift,
-	(int)((10 * audio_decoder->SampleRate * drift) / tim_diff));
+    if (abs(drift) > 5 * 90) {
+	// drift too big, pts changed?
+	Debug(3, "codec/audio: drift(%5d) %3" PRId64 "ms reset\n",
+	    audio_decoder->DriftCorr, drift);
+	audio_decoder->LastDelay = 0;
+	return;
+    }
+
+    drift += audio_decoder->Drift;
+    audio_decoder->Drift = drift;
+    corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
+    audio_decoder->DriftCorr -= corr;
+
+    if (audio_decoder->DriftCorr < -20000) {	// limit correction
+	audio_decoder->DriftCorr = -20000;
+    } else if (audio_decoder->DriftCorr > 20000) {
+	audio_decoder->DriftCorr = 20000;
+    }
+    if (audio_decoder->AvResample && audio_decoder->DriftCorr) {
+	av_resample_compensate(audio_decoder->AvResample,
+	    audio_decoder->DriftCorr / 10, 10 * audio_decoder->HwSampleRate);
+    }
+    printf("codec/audio: drift(%5d) %8" PRId64 "us %4d\n",
+	audio_decoder->DriftCorr, drift * 1000 / 90, corr);
 }
 
 /**
@@ -977,6 +995,12 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 	    audio_decoder->HwSampleRate, 16, 10, 0, 0.8);
 	if (!audio_decoder->AvResample) {
 	    Error(_("codec/audio: AvResample setup error\n"));
+	} else {
+	    // reset drift to some default value
+	    audio_decoder->DriftCorr /= 2;
+	    av_resample_compensate(audio_decoder->AvResample,
+		audio_decoder->DriftCorr / 10,
+		10 * audio_decoder->HwSampleRate);
 	}
     }
 }
@@ -1053,18 +1077,6 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	}
 	n *= 2;
 
-#if 0
-	// FIXME: must split channels, filter, join channels
-	n = av_resample(audio_decoder->AvResample, buf, data, &consumed, count,
-	    sizeof(buf), 1);
-	if (n < 0) {
-	    Error(_("codec/audio: can't av_resample\n"));
-	    return;
-	}
-	if (consumed != count) {
-	    Error(_("codec/audio: av_resample didn't consume all samples\n"));
-	}
-#endif
 	n *= audio_decoder->HwChannels;
 	CodecReorderAudioFrame(buf, n, audio_decoder->HwChannels);
 	AudioEnqueue(buf, n);
