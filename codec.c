@@ -853,7 +853,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t delay;
     int64_t tim_diff;
     int64_t pts_diff;
-    int64_t drift;
+    int drift;
     int corr;
 
     AudioSetClock(pts);
@@ -897,7 +897,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 
     if (abs(drift) > 5 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%5d) %3" PRId64 "ms reset\n",
+	Debug(3, "codec/audio: drift(%5d) %3dms reset\n",
 	    audio_decoder->DriftCorr, drift);
 	audio_decoder->LastDelay = 0;
 	return;
@@ -906,7 +906,14 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     drift += audio_decoder->Drift;
     audio_decoder->Drift = drift;
     corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
-    audio_decoder->DriftCorr -= corr;
+#ifdef USE_PASSTHROUGH
+    // SPDIF/HDMI passthrough
+    if (!CodecPassthroughAC3
+	|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
+#endif
+    {
+	audio_decoder->DriftCorr -= corr;
+    }
 
     if (audio_decoder->DriftCorr < -20000) {	// limit correction
 	audio_decoder->DriftCorr = -20000;
@@ -917,8 +924,8 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	av_resample_compensate(audio_decoder->AvResample,
 	    audio_decoder->DriftCorr / 10, 10 * audio_decoder->HwSampleRate);
     }
-    printf("codec/audio: drift(%5d) %8" PRId64 "us %4d\n",
-	audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+    printf("codec/audio: drift(%5d) %8dus %4d\n", audio_decoder->DriftCorr,
+	drift * 1000 / 90, corr);
 }
 
 /**
