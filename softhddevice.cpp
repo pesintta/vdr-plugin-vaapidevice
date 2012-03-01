@@ -1405,7 +1405,9 @@ bool cPluginSoftHdDevice::Start(void)
 	}
     }
 
-    ::Start();
+    if (!::Start()) {
+	SuspendMode = SUSPEND_NORMAL;
+    }
 
     return true;
 }

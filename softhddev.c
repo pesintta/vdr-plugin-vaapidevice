@@ -57,8 +57,8 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
 
-static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigStartSuspended;	///< flag to start in suspend mode
+static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigStartX11Server;	///< flag start the x11 server
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
@@ -2328,7 +2328,7 @@ void SoftHdDeviceExit(void)
 /**
 **	Prepare plugin.
 */
-void Start(void)
+int Start(void)
 {
     if (ConfigStartX11Server) {
 	StartXServer();
@@ -2356,7 +2356,9 @@ void Start(void)
 #ifdef USE_TS_AUDIO
     PesInit(PesDemuxAudio);
 #endif
-    // FIXME: some good message here.
+    Info(_("[softhddev] ready%s\n"), ConfigStartSuspended ? " suspended" : "");
+
+    return !ConfigStartSuspended;
 }
 
 /**

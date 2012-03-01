@@ -76,7 +76,7 @@ extern "C"
     /// C plugin exit + cleanup
     extern void SoftHdDeviceExit(void);
     /// C plugin start code
-    extern void Start(void);
+    extern int Start(void);
     /// C plugin stop code
     extern void Stop(void);
     /// C plugin main thread hook
