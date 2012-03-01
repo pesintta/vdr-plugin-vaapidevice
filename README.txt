@@ -224,8 +224,9 @@ Commandline:
 SVDRP:
 ------
 
-	Use 'svdrpsend.pl plug softhddevice HELP' to see the SVDRP commands
-	help and which are supported by the plugin.
+	Use 'svdrpsend.pl plug softhddevice HELP'
+	or 'svdrpsend plug softhddevice HELP' to see the SVDRP commands help
+	and which are supported by the plugin.
 
 Keymacros:
 ----------

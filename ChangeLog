@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add support for attach/detach plugin.
     OSS needs bigger audio buffers.
     Improved audio drift correction support.
     Experimental audio drift correction support.

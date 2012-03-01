@@ -102,6 +102,11 @@ static char ConfigSuspendX11;		///< suspend should stop x11
 
 static volatile char DoMakePrimary;	///< flag switch primary
 
+#define SUSPEND_EXTERNAL	-1	///< play external suspend mode
+#define SUSPEND_NORMAL		0	///< normal suspend mode
+#define SUSPEND_DETACHED	1	///< detached suspend mode
+static char SuspendMode;		///< suspend mode
+
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
@@ -673,13 +678,15 @@ cSoftHdPlayer *cSoftHdControl::Player;
 */
 eOSState cSoftHdControl::ProcessKey(eKeys key)
 {
-    if (!ISMODELESSKEY(key) || key == kBack || key == kStop) {
+    if (SuspendMode == SUSPEND_NORMAL && (!ISMODELESSKEY(key)
+	    || key == kMenu || key == kBack || key == kStop)) {
 	if (Player) {
 	    delete Player;
 
 	    Player = NULL;
 	}
 	Resume();
+	SuspendMode = 0;
 	return osEnd;
     }
     return osContinue;
@@ -703,7 +710,9 @@ cSoftHdControl::~cSoftHdControl()
 
 	Player = NULL;
     }
-    Resume();
+
+    dsyslog("[softhddev]%s: resume\n", __FUNCTION__);
+    //Resume();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -949,7 +958,9 @@ bool cSoftHdDevice::CanReplay(void) const
 }
 
 /**
-**	 Sets the device into the given play mode.
+**	Sets the device into the given play mode.
+**
+**	@param play_mode	new play mode (Audio/Video/External...)
 */
 bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 {
@@ -972,6 +983,14 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	default:
 	    dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
 	    break;
+    }
+
+    if (SuspendMode) {
+	if (SuspendMode != SUSPEND_EXTERNAL) {
+	    return true;
+	}
+	Resume();
+	SuspendMode = 0;
     }
 
     return::SetPlayMode(play_mode);
@@ -1625,6 +1644,8 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
     static const char *text[] = {
 	"SUSP\n" "    Suspend plugin.\n",
 	"RESU\n" "    Resume plugin.\n",
+	"DETA\n" "    Detach plugin.\n",
+	"ATTA\n" "    Attach plugin.\n",
 	"HOTK key\n" "	  Execute hotkey.\n",
 	NULL
     };
@@ -1648,12 +1669,15 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	    return "SoftHdDevice already suspended";
 	}
 	// should be after suspend, but SetPlayMode resumes
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
-	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
 	return "SoftHdDevice is suspended";
     }
     if (!strcasecmp(command, "RESU")) {
+	if (SuspendMode != SUSPEND_NORMAL) {
+	    return "can't resume SoftHdDevice";
+	}
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    ShutdownHandler.SetUserInactiveTimeout();
 	}
@@ -1661,7 +1685,37 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	    cControl::Shutdown();	// not need, if not suspended
 	}
 	Resume();
+	SuspendMode = 0;
 	return "SoftHdDevice is resumed";
+    }
+    if (!strcasecmp(command, "DETA")) {
+	if (cSoftHdControl::Player) {	// already suspended
+	    if (SuspendMode == SUSPEND_DETACHED) {
+		return "SoftHdDevice already detached";
+	    }
+	    return "can't suspend SoftHdDevice already suspended";
+	}
+	Suspend(1, 1, 0);
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
+	return "SoftHdDevice is detached";
+    }
+    if (!strcasecmp(command, "ATTA")) {
+	if (SuspendMode) {
+	    if (SuspendMode != SUSPEND_DETACHED) {
+		return "SoftHdDevice already detached";
+	    }
+	    return "can't attach SoftHdDevice not detached";
+	}
+	if (ShutdownHandler.GetUserInactiveTime()) {
+	    ShutdownHandler.SetUserInactiveTimeout();
+	}
+	if (cSoftHdControl::Player) {	// suspended
+	    cControl::Shutdown();	// not need, if not suspended
+	}
+	Resume();
+	SuspendMode = 0;
+	return "SoftHdDevice is attached";
     }
     if (!strcasecmp(command, "HOTK")) {
 	int hotk;

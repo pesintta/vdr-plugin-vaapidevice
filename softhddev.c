@@ -941,7 +941,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    bits_per_sample = (((p[5] >> 6) & 0x3) + 4) * 4;
 	    if (bits_per_sample != 16) {
 		Error(_
-		    ("softhddev: LPCM %d bits per sample aren't supported\n"),
+		    ("[softhddev] LPCM %d bits per sample aren't supported\n"),
 		    bits_per_sample);
 		// FIXME: handle unsupported formats.
 	    }
@@ -951,12 +951,12 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    AudioSetBufferTime(400);
 	    AudioSetup(&samplerate, &channels, 0);
 	    if (samplerate != samplerates[p[5] >> 4]) {
-		Error(_("softhddev: LPCM %d sample-rate is unsupported\n"),
+		Error(_("[softhddev] LPCM %d sample-rate is unsupported\n"),
 		    samplerates[p[5] >> 4]);
 		// FIXME: support resample
 	    }
 	    if (channels != (p[5] & 0x7) + 1) {
-		Error(_("softhddev: LPCM %d channels are unsupported\n"),
+		Error(_("[softhddev] LPCM %d channels are unsupported\n"),
 		    (p[5] & 0x7) + 1);
 		// FIXME: support resample
 	    }
@@ -1079,7 +1079,7 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
-	AudioSetBufferTime(216);
+	AudioSetBufferTime(264);
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
 	PesReset(PesDemuxAudio);
@@ -1144,7 +1144,7 @@ static void VideoPacketInit(void)
 	avpkt = &VideoPacketRb[i];
 	// build a clean ffmpeg av packet
 	if (av_new_packet(avpkt, VIDEO_BUFFER_SIZE)) {
-	    Fatal(_("[softhddev]: out of memory\n"));
+	    Fatal(_("[softhddev] out of memory\n"));
 	}
 	avpkt->priv = NULL;
     }
@@ -1846,11 +1846,6 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 */
 int SetPlayMode(int play_mode)
 {
-    if (ConfigStartSuspended) {		// ignore first call, if start suspended
-	ConfigStartSuspended = 0;
-	return 1;
-    }
-    Resume();
     VideoDisplayWakeup();
     if (MyVideoDecoder) {		// tell video parser we have new stream
 	if (VideoCodecID != CODEC_ID_NONE) {
@@ -2342,6 +2337,7 @@ void Start(void)
 
     if (!ConfigStartSuspended) {
 	// FIXME: AudioInit for HDMI after X11 startup
+	// StartAudio();
 	AudioInit();
 	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
@@ -2360,6 +2356,7 @@ void Start(void)
 #ifdef USE_TS_AUDIO
     PesInit(PesDemuxAudio);
 #endif
+    // FIXME: some good message here.
 }
 
 /**
@@ -2448,6 +2445,7 @@ void Resume(void)
 	StartVideo();
     }
     if (!MyAudioDecoder) {		// audio not running
+	// StartAudio();
 	AudioInit();
 	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
