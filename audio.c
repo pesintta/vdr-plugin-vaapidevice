@@ -1277,6 +1277,7 @@ static int OssPcmFildes = -1;		///< pcm file descriptor
 static int OssMixerFildes = -1;		///< mixer file descriptor
 static int OssMixerChannel;		///< mixer channel index
 static RingBuffer *OssRingBuffer;	///< audio ring buffer
+static int OssFragmentTime;		///< fragment time in ms
 static unsigned OssStartThreshold;	///< start play, if filled
 
 #ifdef USE_AUDIO_THREAD
@@ -1366,7 +1367,7 @@ static int OssPlayRingbuffer(void)
 		Error(_("audio/oss: write error: %s\n"), strerror(errno));
 		return 1;
 	    }
-	    Error(_("audio/oss: error not all bytes written\n"));
+	    Warning(_("audio/oss: error not all bytes written\n"));
 	}
 	// advance how many could written
 	RingBufferReadAdvance(OssRingBuffer, n);
@@ -1479,10 +1480,10 @@ static void OssThread(void)
 	fds[0].fd = OssPcmFildes;
 	fds[0].events = POLLOUT | POLLERR;
 	// wait for space in kernel buffers
-	err = poll(fds, 1, 100);
+	err = poll(fds, 1, OssFragmentTime);
 	if (err < 0) {
 	    Error(_("audio/oss: error poll %s\n"), strerror(errno));
-	    usleep(100 * 1000);
+	    usleep(OssFragmentTime * 1000);
 	    continue;
 	}
 
@@ -1495,7 +1496,7 @@ static void OssThread(void)
 		break;
 	    }
 	    pthread_yield();
-	    usleep(20 * 1000);		// let fill/empty the buffers
+	    usleep(OssFragmentTime * 1000);	// let fill/empty the buffers
 	}
     }
 }
@@ -1685,18 +1686,14 @@ static uint64_t OssGetDelay(void)
 	    strerror(errno));
 	return 0UL;
     }
-    if (delay == -1) {
-	delay = 0UL;
+    if (delay < 0) {
+	delay = 0;
     }
 
-    pts = ((uint64_t) delay * 90 * 1000)
+    pts = ((uint64_t) (delay + RingBufferUsedBytes(OssRingBuffer)) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
-    pts += ((uint64_t) RingBufferUsedBytes(OssRingBuffer) * 90 * 1000)
-	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
-    if (pts > 600 * 90) {
-	Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
-	    RingBufferUsedBytes(OssRingBuffer), pts / 90);
-    }
+    Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
+	RingBufferUsedBytes(OssRingBuffer), pts / 90);
 
     return pts;
 }
@@ -1719,6 +1716,7 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
     int ret;
     int tmp;
     int delay;
+    audio_buf_info bi;
 
     if (OssPcmFildes == -1) {		// OSS not ready
 	return -1;
@@ -1782,46 +1780,54 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 
     // FIXME: setup buffers
 
-    if (1) {
-	audio_buf_info bi;
-
-	if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
-	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
-		strerror(errno));
-	} else {
-	    Debug(3, "audio/oss: %d bytes buffered\n", bi.bytes);
-	}
-
-	tmp = -1;
-	if (ioctl(OssPcmFildes, SNDCTL_DSP_GETODELAY, &tmp) == -1) {
-	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETODELAY): %s\n"),
-		strerror(errno));
-	    // FIXME: stop player, set setup failed flag
-	    return -1;
-	}
-	if (tmp == -1) {
-	    tmp = 0;
-	}
-	// start when enough bytes for initial write
-	OssStartThreshold = bi.bytes + tmp;
-	// buffer time/delay in ms
-	delay = AudioBufferTime;
-	if (VideoAudioDelay > 0) {
-	    delay += VideoAudioDelay / 90;
-	}
-	if (OssStartThreshold <
-	    (*freq * *channels * AudioBytesProSample * delay) / 1000U) {
-	    OssStartThreshold =
-		(*freq * *channels * AudioBytesProSample * delay) / 1000U;
-	}
-	// no bigger, than the buffer
-	if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
-	    OssStartThreshold = RingBufferFreeBytes(OssRingBuffer);
-	}
-
-	Info(_("audio/oss: delay %u ms\n"), (OssStartThreshold * 1000)
-	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+#ifdef SNDCTL_DSP_POLICY
+    tmp = 3;
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_POLICY, &tmp) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_POLICY): %s\n"), strerror(errno));
+    } else {
+	Info("audio/oss: set policy to %d\n", tmp);
     }
+#endif
+
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
+	    strerror(errno));
+	bi.fragsize = 4096;
+	bi.fragstotal = 16;
+    } else {
+	Debug(3, "audio/oss: %d bytes buffered\n", bi.bytes);
+    }
+
+    OssFragmentTime = (bi.fragsize * 1000)
+	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
+
+    Info(_("audio/oss: buffer size %d %dms, fragment size %d %dms\n"),
+	bi.fragsize * bi.fragstotal, (bi.fragsize * bi.fragstotal * 1000)
+	/ (AudioSampleRate * AudioChannels * AudioBytesProSample), bi.fragsize,
+	OssFragmentTime);
+
+    // start when enough bytes for initial write
+    OssStartThreshold = (bi.fragsize - 1) * bi.fragstotal;
+
+    // buffer time/delay in ms
+    delay = AudioBufferTime + 300;
+    if (VideoAudioDelay > 0) {
+	delay += VideoAudioDelay / 90;
+    }
+    if (OssStartThreshold <
+	(AudioSampleRate * AudioChannels * AudioBytesProSample * delay) /
+	1000U) {
+	OssStartThreshold =
+	    (AudioSampleRate * AudioChannels * AudioBytesProSample * delay) /
+	    1000U;
+    }
+    // no bigger, than the buffer
+    if (OssStartThreshold > RingBufferFreeBytes(OssRingBuffer)) {
+	OssStartThreshold = RingBufferFreeBytes(OssRingBuffer);
+    }
+
+    Info(_("audio/oss: delay %u ms\n"), (OssStartThreshold * 1000)
+	/ (AudioSampleRate * AudioChannels * AudioBytesProSample));
 
     return ret;
 }

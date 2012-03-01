@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    OSS needs bigger audio buffers.
     Improved audio drift correction support.
     Experimental audio drift correction support.
     Add SVDRP HOTK command support.
