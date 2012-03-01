@@ -1711,10 +1711,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	return "SoftHdDevice is detached";
     }
     if (!strcasecmp(command, "ATTA")) {
-	if (SuspendMode) {
-	    if (SuspendMode != SUSPEND_DETACHED) {
-		return "SoftHdDevice already detached";
-	    }
+	if (SuspendMode != SUSPEND_DETACHED) {
 	    return "can't attach SoftHdDevice not detached";
 	}
 	if (ShutdownHandler.GetUserInactiveTime()) {
