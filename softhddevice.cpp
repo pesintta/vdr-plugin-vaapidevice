@@ -927,6 +927,13 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     cDevice::MakePrimaryDevice(on);
     if (on) {
 	new cSoftOsdProvider();
+	if (SuspendMode == SUSPEND_DETACHED) {
+	    Resume();
+	    SuspendMode = 0;
+	}
+    } else if (!SuspendMode) {
+	Suspend(1, 1, 0);
+	SuspendMode = SUSPEND_DETACHED;
     }
 }
 
@@ -1698,6 +1705,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	    return "can't suspend SoftHdDevice already suspended";
 	}
 	Suspend(1, 1, 0);
+	SuspendMode = SUSPEND_DETACHED;
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	return "SoftHdDevice is detached";
