@@ -1115,7 +1115,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
-    Info(_("audio/alsa: buffer size %lu %lums, period size %lu %lums\n"),
+    Info(_("audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n"),
 	buffer_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
 	    buffer_size) * 1000 / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample), period_size,
