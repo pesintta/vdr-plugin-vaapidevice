@@ -19,7 +19,8 @@ GIT_REV = $(shell git describe --always 2>/dev/null)
 ### Configuration (edit this for your needs)
 
 CONFIG := #-DDEBUG
-CONFIG += -DUSE_AUDIO_DRIFT_CORRECTION	# build new audio drift code
+#CONFIG += -DUSE_AUDIO_DRIFT_CORRECTION	# build new audio drift code
+#CONFIG += -DUSE_AC3_DRIFT_CORRECTION	# build new ac-3 drift code
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# debug a/v sync
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 CONFIG += -DUSE_TS_AUDIO		# build new ts audio parser
