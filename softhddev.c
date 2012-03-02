@@ -444,6 +444,7 @@ void PesInit(PesDemux * pesdx)
 void PesReset(PesDemux * pesdx)
 {
     pesdx->State = PES_INIT;
+    pesdx->Index = 0;
     pesdx->Skip = 0;
     pesdx->PTS = AV_NOPTS_VALUE;
     pesdx->DTS = AV_NOPTS_VALUE;
@@ -548,6 +549,8 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 
 			// new codec id, close and open new
 			if (AudioCodecID != codec_id) {
+			    Debug(3, "pesdemux: new codec %#06x -> %#06x\n",
+				AudioCodecID, codec_id);
 			    CodecAudioClose(MyAudioDecoder);
 			    CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
 			    AudioCodecID = codec_id;
