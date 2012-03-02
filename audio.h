@@ -31,8 +31,7 @@ extern void AudioEnqueue(const void *, int);	///< buffer audio samples
 extern void AudioFlushBuffers(void);	///< flush audio buffers
 extern void AudioPoller(void);		///< poll audio events/handling
 extern int AudioFreeBytes(void);	///< free bytes in audio output
-
-//extern int AudioUsedBytes(void);	///< used bytes in audio output
+extern int AudioUsedBytes(void);	///< used bytes in audio output
 extern uint64_t AudioGetDelay(void);	///< get current audio delay
 extern void AudioSetClock(int64_t);	///< set audio clock base
 extern int64_t AudioGetClock();		///< get current audio clock

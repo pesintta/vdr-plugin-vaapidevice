@@ -107,9 +107,11 @@ typedef struct _audio_module_
 
     void (*Thread) (void);		///< module thread handler
     void (*Enqueue) (const void *, int);	///< enqueue samples for output
+    void (*VideoReady) (void);		///< video ready, start audio
     void (*FlushBuffers) (void);	///< flush sample buffers
     void (*Poller) (void);		///< output poller
     int (*FreeBytes) (void);		///< number of bytes free in buffer
+    int (*UsedBytes) (void);		///< number of bytes used in buffer
      uint64_t(*GetDelay) (void);	///< get current audio delay
     void (*SetVolume) (int);		///< set output volume
     int (*Setup) (int *, int *, int);	///< setup channels, samplerate
@@ -137,6 +139,7 @@ static const char *AudioMixerDevice;	///< alsa/OSS mixer device name
 static const char *AudioMixerChannel;	///< alsa/OSS mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
 static volatile char AudioPaused;	///< audio paused
+static volatile char AudioVideoIsReady;	///< video ready start early
 static unsigned AudioSampleRate;	///< audio sample rate in hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
@@ -152,7 +155,6 @@ static const int AudioThread;		///< dummy audio thread
 #endif
 
 extern int VideoAudioDelay;		///< import audio/video delay
-extern int VideoGetBuffers(void);	///< Get number of input buffers.
 
 #ifdef USE_AUDIORING
 
@@ -292,16 +294,16 @@ static int AlsaAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	Debug(3, "audio/alsa: start %4zd ms %d v-buf\n",
+	Debug(4, "audio/alsa: start %4zdms\n",
 	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
-	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
-	    VideoGetBuffers());
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+
 	// forced start
-	if (AlsaStartThreshold * 3 < RingBufferUsedBytes(AlsaRingBuffer)) {
+	if (AlsaStartThreshold * 2 < RingBufferUsedBytes(AlsaRingBuffer)) {
 	    return 1;
 	}
 	// enough video + audio buffered
-	if (VideoGetBuffers() > 1
+	if (AudioVideoIsReady
 	    && AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
 	    // restart play-back
 	    return 1;
@@ -446,6 +448,7 @@ static void AlsaFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
+    AudioVideoIsReady = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -468,6 +471,14 @@ static void AlsaPoller(void)
 static int AlsaFreeBytes(void)
 {
     return AlsaRingBuffer ? RingBufferFreeBytes(AlsaRingBuffer) : INT32_MAX;
+}
+
+/**
+**	Get used bytes in audio output.
+*/
+static int AlsaUsedBytes(void)
+{
+    return AlsaRingBuffer ? RingBufferUsedBytes(AlsaRingBuffer) : 0;
 }
 
 #if 0
@@ -703,6 +714,26 @@ static void AlsaThreadEnqueue(const void *samples, int count)
 	// no lock needed, can wakeup next time
 	AudioRunning = 1;
 	pthread_cond_signal(&AudioStartCond);
+    }
+}
+
+/**
+**	Video is ready, start audio if possible,
+*/
+static void AlsaVideoReady(void)
+{
+    if (AudioSampleRate && AudioChannels) {
+	Debug(3, "audio/alsa: start %4zdms video start\n",
+	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+    }
+
+    if (!AudioRunning) {
+	// enough video + audio buffered
+	if (AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
+	    AudioRunning = 1;
+	    pthread_cond_signal(&AudioStartCond);
+	}
     }
 }
 
@@ -1245,13 +1276,16 @@ static const AudioModule AlsaModule = {
 #ifdef USE_AUDIO_THREAD
     .Thread = AlsaThread,
     .Enqueue = AlsaThreadEnqueue,
+    .VideoReady = AlsaVideoReady,
     .FlushBuffers = AlsaThreadFlushBuffers,
 #else
     .Enqueue = AlsaEnqueue,
+    .VideoReady = AlsaVideoReady,
     .FlushBuffers = AlsaFlushBuffers,
 #endif
     .Poller = AlsaPoller,
     .FreeBytes = AlsaFreeBytes,
+    .UsedBytes = AlsaUsedBytes,
     .GetDelay = AlsaGetDelay,
     .SetVolume = AlsaSetVolume,
     .Setup = AlsaSetup,
@@ -1308,16 +1342,16 @@ static int OssAddToRingbuffer(const void *samples, int count)
     }
 
     if (!AudioRunning) {
-	Debug(3, "audio/oss: start %4zd ms %d v-buf\n",
+	Debug(4, "audio/oss: start %4zdms\n",
 	    (RingBufferUsedBytes(OssRingBuffer) * 1000)
-	    / (AudioSampleRate * AudioChannels * AudioBytesProSample),
-	    VideoGetBuffers());
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+
 	// forced start
-	if (OssStartThreshold * 3 < RingBufferUsedBytes(OssRingBuffer)) {
+	if (OssStartThreshold * 2 < RingBufferUsedBytes(OssRingBuffer)) {
 	    return 1;
 	}
 	// enough video + audio buffered
-	if (VideoGetBuffers() > 1
+	if (AudioVideoIsReady
 	    && OssStartThreshold < RingBufferUsedBytes(OssRingBuffer)) {
 	    // restart play-back
 	    return 1;
@@ -1392,6 +1426,7 @@ static void OssFlushBuffers(void)
 	}
     }
     AudioRunning = 0;
+    AudioVideoIsReady = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -1448,6 +1483,14 @@ static void OssPoller(void)
 static int OssFreeBytes(void)
 {
     return OssRingBuffer ? RingBufferFreeBytes(OssRingBuffer) : INT32_MAX;
+}
+
+/**
+**	Get used bytes in audio output.
+*/
+static int OssUsedBytes(void)
+{
+    return OssRingBuffer ? RingBufferUsedBytes(OssRingBuffer) : 0;
 }
 
 #ifdef USE_AUDIO_THREAD
@@ -1517,6 +1560,26 @@ static void OssThreadEnqueue(const void *samples, int count)
 	// no lock needed, can wakeup next time
 	AudioRunning = 1;
 	pthread_cond_signal(&AudioStartCond);
+    }
+}
+
+/**
+**	Video is ready, start audio if possible,
+*/
+static void OssVideoReady(void)
+{
+    if (AudioSampleRate && AudioChannels) {
+	Debug(3, "audio/oss: start %4zdms video start\n",
+	    (RingBufferUsedBytes(OssRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+    }
+
+    if (!AudioRunning) {
+	// enough video + audio buffered
+	if (OssStartThreshold < RingBufferUsedBytes(OssRingBuffer)) {
+	    AudioRunning = 1;
+	    pthread_cond_signal(&AudioStartCond);
+	}
     }
 }
 
@@ -1881,13 +1944,16 @@ static const AudioModule OssModule = {
 #ifdef USE_AUDIO_THREAD
     .Thread = OssThread,
     .Enqueue = OssThreadEnqueue,
+    .VideoReady = OssVideoReady,
     .FlushBuffers = OssThreadFlushBuffers,
 #else
     .Enqueue = OssEnqueue,
+    .VideoReady = OssVideoReady,
     .FlushBuffers = OssFlushBuffers,
 #endif
     .Poller = OssPoller,
     .FreeBytes = OssFreeBytes,
+    .UsedBytes = OssUsedBytes,
     .GetDelay = OssGetDelay,
     .SetVolume = OssSetVolume,
     .Setup = OssSetup,
@@ -1921,6 +1987,14 @@ static void NoopEnqueue( __attribute__ ((unused))
 static int NoopFreeBytes(void)
 {
     return INT32_MAX;			// no driver, much space
+}
+
+/**
+**	Get used bytes in audio output.
+*/
+static int NoopUsedBytes(void)
+{
+    return 0;				// no driver, nothing used
 }
 
 /**
@@ -1970,9 +2044,11 @@ static void NoopVoid(void)
 static const AudioModule NoopModule = {
     .Name = "noop",
     .Enqueue = NoopEnqueue,
+    .VideoReady = NoopVoid,
     .FlushBuffers = NoopVoid,
     .Poller = NoopVoid,
     .FreeBytes = NoopFreeBytes,
+    .UsedBytes = NoopUsedBytes,
     .GetDelay = NoopGetDelay,
     .SetVolume = NoopSetVolume,
     .Setup = NoopSetup,
@@ -2002,9 +2078,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    pthread_cond_wait(&AudioStartCond, &AudioMutex);
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
-	Debug(3, "audio/alsa: ----> %zd ms\n",
-	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
+
+	Debug(3, "audio: ----> %d ms\n", (AudioUsedBytes() * 1000)
 	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+
 	pthread_mutex_unlock(&AudioMutex);
 
 #ifdef USE_AUDIORING
@@ -2131,6 +2208,15 @@ void AudioEnqueue(const void *samples, int count)
 }
 
 /**
+**	Video is ready.
+*/
+void AudioVideoReady(void)
+{
+    AudioVideoIsReady = 1;
+    AudioUsedModule->VideoReady();
+}
+
+/**
 **	Flush audio buffers.
 */
 void AudioFlushBuffers(void)
@@ -2152,6 +2238,14 @@ void AudioPoller(void)
 int AudioFreeBytes(void)
 {
     return AudioUsedModule->FreeBytes();
+}
+
+/**
+**	Get used bytes in audio output.
+*/
+int AudioUsedBytes(void)
+{
+    return AudioUsedModule->UsedBytes();
 }
 
 /**

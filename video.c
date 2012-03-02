@@ -331,7 +331,7 @@ int VideoAudioDelay;
     /// Default zoom mode
 static VideoZoomModes Video4to3ZoomMode;
 
-//static char VideoSoftStartSync;		///< soft start sync audio/video
+static char VideoSoftStartSync = 1;	///< soft start sync audio/video
 
 static char Video60HzMode;		///< handle 60hz displays
 
@@ -340,6 +340,7 @@ static xcb_atom_t NetWmState;		///< wm-state message atom
 static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 
 extern uint32_t VideoSwitch;		///< ticks for channel switch
+extern void AudioVideoReady(void);	///< tell audio video is ready
 
 #ifdef USE_VIDEO_THREAD
 
@@ -381,6 +382,9 @@ static const char *VideoTimeStampString(int64_t ts)
     int ss;
     int uu;
 
+    if (ts == (int64_t) AV_NOPTS_VALUE) {
+	return "--:--:--.---";
+    }
     idx ^= 1;				// support two static buffers
     ts = ts / 90;
     uu = ts % 1000;
@@ -410,6 +414,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
 	*pts_p += interlaced ? 40 * 90 : 20 * 90;
     }
+    //av_opt_ptr(avcodec_get_frame_class(), frame, "best_effort_timestamp");
     //pts = frame->best_effort_timestamp;
     pts = frame->pkt_pts;
     if (pts == (int64_t) AV_NOPTS_VALUE || !pts) {
@@ -1342,6 +1347,7 @@ struct _vaapi_decoder_
     struct timespec FrameTime;		///< time of last display
     int64_t PTS;			///< video PTS clock
 
+    int StartCounter;			///< number of start frames
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -1813,10 +1819,13 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->DeintImages[0].image_id != VA_INVALID_ID) {
 	VaapiDestroyDeinterlaceImages(decoder);
     }
+    decoder->SurfaceRead = 0;
+    decoder->SurfaceWrite = 0;
 
     decoder->SurfaceField = 1;
 
     //decoder->FrameCounter = 0;
+    decoder->StartCounter = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -4379,6 +4388,14 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     filled = atomic_read(&decoder->SurfacesFilled);
     // FIXME: audio not known assume 333ms delay
 
+    decoder->StartCounter++;
+    if (!VideoSoftStartSync && decoder->StartCounter < 60
+	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
+	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
+	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
+	decoder->DupNextFrame = 2;
+    }
+
     if (decoder->DupNextFrame) {
 	decoder->DupNextFrame--;
 	++decoder->FramesDuped;
@@ -4388,22 +4405,16 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 80 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame += 2;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame++;
-	} else if (audio_clock + VideoAudioDelay > video_clock + 40 * 90
+	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1) {
 	    Debug(3, "video: speed up video\n");
 	    decoder->DropNextFrame = 1;
-	}
-    } else if (audio_clock == (int64_t) AV_NOPTS_VALUE
-	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
-	if (VideoGetBuffers() < 4) {
-	    Debug(3, "video: initial slow down video\n");
-	    decoder->DupNextFrame++;
 	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
@@ -4892,6 +4903,7 @@ typedef struct _vdpau_decoder_
     struct timespec FrameTime;		///< time of last display
     int64_t PTS;			///< video PTS clock
 
+    int StartCounter;			///< number of start frames
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -5568,6 +5580,8 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 
     decoder->SurfaceField = 0;
 
+    //decoder->FrameCounter = 0;
+    decoder->StartCounter = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -7431,6 +7445,14 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
     filled = atomic_read(&decoder->SurfacesFilled);
     // FIXME: audio not known assume 333ms delay
 
+    decoder->StartCounter++;
+    if (!VideoSoftStartSync && decoder->StartCounter < 60
+	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
+	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
+	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
+	decoder->DupNextFrame = 2;
+    }
+
     if (decoder->DupNextFrame) {
 	decoder->DupNextFrame--;
 	++decoder->FramesDuped;
@@ -7440,22 +7462,16 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 80 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame += 2;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 30 * 90) {
+	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
 	    Debug(3, "video: slow down video\n");
 	    decoder->DupNextFrame++;
-	} else if (audio_clock + VideoAudioDelay > video_clock + 40 * 90
+	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1 + 2 * decoder->Interlaced) {
 	    Debug(3, "video: speed up video\n");
 	    decoder->DropNextFrame = 1;
-	}
-    } else if (audio_clock == (int64_t) AV_NOPTS_VALUE
-	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
-	if (VideoGetBuffers() < 4) {
-	    Debug(3, "video: initial slow down video\n");
-	    decoder->DupNextFrame++;
 	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
@@ -7483,14 +7499,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 {
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 
-    if (VdpauPreemption) {		// display preempted
-	return;
-    }
-#ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
-#endif
 
     if (decoder->DropNextFrame) {	// drop frame requested
 	++decoder->FramesDropped;
@@ -7500,6 +7511,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	    VdpauPrintFrames(decoder);
 	}
 	decoder->DropNextFrame--;
+	return;
+    }
+    if (VdpauPreemption) {		// display preempted
 	return;
     }
     // if video output buffer is full, wait and display surface.
@@ -8618,6 +8632,7 @@ void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
 enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
+    AudioVideoReady();
     if (VideoUsedModule) {
 	return VideoUsedModule->get_format(decoder, video_ctx, fmt);
     }

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Rewrote video/audio start code.
     Add support for attach/detach plugin.
     OSS needs bigger audio buffers.
     Improved audio drift correction support.
