@@ -832,6 +832,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		cControl::Attach();
 		Suspend(ConfigSuspendClose, ConfigSuspendClose,
 		    ConfigSuspendX11);
+		SuspendMode = SUSPEND_NORMAL;
 		if (ShutdownHandler.GetUserInactiveTime()) {
 		    dsyslog("[softhddev]%s: set user inactive\n",
 			__FUNCTION__);
@@ -876,7 +877,7 @@ class cSoftHdDevice:public cDevice
 #ifdef USE_TS_VIDEO
     virtual int PlayTsVideo(const uchar *, int);
 #endif
-#if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
+#if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
     virtual int PlayTsAudio(const uchar *, int);
 #endif
     virtual void SetAudioChannelDevice(int);
@@ -986,6 +987,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    dsyslog("[softhddev] play mode external\n");
 	    Suspend(1, 1, 0);
+	    SuspendMode = SUSPEND_EXTERNAL;
 	    return true;
 	default:
 	    dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
@@ -1257,7 +1259,7 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 
 #endif
 
-#if !defined(USE_AUDIO_THREAD) || defined(USE_TS_AUDIO)
+#if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
 
 ///
 ///	Play a TS audio packet.
@@ -1267,7 +1269,7 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 ///
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
-#ifdef USE_TS_AUDIO
+#ifndef NO_TS_AUDIO
     return::PlayTsAudio(data, length);
 #else
     AudioPoller();
@@ -1413,6 +1415,8 @@ bool cPluginSoftHdDevice::Start(void)
     }
 
     if (!::Start()) {
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
 	SuspendMode = SUSPEND_NORMAL;
     }
 
@@ -1463,6 +1467,7 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	SuspendMode = SUSPEND_NORMAL;
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
 	    ShutdownHandler.SetUserInactive();
@@ -1491,6 +1496,7 @@ void cPluginSoftHdDevice::MainThreadHook(void)
     if (ShutdownHandler.IsUserInactive()) {
 	// this is regular called, but guarded against double calls
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	SuspendMode = SUSPEND_NORMAL;
     }
 
     ::MainThreadHook();
@@ -1679,6 +1685,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	}
 	// should be after suspend, but SetPlayMode resumes
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	SuspendMode = SUSPEND_NORMAL;
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	return "SoftHdDevice is suspended";

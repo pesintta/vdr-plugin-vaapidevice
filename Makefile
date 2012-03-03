@@ -23,7 +23,7 @@ CONFIG := #-DDEBUG
 #CONFIG += -DUSE_AC3_DRIFT_CORRECTION	# build new ac-3 drift code
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# debug a/v sync
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
-CONFIG += -DUSE_TS_AUDIO		# build new ts audio parser
+#CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")

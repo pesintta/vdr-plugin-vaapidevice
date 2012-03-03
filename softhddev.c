@@ -348,7 +348,7 @@ static int Ac3Check(const uint8_t * data, int size)
     return 0;
 }
 
-#ifdef USE_TS_AUDIO
+#ifndef NO_TS_AUDIO
 
 //////////////////////////////////////////////////////////////////////////////
 //	PES Demux
@@ -1058,7 +1058,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     return size;
 }
 
-#ifdef USE_TS_AUDIO
+#ifndef NO_TS_AUDIO
 
 /**
 **	Play transport stream audio packet.
@@ -2369,7 +2369,7 @@ int Start(void)
     }
     pthread_mutex_init(&SuspendLockMutex, NULL);
 
-#ifdef USE_TS_AUDIO
+#ifndef NO_TS_AUDIO
     PesInit(PesDemuxAudio);
 #endif
     Info(_("[softhddev] ready%s\n"), ConfigStartSuspended ? " suspended" : "");
