@@ -492,6 +492,8 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 		return;
 
 	    case PES_START:		// at start of pes packet payload
+#if 0
+		// Played with PlayAudio
 		// FIXME: need 0x80 -- 0xA0 state
 		if (AudioCodecID == CODEC_ID_NONE) {
 		    if ((*p & 0xF0) == 0x80) {	// AC-3 & DTS
@@ -501,9 +503,11 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 			pesdx->State = PES_LPCM_HEADER;
 			pesdx->HeaderIndex = 0;
 			pesdx->HeaderSize = 7;
-			break;
+			// FIXME: need harder LPCM check
+			//break;
 		    }
 		}
+#endif
 
 	    case PES_INIT:		// find start of audio packet
 		// FIXME: increase if needed the buffer
@@ -1082,6 +1086,7 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (NewAudioStream) {
 	// FIXME: does this clear the audio ringbuffer?
 	CodecAudioClose(MyAudioDecoder);
+	// max time between audio packets 200ms + 24ms hw buffer
 	AudioSetBufferTime(264);
 	AudioCodecID = CODEC_ID_NONE;
 	NewAudioStream = 0;
@@ -1349,10 +1354,18 @@ int VideoDecode(void)
 	return -1;
     }
 #if 0
+    int f;
+
     // FIXME: flush buffers, if close is in the queue
-    while (filled) {
-	avpkt = &VideoPacketRb[VideoPacketRead];
+    for (f = 0; f < filled; ++f) {
+	avpkt = &VideoPacketRb[(VideoPacketRead + f) % VIDEO_PACKET_MAX];
 	if ((int)(size_t) avpkt->priv == CODEC_ID_NONE) {
+	    printf("video: close\n");
+	    if (f) {
+		atomic_sub(f, &VideoPacketsFilled);
+		VideoPacketRead = (VideoPacketRead + f) % VIDEO_PACKET_MAX;
+	    }
+	    break;
 	}
     }
 #endif

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Removes LPCM detection from TS parser.
     Rewrote video/audio start code.
     Add support for attach/detach plugin.
     OSS needs bigger audio buffers.
