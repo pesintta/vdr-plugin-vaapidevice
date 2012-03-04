@@ -1,6 +1,7 @@
 User johns
-Date:
+Date: Sun Mar  4 22:35:36 CET 2012
 
+    Release Version 0.4.9
     Experimental ac3 audio drift correction support.
     Removes LPCM detection from TS parser.
     Rewrote video/audio start code.
