@@ -1611,40 +1611,13 @@ int PlayVideo(const uint8_t * data, int size)
 	pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
-#ifdef DEBUG
-	if (!(data[13] & 1) || !(data[11] & 1) || !(data[9] & 1)) {
-	    Error(_("[softhddev] invalid pts in video packet\n"));
-	    return size;
-	}
-	//Debug(3, "video: pts %#012" PRIx64 "\n", pts);
-	if (data[13] != (((pts & 0x7F) << 1) | 1)) {
-	    abort();
-	}
-	if (data[12] != ((pts >> 7) & 0xFF)) {
-	    abort();
-	}
-	if (data[11] != ((((pts >> 15) & 0x7F) << 1) | 1)) {
-	    abort();
-	}
-	if (data[10] != ((pts >> 22) & 0xFF)) {
-	    abort();
-	}
-	if ((data[9] & 0x0F) != (((pts >> 30) << 1) | 1)) {
-	    abort();
-	}
-#endif
     }
 
     check = data + 9 + n;
-    if (0) {
-	printf("%02x: %02x %02x %02x %02x %02x %02x %02x\n", data[6], check[0],
-	    check[1], check[2], check[3], check[4], check[5], check[6]);
-    }
-#if 1					// FIXME: test code for better h264 detection
-    z = 0;
     l = size - 9 - n;
+    z = 0;
     while (!*check) {			// count leading zeros
-	if (--l < 4) {
+	if (--l < 2) {
 	    Warning(_("[softhddev] empty video packet %d bytes\n"), size);
 	    return size;
 	}
@@ -1652,7 +1625,7 @@ int PlayVideo(const uint8_t * data, int size)
 	++z;
     }
 
-    // H264 Access Unit Delimiter 0x00 0x00 0x00 0x01 0x09
+    // H264 NAL AUD Access Unit Delimiter 0x00 0x00 0x00 0x01 0x09
     if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
 	&& check[1] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
@@ -1701,66 +1674,6 @@ int PlayVideo(const uint8_t * data, int size)
     }
 
     return size;
-#else
-    // FIXME: no valid mpeg2/h264 detection yet
-    // FIXME: better skip all zero's >3 && 0x01 0x09 h264, >2 && 0x01 -> mpeg2
-
-    // PES_VIDEO_STREAM 0xE0 or PES start code
-    //(data[6] & 0xC0) != 0x80 ||
-    if ((!check[0] && !check[1] && check[2] == 0x1)) {
-	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
-	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
-	} else {
-	    Debug(3, "video: mpeg2 detected ID %02x\n", check[3]);
-	    VideoCodecID = CODEC_ID_MPEG2VIDEO;
-	}
-#ifdef DEBUG
-	if (ValidateMpeg(data, size)) {
-	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
-	}
-#endif
-	// Access Unit Delimiter
-    } else if ((data[6] & 0xC0) == 0x80 && !check[0] && !check[1]
-	&& !check[2] && check[3] == 0x1 && check[4] == 0x09) {
-	if (VideoCodecID == CODEC_ID_H264) {
-	    VideoNextPacket(CODEC_ID_H264);
-	} else {
-	    Debug(3, "video: h264 detected\n");
-	    VideoCodecID = CODEC_ID_H264;
-	}
-	// Access Unit Delimiter (BBC-HD)
-	// FIXME: the 4 offset are try & error selected
-    } else if ((data[6] & 0xC0) == 0x80 && !check[4 + 0] && !check[4 + 1]
-	&& !check[4 + 2] && check[4 + 3] == 0x1 && check[4 + 4] == 0x09) {
-	if (VideoCodecID == CODEC_ID_H264) {
-	    VideoNextPacket(CODEC_ID_H264);
-	} else {
-	    Debug(3, "video: h264 detected\n");
-	    VideoCodecID = CODEC_ID_H264;
-	}
-    } else {
-	// this happens when vdr sends incomplete packets
-	if (VideoCodecID == CODEC_ID_NONE) {
-	    Debug(3, "video: not detected\n");
-	    return size;
-	}
-	// incomplete packets produce artefacts after channel switch
-	// packet < 65526 is the last split packet, detect it here for
-	// better latency
-	if (size < 65526 && VideoCodecID == CODEC_ID_MPEG2VIDEO) {
-	    // mpeg codec supports incomplete packets
-	    // waiting for a full complete packages, increases needed delays
-	    VideoEnqueue(pts, check, size - 9 - n);
-	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
-	    return size;
-	}
-    }
-
-    // SKIP PES header
-    VideoEnqueue(pts, check, size - 9 - n);
-
-    return size;
-#endif
 }
 
     /// call VDR support function
@@ -1956,7 +1869,8 @@ void StillPicture(const uint8_t * data, int size)
 {
     int i;
     static uint8_t seq_end_mpeg[] = { 0x00, 0x00, 0x01, 0xB7 };
-    static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x10 };
+    // H264 NAL End of Sequence
+    static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
 
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
@@ -1968,14 +1882,13 @@ void StillPicture(const uint8_t * data, int size)
 	// FIXME: should detect codec, see PlayVideo
 	Error(_("[softhddev] no codec known for still picture\n"));
     }
-    //Clear();				// flush video buffers
-
-    // +1 future for deinterlace
-    for (i = -1; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
-	//if ( 1 ) {
+    // FIXME: can check video backend, if a frame was produced.
+    // output for max reference frames
+    for (i = 0; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
 	const uint8_t *split;
 	int n;
 
+	// FIXME: vdr pes recordings sends mixed audio/video
 	if ((data[3] & 0xF0) == 0xE0) {	// PES packet
 	    split = data;
 	    n = size;
@@ -1983,15 +1896,31 @@ void StillPicture(const uint8_t * data, int size)
 	    do {
 		int len;
 
-		len = (split[4] << 8) + split[5];
-		if (!len || len + 6 > n) {
-		    PlayVideo(split, n);	// feed remaining bytes
+#ifdef DEBUG
+		if (split[0] || split[1] || split[2] != 0x01) {
+		    Error(_("[softhddev] invalid still video packet\n"));
 		    break;
 		}
-		PlayVideo(split, len + 6);	// feed it
+#endif
+
+		len = (split[4] << 8) + split[5];
+		if (!len || len + 6 > n) {
+		    // video only
+		    if ((data[3] & 0xF0) == 0xE0) {
+			while (!PlayVideo(split, n)) {	// feed remaining bytes
+			}
+		    }
+		    break;
+		}
+		if ((data[3] & 0xF0) == 0xE0) {
+		    // video only
+		    while (!PlayVideo(split, len + 6)) {	// feed it
+		    }
+		}
 		split += 6 + len;
 		n -= 6 + len;
 	    } while (n > 6);
+
 	    VideoNextPacket(VideoCodecID);	// terminate last packet
 
 	    if (VideoCodecID == CODEC_ID_H264) {
@@ -2013,6 +1942,12 @@ void StillPicture(const uint8_t * data, int size)
 	    VideoNextPacket(VideoCodecID);	// terminate last packet
 	}
     }
+
+    // wait for empty buffers
+    for (i = 0; VideoGetBuffers() && i < 10; ++i) {
+	usleep(10 * 1000);
+    }
+    Debug(3, "[softhddev]%s: buffers %d\n", __FUNCTION__, VideoGetBuffers());
 }
 
 /**
