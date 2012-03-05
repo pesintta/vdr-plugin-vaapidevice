@@ -8859,8 +8859,12 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	free(data);
 
 	return rgb;
-    }
+    } else
 #endif
+    {
+	Warning(_("softhddev: grab unsupported\n"));
+    }
+
     (void)size;
     (void)width;
     (void)height;

@@ -1760,9 +1760,6 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 	}
 	return NULL;
     }
-    if (width != -1 && height != -1) {
-	Warning(_("softhddev: scaling unsupported\n"));
-    }
     return VideoGrab(size, &width, &height, 1);
 }
 
