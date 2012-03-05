@@ -701,7 +701,7 @@ static void AlsaThread(void)
 */
 static void AlsaThreadEnqueue(const void *samples, int count)
 {
-    if (!AlsaRingBuffer || !AlsaPCMHandle || !AudioSampleRate) {
+    if (!AlsaRingBuffer || !AlsaPCMHandle) {
 	Debug(3, "audio/alsa: enqueue not ready\n");
 	return;
     }
@@ -1552,7 +1552,7 @@ static void OssThread(void)
 */
 static void OssThreadEnqueue(const void *samples, int count)
 {
-    if (!OssRingBuffer || OssPcmFildes == -1 || !AudioSampleRate) {
+    if (!OssRingBuffer || OssPcmFildes == -1) {
 	Debug(3, "audio/oss: enqueue not ready\n");
 	return;
     }
@@ -2080,7 +2080,9 @@ static void *AudioPlayHandlerThread(void *dummy)
 	} while (!AudioRunning);
 
 	Debug(3, "audio: ----> %d ms\n", (AudioUsedBytes() * 1000)
-	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+	    / (!AudioSampleRate
+		|| !AudioChannels +
+		AudioSampleRate * AudioChannels * AudioBytesProSample));
 
 	pthread_mutex_unlock(&AudioMutex);
 
@@ -2182,6 +2184,9 @@ static const AudioModule *AudioModules[] = {
 */
 void AudioEnqueue(const void *samples, int count)
 {
+    if (!AudioSampleRate || !AudioChannels) {
+	return;				// not setup
+    }
     if (0) {
 	static uint32_t last;
 	static uint32_t tick;

@@ -1,4 +1,9 @@
 User johns
+Date:
+
+    Fix bug: AudioEnqueue crash without sound card.
+
+User johns
 Date: Sun Mar  4 22:35:36 CET 2012
 
     Release Version 0.4.9
