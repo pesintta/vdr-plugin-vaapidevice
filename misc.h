@@ -107,6 +107,31 @@ static inline void Syslog(const int level, const char *format, ...)
 #define Debug(level, fmt...)		/* disabled */
 #endif
 
+#ifdef AV_NOPTS_VALUE
+
+/**
+**	Nice time-stamp string.
+**
+**	@param ts	dvb time stamp
+*/
+static inline const char *Timestamp2String(int64_t ts)
+{
+    static char buf[4][16];
+    static int idx;
+
+    if (ts == (int64_t) AV_NOPTS_VALUE) {
+	return "--:--:--.---";
+    }
+    idx = (idx + 1) % 3;
+    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d",
+	(int)(ts / (90 * 3600000)), (int)((ts / (90 * 60000)) % 60),
+	(int)((ts / (90 * 1000)) % 60), (int)((ts / 90) % 1000));
+
+    return buf[idx];
+}
+
+#endif
+
 /**
 **	Get ticks in ms.
 **

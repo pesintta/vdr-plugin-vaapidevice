@@ -43,7 +43,7 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
-static const char *const VERSION = "0.4.9"
+static const char *const VERSION = "0.5.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif

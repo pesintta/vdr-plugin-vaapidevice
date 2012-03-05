@@ -369,34 +369,6 @@ static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 static void VideoThreadExit(void);	///< exit/kill video thread
 
-#if defined(DEBUG) || defined(AV_INFO)
-///
-///	Nice time-stamp string.
-///
-static const char *VideoTimeStampString(int64_t ts)
-{
-    static char buf[2][32];
-    static int idx;
-    int hh;
-    int mm;
-    int ss;
-    int uu;
-
-    if (ts == (int64_t) AV_NOPTS_VALUE) {
-	return "--:--:--.---";
-    }
-    idx ^= 1;				// support two static buffers
-    ts = ts / 90;
-    uu = ts % 1000;
-    ss = (ts / 1000) % 60;
-    mm = (ts / 60000) % 60;
-    hh = ts / 3600000;
-    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d", hh, mm, ss, uu);
-
-    return buf[idx];
-}
-#endif
-
 ///
 ///	Update video pts.
 ///
@@ -4422,7 +4394,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
-	    VideoTimeStampString(video_clock),
+	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
@@ -7479,7 +7451,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
     if (decoder->DupNextFrame || decoder->DropNextFrame
 	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
-	    VideoTimeStampString(video_clock),
+	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
