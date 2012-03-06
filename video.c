@@ -2048,18 +2048,8 @@ static int VaapiInit(const char *display_name)
 	VaapiNewIntel = 1;
     }
     //
-    //	check if driver makes a copy of the VA surface for display.
+    //	check which attributes are supported
     //
-    attr.type = VADisplayAttribDirectSurface;
-    attr.flags = VA_DISPLAY_ATTRIB_GETTABLE;
-    if (vaGetDisplayAttributes(VaDisplay, &attr, 1) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: Can't get direct-surface attribute\n"));
-	attr.value = 1;
-    }
-    Info(_("video/vaapi: VA surface is %s\n"),
-	attr.value ? _("direct mapped") : _("copied"));
-    // FIXME: handle the cases: new liba: Don't use it.
-
     attr.type = VADisplayAttribBackgroundColor;
     attr.flags = VA_DISPLAY_ATTRIB_SETTABLE;
     if (vaGetDisplayAttributes(VaDisplay, &attr, 1) != VA_STATUS_SUCCESS) {
@@ -4353,8 +4343,10 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     int64_t audio_clock;
     int64_t video_clock;
 
-    if (!decoder->DupNextFrame && (!Video60HzMode
-	    || decoder->FramesDisplayed % 6)) {
+    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
+	// FIXME: drop next frame?
+	decoder->DupNextFrame++;
+    } else if (!decoder->DupNextFrame) {
 	VaapiAdvanceFrame();
     }
 
@@ -7410,8 +7402,10 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
     int64_t audio_clock;
     int64_t video_clock;
 
-    if (!decoder->DupNextFrame && (!Video60HzMode
-	    || decoder->FramesDisplayed % 6)) {
+    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
+	// FIXME: drop next frame?
+	decoder->DupNextFrame++;
+    } else if (!decoder->DupNextFrame) {
 	VdpauAdvanceFrame();
     }
 
