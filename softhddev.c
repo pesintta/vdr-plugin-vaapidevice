@@ -1630,7 +1630,7 @@ int PlayVideo(const uint8_t * data, int size)
 	return size;
     }
     // buffer full: needed for replay
-    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
+    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 3) {
 	return 0;
     }
     // get pts/dts
