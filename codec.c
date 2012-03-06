@@ -932,7 +932,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	int distance;
 
 	// try workaround for buggy ffmpeg 0.10
-	if (audio_decoder->DriftCorr < 2000) {
+	if (abs(audio_decoder->DriftCorr) < 2000) {
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (900 * 1000);
 	} else {
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
