@@ -47,6 +47,10 @@
 #include "video.h"
 #include "codec.h"
 
+#ifdef DEBUG
+static int H264Dump(const uint8_t * data, int size);
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 //	Variables
 //////////////////////////////////////////////////////////////////////////////
@@ -1264,6 +1268,7 @@ static void VideoNextPacket(int codec_id)
     memset(avpkt->data + avpkt->stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
     avpkt->priv = (void *)(size_t) codec_id;
+    //H264Dump(avpkt->data, avpkt->stream_index);
 
     // advance packet write
     VideoPacketWrite = (VideoPacketWrite + 1) % VIDEO_PACKET_MAX;
@@ -1501,6 +1506,30 @@ static void StopVideo(void)
 #ifdef DEBUG
 
 /**
+**	Dump h264 video packet.
+**
+**	Function to Dump a h264 packet, not needed.
+*/
+static int H264Dump(const uint8_t * data, int size)
+{
+    printf("H264:");
+    do {
+	if (size < 4) {
+	    printf("\n");
+	    return -1;
+	}
+	if (!data[0] && !data[1] && data[2] == 0x01) {
+	    printf("%02x ", data[3]);
+	}
+	++data;
+	--size;
+    } while (size);
+    printf("\n");
+
+    return 0;
+}
+
+/**
 **	Validate mpeg video packet.
 **
 **	Function to validate a mpeg packet, not needed.
@@ -1629,6 +1658,18 @@ int PlayVideo(const uint8_t * data, int size)
     if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
 	&& check[1] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
+	    if (VideoTrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
+		// H264 NAL End of Sequence
+		static uint8_t seq_end_h264[] =
+		    { 0x00, 0x00, 0x00, 0x01, 0x0A };
+
+		// NAL SPS sequence parameter set
+		if ((check[7] & 0x1F) == 0x07) {
+		    VideoNextPacket(CODEC_ID_H264);
+		    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264,
+			sizeof(seq_end_h264));
+		}
+	    }
 	    VideoNextPacket(CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
@@ -1941,7 +1982,7 @@ void StillPicture(const uint8_t * data, int size)
     }
 
     // wait for empty buffers
-    for (i = 0; VideoGetBuffers() && i < 10; ++i) {
+    for (i = 0; VideoGetBuffers() && i < 30; ++i) {
 	usleep(10 * 1000);
     }
     Debug(3, "[softhddev]%s: buffers %d\n", __FUNCTION__, VideoGetBuffers());
