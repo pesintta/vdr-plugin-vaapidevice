@@ -68,8 +68,9 @@ static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
 static uint32_t ConfigVideoBackground;	///< config video background color
 static int ConfigVideoSkipLines;	///< config skip lines top/bottom
-static int ConfigVideoStudioLevels;	///< config use studio levels
-static int ConfigVideo60HzMode;		///< config use 60Hz display mode
+static char ConfigVideoStudioLevels;	///< config use studio levels
+static char ConfigVideo60HzMode;	///< config use 60Hz display mode
+static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -421,6 +422,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     uint32_t BackgroundAlpha;
     int SkipLines;
     int StudioLevels;
+    int _60HzMode;
+    int SoftStartSync;
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
@@ -503,6 +506,12 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     StudioLevels = ConfigVideoStudioLevels;
     Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
 	    &StudioLevels, trVDR("no"), trVDR("yes")));
+    _60HzMode = ConfigVideo60HzMode;
+    Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"),
+	    trVDR("yes")));
+    SoftStartSync = ConfigVideoSoftStartSync;
+    Add(new cMenuEditBoolItem(tr("soft start a/v sync"), &SoftStartSync,
+	    trVDR("no"), trVDR("yes")));
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	Add(SeparatorItem(resolution[i]));
@@ -580,6 +589,10 @@ void cMenuSetupSoft::Store(void)
     VideoSetSkipLines(ConfigVideoSkipLines);
     SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
     VideoSetStudioLevels(ConfigVideoStudioLevels);
+    SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
+    VideoSet60HzMode(ConfigVideo60HzMode);
+    SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
+    VideoSetSoftStartSync(ConfigVideoSoftStartSync);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -928,6 +941,7 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     cDevice::MakePrimaryDevice(on);
     if (on) {
 	new cSoftOsdProvider();
+
 	if (SuspendMode == SUSPEND_DETACHED) {
 	    Resume();
 	    SuspendMode = 0;
@@ -1124,7 +1138,7 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	device has an MPEG decoder).
 */
 void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
-	video_display_format)
+    video_display_format)
 {
     static int last = -1;
 
@@ -1548,6 +1562,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "60HzMode")) {
 	VideoSet60HzMode(ConfigVideo60HzMode = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "SoftStartSync")) {
+	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {

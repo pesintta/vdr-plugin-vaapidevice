@@ -88,6 +88,7 @@ audio:
     samplerate problem resume/suspend.
     only wait for video start, if video is running.
     Not primary device, don't use and block audio/video.
+    Remote learning support.
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

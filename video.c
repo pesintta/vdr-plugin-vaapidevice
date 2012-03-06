@@ -331,9 +331,8 @@ int VideoAudioDelay;
     /// Default zoom mode
 static VideoZoomModes Video4to3ZoomMode;
 
-static char VideoSoftStartSync = 1;	///< soft start sync audio/video
-
 static char Video60HzMode;		///< handle 60hz displays
+static char VideoSoftStartSync;		///< soft start sync audio/video
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
@@ -531,6 +530,15 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     Debug(3, "video: aspect crop %dx%d+%d+%d\n", *crop_width, *crop_height,
 	*crop_x, *crop_y);
     return;
+}
+
+///
+///	Output video messages.
+///
+///	Reduce output.
+///
+static void VideoMessage(void)
+{
 }
 
 //----------------------------------------------------------------------------
@@ -7469,6 +7477,11 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+    // FIXME: temp debug
+    if (0 && frame->pkt_pts != (int64_t) AV_NOPTS_VALUE) {
+	Info("render frame pts %s\n", Timestamp2String(frame->pkt_pts));
+    }
+
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 
     if (!atomic_read(&decoder->SurfacesFilled)) {
@@ -9004,6 +9017,7 @@ int VideoSetGeometry(const char *geometry)
     return 0;
 }
 
+///
 ///	Set 60hz display mode.
 ///
 ///	Pull up 50 Hz video for 60 Hz display.
@@ -9013,6 +9027,16 @@ int VideoSetGeometry(const char *geometry)
 void VideoSet60HzMode(int onoff)
 {
     Video60HzMode = onoff;
+}
+
+///
+///	Set soft start audio/video sync.
+///
+///	@param onoff	enable / disable the soft start sync.
+///
+void VideoSetSoftStartSync(int onoff)
+{
+    VideoSoftStartSync = onoff;
 }
 
 ///

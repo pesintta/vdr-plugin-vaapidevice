@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Make soft start sync setup menu configurable.
     Fix bug: StillPicture NAL end of sequence is 10 and not 0x10.
     Fix bug: AudioEnqueue crash without sound card.
 

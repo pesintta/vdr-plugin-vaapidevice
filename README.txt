@@ -186,6 +186,10 @@ Setup: /etc/vdr/setup.conf
 	0 disable 60Hz display mode
 	1 enable 60Hz display mode
 
+	softhddevice.SoftStartSync = 0
+	0 disable soft start of audio/video sync
+	1 enable soft start of audio/video sync
+
 	VideoDisplayFormat = ?
 	0 pan and scan
 	1 letter box
