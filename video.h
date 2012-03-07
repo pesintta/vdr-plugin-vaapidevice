@@ -77,6 +77,9 @@ extern void VideoPollEvent(void);
     /// Wakeup display handler.
 extern void VideoDisplayWakeup(void);
 
+    /// Set video device.
+extern void VideoSetDevice(const char *);
+
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
 

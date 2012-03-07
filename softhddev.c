@@ -2079,6 +2079,7 @@ const char *CommandLineHelp(void)
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
+	"  -v device\tvideo device (va-api, vdpau, noop)\n"
 	"  -s\t\tstart in suspended mode\n" "  -x\t\tstart x11 server\n"
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
@@ -2099,7 +2100,7 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:c:d:fg:p:sw:x")) {
+	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:x")) {
 	    case 'a':			// audio device for pcm
 		AudioSetDevice(optarg);
 		continue;
@@ -2122,6 +2123,13 @@ int ProcessArgs(int argc, char *const argv[])
 			("Bad formated geometry please use: [=][<width>{xX}<height>][{+-}<xoffset>{+-}<yoffset>]\n"));
 		    return 0;
 		}
+		continue;
+	    case 'v':			// video driver
+		VideoSetDevice(optarg);
+#ifdef USE_VDPAU
+		// FIXME: this is a big hack
+		ConfigVdpauDecoder = !strcasecmp(optarg, "vdpau");
+#endif
 		continue;
 	    case 'x':			// x11 server
 		ConfigStartX11Server = 1;
@@ -2392,30 +2400,26 @@ void Suspend(int video, int audio, int dox11)
 
     SkipVideo = 1;
     SkipAudio = 1;
-    pthread_mutex_unlock(&SuspendLockMutex);
 
-    if (audio || video) {
-	pthread_mutex_lock(&SuspendLockMutex);
-
-	if (audio) {
-	    AudioExit();
-	    if (MyAudioDecoder) {
-		CodecAudioClose(MyAudioDecoder);
-		CodecAudioDelDecoder(MyAudioDecoder);
-		MyAudioDecoder = NULL;
-	    }
-	    NewAudioStream = 0;
-	    av_free_packet(AudioAvPkt);
+    if (audio) {
+	AudioExit();
+	if (MyAudioDecoder) {
+	    CodecAudioClose(MyAudioDecoder);
+	    CodecAudioDelDecoder(MyAudioDecoder);
+	    MyAudioDecoder = NULL;
 	}
-	if (video) {
-	    StopVideo();
-	}
-
-	pthread_mutex_unlock(&SuspendLockMutex);
+	NewAudioStream = 0;
+	av_free_packet(AudioAvPkt);
     }
+    if (video) {
+	StopVideo();
+    }
+
     if (dox11) {
 	// FIXME: stop x11, if started
     }
+
+    pthread_mutex_unlock(&SuspendLockMutex);
 }
 
 /**

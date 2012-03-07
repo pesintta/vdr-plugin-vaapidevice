@@ -27,6 +27,8 @@ missing:
     ColorSpace aren't configurable with the gui.
     Replay of old vdr 1.6 recordings.
     svdrp support for hot-keys.
+    Remote learning support.
+    restart vdr not working, when started x11 was killed.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
@@ -88,7 +90,7 @@ audio:
     samplerate problem resume/suspend.
     only wait for video start, if video is running.
     Not primary device, don't use and block audio/video.
-    Remote learning support.
+    multiple open of audio device, reduce them.
 
 audio/alsa:
     better downmix of >2 channels on 2 channel hardware

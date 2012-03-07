@@ -221,7 +221,6 @@ typedef enum _video_color_space_
 typedef struct _video_module_
 {
     const char *Name;			///< video output module name
-
     char Enabled;			///< flag output module enabled
 
     /// allocate new video hw decoder
@@ -238,11 +237,12 @@ typedef struct _video_module_
     void (*const SetVideoMode) (void);
     void (*const ResetAutoCrop) (void);
 
-    void (*const Thread) (void);	///< module display handler thread
+    /// module display handler thread
+    void (*const DisplayHandlerThread) (void);
 
     void (*const OsdClear) (void);	///< clear OSD
+    /// draw OSD ARGB area
     void (*const OsdDrawARGB) (int, int, int, int, const uint8_t *);
-    ///< draw OSD ARGB area
     void (*const OsdInit) (int, int);	///< initialize OSD
     void (*const OsdExit) (void);	///< cleanup OSD
 
@@ -274,6 +274,7 @@ typedef struct _video_module_
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
+static const char *VideoDevice;		///< video output device
 static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
@@ -285,7 +286,10 @@ static int VideoWindowY;		///< video outout window y coordinate
 static unsigned VideoWindowWidth;	///< video output window width
 static unsigned VideoWindowHeight;	///< video output window height
 
-static const VideoModule *VideoUsedModule;	///< selected video module
+static const VideoModule NoopModule;	///< forward definition of noop module
+
+    /// selected video module
+static const VideoModule *VideoUsedModule = &NoopModule;
 
 static char VideoHardwareDecoder;	///< flag use hardware decoder
 
@@ -1658,9 +1662,9 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 ///
 ///	Allocate new VA-API decoder.
 ///
-///	@returns a new prepared va-api hardware decoder.
+///	@returns a new prepared VA-API hardware decoder.
 ///
-static VaapiDecoder *VaapiNewDecoder(void)
+static VaapiDecoder *VaapiNewHwDecoder(void)
 {
     VaapiDecoder *decoder;
     int i;
@@ -1815,7 +1819,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 ///
 ///	@param decoder	VA-API decoder
 ///
-static void VaapiDelDecoder(VaapiDecoder * decoder)
+static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 {
     int i;
 
@@ -2084,7 +2088,7 @@ static void VaapiExit(void)
 
     for (i = 0; i < VaapiDecoderN; ++i) {
 	if (VaapiDecoders[i]) {
-	    VaapiDelDecoder(VaapiDecoders[i]);
+	    VaapiDelHwDecoder(VaapiDecoders[i]);
 	    VaapiDecoders[i] = NULL;
 	}
     }
@@ -4414,11 +4418,14 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 {
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 
+#ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
+#endif
 
     if (decoder->DropNextFrame) {	// drop frame requested
+	// FIXME: interlace this drops two frames
 	++decoder->FramesDropped;
 	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
 	    decoder->FrameCounter);
@@ -4554,6 +4561,10 @@ static void VaapiDisplayHandlerThread(void)
     VaapiSyncDisplayFrame(decoder);
     pthread_mutex_unlock(&VideoLockMutex);
 }
+
+#else
+
+#define VaapiDisplayHandlerThread	NULL
 
 #endif
 
@@ -4783,8 +4794,8 @@ static void VaapiOsdExit(void)
 static const VideoModule VaapiModule = {
     .Name = "va-api",
     .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewDecoder,
-    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelDecoder,
+    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewHwDecoder,
+    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
     .GetSurface = (unsigned (*const) (VideoHwDecoder *))VaapiGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
@@ -4796,7 +4807,7 @@ static const VideoModule VaapiModule = {
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
     .ResetAutoCrop = VaapiResetAutoCrop,
-    .Thread = VaapiDisplayHandlerThread,
+    .DisplayHandlerThread = VaapiDisplayHandlerThread,
     .OsdClear = VaapiOsdClear,
     .OsdDrawARGB = VaapiOsdDrawARGB,
     .OsdInit = VaapiOsdInit,
@@ -5444,7 +5455,7 @@ static void VdpauMixerCreate(VdpauDecoder * decoder)
 ///
 ///	@returns a new prepared vdpau hardware decoder.
 ///
-static VdpauDecoder *VdpauNewDecoder(void)
+static VdpauDecoder *VdpauNewHwDecoder(void)
 {
     VdpauDecoder *decoder;
     int i;
@@ -5563,7 +5574,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
-static void VdpauDelDecoder(VdpauDecoder * decoder)
+static void VdpauDelHwDecoder(VdpauDecoder * decoder)
 {
     int i;
 
@@ -6143,7 +6154,7 @@ static void VdpauExit(void)
 
     for (i = 0; i < VdpauDecoderN; ++i) {
 	if (VdpauDecoders[i]) {
-	    VdpauDelDecoder(VdpauDecoders[i]);
+	    VdpauDelHwDecoder(VdpauDecoders[i]);
 	    VdpauDecoders[i] = NULL;
 	}
     }
@@ -7478,11 +7489,14 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 
+#ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
     }
+#endif
 
     if (decoder->DropNextFrame) {	// drop frame requested
+	// FIXME: interlace this drops two frames
 	++decoder->FramesDropped;
 	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
 	    decoder->FrameCounter);
@@ -7680,6 +7694,10 @@ static void VdpauDisplayHandlerThread(void)
     VdpauSyncDisplayFrame(decoder);
     pthread_mutex_unlock(&VideoLockMutex);
 }
+
+#else
+
+#define VdpauDisplayHandlerThread	NULL
 
 #endif
 
@@ -7942,8 +7960,8 @@ static void VdpauOsdExit(void)
 static const VideoModule VdpauModule = {
     .Name = "vdpau",
     .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewDecoder,
-    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelDecoder,
+    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewHwDecoder,
+    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelHwDecoder,
     .GetSurface = (unsigned (*const) (VideoHwDecoder *))VdpauGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VdpauReleaseSurface,
@@ -7955,7 +7973,7 @@ static const VideoModule VdpauModule = {
     .SetBackground = VdpauSetBackground,
     .SetVideoMode = VdpauSetVideoMode,
     .ResetAutoCrop = VdpauResetAutoCrop,
-    .Thread = VdpauDisplayHandlerThread,
+    .DisplayHandlerThread = VdpauDisplayHandlerThread,
     .OsdClear = VdpauOsdClear,
     .OsdDrawARGB = VdpauOsdDrawARGB,
     .OsdInit = VdpauOsdInit,
@@ -7965,6 +7983,152 @@ static const VideoModule VdpauModule = {
 };
 
 #endif
+
+//----------------------------------------------------------------------------
+//	NOOP
+//----------------------------------------------------------------------------
+
+///
+///	Allocate new noop decoder.
+///
+///	@returns always NULL.
+///
+static VideoHwDecoder *NoopNewHwDecoder(void)
+{
+    return NULL;
+}
+
+///
+///	Release a surface.
+///
+///	Can be called while exit.
+///
+///	@param decoder	noop hw decoder
+///	@param surface	surface no longer used
+///
+static void NoopReleaseSurface(
+    __attribute__ ((unused)) VideoHwDecoder * decoder, __attribute__ ((unused))
+    unsigned surface)
+{
+}
+
+///
+///	Set noop background color.
+///
+///	@param rgba	32 bit RGBA color.
+///
+static void NoopSetBackground( __attribute__ ((unused)) uint32_t rgba)
+{
+}
+
+///
+///	Noop initialize OSD.
+///
+///	@param width	osd width
+///	@param height	osd height
+///
+static void NoopOsdInit( __attribute__ ((unused))
+    int width, __attribute__ ((unused))
+    int height)
+{
+}
+
+///
+///	Draw OSD ARGB image.
+///
+///	@param x	x position of image in osd
+///	@param y	y position of image in osd
+///	@param width	width of image
+///	@param height	height of image
+///	@param argb	argb image
+///
+///	@note looked by caller
+///
+static void NoopOsdDrawARGB( __attribute__ ((unused))
+    int x, __attribute__ ((unused))
+    int y, __attribute__ ((unused))
+    int width, __attribute__ ((unused))
+    int height, __attribute__ ((unused))
+    const uint8_t * argb)
+{
+}
+
+///
+///	Noop setup.
+///
+///	@param display_name	x11/xcb display name
+///
+///	@returns always true.
+///
+static int NoopInit(const char *display_name)
+{
+    Info("video/noop: noop driver running on display '%s'\n", display_name);
+    return 1;
+}
+
+#ifdef USE_VIDEO_THREAD
+
+///
+///	Handle a noop display.
+///
+static void NoopDisplayHandlerThread(void)
+{
+    // avoid 100% cpu use
+    usleep(20 * 1000);
+#if 0
+    // this can't be canceled
+    if (XlibDisplay) {
+	XEvent event;
+
+	XPeekEvent(XlibDisplay, &event);
+    }
+#endif
+}
+
+#else
+
+#define NoopDisplayHandlerThread	NULL
+
+#endif
+
+///
+///	Noop void function.
+///
+static void NoopVoid(void)
+{
+}
+
+///
+///	Noop video module.
+///
+static const VideoModule NoopModule = {
+    .Name = "noop",
+    .Enabled = 1,
+    .NewHwDecoder = NoopNewHwDecoder,
+#if 0
+    // can't be called:
+    .DelHwDecoder = NoopDelHwDecoder,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *))NoopGetSurface,
+#endif
+    .ReleaseSurface = NoopReleaseSurface,
+#if 0
+    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum PixelFormat *))Noop_get_format,
+    .RenderFrame = (void (*const) (VideoHwDecoder *,
+	    const AVCodecContext *, const AVFrame *))NoopSyncRenderFrame,
+    .GrabOutput = NoopGrabOutputSurface,
+#endif
+    .SetBackground = NoopSetBackground,
+    .SetVideoMode = NoopVoid,
+    .ResetAutoCrop = NoopVoid,
+    .DisplayHandlerThread = NoopDisplayHandlerThread,
+    .OsdClear = NoopVoid,
+    .OsdDrawARGB = NoopOsdDrawARGB,
+    .OsdInit = NoopOsdInit,
+    .OsdExit = NoopVoid,
+    .Init = NoopInit,
+    .Exit = NoopVoid,
+};
 
 //----------------------------------------------------------------------------
 //	OSD
@@ -7978,9 +8142,7 @@ static const VideoModule VdpauModule = {
 ///
 void VideoOsdClear(void)
 {
-    if (VideoThread) {
-	VideoThreadLock();
-    }
+    VideoThreadLock();
 #ifdef USE_GLX
     if (GlxEnabled) {
 	void *texbuf;
@@ -7998,18 +8160,15 @@ void VideoOsdClear(void)
     }
 #endif
 
-    if (VideoUsedModule) {
-	VideoUsedModule->OsdClear();
-    }
+    VideoUsedModule->OsdClear();
+
     OsdDirtyX = OsdWidth;
     OsdDirtyY = OsdHeight;
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
     OsdShown = 0;
 
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadUnlock();
 }
 
 ///
@@ -8024,9 +8183,7 @@ void VideoOsdClear(void)
 void VideoOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
-    if (VideoThread) {
-	VideoThreadLock();
-    }
+    VideoThreadLock();
     // update dirty area
     if (x < OsdDirtyX) {
 	if (OsdDirtyWidth) {
@@ -8057,14 +8214,10 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
 	return;
     }
 #endif
-    if (VideoUsedModule) {
-	VideoUsedModule->OsdDrawARGB(x, y, width, height, argb);
-    }
+    VideoUsedModule->OsdDrawARGB(x, y, width, height, argb);
     OsdShown = 1;
 
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadUnlock();
 }
 
 ///
@@ -8123,15 +8276,9 @@ void VideoOsdInit(void)
     }
 #endif
 
-    if (VideoThread) {
-	VideoThreadLock();
-    }
-    if (VideoUsedModule) {
-	VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
-    }
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadLock();
+    VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
+    VideoThreadUnlock();
     VideoOsdClear();
 }
 
@@ -8140,15 +8287,9 @@ void VideoOsdInit(void)
 ///
 void VideoOsdExit(void)
 {
-    if (VideoThread) {
-	VideoThreadLock();
-    }
-    if (VideoUsedModule) {
-	VideoUsedModule->OsdExit();
-    }
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadLock();
+    VideoUsedModule->OsdExit();
+    VideoThreadUnlock();
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
 }
@@ -8232,39 +8373,6 @@ void VideoDisplayOverlay(void)
 #endif
 
 //----------------------------------------------------------------------------
-//	Frame
-//----------------------------------------------------------------------------
-
-#if 0
-
-///
-///	Display a single frame.
-///
-static void VideoDisplayFrame(void)
-{
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	VideoDisplayOverlay();
-
-#ifdef USE_DOUBLEBUFFER
-	glXSwapBuffers(XlibDisplay, VideoWindow);
-#else
-	glFinish();			// wait for all execution finished
-#endif
-	GlxCheck();
-
-	glClear(GL_COLOR_BUFFER_BIT);
-    }
-#endif
-
-    if (VideoUsedModule) {
-	VideoUsedModule->DisplayFrame();
-    }
-}
-
-#endif
-
-//----------------------------------------------------------------------------
 //	Events
 //----------------------------------------------------------------------------
 
@@ -8283,7 +8391,7 @@ static int VideoIOErrorHandler( __attribute__ ((unused)) Display * display)
     // should be called from VideoThread
     if (VideoThread && VideoThread == pthread_self()) {
 	Debug(3, "video: called from video thread\n");
-	VideoUsedModule = NULL;		// FIXME: NoopModule;
+	VideoUsedModule = &NoopModule;
 	XlibDisplay = NULL;
 	VideoWindow = XCB_NONE;
 #ifdef USE_VIDEO_THREAD
@@ -8370,7 +8478,7 @@ static void VideoEvent(void)
 ///
 void VideoPollEvent(void)
 {
-    while (XPending(XlibDisplay)) {
+    while (XlibDisplay && XPending(XlibDisplay)) {
 	VideoEvent();
     }
 }
@@ -8390,8 +8498,10 @@ static GLXContext GlxThreadContext;	///< our gl context for the thread
 ///
 static void VideoThreadLock(void)
 {
-    if (pthread_mutex_lock(&VideoLockMutex)) {
-	Error(_("video: can't lock thread\n"));
+    if (VideoThread) {
+	if (pthread_mutex_lock(&VideoLockMutex)) {
+	    Error(_("video: can't lock thread\n"));
+	}
     }
 }
 
@@ -8400,8 +8510,10 @@ static void VideoThreadLock(void)
 ///
 static void VideoThreadUnlock(void)
 {
-    if (pthread_mutex_unlock(&VideoLockMutex)) {
-	Error(_("video: can't unlock thread\n"));
+    if (VideoThread) {
+	if (pthread_mutex_unlock(&VideoLockMutex)) {
+	    Error(_("video: can't unlock thread\n"));
+	}
     }
 }
 
@@ -8439,16 +8551,7 @@ static void *VideoDisplayHandlerThread(void *dummy)
 
 	VideoPollEvent();
 
-	if (VideoUsedModule) {
-	    VideoUsedModule->Thread();
-	} else {
-	    XEvent event;
-
-	    // FIXME: move into noop module
-	    // avoid 100% cpu use
-
-	    XPeekEvent(XlibDisplay, &event);
-	}
+	VideoUsedModule->DisplayHandlerThread();
     }
 
     return dummy;
@@ -8484,10 +8587,10 @@ static void VideoThreadExit(void)
 	if (pthread_join(VideoThread, &retval) || retval != PTHREAD_CANCELED) {
 	    Error(_("video: can't cancel video display thread\n"));
 	}
+	VideoThread = 0;
 	pthread_cond_destroy(&VideoWakeupCond);
 	pthread_mutex_destroy(&VideoLockMutex);
 	pthread_mutex_destroy(&VideoMutex);
-	VideoThread = 0;
     }
 }
 
@@ -8525,7 +8628,7 @@ static const VideoModule *VideoModules[] = {
 #ifdef USE_VAAPI
     &VaapiModule,
 #endif
-    //&NoopModule
+    &NoopModule
 };
 
 ///
@@ -8551,9 +8654,6 @@ struct _video_hw_decoder_
 ///
 VideoHwDecoder *VideoNewHwDecoder(void)
 {
-    if (!XlibDisplay || !VideoUsedModule) {	// waiting for x11 start
-	return NULL;
-    }
     return VideoUsedModule->NewHwDecoder();
 }
 
@@ -8564,7 +8664,7 @@ VideoHwDecoder *VideoNewHwDecoder(void)
 ///
 void VideoDelHwDecoder(VideoHwDecoder * decoder)
 {
-    if (decoder && VideoUsedModule) {
+    if (decoder) {
 	VideoUsedModule->DelHwDecoder(decoder);
     }
 }
@@ -8578,10 +8678,7 @@ void VideoDelHwDecoder(VideoHwDecoder * decoder)
 ///
 unsigned VideoGetSurface(VideoHwDecoder * decoder)
 {
-    if (VideoUsedModule) {
-	return VideoUsedModule->GetSurface(decoder);
-    }
-    return -1;
+    return VideoUsedModule->GetSurface(decoder);
 }
 
 ///
@@ -8593,12 +8690,7 @@ unsigned VideoGetSurface(VideoHwDecoder * decoder)
 void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
 {
     // FIXME: must be guarded against calls, after VideoExit
-    if (!XlibDisplay) {			// no init or failed
-	return;
-    }
-    if (VideoUsedModule) {
-	VideoUsedModule->ReleaseSurface(decoder, surface);
-    }
+    VideoUsedModule->ReleaseSurface(decoder, surface);
 }
 
 ///
@@ -8612,10 +8704,8 @@ enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
     AudioVideoReady();
-    if (VideoUsedModule) {
-	return VideoUsedModule->get_format(decoder, video_ctx, fmt);
-    }
-    return fmt[0];
+    return VideoUsedModule->get_format(decoder, video_ctx, fmt);
+    //return fmt[0];
 }
 
 ///
@@ -8632,9 +8722,7 @@ void VideoRenderFrame(VideoHwDecoder * decoder,
 	Warning(_("video: repeated pict %d found, but not handled\n"),
 	    frame->repeat_pict);
     }
-    if (VideoUsedModule) {
-	VideoUsedModule->RenderFrame(decoder, video_ctx, frame);
-    }
+    VideoUsedModule->RenderFrame(decoder, video_ctx, frame);
 }
 
 ///
@@ -8655,6 +8743,7 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 }
 
 #ifdef USE_VDPAU
+
 ///
 ///	Draw ffmpeg vdpau render state.
 ///
@@ -8707,36 +8796,6 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
     }
     Error(_("video/vdpau: draw render state, without vdpau enabled\n"));
 }
-#endif
-
-#ifndef USE_VIDEO_THREAD
-
-///
-///	Video render.
-///
-///	@FIXME: old, not used and not uptodate code path
-///
-void VideoDisplayHandler(void)
-{
-    uint32_t now;
-
-    if (!XlibDisplay) {			// not yet started
-	return;
-    }
-
-    now = GetMsTicks();
-    if (now < VaapiDecoders[0]->LastFrameTick) {
-	return;
-    }
-    if (now - VaapiDecoders[0]->LastFrameTick < 500) {
-	return;
-    }
-    VideoPollEvent();
-    VaapiBlackSurface(VaapiDecoders[0]);
-
-    return;
-    VideoDisplayFrame();
-}
 
 #endif
 
@@ -8759,7 +8818,7 @@ int64_t VideoGetClock(void)
 	return VaapiGetClock(VaapiDecoders[0]);
     }
 #endif
-    return 0L;
+    return AV_NOPTS_VALUE;
 }
 
 ///
@@ -8774,7 +8833,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
     Debug(3, "video: grab\n");
 
 #ifdef USE_GRAB
-    if (VideoUsedModule && VideoUsedModule->GrabOutput) {
+    if (VideoUsedModule->GrabOutput) {
 	uint8_t *data;
 	uint8_t *rgb;
 	char buf[64];
@@ -8996,6 +9055,16 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 }
 
 ///
+///	Set video device.
+///
+///	Currently this only choose the driver.
+///
+void VideoSetDevice(const char *device)
+{
+    VideoDevice = device;
+}
+
+///
 ///	Set video geometry.
 ///
 ///	@param geometry	 [=][<width>{xX}<height>][{+-}<xoffset>{+-}<yoffset>]
@@ -9053,12 +9122,8 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     y = (y * VideoWindowHeight) / OsdHeight;
     width = (width * VideoWindowWidth) / OsdWidth;
     height = (height * VideoWindowHeight) / OsdHeight;
-    if (VideoThread) {
-	VideoThreadLock();
-    }
-    if (VideoUsedModule) {
-	// FIXME: what stream?
-    }
+    VideoThreadLock();
+    // FIXME: what stream?
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauSetOutputPosition(VdpauDecoders[0], x, y, width, height);
@@ -9068,9 +9133,7 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     // FIXME: not supported by vaapi without unscaled OSD,
     // FIXME: if used to position video inside osd
 #endif
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadUnlock();
 }
 
 ///
@@ -9097,17 +9160,11 @@ void VideoSetVideoMode( __attribute__ ((unused))
     VideoOsdExit();
     // FIXME: must tell VDR that the OsdSize has been changed!
 
-    if (VideoThread) {
-	VideoThreadLock();
-    }
+    VideoThreadLock();
     VideoWindowWidth = width;
     VideoWindowHeight = height;
-    if (VideoUsedModule) {
-	VideoUsedModule->SetVideoMode();
-    }
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
     VideoOsdInit();
 }
 
@@ -9119,9 +9176,7 @@ void VideoSetDisplayFormat(int format)
     VideoOsdExit();
     // FIXME: must tell VDR that the OsdSize has been changed!
 
-    if (VideoThread) {
-	VideoThreadLock();
-    }
+    VideoThreadLock();
 
     switch (format) {
 	case 0:			// pan&scan (we have no pan&scan)
@@ -9135,12 +9190,8 @@ void VideoSetDisplayFormat(int format)
 	    break;
     }
 
-    if (VideoUsedModule) {
-	VideoUsedModule->SetVideoMode();
-    }
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
     VideoOsdInit();
 }
 
@@ -9151,32 +9202,30 @@ void VideoSetDisplayFormat(int format)
 ///
 void VideoSetFullscreen(int onoff)
 {
-    xcb_client_message_event_t event;
+    if (XlibDisplay) {			// needs running connection
+	xcb_client_message_event_t event;
 
-    if (!XlibDisplay) {			// needs running connection
-	return;
+	memset(&event, 0, sizeof(event));
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.window = VideoWindow;
+	event.type = NetWmState;
+	if (onoff < 0) {
+	    event.data.data32[0] = XCB_EWMH_WM_STATE_TOGGLE;
+	} else if (onoff) {
+	    event.data.data32[0] = XCB_EWMH_WM_STATE_ADD;
+	} else {
+	    event.data.data32[0] = XCB_EWMH_WM_STATE_REMOVE;
+	}
+	event.data.data32[1] = NetWmStateFullscreen;
+
+	xcb_send_event(Connection, XCB_SEND_EVENT_DEST_POINTER_WINDOW,
+	    DefaultRootWindow(XlibDisplay),
+	    XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
+	    XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (void *)&event);
+	Debug(3, "video/x11: send fullscreen message %x %x\n",
+	    event.data.data32[0], event.data.data32[1]);
     }
-
-    memset(&event, 0, sizeof(event));
-    event.response_type = XCB_CLIENT_MESSAGE;
-    event.format = 32;
-    event.window = VideoWindow;
-    event.type = NetWmState;
-    if (onoff < 0) {
-	event.data.data32[0] = XCB_EWMH_WM_STATE_TOGGLE;
-    } else if (onoff) {
-	event.data.data32[0] = XCB_EWMH_WM_STATE_ADD;
-    } else {
-	event.data.data32[0] = XCB_EWMH_WM_STATE_REMOVE;
-    }
-    event.data.data32[1] = NetWmStateFullscreen;
-
-    xcb_send_event(Connection, XCB_SEND_EVENT_DEST_POINTER_WINDOW,
-	DefaultRootWindow(XlibDisplay),
-	XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
-	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (void *)&event);
-    Debug(3, "video/x11: send fullscreen message %x %x\n",
-	event.data.data32[0], event.data.data32[1]);
 }
 
 ///
@@ -9280,10 +9329,8 @@ void VideoSetStudioLevels(int onoff)
 ///
 void VideoSetBackground(uint32_t rgba)
 {
-    VideoBackground = rgba;		// save for later start
-    if (VideoUsedModule) {
-	VideoUsedModule->SetBackground(rgba);
-    }
+    VideoBackground = rgba;		// saved for later start
+    VideoUsedModule->SetBackground(rgba);
 }
 
 ///
@@ -9306,15 +9353,9 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
     AutoCropDelay = delay;
     AutoCropTolerance = tolerance;
 
-    if (VideoThread) {
-	VideoThreadLock();
-    }
-    if (VideoUsedModule) {
-	VideoUsedModule->ResetAutoCrop();
-    }
-    if (VideoThread) {
-	VideoThreadUnlock();
-    }
+    VideoThreadLock();
+    VideoUsedModule->ResetAutoCrop();
+    VideoThreadUnlock();
 #else
     (void)interval;
     (void)delay;
@@ -9423,10 +9464,12 @@ void VideoInit(const char *display_name)
 
     //
     //	prepare hardware decoder VA-API/VDPAU
-    //	FIXME: make the used output modules configurable
     //
     for (i = 0; i < (int)(sizeof(VideoModules) / sizeof(*VideoModules)); ++i) {
-	if (VideoModules[i]->Enabled) {
+	// FIXME: support list of drivers and include display name
+	// use user device or first working enabled device driver
+	if ((VideoDevice && !strcasecmp(VideoDevice, VideoModules[i]->Name))
+	    || (!VideoDevice && VideoModules[i]->Enabled)) {
 	    if (VideoModules[i]->Init(display_name)) {
 		VideoUsedModule = VideoModules[i];
 		break;
@@ -9470,10 +9513,8 @@ void VideoExit(void)
     // XUnlockDisplay(XlibDisplay);
     // xcb_flush(Connection);
 #endif
-    if (VideoUsedModule) {
-	VideoUsedModule->Exit();
-    }
-    VideoUsedModule = NULL;		// FIXME: NoopModule;
+    VideoUsedModule->Exit();
+    VideoUsedModule = &NoopModule;
 #ifdef USE_GLX
     if (GlxEnabled) {
 	GlxExit();
