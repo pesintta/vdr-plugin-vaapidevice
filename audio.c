@@ -672,7 +672,8 @@ static void AlsaThread(void)
 	    usleep(24 * 1000);
 	    continue;
 	}
-	if (AlsaFlushBuffer || AudioPaused) {
+	// timeout or some commands
+	if (!err || AlsaFlushBuffer || AudioPaused) {
 	    continue;
 	}
 	if ((err = AlsaPlayRingbuffer())) {	// empty / error
