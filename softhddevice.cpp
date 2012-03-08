@@ -101,7 +101,7 @@ static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
 static char ConfigSuspendClose;		///< suspend should close devices
 static char ConfigSuspendX11;		///< suspend should stop x11
 
-static volatile char DoMakePrimary;	///< flag switch primary
+static volatile int DoMakePrimary;	///< switch primary device to this
 
 #define SUSPEND_EXTERNAL	-1	///< play external suspend mode
 #define SUSPEND_NORMAL		0	///< normal suspend mode
@@ -1421,7 +1421,7 @@ bool cPluginSoftHdDevice::Start(void)
 	    // Must be done in the main thread
 	    dsyslog("[softhddev] makeing softhddevice %d the primary device!",
 		MyDevice->DeviceNumber());
-	    DoMakePrimary = 1;
+	    DoMakePrimary = MyDevice->DeviceNumber() + 1;
 	} else {
 	    isyslog("[softhddev] softhddevice %d is not the primary device!",
 		MyDevice->DeviceNumber());
@@ -1501,9 +1501,10 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    if (DoMakePrimary && MyDevice) {
-	dsyslog("[softhddev]%s: switching primary device\n", __FUNCTION__);
-	cDevice::SetPrimaryDevice(MyDevice->DeviceNumber() + 1);
+    if (DoMakePrimary) {
+	dsyslog("[softhddev]%s: switching primary device to %d\n",
+	    __FUNCTION__, DoMakePrimary);
+	cDevice::SetPrimaryDevice(DoMakePrimary);
 	DoMakePrimary = 0;
     }
     // check if user is inactive, automatic enter suspend mode
@@ -1679,7 +1680,8 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 	"RESU\n" "    Resume plugin.\n",
 	"DETA\n" "    Detach plugin.\n",
 	"ATTA\n" "    Attach plugin.\n",
-	"HOTK key\n" "	  Execute hotkey.\n",
+	"PRIM\n" "    Make primary device.\n" "HOTK key\n"
+	    "	  Execute hotkey.\n",
 	NULL
     };
 
@@ -1755,6 +1757,17 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	hotk = strtol(option, NULL, 0);
 	HandleHotkey(hotk);
 	return "hot-key executed";
+    }
+    if (!strcasecmp(command, "PRIM")) {
+	int primary;
+
+	primary = strtol(option, NULL, 0);
+	if (!primary && MyDevice) {
+	    primary = MyDevice->DeviceNumber() + 1;
+	}
+	dsyslog("[softhddev] switching primary device to %d\n", primary);
+	DoMakePrimary = primary;
+	return "switching primary device requested";
     }
     return NULL;
 }
