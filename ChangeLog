@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Disable and reenable screen saver and DPMS.
     Video source code cleanup.
     Fix fast backward with some h264 streams.
     Make soft start sync setup menu configurable.

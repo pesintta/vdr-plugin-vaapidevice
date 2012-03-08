@@ -26,7 +26,6 @@ missing:
     Option deinterlace off / deinterlace force!
     ColorSpace aren't configurable with the gui.
     Replay of old vdr 1.6 recordings.
-    svdrp support for hot-keys.
     Remote learning support.
     restart vdr not working, when started x11 was killed.
 
@@ -75,7 +74,6 @@ libva-vdpau-driver:
 libva-xvba-driver:
 
 x11:
-    disable screensaver
     skip multiple configure-notify, handle only the last one.
     support embedded mode
 
