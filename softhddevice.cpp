@@ -114,18 +114,42 @@ static char SuspendMode;		///< suspend mode
 //	C Callbacks
 //////////////////////////////////////////////////////////////////////////////
 
+/**
+**	Soft device plugin remote class.
+*/
 class cSoftRemote:public cRemote
 {
   public:
+
+    /**
+    **	Soft device remote class constructor.
+    **
+    **	@param name	remote name
+    */
     cSoftRemote(const char *name):cRemote(name)
     {
     }
 
+    /**
+    **	Put keycode into vdr event queue.
+    **
+    **	@param code	key code
+    **	@param repeat	flag key repeated
+    **	@param release	flag key released
+    */
     bool Put(const char *code, bool repeat = false, bool release = false) {
 	return cRemote::Put(code, repeat, release);
     }
 };
 
+/**
+**	Feed key press as remote input (called from C part).
+**
+**	@param keymap	target keymap "XKeymap" name
+**	@param key	pressed/released key name
+**	@param repeat	repeated key flag
+**	@param release	released key flag
+*/
 extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
     int release)
 {
@@ -141,7 +165,7 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 	    break;
 	}
     }
-
+    // if remote not already exists, create it
     if (remote) {
 	csoft = (cSoftRemote *) remote;
     } else {
@@ -167,8 +191,6 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 */
 class cSoftOsd:public cOsd
 {
-    //int Level;				///< level: subtitle
-
   public:
     cSoftOsd(int, int, uint);
      virtual ~ cSoftOsd(void);

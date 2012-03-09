@@ -2029,6 +2029,10 @@ int Flush(int timeout)
 
 /**
 **	Get OSD size and aspect.
+**
+**	@param width[OUT]	width of OSD
+**	@param height[OUT]	height of OSD
+**	@param aspect[OUT]	aspect ratio (4/3, 16/9, ...) of OSD
 */
 void GetOsdSize(int *width, int *height, double *aspect)
 {
@@ -2060,9 +2064,17 @@ void OsdClose(void)
 
 /**
 **	Draw an OSD pixmap.
+**
+**	@param x	x-coordinate on screen of argb image
+**	@param y	y-coordinate on screen of argb image
+**	@paran height	height in pixel of argb image
+**	@paran width	width in pixel of argb image
+**	@param argb	height * width 32bit ARGB image data
 */
 void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
 {
+    // wakeup display for showing remote learning dialog
+    VideoDisplayWakeup();
     VideoOsdDrawARGB(x, y, height, width, argb);
 }
 

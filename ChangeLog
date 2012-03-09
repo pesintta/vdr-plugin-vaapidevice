@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Wakeup display to show OSD for remote learning mode.
     Support switching the primary device with svdrp.
     Disable and reenable screen saver and DPMS.
     Video source code cleanup.

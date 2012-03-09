@@ -26,8 +26,7 @@ missing:
     Option deinterlace off / deinterlace force!
     ColorSpace aren't configurable with the gui.
     Replay of old vdr 1.6 recordings.
-    Remote learning support.
-    restart vdr not working, when started x11 was killed.
+    works for me: restart vdr not working, when started x11 was killed.
 
 crash:
     AudioPlayHandlerThread -> pthread_cond_wait
