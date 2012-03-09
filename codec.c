@@ -558,6 +558,11 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	    video_ctx->frame_number, used);
     }
     if (used != pkt->size) {
+	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
+	if (used == 0 && pkt->size == 5 && pkt->data[4] == 0x0A) {
+	    Warning("codec: ffmpeg 0.8.x workaround used\n");
+	    return;
+	}
 	if (used >= 0 && used < pkt->size) {
 	    // some tv channels, produce this
 	    Debug(4,
