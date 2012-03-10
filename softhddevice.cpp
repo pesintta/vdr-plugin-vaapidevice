@@ -43,15 +43,23 @@ extern "C"
 
 //////////////////////////////////////////////////////////////////////////////
 
+    /// vdr-plugin version number.
+    /// Makefile extracts the version number for generating the file name
+    /// for the distribution archive.
 static const char *const VERSION = "0.5.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
     ;
+
+    /// vdr-plugin description.
 static const char *const DESCRIPTION =
 trNOOP("A software and GPU emulated HD device");
 
+    /// vdr-plugin text of main menu entry
 static const char *MAINMENUENTRY = trNOOP("SoftHdDevice");
+
+    /// single instance of softhddevice plugin device.
 static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -192,13 +200,15 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 class cSoftOsd:public cOsd
 {
   public:
-    cSoftOsd(int, int, uint);
-     virtual ~ cSoftOsd(void);
-    virtual void Flush(void);
-    virtual void SetActive(bool);
+    static volatile char Dirty;		///< flag force redraw everything
+
+     cSoftOsd(int, int, uint);		///< constructor
+     virtual ~ cSoftOsd(void);		///< destructor
+    virtual void Flush(void);		///< commits all data to the hardware
+    virtual void SetActive(bool);	///< sets OSD to be the active one
 };
 
-static volatile char OsdDirty;		///< flag force redraw everything
+volatile char cSoftOsd::Dirty;		///< flag force redraw everything
 
 /**
 **	Sets this OSD to be the active one.
@@ -217,12 +227,21 @@ void cSoftOsd::SetActive(bool on)
     }
     cOsd::SetActive(on);
     if (on) {
-	OsdDirty = 1;
+	Dirty = 1;
     } else {
 	OsdClose();
     }
 }
 
+/**
+**	Constructor OSD.
+**
+**	Initializes the OSD with the given coordinates.
+**
+**	@param left	x-coordinate of osd on display
+**	@param top	y-coordinate of osd on display
+**	@param level	level of the osd (smallest is shown)
+*/
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
 {
@@ -231,10 +250,14 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
        OsdHeight(), left, top, level);
      */
 
-    //this->Level = level;
     SetActive(true);
 }
 
+/**
+**	OSD Destructor.
+**
+**	Shuts down the OSD.
+*/
 cSoftOsd::~cSoftOsd(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
@@ -300,7 +323,7 @@ void cSoftOsd::Flush(void)
 	    int y2;
 
 	    // get dirty bounding box
-	    if (OsdDirty) {		// forced complete update
+	    if (Dirty) {		// forced complete update
 		x1 = 0;
 		y1 = 0;
 		x2 = bitmap->Width() - 1;
@@ -346,7 +369,7 @@ void cSoftOsd::Flush(void)
 	    // FIXME: reuse argb
 	    free(argb);
 	}
-	OsdDirty = 0;
+	cSoftOsd::Dirty = 0;
 	return;
     }
 
@@ -988,6 +1011,9 @@ cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 
 #endif
 
+/**
+**	Tells whether this device has a MPEG decoder.
+*/
 bool cSoftHdDevice::HasDecoder(void) const
 {
     return true;
@@ -1113,6 +1139,9 @@ void cSoftHdDevice::Mute(void)
 
 /**
 **	Display the given I-frame as a still picture.
+**
+**	@param data	pes or ts data of a frame
+**	@param length	length of data area
 */
 void cSoftHdDevice::StillPicture(const uchar * data, int length)
 {
@@ -1173,7 +1202,7 @@ void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
 	last = video_display_format;
 
 	::VideoSetDisplayFormat(video_display_format);
-	OsdDirty = 1;
+	cSoftOsd::Dirty = 1;
     }
 }
 
