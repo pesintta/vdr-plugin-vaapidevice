@@ -105,20 +105,20 @@ typedef struct _audio_module_
 {
     const char *Name;			///< audio output module name
 
-    void (*Thread) (void);		///< module thread handler
-    void (*Enqueue) (const void *, int);	///< enqueue samples for output
-    void (*VideoReady) (void);		///< video ready, start audio
-    void (*FlushBuffers) (void);	///< flush sample buffers
-    void (*Poller) (void);		///< output poller
-    int (*FreeBytes) (void);		///< number of bytes free in buffer
-    int (*UsedBytes) (void);		///< number of bytes used in buffer
-     uint64_t(*GetDelay) (void);	///< get current audio delay
-    void (*SetVolume) (int);		///< set output volume
-    int (*Setup) (int *, int *, int);	///< setup channels, samplerate
-    void (*Play) (void);		///< play
-    void (*Pause) (void);		///< pause
-    void (*Init) (void);		///< initialize audio output module
-    void (*Exit) (void);		///< cleanup audio output module
+    void (*const Thread) (void);	///< module thread handler
+    void (*const Enqueue) (const void *, int);	///< enqueue samples for output
+    void (*const VideoReady) (void);	///< video ready, start audio
+    void (*const FlushBuffers) (void);	///< flush sample buffers
+    void (*const Poller) (void);	///< output poller
+    int (*const FreeBytes) (void);	///< number of bytes free in buffer
+    int (*const UsedBytes) (void);	///< number of bytes used in buffer
+     int64_t(*const GetDelay) (void);	///< get current audio delay
+    void (*const SetVolume) (int);	///< set output volume
+    int (*const Setup) (int *, int *, int);	///< setup channels, samplerate
+    void (*const Play) (void);		///< play
+    void (*const Pause) (void);		///< pause
+    void (*const Init) (void);		///< initialize audio output module
+    void (*const Exit) (void);		///< cleanup audio output module
 } AudioModule;
 
 static const AudioModule NoopModule;	///< forward definition of noop module
@@ -912,17 +912,17 @@ static void AlsaInitMixer(void)
 **
 **	@todo FIXME: handle the case no audio running
 */
-static uint64_t AlsaGetDelay(void)
+static int64_t AlsaGetDelay(void)
 {
     int err;
     snd_pcm_sframes_t delay;
-    uint64_t pts;
+    int64_t pts;
 
     if (!AlsaPCMHandle || !AudioSampleRate) {
-	return 0UL;
+	return 0L;
     }
     if (!AudioRunning) {		// audio not running
-	return 0UL;
+	return 0L;
     }
     // FIXME: thread safe? __assert_fail_base in snd_pcm_delay
 
@@ -940,8 +940,8 @@ static uint64_t AlsaGetDelay(void)
 	delay = 0L;
     }
 
-    pts = ((uint64_t) delay * 90 * 1000) / AudioSampleRate;
-    pts += ((uint64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90 * 1000)
+    pts = ((int64_t) delay * 90 * 1000) / AudioSampleRate;
+    pts += ((int64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
     Debug(4, "audio/alsa: hw+sw delay %zd %" PRId64 " ms\n",
 	RingBufferUsedBytes(AlsaRingBuffer), pts / 90);
@@ -1732,16 +1732,16 @@ static void OssInitMixer(void)
 **
 **	@returns audio delay in time stamps.
 */
-static uint64_t OssGetDelay(void)
+static int64_t OssGetDelay(void)
 {
     int delay;
-    uint64_t pts;
+    int64_t pts;
 
     if (OssPcmFildes == -1) {		// setup failure
-	return 0UL;
+	return 0L;
     }
     if (!AudioRunning) {		// audio not running
-	return 0UL;
+	return 0L;
     }
     // delay in bytes in kernel buffers
     delay = -1;
@@ -1754,7 +1754,7 @@ static uint64_t OssGetDelay(void)
 	delay = 0;
     }
 
-    pts = ((uint64_t) (delay + RingBufferUsedBytes(OssRingBuffer)) * 90 * 1000)
+    pts = ((int64_t) (delay + RingBufferUsedBytes(OssRingBuffer)) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
     Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
 	RingBufferUsedBytes(OssRingBuffer), pts / 90);
@@ -2003,9 +2003,9 @@ static int NoopUsedBytes(void)
 **
 **	@returns audio delay in time stamps.
 */
-static uint64_t NoopGetDelay(void)
+static int64_t NoopGetDelay(void)
 {
-    return 0UL;
+    return 0L;
 }
 
 /**
@@ -2080,9 +2080,8 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
 
-	Debug(3, "audio: ----> %d ms\n", (AudioUsedBytes() * 1000)
-	    / (!AudioSampleRate
-		|| !AudioChannels +
+	Debug(3, "audio: ----> %d ms start\n", (AudioUsedBytes() * 1000)
+	    / (!AudioSampleRate + !AudioChannels +
 		AudioSampleRate * AudioChannels * AudioBytesProSample));
 
 	pthread_mutex_unlock(&AudioMutex);
@@ -2118,7 +2117,6 @@ static void *AudioPlayHandlerThread(void *dummy)
 	}
 #endif
 
-	Debug(3, "audio: play start\n");
 	AudioUsedModule->Thread();
     }
 
@@ -2192,7 +2190,7 @@ void AudioEnqueue(const void *samples, int count)
 	static uint32_t last;
 	static uint32_t tick;
 	static uint32_t max = 101;
-	uint64_t delay;
+	int64_t delay;
 
 	delay = AudioGetDelay();
 	tick = GetMsTicks();
@@ -2208,7 +2206,7 @@ void AudioEnqueue(const void *samples, int count)
     // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
     if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
 	AudioPTS +=
-	    ((int64_t) count * 90000) / (AudioSampleRate * AudioChannels *
+	    ((int64_t) count * 90 * 1000) / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample);
     }
 }
@@ -2259,7 +2257,7 @@ int AudioUsedBytes(void)
 **
 **	@returns audio delay in time stamps.
 */
-uint64_t AudioGetDelay(void)
+int64_t AudioGetDelay(void)
 {
     return AudioUsedModule->GetDelay();
 }
@@ -2275,7 +2273,6 @@ void AudioSetClock(int64_t pts)
     if (AudioPTS != pts) {
 	Debug(4, "audio: set clock to %#012" PRIx64 " %#012" PRIx64 " pts\n",
 	    AudioPTS, pts);
-
     }
 #endif
     AudioPTS = pts;

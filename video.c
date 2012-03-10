@@ -543,9 +543,9 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 ///
 ///	Reduce output.
 ///
-static void VideoMessage(void)
-{
-}
+//static void VideoMessage(const char *message)
+//{
+//}
 
 //----------------------------------------------------------------------------
 //	GLX
@@ -1722,6 +1722,8 @@ static VaapiDecoder *VaapiNewHwDecoder(void)
 
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
+
+    decoder->PTS = AV_NOPTS_VALUE;
 
     // get/put still not working
     //decoder->GetPutImage = !VaapiBuggyIntel || VaapiNewIntel;
@@ -4345,10 +4347,12 @@ static void VaapiDisplayFrame(void)
 ///
 static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 {
+    int err;
     int filled;
     int64_t audio_clock;
     int64_t video_clock;
 
+    err = 0;
     if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
 	// FIXME: drop next frame?
 	decoder->DupNextFrame++;
@@ -4372,6 +4376,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
 	decoder->DupNextFrame = 2;
+	err = 1;
     }
 
     if (decoder->DupNextFrame) {
@@ -4383,22 +4388,25 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
+	    err = 1;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    Debug(3, "video: slow down video\n");
+	    err = 1;
 	    decoder->DupNextFrame += 2;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
 	    Debug(3, "video: slow down video\n");
+	    err = 1;
 	    decoder->DupNextFrame++;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1) {
 	    Debug(3, "video: speed up video\n");
+	    err = 1;
 	    decoder->DropNextFrame = 1;
 	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
-    if (decoder->DupNextFrame || decoder->DropNextFrame
-	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
+    if (err || !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
@@ -7411,10 +7419,12 @@ static void VdpauDisplayFrame(void)
 ///
 static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 {
+    int err;
     int filled;
     int64_t audio_clock;
     int64_t video_clock;
 
+    err = 0;
     if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
 	// FIXME: drop next frame?
 	decoder->DupNextFrame++;
@@ -7437,6 +7447,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
+	err = 1;
 	decoder->DupNextFrame = 2;
     }
 
@@ -7449,22 +7460,25 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 
 	if (abs(video_clock - audio_clock) > 5000 * 90) {
 	    Debug(3, "video: pts difference too big\n");
+	    err = 1;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    Debug(3, "video: slow down video\n");
+	    err = 1;
 	    decoder->DupNextFrame += 2;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
 	    Debug(3, "video: slow down video\n");
+	    err = 1;
 	    decoder->DupNextFrame++;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1 + 2 * decoder->Interlaced) {
 	    Debug(3, "video: speed up video\n");
+	    err = 1;
 	    decoder->DropNextFrame = 1;
 	}
     }
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
-    if (decoder->DupNextFrame || decoder->DropNextFrame
-	|| !(decoder->FramesDisplayed % AV_INFO_TIME)) {
+    if (err || !(decoder->FramesDisplayed % AV_INFO_TIME)) {
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
@@ -7486,7 +7500,8 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 {
     // FIXME: temp debug
     if (0 && frame->pkt_pts != (int64_t) AV_NOPTS_VALUE) {
-	Info("render frame pts %s\n", Timestamp2String(frame->pkt_pts));
+	Debug(3, "video: render frame pts %s\n",
+	    Timestamp2String(frame->pkt_pts));
     }
 
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
@@ -9699,9 +9714,9 @@ void VideoExit(void)
 int SysLogLevel;			///< show additional debug informations
 uint32_t VideoSwitch;			///< required
 
-uint64_t AudioGetDelay(void)		///< required
+int64_t AudioGetDelay(void)		///< required
 {
-    return 0UL;
+    return 0L;
 }
 
 int64_t AudioGetClock(void)		///< required
