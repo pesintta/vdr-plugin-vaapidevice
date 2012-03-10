@@ -1135,6 +1135,7 @@ static int VideoPacketRead;		///< read pointer
 static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
 
 static volatile char VideoClearBuffers;	///< clear video buffers
+static volatile char VideoClearClose;	///< clear video buffers upto close
 static volatile char SkipVideo;		///< skip video
 static volatile char VideoTrickSpeed;	///< current trick speed
 static volatile char VideoTrickCounter;	///< current trick speed counter
@@ -1358,22 +1359,23 @@ int VideoDecode(void)
     if (!filled) {
 	return -1;
     }
-#if 0
-    int f;
+    if (VideoClearClose) {
+	int f;
 
-    // FIXME: flush buffers, if close is in the queue
-    for (f = 0; f < filled; ++f) {
-	avpkt = &VideoPacketRb[(VideoPacketRead + f) % VIDEO_PACKET_MAX];
-	if ((int)(size_t) avpkt->priv == CODEC_ID_NONE) {
-	    printf("video: close\n");
-	    if (f) {
-		atomic_sub(f, &VideoPacketsFilled);
-		VideoPacketRead = (VideoPacketRead + f) % VIDEO_PACKET_MAX;
+	// flush buffers, if close is in the queue
+	for (f = 0; f < filled; ++f) {
+	    avpkt = &VideoPacketRb[(VideoPacketRead + f) % VIDEO_PACKET_MAX];
+	    if ((int)(size_t) avpkt->priv == CODEC_ID_NONE) {
+		if (f) {
+		    Debug(3, "video: cleared upto close\n");
+		    atomic_sub(f, &VideoPacketsFilled);
+		    VideoPacketRead = (VideoPacketRead + f) % VIDEO_PACKET_MAX;
+		    VideoClearClose = 0;
+		}
+		break;
 	    }
-	    break;
 	}
     }
-#endif
     avpkt = &VideoPacketRb[VideoPacketRead];
 
     //
@@ -1619,6 +1621,10 @@ int PlayVideo(const uint8_t * data, int size)
 	Error(_("[softhddev] invalid PES video packet\n"));
 	return size;
     }
+    // 0xBE, filler, padding stream
+    if (data[3] == PES_PADDING_STREAM) {	// from DVD plugin
+	return size;
+    }
     n = data[8];			// header size
 
     if (size < 9 + n + 4) {		// wrong size
@@ -1861,9 +1867,11 @@ void Clear(void)
     //NewAudioStream = 1;
     // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
 
+    // wait for empty buffers
     for (i = 0; VideoClearBuffers && i < 20; ++i) {
 	usleep(1 * 1000);
     }
+    Debug(3, "[softhddev]%s: buffers %d\n", __FUNCTION__, VideoGetBuffers());
 }
 
 /**
@@ -1991,20 +1999,34 @@ void StillPicture(const uint8_t * data, int size)
 /**
 **	Poll if device is ready.  Called by replay.
 **
+**	This function is useless, the return value is ignored and
+**	all buffers are overrun by vdr.
+**
+**	The dvd plugin is using this correct.
+**
 **	@param timeout	timeout to become ready in ms
 */
 int Poll(int timeout)
 {
-    // buffers are too full
-    if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX * 2 / 3
-	|| AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE * 2) {
-	if (timeout) {			// let display thread work
-	    usleep(timeout * 1000);
+    // poll is only called during replay, flush buffers after replay
+    VideoClearClose = 1;
+    for (;;) {
+	int empty;
+	int t;
+
+	// buffers are too full
+	empty = atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX * 1 / 4
+	    || AudioUsedBytes() < AUDIO_MIN_BUFFER_FREE * 2;
+	if (empty || !timeout) {
+	    return empty;
 	}
-	return atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX * 2 / 3
-	    && AudioFreeBytes() > AUDIO_MIN_BUFFER_FREE;
+	t = 15;
+	if (timeout < t) {
+	    t = timeout;
+	}
+	usleep(t * 1000);		// let display thread work
+	timeout -= t;
     }
-    return 1;
 }
 
 /**
