@@ -112,8 +112,9 @@ static char ConfigSuspendX11;		///< suspend should stop x11
 static volatile int DoMakePrimary;	///< switch primary device to this
 
 #define SUSPEND_EXTERNAL	-1	///< play external suspend mode
-#define SUSPEND_NORMAL		0	///< normal suspend mode
-#define SUSPEND_DETACHED	1	///< detached suspend mode
+#define NOT_SUSPENDED		0	///< not suspend mode
+#define SUSPEND_NORMAL		1	///< normal suspend mode
+#define SUSPEND_DETACHED	2	///< detached suspend mode
 static char SuspendMode;		///< suspend mode
 
 //////////////////////////////////////////////////////////////////////////////
@@ -711,23 +712,23 @@ cSoftHdPlayer::~cSoftHdPlayer()
 //////////////////////////////////////////////////////////////////////////////
 
 /**
-**	Dummy control for suspend mode.
+**	Dummy control class for suspend mode.
 */
 class cSoftHdControl:public cControl
 {
   public:
     static cSoftHdPlayer *Player;	///< dummy player
-    virtual void Hide(void)
+    virtual void Hide(void)		///< hide control
     {
     }
-    virtual eOSState ProcessKey(eKeys);
+    virtual eOSState ProcessKey(eKeys);	///< process input events
 
-    cSoftHdControl(void);
+    cSoftHdControl(void);		///< control constructor
 
-    virtual ~ cSoftHdControl();
+    virtual ~ cSoftHdControl();		///< control destructor
 };
 
-cSoftHdPlayer *cSoftHdControl::Player;
+cSoftHdPlayer *cSoftHdControl::Player;	///< dummy player instance
 
 /**
 **	Handle a key event.
@@ -744,7 +745,7 @@ eOSState cSoftHdControl::ProcessKey(eKeys key)
 	    Player = NULL;
 	}
 	Resume();
-	SuspendMode = 0;
+	SuspendMode = NOT_SUSPENDED;
 	return osEnd;
     }
     return osContinue;
@@ -769,8 +770,7 @@ cSoftHdControl::~cSoftHdControl()
 	Player = NULL;
     }
 
-    dsyslog("[softhddev]%s: resume\n", __FUNCTION__);
-    //Resume();
+    dsyslog("[softhddev]%s: dummy player stopped\n", __FUNCTION__);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -885,7 +885,8 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 
     switch (state) {
 	case osUser1:
-	    if (!cSoftHdControl::Player) {	// not already suspended
+	    // not already suspended
+	    if (SuspendMode == NOT_SUSPENDED && !cSoftHdControl::Player) {
 		cControl::Launch(new cSoftHdControl);
 		cControl::Attach();
 		Suspend(ConfigSuspendClose, ConfigSuspendClose,
@@ -989,9 +990,9 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
 
 	if (SuspendMode == SUSPEND_DETACHED) {
 	    Resume();
-	    SuspendMode = 0;
+	    SuspendMode = NOT_SUSPENDED;
 	}
-    } else if (!SuspendMode) {
+    } else if (SuspendMode == NOT_SUSPENDED) {
 	Suspend(1, 1, 0);
 	SuspendMode = SUSPEND_DETACHED;
     }
@@ -1056,12 +1057,12 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    break;
     }
 
-    if (SuspendMode) {
+    if (SuspendMode != NOT_SUSPENDED) {
 	if (SuspendMode != SUSPEND_EXTERNAL) {
-	    return true;
+	    return false;
 	}
 	Resume();
-	SuspendMode = 0;
+	SuspendMode = NOT_SUSPENDED;
     }
 
     return::SetPlayMode(play_mode);
@@ -1526,21 +1527,6 @@ cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-#if 0
-    //MyDevice->StopReplay();
-    if (!cSoftHdControl::Player) {	// not already suspended
-	cControl::Launch(new cSoftHdControl);
-	cControl::Attach();
-	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
-	SuspendMode = SUSPEND_NORMAL;
-	if (ShutdownHandler.GetUserInactiveTime()) {
-	    dsyslog("[softhddev]%s: set user inactive\n", __FUNCTION__);
-	    ShutdownHandler.SetUserInactive();
-	}
-    }
-
-    return NULL;
-#endif
     return new cSoftHdMenu("SoftHdDevice");
 }
 
@@ -1559,8 +1545,10 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 	DoMakePrimary = 0;
     }
     // check if user is inactive, automatic enter suspend mode
-    if (ShutdownHandler.IsUserInactive()) {
-	// this is regular called, but guarded against double calls
+    if (SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
+	// don't overwrite already suspended suspend mode
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
 	SuspendMode = SUSPEND_NORMAL;
     }
@@ -1754,14 +1742,19 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	if (cSoftHdControl::Player) {	// already suspended
 	    return "SoftHdDevice already suspended";
 	}
-	// should be after suspend, but SetPlayMode resumes
-	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
-	SuspendMode = SUSPEND_NORMAL;
+	if (SuspendMode != NOT_SUSPENDED) {
+	    return "SoftHdDevice already detached";
+	}
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	SuspendMode = SUSPEND_NORMAL;
 	return "SoftHdDevice is suspended";
     }
     if (!strcasecmp(command, "RESU")) {
+	if (SuspendMode == NOT_SUSPENDED) {
+	    return "SoftHdDevice already resumed";
+	}
 	if (SuspendMode != SUSPEND_NORMAL) {
 	    return "can't resume SoftHdDevice";
 	}
@@ -1772,20 +1765,20 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	    cControl::Shutdown();	// not need, if not suspended
 	}
 	Resume();
-	SuspendMode = 0;
+	SuspendMode = NOT_SUSPENDED;
 	return "SoftHdDevice is resumed";
     }
     if (!strcasecmp(command, "DETA")) {
+	if (SuspendMode == SUSPEND_DETACHED) {
+	    return "SoftHdDevice already detached";
+	}
 	if (cSoftHdControl::Player) {	// already suspended
-	    if (SuspendMode == SUSPEND_DETACHED) {
-		return "SoftHdDevice already detached";
-	    }
 	    return "can't suspend SoftHdDevice already suspended";
 	}
-	Suspend(1, 1, 0);
-	SuspendMode = SUSPEND_DETACHED;
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
+	Suspend(1, 1, 0);
+	SuspendMode = SUSPEND_DETACHED;
 	return "SoftHdDevice is detached";
     }
     if (!strcasecmp(command, "ATTA")) {
@@ -1799,7 +1792,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	    cControl::Shutdown();	// not need, if not suspended
 	}
 	Resume();
-	SuspendMode = 0;
+	SuspendMode = NOT_SUSPENDED;
 	return "SoftHdDevice is attached";
     }
     if (!strcasecmp(command, "HOTK")) {
