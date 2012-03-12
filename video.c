@@ -538,15 +538,6 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     return;
 }
 
-///
-///	Output video messages.
-///
-///	Reduce output.
-///
-//static void VideoMessage(const char *message)
-//{
-//}
-
 //----------------------------------------------------------------------------
 //	GLX
 //----------------------------------------------------------------------------
@@ -776,7 +767,7 @@ static void GlxSetupWindow(xcb_window_t window, int width, int height)
 	end = GetMsTicks();
 
 	GlxGetVideoSyncSGI(&count);
-	Debug(3, "video/glx: %5d frame rate %d ms\n", count, end - start);
+	Debug(3, "video/glx: %5d frame rate %dms\n", count, end - start);
 	// nvidia can queue 5 swaps
 	if (i > 5 && (end - start) < 15) {
 	    Warning(_("video/glx: no v-sync\n"));
@@ -1983,7 +1974,7 @@ static void Vaapi1080i(void)
 	}
 	tick = GetMsTicks();
 	if (!(n % 10)) {
-	    fprintf(stderr, "%d ms / frame\n", (tick - start_tick) / n);
+	    fprintf(stderr, "%dms / frame\n", (tick - start_tick) / n);
 	}
     }
 
@@ -2445,9 +2436,9 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     }
     e = GetMsTicks();
     if (e - s > 2000) {
-	Error(_("video/vaapi: gpu hung %d ms %d\n"), e - s,
+	Error(_("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
-	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), e - s,
+	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
     }
 
@@ -3154,9 +3145,9 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 
     put1 = GetMsTicks();
     if (put1 - sync > 2000) {
-	Error(_("video/vaapi: gpu hung %d ms %d\n"), put1 - sync,
+	Error(_("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
-	fprintf(stderr, _("video/vaapi: gpu hung %d ms %d\n"), put1 - sync,
+	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
     }
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
@@ -4317,7 +4308,7 @@ static void VaapiDisplayFrame(void)
 	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
 		decoder->FrameTime.tv_nsec) > 30 * 1000 * 1000) {
-	    Debug(3, "video/vaapi: time/frame too long %ld ms\n",
+	    Debug(3, "video/vaapi: time/frame too long %ldms\n",
 		((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
 			decoder->FrameTime.tv_nsec)) / (1000 * 1000));
@@ -4325,12 +4316,12 @@ static void VaapiDisplayFrame(void)
 		put2 - put1);
 	}
 #ifdef noDEBUG
-	Debug(3, "video/vaapi: time/frame %ld ms\n",
+	Debug(3, "video/vaapi: time/frame %ldms\n",
 	    ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
 		    decoder->FrameTime.tv_nsec)) / (1000 * 1000));
 	if (put2 > start + 20) {
-	    Debug(3, "video/vaapi: putsurface too long %u ms\n", put2 - start);
+	    Debug(3, "video/vaapi: putsurface too long %ums\n", put2 - start);
 	}
 	Debug(4, "video/vaapi: put1 %2u put2 %2u\n", put1 - start,
 	    put2 - put1);
@@ -4410,7 +4401,7 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
-	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
+	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
     }
 #endif
@@ -4667,8 +4658,8 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     }
     end = GetMsTicks();
 
-    Debug(3, "video/vaapi: osd upload %dx%d+%d+%d %d ms %d\n", width, height,
-	x, y, end - start, width * height * 4);
+    Debug(3, "video/vaapi: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
+	y, end - start, width * height * 4);
 }
 
 ///
@@ -5014,6 +5005,24 @@ static VdpPresentationQueueTargetCreateX11 *
 ///@}
 
 static void VdpauOsdInit(int, int);	///< forward definition
+
+//----------------------------------------------------------------------------
+
+///
+///	Output video messages.
+///
+///	Reduce output.
+///
+static void VdpauMessage(int level, const char *format, ...)
+{
+    if (SysLogLevel > level || DebugLevel > level) {
+	va_list ap;
+
+	va_start(ap, format);
+	vsyslog(LOG_ERR, format, ap);
+	va_end(ap);
+    }
+}
 
 //----------------------------------------------------------------------------
 
@@ -5519,6 +5528,8 @@ static VdpauDecoder *VdpauNewHwDecoder(void)
     decoder->Procamp.contrast = 1.0;
     decoder->Procamp.saturation = 1.0;
     decoder->Procamp.hue = 0.0;		// default values
+
+    decoder->PTS = AV_NOPTS_VALUE;
 
     // FIXME: hack
     VdpauDecoderN = 1;
@@ -7082,7 +7093,7 @@ static void VdpauMixOsd(void)
 #endif
     //end = GetMsTicks();
     /*
-       Debug(4, "video:/vdpau: osd render %d %d ms\n", VdpauOsdSurfaceIndex,
+       Debug(4, "video:/vdpau: osd render %d %dms\n", VdpauOsdSurfaceIndex,
        end - start);
      */
 
@@ -7349,6 +7360,7 @@ static void VdpauDisplayFrame(void)
 	    VdpauGetErrorString(status));
     }
     // check if surface was displayed for more than 1 frame
+    // FIXME: 21 only correct for 50Hz
     if (last_time && first_time > last_time + 21 * 1000 * 1000) {
 	Debug(3, "video/vdpau: %ld display time %ld\n", first_time / 1000,
 	    (first_time - last_time) / 1000);
@@ -7482,7 +7494,7 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
-	    9999 ? ((video_clock - audio_clock) / 90) : 88888,
+	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
     }
 #endif
@@ -7876,8 +7888,8 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
 #endif
     end = GetMsTicks();
 
-    Debug(3, "video/vdpau: osd upload %dx%d+%d+%d %d ms %d\n", width, height,
-	x, y, end - start, width * height * 4);
+    Debug(3, "video/vdpau: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
+	y, end - start, width * height * 4);
 }
 
 ///
@@ -8806,7 +8818,7 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 	}
 	if (end - start > 35) {
 	    // report this
-	    Info(_("video/vdpau: decoder render too slow %u ms\n"),
+	    Info(_("video/vdpau: decoder render too slow %ums\n"),
 		end - start);
 	}
 	return;
@@ -9860,7 +9872,7 @@ int main(int argc, char *const argv[])
 	tick = GetMsTicks();
 	n++;
 	if (!(n % 100)) {
-	    printf("%d ms / frame\n", (tick - start_tick) / n);
+	    printf("%dms / frame\n", (tick - start_tick) / n);
 	}
 	usleep(2 * 1000);
     }

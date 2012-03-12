@@ -435,8 +435,7 @@ static void AlsaFlushBuffers(void)
 	RingBufferReadAdvance(AlsaRingBuffer,
 	    RingBufferUsedBytes(AlsaRingBuffer));
 	state = snd_pcm_state(AlsaPCMHandle);
-	Debug(3, "audio/alsa: flush state %d - %s\n", state,
-	    snd_pcm_state_name(state));
+	Debug(3, "audio/alsa: flush state %s\n", snd_pcm_state_name(state));
 	if (state != SND_PCM_STATE_OPEN) {
 	    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
 		Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
@@ -943,7 +942,7 @@ static int64_t AlsaGetDelay(void)
     pts = ((int64_t) delay * 90 * 1000) / AudioSampleRate;
     pts += ((int64_t) RingBufferUsedBytes(AlsaRingBuffer) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
-    Debug(4, "audio/alsa: hw+sw delay %zd %" PRId64 " ms\n",
+    Debug(4, "audio/alsa: hw+sw delay %zd %" PRId64 "ms\n",
 	RingBufferUsedBytes(AlsaRingBuffer), pts / 90);
 
     return pts;
@@ -1147,7 +1146,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
-    Info(_("audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n"),
+    Debug(3, "audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n",
 	buffer_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
 	    buffer_size) * 1000 / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample), period_size,
@@ -1172,7 +1171,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     if (AlsaStartThreshold > RingBufferFreeBytes(AlsaRingBuffer)) {
 	AlsaStartThreshold = RingBufferFreeBytes(AlsaRingBuffer);
     }
-    Info(_("audio/alsa: delay %u ms\n"), (AlsaStartThreshold * 1000)
+    Info(_("audio/alsa: delay %ums\n"), (AlsaStartThreshold * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample));
 
     return ret;
@@ -1450,7 +1449,7 @@ static void OssEnqueue(const void *samples, int count)
     uint32_t tick;
 
     tick = GetMsTicks();
-    Debug(4, "audio/oss: %4d %d ms\n", count, tick - last_tick);
+    Debug(4, "audio/oss: %4d %dms\n", count, tick - last_tick);
     last_tick = tick;
 #endif
 
@@ -1756,7 +1755,7 @@ static int64_t OssGetDelay(void)
 
     pts = ((int64_t) (delay + RingBufferUsedBytes(OssRingBuffer)) * 90 * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
-    Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 " ms\n",
+    Debug(4, "audio/oss: hw+sw delay %zd %" PRId64 "ms\n",
 	RingBufferUsedBytes(OssRingBuffer), pts / 90);
 
     return pts;
@@ -1865,7 +1864,7 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
     OssFragmentTime = (bi.fragsize * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample);
 
-    Info(_("audio/oss: buffer size %d %dms, fragment size %d %dms\n"),
+    Debug(3, "audio/oss: buffer size %d %dms, fragment size %d %dms\n",
 	bi.fragsize * bi.fragstotal, (bi.fragsize * bi.fragstotal * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample), bi.fragsize,
 	OssFragmentTime);
@@ -1890,7 +1889,7 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 	OssStartThreshold = RingBufferFreeBytes(OssRingBuffer);
     }
 
-    Info(_("audio/oss: delay %u ms\n"), (OssStartThreshold * 1000)
+    Info(_("audio/oss: delay %ums\n"), (OssStartThreshold * 1000)
 	/ (AudioSampleRate * AudioChannels * AudioBytesProSample));
 
     return ret;
@@ -2080,7 +2079,7 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
 
-	Debug(3, "audio: ----> %d ms start\n", (AudioUsedBytes() * 1000)
+	Debug(3, "audio: ----> %dms start\n", (AudioUsedBytes() * 1000)
 	    / (!AudioSampleRate + !AudioChannels +
 		AudioSampleRate * AudioChannels * AudioBytesProSample));
 

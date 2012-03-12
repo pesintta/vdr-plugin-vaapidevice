@@ -315,6 +315,12 @@ static inline int FastAc3Check(const uint8_t * p)
     if (p[1] != 0x77) {
 	return 0;
     }
+    if ((p[4] & 0xC0) == 0xC0) {	// invalid sample rate
+	return 0;
+    }
+    if ((p[4] & 0x3F) > 37) {		// invalid frame size
+	return 0;
+    }
     return 1;
 }
 
@@ -338,7 +344,7 @@ static int Ac3Check(const uint8_t * data, int size)
 
     // crc1 crc1 fscod|frmsizcod
     fscod = data[4] >> 6;
-    frmsizcod = data[4] & 0x3F;
+    frmsizcod = data[4] & 0x3F;		// invalid is checked by fast
     frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
 
     if (frame_size + 2 > size) {
@@ -426,11 +432,24 @@ typedef struct _pes_demux_
 } PesDemux;
 
 ///
+///	Reset packetized elementary stream demuxer.
+///
+static void PesReset(PesDemux * pesdx)
+{
+    pesdx->State = PES_INIT;
+    pesdx->Index = 0;
+    pesdx->Skip = 0;
+    pesdx->StartCode = -1;
+    pesdx->PTS = AV_NOPTS_VALUE;
+    pesdx->DTS = AV_NOPTS_VALUE;
+}
+
+///
 ///	Initialize a packetized elementary stream demuxer.
 ///
 ///	@param pesdx	packetized elementary stream demuxer
 ///
-void PesInit(PesDemux * pesdx)
+static void PesInit(PesDemux * pesdx)
 {
     memset(pesdx, 0, sizeof(*pesdx));
     pesdx->Size = PES_MAX_PAYLOAD;
@@ -438,20 +457,7 @@ void PesInit(PesDemux * pesdx)
     if (!pesdx->Buffer) {
 	Fatal(_("pesdemux: out of memory\n"));
     }
-    pesdx->PTS = AV_NOPTS_VALUE;	// reset
-    pesdx->DTS = AV_NOPTS_VALUE;
-}
-
-///
-///	Reset packetized elementary stream demuxer.
-///
-void PesReset(PesDemux * pesdx)
-{
-    pesdx->State = PES_INIT;
-    pesdx->Index = 0;
-    pesdx->Skip = 0;
-    pesdx->PTS = AV_NOPTS_VALUE;
-    pesdx->DTS = AV_NOPTS_VALUE;
+    PesReset(pesdx);
 }
 
 ///
@@ -462,7 +468,8 @@ void PesReset(PesDemux * pesdx)
 ///	@param size	number of payload data bytes
 ///	@param is_start flag, start of pes packet
 ///
-void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
+static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
+    int is_start)
 {
     const uint8_t *p;
     const uint8_t *q;
@@ -609,6 +616,8 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 			Debug(3, "pesdemux: pes start code id %#02x\n", code);
 			// FIXME: need to save start code id?
 			pesdx->StartCode = code;
+			// we could have already detect a valid stream type
+			// don't switch to codec 'none'
 		    }
 
 		    pesdx->State = PES_HEADER;
@@ -668,11 +677,11 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 			// only private stream 1, has sub streams
 			pesdx->State = PES_START;
 		    }
-		    //pesdx->HeaderIndex = 0;
-		    //pesdx->Index = 0;
 		}
 		break;
 
+#if 0
+		// Played with PlayAudio
 	    case PES_LPCM_HEADER:	// lpcm header
 		n = pesdx->HeaderSize - pesdx->HeaderIndex;
 		if (n > size) {
@@ -749,6 +758,7 @@ void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_start)
 		AudioEnqueue(pesdx->Buffer, pesdx->Index);
 		pesdx->Index = 0;
 		break;
+#endif
 	}
     } while (size > 0);
 }
@@ -786,7 +796,7 @@ static PesDemux PesDemuxAudio[1];	///< audio demuxer
 ///
 ///	@returns number of bytes consumed from buffer.
 ///
-int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size)
+static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size)
 {
     const uint8_t *p;
 
@@ -876,7 +886,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     }
 
     if (NewAudioStream) {
-	// FIXME: does this clear the audio ringbuffer?
+	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
 	AudioSetBufferTime(0);
 	AudioCodecID = CODEC_ID_NONE;
@@ -928,7 +938,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	AudioAvPkt->stream_index = 0;
     }
 
-    if (AudioChannelID != id) {
+    if (AudioChannelID != id) {		// id changed audio track changed
 	AudioChannelID = id;
 	AudioCodecID = CODEC_ID_NONE;
     }
@@ -1067,6 +1077,8 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 /**
 **	Play transport stream audio packet.
 **
+**	VDR can have buffered data belonging to previous channel!
+**
 **	@param data	data of exactly one complete TS packet
 **	@param size	size of TS packet (always TS_PACKET_SIZE)
 **
@@ -1088,11 +1100,12 @@ int PlayTsAudio(const uint8_t * data, int size)
     }
 
     if (NewAudioStream) {
-	// FIXME: does this clear the audio ringbuffer?
+	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
 	// max time between audio packets 200ms + 24ms hw buffer
 	AudioSetBufferTime(264);
 	AudioCodecID = CODEC_ID_NONE;
+	AudioChannelID = -1;
 	NewAudioStream = 0;
 	PesReset(PesDemuxAudio);
     }

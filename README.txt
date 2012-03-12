@@ -166,7 +166,9 @@ Setup: /etc/vdr/setup.conf
 	32bit RGBA background color
 	(Red * 16777216 +  Green * 65536 + Blue * 256 + Alpha)
 	or hex RRGGBBAA
-	grey = 2155905279
+	grey 127 * 16777216 + 127 * 65536 + 127 * 256 => 2139062016
+	in the setup menu this is entered as (24bit RGB and 8bit Alpha)
+	(Red * 65536 +  Green * 256 + Blue)
 
 	softhddevice.SkipLines = 0
 	skip 'n' lines at top and bottom of the video picture.

@@ -728,8 +728,8 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: audio can use truncated packets\n");
-	// we do not send complete frames
-	audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
+	// we send only complete frames
+	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
     audio_decoder->SampleRate = 0;
     audio_decoder->Channels = 0;
@@ -800,6 +800,10 @@ void CodecSetAudioDownmix(int onoff)
 **	ffmpeg L  R  C	Ls Rs		-> alsa L R  Ls Rs C
 **	ffmpeg L  R  C	LFE Ls Rs	-> alsa L R  Ls Rs C  LFE
 **	ffmpeg L  R  C	LFE Ls Rs Rl Rr	-> alsa L R  Ls Rs C  LFE Rl Rr
+**
+**	@param buf[IN,OUT]	sample buffer
+**	@param size		size of sample buffer in bytes
+**	@param channels		number of channels interleaved in sample buffer
 */
 static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 {
@@ -960,10 +964,6 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     int err;
     int isAC3;
 
-    audio_ctx = audio_decoder->AudioCtx;
-
-    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
-
     // FIXME: use swr_convert from swresample (only in ffmpeg!)
     if (audio_decoder->ReSample) {
 	audio_resample_close(audio_decoder->ReSample);
@@ -975,9 +975,16 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 	audio_decoder->RemainCount = 0;
     }
 
+    audio_ctx = audio_decoder->AudioCtx;
+    Debug(3, "codec/audio: format change %dHz %d channels %s\n",
+	audio_ctx->sample_rate, audio_ctx->channels,
+	CodecPassthroughAC3 ? "pass-through" : "");
+
     audio_decoder->SampleRate = audio_ctx->sample_rate;
     audio_decoder->HwSampleRate = audio_ctx->sample_rate;
     audio_decoder->Channels = audio_ctx->channels;
+    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
+
     // SPDIF/HDMI passthrough
     if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
 	audio_decoder->HwChannels = 2;
@@ -1044,8 +1051,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 **
 **	@param audio_decoder	audio decoder data
 **	@param data		samples data
-**	@param count		number of samples
-**
+**	@param count		number of bytes in sample data
 */
 void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 {
@@ -1162,7 +1168,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     // update audio clock
     if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
-
     }
     // FIXME: must first play remainings bytes, than change and play new.
     if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
