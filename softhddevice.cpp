@@ -1706,6 +1706,42 @@ bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
 //----------------------------------------------------------------------------
 
 /**
+**	SVDRP commands help text.
+**	FIXME: translation?
+*/
+static const char *SVDRPHelpText[] = {
+    "SUSP\n" "   Suspend plugin.\n\n"
+	"    The plugin is suspended to save energie. Depending on the setup\n"
+	"    'softhddevice.Suspend.Close = 0' only the video and audio output\n"
+	"    is stopped or with 'softhddevice.Suspend.Close = 1' the video\n"
+	"    and audio devices are closed.\n"
+	"    If 'softhddevice.Suspend.X11 = 1' is set and the X11 server was\n"
+	"    started by the plugin, the X11 server would also be closed.\n"
+	"    (Stopping X11 while suspended isn't supported yet)\n",
+    "RESU\n" "   Resume plugin.\n\n"
+	"    Resume the suspended plugin. The plugin could be suspended by\n"
+	"    the command line option '-s' or by a previous SUSP command.\n"
+	"    If the x11 server was stopped by the plugin, it will be\n"
+	"    restarted.",
+    "DETA\n" "   Detach plugin.\n\n"
+	"    The plugin will be detached from the audio, video and DVB\n"
+	"    devices.  Other programs or plugins can use them now.\n",
+    "ATTA\n" "   Attach plugin.\n\n"
+	"    Attach the plugin to audio, video and DVB devices.\n",
+    "PRIM <n>\n" "    Make <n> the primary device.\n\n"
+	"    <n> is the number of device. Without number softhddevice becomes\n"
+	"    the primary device. If becoming primary, the plugin is attached\n"
+	"    to the devices. If loosing primary, the plugin is detached from\n"
+	"    the devices.",
+    "HOTK key\n" "    Execute hotkey.\n\n"
+	"    key is the hotkey number, following are supported:\n"
+	"    10: disable audio pass-through\n"
+	"    11: enable audio pass-through\n"
+	"    12: toggle audio pass-through\n",
+    NULL
+};
+
+/**
 **	Return SVDRP commands help pages.
 **
 **	return a pointer to a list of help strings for all of the plugin's
@@ -1713,18 +1749,7 @@ bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
 */
 const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 {
-    // FIXME: translation?
-    static const char *text[] = {
-	"SUSP\n" "    Suspend plugin.\n",
-	"RESU\n" "    Resume plugin.\n",
-	"DETA\n" "    Detach plugin.\n",
-	"ATTA\n" "    Attach plugin.\n",
-	"PRIM\n" "    Make primary device.\n" "HOTK key\n"
-	    "	  Execute hotkey.\n",
-	NULL
-    };
-
-    return text;
+    return SVDRPHelpText;
 }
 
 /**
@@ -1735,8 +1760,7 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 **	@param reply_code	reply code
 */
 cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
-    __attribute__ ((unused)) const char *option,
-    __attribute__ ((unused)) int &reply_code)
+    const char *option, __attribute__ ((unused)) int &reply_code)
 {
     if (!strcasecmp(command, "SUSP")) {
 	if (cSoftHdControl::Player) {	// already suspended
