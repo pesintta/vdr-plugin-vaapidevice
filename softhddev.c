@@ -1136,7 +1136,7 @@ static VideoHwDecoder *MyHwDecoder;	///< video hw decoder
 static VideoDecoder *MyVideoDecoder;	///< video decoder
 static enum CodecID VideoCodecID;	///< current codec id
 
-static const char *X11DisplayName;	///< x11 display name
+const char *X11DisplayName;		///< x11 display name
 static volatile char Usr1Signal;	///< true got usr1 signal
 
 #define VIDEO_BUFFER_SIZE (512 * 1024)	///< video PES buffer default size

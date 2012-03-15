@@ -36,6 +36,8 @@
 extern "C"
 {
 #include "video.h"
+    extern const char *X11DisplayName;		///< x11 display name
+
     extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
     extern void CodecSetAudioDownmix(int);
@@ -1726,8 +1728,9 @@ static const char *SVDRPHelpText[] = {
     "DETA\n" "   Detach plugin.\n\n"
 	"    The plugin will be detached from the audio, video and DVB\n"
 	"    devices.  Other programs or plugins can use them now.\n",
-    "ATTA\n" "   Attach plugin.\n\n"
-	"    Attach the plugin to audio, video and DVB devices.\n",
+    "ATTA <-d display>\n" "   Attach plugin.\n\n"
+	"    Attach the plugin to audio, video and DVB devices.\n"
+	"    Use -d display (f.e. -d :0.0) to use another X11 display.\n",
     "PRIM <n>\n" "    Make <n> the primary device.\n\n"
 	"    <n> is the number of device. Without number softhddevice becomes\n"
 	"    the primary device. If becoming primary, the plugin is attached\n"
@@ -1808,6 +1811,13 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     if (!strcasecmp(command, "ATTA")) {
 	if (SuspendMode != SUSPEND_DETACHED) {
 	    return "can't attach SoftHdDevice not detached";
+	}
+	if ( !strncmp(option, "-d ", 3) ) {
+	    // FIXME: loose memory here
+	    X11DisplayName = strdup(option + 3);
+	} else if ( !strncmp(option, "-d", 2) ) {
+	    // FIXME: loose memory here
+	    X11DisplayName = strdup(option + 2);
 	}
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    ShutdownHandler.SetUserInactiveTimeout();

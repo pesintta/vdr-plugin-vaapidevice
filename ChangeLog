@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add optional argument (display) to ATTA svdrp commmand.
     Wakeup display to show OSD for remote learning mode.
     Support switching the primary device with svdrp.
     Disable and reenable screen saver and DPMS.
