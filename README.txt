@@ -281,6 +281,11 @@ Requires:
 	x11-libs/xvba-video
 		XVBA Backend for Video Acceleration (VA) API
 		http://www.freedesktop.org/wiki/Software/vaapi
+
+	x11-libs/libvdpau
+		VDPAU wrapper and trace libraries
+		http://www.freedesktop.org/wiki/Software/VDPAU
+
 	x11-libs/libxcb,
 		X C-language Bindings library
 		http://xcb.freedesktop.org
