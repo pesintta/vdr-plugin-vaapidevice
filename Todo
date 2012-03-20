@@ -108,7 +108,7 @@ playback of recording
     replay/pause need 100% cpu (fixed?)
 
 plugins:
-    mp3 plugin needs 100% cpu (OSD updates?)
+    mp3 plugin needs 100% cpu (bad ::Poll)
 
 setup:
     Setup of decoder type.
@@ -120,6 +120,7 @@ setup:
 
 unsorted:
     stoping vdr while plugin is suspended opens and closes a window.
+    svdrp prim: support plugin names for device numbers.
 
 future features (not planed for 1.0 - 1.5)
 
