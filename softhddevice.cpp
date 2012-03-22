@@ -1164,6 +1164,9 @@ void cSoftHdDevice::StillPicture(const uchar * data, int length)
 **
 **	@param poller		file handles (unused)
 **	@param timeout_ms	timeout in ms to become ready
+**
+**	@retval true	if ready
+**	@retval false	if busy
 */
 bool cSoftHdDevice::Poll(
     __attribute__ ((unused)) cPoller & poller, int timeout_ms)
@@ -1547,7 +1550,9 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 	DoMakePrimary = 0;
     }
     // check if user is inactive, automatic enter suspend mode
-    if (SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
+    // FIXME: cControl prevents shutdown, disable this until fixed
+    // FIXME: move this to ::Housekeeping
+    if (0 && SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
 	// don't overwrite already suspended suspend mode
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
