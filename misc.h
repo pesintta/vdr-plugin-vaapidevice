@@ -107,7 +107,9 @@ static inline void Syslog(const int level, const char *format, ...)
 #define Debug(level, fmt...)		/* disabled */
 #endif
 
-#ifdef AV_NOPTS_VALUE
+#ifndef AV_NOPTS_VALUE
+#define AV_NOPTS_VALUE INT64_C(0x8000000000000000)
+#endif
 
 /**
 **	Nice time-stamp string.
@@ -129,8 +131,6 @@ static inline const char *Timestamp2String(int64_t ts)
 
     return buf[idx];
 }
-
-#endif
 
 /**
 **	Get ticks in ms.

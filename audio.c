@@ -223,7 +223,7 @@ static void AudioRingInit(void)
 
     for (i = 0; i < AUDIO_RING_MAX; ++i) {
 	// FIXME:
-	//AlsaRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
+	//AlsaRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
     }
     // one slot always reservered
     AudioRingWrite = 1;
@@ -432,8 +432,24 @@ static void AlsaFlushBuffers(void)
     snd_pcm_state_t state;
 
     if (AlsaRingBuffer && AlsaPCMHandle) {
+#ifdef DEBUG
+	const void *r;
+	void *w;
+#endif
+
 	RingBufferReadAdvance(AlsaRingBuffer,
 	    RingBufferUsedBytes(AlsaRingBuffer));
+#ifdef DEBUG
+	RingBufferGetWritePointer(AlsaRingBuffer, &w);
+	RingBufferGetReadPointer(AlsaRingBuffer, &r);
+	if (r != w) {
+	    Fatal(_("audio/alsa: ringbuffer out of sync %zd-%zd\n"),
+		RingBufferGetWritePointer(AlsaRingBuffer, &w),
+		RingBufferGetReadPointer(AlsaRingBuffer, &r));
+	    abort();
+	}
+#endif
+
 	state = snd_pcm_state(AlsaPCMHandle);
 	Debug(3, "audio/alsa: flush state %s\n", snd_pcm_state_name(state));
 	if (state != SND_PCM_STATE_OPEN) {
@@ -722,19 +738,31 @@ static void AlsaThreadEnqueue(const void *samples, int count)
 */
 static void AlsaVideoReady(void)
 {
-    if (AudioSampleRate && AudioChannels) {
-	Debug(3, "audio/alsa: start %4zdms video start\n",
-	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
-	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
-    }
-
     if (!AudioRunning) {
+	size_t used;
+
+	used = RingBufferUsedBytes(AlsaRingBuffer);
 	// enough video + audio buffered
-	if (AlsaStartThreshold < RingBufferUsedBytes(AlsaRingBuffer)) {
+	if (AlsaStartThreshold < used) {
+	    // too much audio buffered, skip it
+	    if (AlsaStartThreshold * 2 < used) {
+		Debug(3, "audio/alsa: start %4zdms skip ready\n",
+		    ((used - AlsaStartThreshold * 2) * 1000)
+		    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+		RingBufferReadAdvance(AlsaRingBuffer,
+		    used - AlsaStartThreshold * 2);
+	    }
 	    AudioRunning = 1;
 	    pthread_cond_signal(&AudioStartCond);
 	}
     }
+
+    if (AudioSampleRate && AudioChannels) {
+	Debug(3, "audio/alsa: start %4zdms video ready\n",
+	    (RingBufferUsedBytes(AlsaRingBuffer) * 1000)
+	    / (AudioSampleRate * AudioChannels * AudioBytesProSample));
+    }
+
 }
 
 /**
@@ -976,6 +1004,9 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
 #if 1					// easy alsa hw setup way
     // flush any buffered data
     AudioFlushBuffers();
+    Debug(3, "audio: %dms flush\n", (AudioUsedBytes() * 1000)
+	/ (!AudioSampleRate + !AudioChannels +
+	    AudioSampleRate * AudioChannels * AudioBytesProSample));
 
     if (1) {				// close+open to fix hdmi no sound bugs
 	handle = AlsaPCMHandle;
@@ -1241,7 +1272,7 @@ static void AlsaInit(void)
 #else
     (void)AlsaNoopCallback;
 #endif
-    AlsaRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
+    AlsaRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
 
     AlsaInitPCM();
     AlsaInitMixer();
@@ -1914,7 +1945,7 @@ void OssPause(void)
 */
 static void OssInit(void)
 {
-    OssRingBuffer = RingBufferNew(48000 * 8 * 2);	// ~1s 8ch 16bit
+    OssRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
 
     OssInitPCM();
     OssInitMixer();
@@ -2270,8 +2301,8 @@ void AudioSetClock(int64_t pts)
 {
 #ifdef DEBUG
     if (AudioPTS != pts) {
-	Debug(4, "audio: set clock to %#012" PRIx64 " %#012" PRIx64 " pts\n",
-	    AudioPTS, pts);
+	Debug(4, "audio: set clock %s -> %s pts\n", Timestamp2String(AudioPTS),
+	    Timestamp2String(pts));
     }
 #endif
     AudioPTS = pts;
