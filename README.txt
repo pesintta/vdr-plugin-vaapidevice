@@ -173,6 +173,9 @@ Setup: /etc/vdr/setup.conf
 	softhddevice.SkipLines = 0
 	skip 'n' lines at top and bottom of the video picture.
 
+	softhddevice.SkipPixels = 0
+	skip 'n' pixels at left and right of the video picture.
+
 	softhddevice.StudioLevels = 0
 		0 use PC levels (0-255) with vdpau.
 		1 use studio levels (16-235) with vdpau.

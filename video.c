@@ -302,6 +302,7 @@ static const char VideoTransparentOsd = 1;
 
 static uint32_t VideoBackground;	///< video background color
 static int VideoSkipLines;		///< skip video lines top/bottom
+static int VideoSkipPixels;		///< skip video pixels left/right
 static char VideoStudioLevels;		///< flag use studio levels
 
     /// Default deinterlace mode.
@@ -457,9 +458,9 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
 	display_aspect_ratio.den);
 
-    *crop_x = 0;
+    *crop_x = VideoSkipPixels;
     *crop_y = VideoSkipLines;
-    *crop_width = input_width;
+    *crop_width = input_width - VideoSkipPixels * 2;
     *crop_height = input_height - VideoSkipLines * 2;
 
     // FIXME: store different positions for the ratios
@@ -2850,7 +2851,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
     decoder->AutoCrop->State = next_state;
     if (next_state) {
-	decoder->CropX = 0;
+	decoder->CropX = VideoSkipPixels;
 	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
 	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
@@ -6417,9 +6418,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	goto slow_path;
     }
     // FIXME: combine this with VdpauSetupOutput and software decoder part
-    decoder->CropX = 0;
+    decoder->CropX = VideoSkipPixels;
     decoder->CropY = VideoSkipLines;
-    decoder->CropWidth = video_ctx->width;
+    decoder->CropWidth = video_ctx->width - VideoSkipPixels * 2;
     decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
     decoder->PixFmt = *fmt_idx;
@@ -6717,7 +6718,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 
     decoder->AutoCrop->State = next_state;
     if (next_state) {
-	decoder->CropX = 0;
+	decoder->CropX = VideoSkipPixels;
 	decoder->CropY = (next_state == 16 ? crop16 : crop14) + VideoSkipLines;
 	decoder->CropWidth = decoder->InputWidth;
 	decoder->CropHeight = decoder->InputHeight - decoder->CropY * 2;
@@ -6740,9 +6741,9 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
-	decoder->CropX = 0;
+	decoder->CropX = VideoSkipPixels;
 	decoder->CropY = VideoSkipLines;
-	decoder->CropWidth = decoder->InputWidth;
+	decoder->CropWidth = decoder->InputWidth - VideoSkipPixels * 2;
 	decoder->CropHeight = decoder->InputHeight - VideoSkipLines * 2;
 
 	// sets AutoCrop->Count
@@ -6952,9 +6953,9 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    || video_ctx->width != decoder->InputWidth
 	    || video_ctx->height != decoder->InputHeight) {
 
-	    decoder->CropX = 0;
+	    decoder->CropX = VideoSkipPixels;
 	    decoder->CropY = VideoSkipLines;
-	    decoder->CropWidth = video_ctx->width;
+	    decoder->CropWidth = video_ctx->width - VideoSkipPixels * 2;
 	    decoder->CropHeight = video_ctx->height - VideoSkipLines * 2;
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
@@ -9470,6 +9471,16 @@ void VideoSetScaling(int mode[VideoResolutionMax])
 void VideoSetSkipLines(int lines)
 {
     VideoSkipLines = lines;
+}
+
+///
+///	Set skip pixels.
+///
+///	@param pixels	pixels in pixel
+///
+void VideoSetSkipPixels(int pixels)
+{
+    VideoSkipPixels = pixels;
 }
 
 ///

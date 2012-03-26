@@ -36,7 +36,7 @@
 extern "C"
 {
 #include "video.h"
-    extern const char *X11DisplayName;		///< x11 display name
+    extern const char *X11DisplayName;	///< x11 display name
 
     extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
@@ -78,6 +78,7 @@ static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
 static uint32_t ConfigVideoBackground;	///< config video background color
 static int ConfigVideoSkipLines;	///< config skip lines top/bottom
+static int ConfigVideoSkipPixels;	///< config skip pixels left/right
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
@@ -469,6 +470,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int SkipLines;
+    int SkipPixels;
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
@@ -551,6 +553,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     SkipLines = ConfigVideoSkipLines;
     Add(new cMenuEditIntItem(tr("Skip lines top+bot (pixel)"), &SkipLines, 0,
 	    64));
+    SkipPixels = ConfigVideoSkipPixels;
+    Add(new cMenuEditIntItem(tr("Skip pixels left+right (pixel)"), &SkipPixels,
+	    0, 64));
     StudioLevels = ConfigVideoStudioLevels;
     Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
 	    &StudioLevels, trVDR("no"), trVDR("yes")));
@@ -635,6 +640,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetBackground(ConfigVideoBackground);
     SetupStore("SkipLines", ConfigVideoSkipLines = SkipLines);
     VideoSetSkipLines(ConfigVideoSkipLines);
+    SetupStore("SkipPixels", ConfigVideoSkipPixels = SkipPixels);
+    VideoSetSkipPixels(ConfigVideoSkipPixels);
     SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
     VideoSetStudioLevels(ConfigVideoStudioLevels);
     SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
@@ -1603,6 +1610,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
 	return true;
     }
+    if (!strcasecmp(name, "SkipPixels")) {
+	VideoSetSkipPixels(ConfigVideoSkipPixels = atoi(value));
+	return true;
+    }
     if (!strcasecmp(name, "StudioLevels")) {
 	VideoSetStudioLevels(ConfigVideoStudioLevels = atoi(value));
 	return true;
@@ -1817,10 +1828,10 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	if (SuspendMode != SUSPEND_DETACHED) {
 	    return "can't attach SoftHdDevice not detached";
 	}
-	if ( !strncmp(option, "-d ", 3) ) {
+	if (!strncmp(option, "-d ", 3)) {
 	    // FIXME: loose memory here
 	    X11DisplayName = strdup(option + 3);
-	} else if ( !strncmp(option, "-d", 2) ) {
+	} else if (!strncmp(option, "-d", 2)) {
 	    // FIXME: loose memory here
 	    X11DisplayName = strdup(option + 2);
 	}

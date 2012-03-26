@@ -122,6 +122,9 @@ extern void VideoSetSharpen(int[]);
     /// Set skip lines.
 extern void VideoSetSkipLines(int);
 
+    /// Set skip pixels.
+extern void VideoSetSkipPixels(int);
+
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
 
