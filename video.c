@@ -7248,38 +7248,40 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 ///	@param decoder	VDPAU hw decoder
 ///
 ///	@FIXME: render only video area, not fullscreen!
+///	decoder->Output.. isn't correct setup for radio stations
 ///
 static void VdpauBlackSurface(VdpauDecoder * decoder)
 {
     VdpStatus status;
-    void *image;
-    void const *data[1];
-    uint32_t pitches[1];
-    VdpRect dst_rect;
+    VdpRect source_rect;
+    VdpRect output_rect;
 
-    Debug(3, "video/vdpau: black surface\n");
+    source_rect.x0 = 0;
+    source_rect.y0 = 0;
+    source_rect.x1 = 0;
+    source_rect.y1 = 0;
 
-    // FIXME: clear video window area
-    (void)decoder;
-
-    image = calloc(4, VideoWindowWidth * VideoWindowHeight);
-
-    dst_rect.x0 = 0;
-    dst_rect.y0 = 0;
-    dst_rect.x1 = dst_rect.x0 + VideoWindowWidth;
-    dst_rect.y1 = dst_rect.y0 + VideoWindowHeight;
-    data[0] = image;
-    pitches[0] = VideoWindowWidth * 4;
-
-    status =
-	VdpauOutputSurfacePutBitsNative(VdpauSurfacesRb[VdpauSurfaceIndex],
-	data, pitches, &dst_rect);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: output surface put bits failed: %s\n"),
-	    VdpauGetErrorString(status));
+    if ( 0 ) {
+	// FIXME: wrong for radio channels
+	output_rect.x0 = decoder->OutputX;	// video output (scale)
+	output_rect.y0 = decoder->OutputY;
+	output_rect.x1 = decoder->OutputX + decoder->OutputWidth;
+	output_rect.y1 = decoder->OutputY + decoder->OutputHeight;
+    } else {
+	output_rect.x0 = 0;
+	output_rect.y0 = 0;
+	output_rect.x1 = VideoWindowWidth;
+	output_rect.y1 = VideoWindowHeight;
     }
 
-    free(image);
+    status = VdpauOutputSurfaceRenderOutputSurface(
+	VdpauSurfacesRb[VdpauSurfaceIndex], &output_rect,
+	VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
+	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't render output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
 }
 
 ///
