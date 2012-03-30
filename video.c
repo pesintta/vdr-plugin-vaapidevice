@@ -4418,8 +4418,6 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
 static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
-    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
-
 #ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
@@ -4435,6 +4433,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	    VaapiPrintFrames(decoder);
 	}
 	decoder->DropNextFrame--;
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 	return;
     }
     // if video output buffer is full, wait and display surface.
@@ -4468,6 +4467,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	VaapiSyncDisplayFrame(decoder);
     }
 
+    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
     VaapiRenderFrame(decoder, video_ctx, frame);
 #ifdef USE_AUTOCROP
     VaapiCheckAutoCrop(decoder);
@@ -7516,9 +7516,6 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	Debug(3, "video: render frame pts %s\n",
 	    Timestamp2String(frame->pkt_pts));
     }
-
-    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
-
 #ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
 	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
@@ -7534,9 +7531,11 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	    VdpauPrintFrames(decoder);
 	}
 	decoder->DropNextFrame--;
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 	return;
     }
     if (VdpauPreemption) {		// display preempted
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 	return;
     }
     // if video output buffer is full, wait and display surface.
@@ -7574,6 +7573,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	VdpauSyncDisplayFrame(decoder);
     }
 
+    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
     VdpauRenderFrame(decoder, video_ctx, frame);
 }
 

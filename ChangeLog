@@ -1,3 +1,9 @@
+User johns
+Date:
+
+    Release Version 0.5.0
+    Fix bug: VideoSetPts wrong position for multi frame packets.
+
 User: CafeDelMar
 Date: Mon Mar 26 20:45:54 CEST 2012
 
@@ -6,6 +12,7 @@ Date: Mon Mar 26 20:45:54 CEST 2012
 User johns
 Date: Fri Mar 23 18:43:20 CET 2012
 
+    Audio/Video sync rewrite, trick-speed support moved to video.
     Add optional argument (display) to ATTA svdrp commmand.
     Wakeup display to show OSD for remote learning mode.
     Support switching the primary device with svdrp.
