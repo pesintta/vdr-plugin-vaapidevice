@@ -1130,8 +1130,11 @@ void SetVolumeDevice(int volume)
 
 #include <alsa/iatomic.h>		// portable atomic_t
 
+#ifdef DEBUG
 uint32_t VideoSwitch;			///< debug video switch ticks
+#endif
 static volatile char NewVideoStream;	///< flag new video stream
+static volatile char ClosingVideoStream;	///< flag closing video stream
 static VideoHwDecoder *MyHwDecoder;	///< video hw decoder
 static VideoDecoder *MyVideoDecoder;	///< video decoder
 static enum CodecID VideoCodecID;	///< current codec id
@@ -1150,8 +1153,7 @@ static atomic_t VideoPacketsFilled;	///< how many of the buffer is used
 static volatile char VideoClearBuffers;	///< clear video buffers
 static volatile char VideoClearClose;	///< clear video buffers upto close
 static volatile char SkipVideo;		///< skip video
-static volatile char VideoTrickSpeed;	///< current trick speed
-static volatile char VideoTrickCounter;	///< current trick speed counter
+static volatile char CurrentTrickSpeed;	///< current trick speed
 
 #ifdef DEBUG
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -1340,6 +1342,10 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 
 /**
 **	Decode from PES packet ringbuffer.
+**
+**	@retval 0	packet decoded
+**	@retval	1	stream paused
+**	@retval	-1	empty stream
 */
 int VideoDecode(void)
 {
@@ -1360,19 +1366,13 @@ int VideoDecode(void)
 	VideoClearBuffers = 0;
 	return 1;
     }
-    if (VideoTrickSpeed) {
-	if (VideoTrickCounter++ < VideoTrickSpeed * 2) {
-	    usleep(5 * 1000);
-	    return 1;
-	}
-	VideoTrickCounter = 0;
-    }
 
     filled = atomic_read(&VideoPacketsFilled);
     if (!filled) {
 	return -1;
     }
-    if (VideoClearClose) {
+    // clearing for normal channel switch has no advantage
+    if (VideoClearClose /*|| ClosingVideoStream */ ) {
 	int f;
 
 	// flush buffers, if close is in the queue
@@ -1388,6 +1388,7 @@ int VideoDecode(void)
 		break;
 	    }
 	}
+	ClosingVideoStream = 0;
     }
     avpkt = &VideoPacketRb[VideoPacketRead];
 
@@ -1396,11 +1397,13 @@ int VideoDecode(void)
     //
     switch ((int)(size_t) avpkt->priv) {
 	case CODEC_ID_NONE:
+	    ClosingVideoStream = 0;
 	    if (last_codec_id != CODEC_ID_NONE) {
 		last_codec_id = CODEC_ID_NONE;
 		CodecVideoClose(MyVideoDecoder);
 		goto skip;
 	    }
+	    // FIXME: look if more close are in the queue
 	    // size can be zero
 	    goto skip;
 	case CODEC_ID_MPEG2VIDEO:
@@ -1448,6 +1451,11 @@ int VideoDecode(void)
 	    who_designed_this_is____ = write(fildes, avpkt->data, avpkt->size);
 	    close(fildes);
 	}
+    }
+
+    if (ClosingVideoStream) {		// closing don't sync
+	avpkt->pts = AV_NOPTS_VALUE;
+	avpkt->dts = AV_NOPTS_VALUE;
     }
 
     if (last_codec_id == CODEC_ID_MPEG2VIDEO) {
@@ -1618,7 +1626,7 @@ int PlayVideo(const uint8_t * data, int size)
 	return 0;
     }
     if (NewVideoStream) {		// channel switched
-	Debug(3, "video: new stream %d\n", GetMsTicks() - VideoSwitch);
+	Debug(3, "video: new stream %dms\n", GetMsTicks() - VideoSwitch);
 	// FIXME: hack to test results
 	if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 1) {
 	    Debug(3, "video: new video stream lost\n");
@@ -1627,6 +1635,9 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 	VideoNextPacket(CODEC_ID_NONE);
 	VideoCodecID = CODEC_ID_NONE;
+	// clear clock until new stream starts
+	VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
+	ClosingVideoStream = 1;
 	NewVideoStream = 0;
     }
     // must be a PES start code
@@ -1638,13 +1649,14 @@ int PlayVideo(const uint8_t * data, int size)
     if (data[3] == PES_PADDING_STREAM) {	// from DVD plugin
 	return size;
     }
-    n = data[8];			// header size
 
-    if (size < 9 + n + 4) {		// wrong size
+    n = data[8];			// header size
+    if (size <= 9 + n) {		// wrong size
 	if (size == 9 + n) {
 	    Warning(_("[softhddev] empty video packet\n"));
 	} else {
-	    Error(_("[softhddev] invalid video packet %d bytes\n"), size);
+	    Error(_("[softhddev] invalid video packet %d/%d bytes\n"), 9 + n,
+		size);
 	}
 	return size;
     }
@@ -1653,7 +1665,6 @@ int PlayVideo(const uint8_t * data, int size)
 	return 0;
     }
     // get pts/dts
-
     pts = AV_NOPTS_VALUE;
     if (data[7] & 0x80) {
 	pts =
@@ -1665,10 +1676,12 @@ int PlayVideo(const uint8_t * data, int size)
     l = size - 9 - n;
     z = 0;
     while (!*check) {			// count leading zeros
-	if (--l < 2) {
+	if (l < 3) {
 	    Warning(_("[softhddev] empty video packet %d bytes\n"), size);
-	    return size;
+	    z = 0;
+	    break;
 	}
+	--l;
 	++check;
 	++z;
     }
@@ -1677,7 +1690,7 @@ int PlayVideo(const uint8_t * data, int size)
     if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
 	&& check[1] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
-	    if (VideoTrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
+	    if (CurrentTrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
 		// H264 NAL End of Sequence
 		static uint8_t seq_end_h264[] =
 		    { 0x00, 0x00, 0x00, 0x01, 0x0A };
@@ -1716,7 +1729,6 @@ int PlayVideo(const uint8_t * data, int size)
 	return size;
     }
     // this happens when vdr sends incomplete packets
-
     if (VideoCodecID == CODEC_ID_NONE) {
 	Debug(3, "video: not detected\n");
 	return size;
@@ -1836,7 +1848,9 @@ int SetPlayMode(int play_mode)
     if (MyVideoDecoder) {		// tell video parser we have new stream
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
+#ifdef DEBUG
 	    VideoSwitch = GetMsTicks();
+#endif
 	}
     }
     if (MyAudioDecoder) {		// tell audio parser we have new stream
@@ -1844,12 +1858,37 @@ int SetPlayMode(int play_mode)
 	    NewAudioStream = 1;
 	}
     }
-    if (play_mode == 2 || play_mode == 3) {
-	Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+    switch (play_mode) {
+	case 1:			// audio/video from player
+	    break;
+	case 2:			// audio only
+	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+	    VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
+	    break;
+	case 3:			// audio only, black screen
+	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+	    VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
+	    break;
+	case 4:			// video only
+	    break;
     }
+
     Play();
 
     return 1;
+}
+
+/**
+**	Gets the current System Time Counter, which can be used to
+**	synchronize audio, video and subtitles.
+*/
+int64_t GetSTC(void)
+{
+    if (MyHwDecoder) {
+	return VideoGetClock(MyHwDecoder);
+    }
+    Error(_("softhddev: %s called without hw decoder\n"), __FUNCTION__);
+    return AV_NOPTS_VALUE;
 }
 
 /**
@@ -1862,8 +1901,12 @@ int SetPlayMode(int play_mode)
 */
 void TrickSpeed(int speed)
 {
-    VideoTrickSpeed = speed;
-    VideoTrickCounter = 0;
+    CurrentTrickSpeed = speed;
+    if (MyHwDecoder) {
+	VideoSetTrickSpeed(MyHwDecoder, speed);
+    } else {
+	Error(_("softhddev: %s called without hw decoder\n"), __FUNCTION__);
+    }
     StreamFreezed = 0;
 }
 
@@ -1892,9 +1935,7 @@ void Clear(void)
 */
 void Play(void)
 {
-    VideoTrickSpeed = 0;
-    VideoTrickCounter = 0;
-    StreamFreezed = 0;
+    TrickSpeed(0);			// normal play
     SkipAudio = 0;
     AudioPlay();
 }
@@ -2018,6 +2059,9 @@ void StillPicture(const uint8_t * data, int size)
 **	The dvd plugin is using this correct.
 **
 **	@param timeout	timeout to become ready in ms
+**
+**	@retval true	if ready
+**	@retval false	if busy
 */
 int Poll(int timeout)
 {
@@ -2329,7 +2373,6 @@ void SoftHdDeviceExit(void)
     StopVideo();
 
     CodecExit();
-    //VideoPacketExit();
 
     if (ConfigStartX11Server) {
 	Debug(3, "x-setup: Stop x11 server\n");

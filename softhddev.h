@@ -51,6 +51,8 @@ extern "C"
 
     /// C plugin set play mode
     extern int SetPlayMode(int);
+    /// C plugin get current system time counter
+    extern int64_t GetSTC(void);
     /// C plugin set trick speed
     extern void TrickSpeed(int);
     /// C plugin clears all video and audio data from the device

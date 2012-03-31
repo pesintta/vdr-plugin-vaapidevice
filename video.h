@@ -146,7 +146,14 @@ extern void VideoOsdDrawARGB(int, int, int, int, const uint8_t *);
     /// Get OSD size.
 extern void VideoGetOsdSize(int *, int *);
 
-extern int64_t VideoGetClock(void);	///< Get video clock.
+    /// Set video clock.
+extern void VideoSetClock(VideoHwDecoder *, int64_t);
+
+    /// Get video clock.
+extern int64_t VideoGetClock(const VideoHwDecoder *);
+
+    /// Set trick play speed.
+extern void VideoSetTrickSpeed(VideoHwDecoder *, int);
 
     /// Grab screen.
 extern uint8_t *VideoGrab(int *, int *, int *, int);

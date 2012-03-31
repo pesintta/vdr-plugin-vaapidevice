@@ -234,6 +234,9 @@ typedef struct _video_module_
 	const enum PixelFormat *);
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *,
 	const AVFrame *);
+    void (*const SetClock) (VideoHwDecoder *, int64_t);
+     int64_t(*const GetClock) (const VideoHwDecoder *);
+    void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
     void (*const SetBackground) (uint32_t);
     void (*const SetVideoMode) (void);
@@ -345,7 +348,9 @@ static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
 static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 
+#ifdef DEBUG
 extern uint32_t VideoSwitch;		///< ticks for channel switch
+#endif
 extern void AudioVideoReady(void);	///< tell audio video is ready
 
 #ifdef USE_VIDEO_THREAD
@@ -391,6 +396,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
 	*pts_p += interlaced ? 40 * 90 : 20 * 90;
+	//Info("video: %s +pts\n", Timestamp2String(*pts_p));
     }
     //av_opt_ptr(avcodec_get_frame_class(), frame, "best_effort_timestamp");
     //pts = frame->best_effort_timestamp;
@@ -1320,12 +1326,12 @@ struct _vaapi_decoder_
     atomic_t SurfacesFilled;		///< how many of the buffer is used
 
     int SurfaceField;			///< current displayed field
-    int DropNextFrame;			///< flag drop next frame
-    int DupNextFrame;			///< flag duplicate next frame
+    int TrickSpeed;			///< current trick speed
+    int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
     int64_t PTS;			///< video PTS clock
 
-    int StartCounter;			///< number of start frames
+    int SyncCounter;			///< counter to sync frames
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -1348,6 +1354,46 @@ static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 //----------------------------------------------------------------------------
 //	VA-API Functions
 //----------------------------------------------------------------------------
+
+//----------------------------------------------------------------------------
+
+///
+///	Output video messages.
+///
+///	Reduce output.
+///
+///	@param level	message level (Error, Warning, Info, Debug, ...)
+///	@param format	printf format string (NULL to flush messages)
+///	@param ...	printf arguments
+///
+///	@returns true, if message shown
+///
+static int VaapiMessage(int level, const char *format, ...)
+{
+    if (SysLogLevel > level || DebugLevel > level) {
+	static const char *last_format;
+	static char buf[256];
+	va_list ap;
+
+	va_start(ap, format);
+	if (format != last_format) {	// don't repeat same message
+	    last_format = format;
+	    if (buf[0]) {		// print last repeated message
+		syslog(LOG_ERR, "%s", buf);
+		buf[0] = '\0';
+	    }
+
+	    if (format) {
+		vsyslog(LOG_ERR, format, ap);
+	    }
+	    va_end(ap);
+	    return 1;
+	}
+	vsnprintf(buf, sizeof(buf), format, ap);
+	va_end(ap);
+    }
+    return 0;
+}
 
 //	Surfaces -------------------------------------------------------------
 
@@ -1577,9 +1623,9 @@ static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 ///
 static void VaapiPrintFrames(const VaapiDecoder * decoder)
 {
-    Debug(3, "video/vaapi: %d missed, %d duped, %d dropped frames of %d\n",
+    Debug(3, "video/vaapi: %d missed, %d duped, %d dropped frames of %d,%d\n",
 	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
-	decoder->FrameCounter);
+	decoder->FrameCounter, decoder->FramesDisplayed);
 #ifndef DEBUG
     (void)decoder;
 #endif
@@ -1801,11 +1847,10 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     }
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
+    decoder->SurfaceField = 0;
 
-    decoder->SurfaceField = 1;
-
-    //decoder->FrameCounter = 0;
-    decoder->StartCounter = 0;
+    decoder->FrameCounter = 0;
+    decoder->FramesDisplayed = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -1867,6 +1912,8 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 
     free(decoder);
 }
+
+#ifdef DEBUG				// currently unused, keep it for later
 
 static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n,
     VAProfile profile);
@@ -1991,6 +2038,8 @@ static void Vaapi1080i(void)
     }
     fprintf(stderr, "done\n");
 }
+
+#endif
 
 ///
 ///	VA-API setup.
@@ -2184,7 +2233,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     int e;
     VAConfigAttrib attrib;
 
-    Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
+    Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
 
     // create initial black surface and display
     VaapiBlackSurface(decoder);
@@ -3987,7 +4036,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 
 	decoder->Interlaced = interlaced;
 	decoder->TopFieldFirst = frame->top_field_first;
-	decoder->SurfaceField = 1;
+	decoder->SurfaceField = 0;
     }
     // update aspect ratio changes
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,60,100)
@@ -4171,74 +4220,45 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 }
 
 ///
-///	Advance displayed frame.
+///	Advance displayed frame of decoder.
 ///
-static void VaapiAdvanceFrame(void)
+///	@param decoder	VA-API hw decoder
+///
+static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 {
-    int i;
-
-    // show any frame as fast as possible
-    // we keep always the last frame in the ring buffer
-
-    for (i = 0; i < VaapiDecoderN; ++i) {
-	VaapiDecoder *decoder;
+    // next surface, if complete frame is displayed (1 -> 0)
+    if (decoder->SurfaceField) {
 	VASurfaceID surface;
 	int filled;
 
-	decoder = VaapiDecoders[i];
 	filled = atomic_read(&decoder->SurfacesFilled);
-
-	// 0 -> 1
-	// 1 -> 0 + advance
-	if (VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
-	    && decoder->Interlaced) {
-	    // FIXME: first frame is never shown
-	    if (decoder->SurfaceField) {
-		if (filled > 1) {
-		    decoder->SurfaceField = 0;
-		}
-	    } else {
-		decoder->SurfaceField = 1;
-		return;
-	    }
-	}
-
-	if (filled > 1) {
-	    decoder->SurfaceRead = (decoder->SurfaceRead + 1)
-		% VIDEO_SURFACES_MAX;
-	    atomic_dec(&decoder->SurfacesFilled);
-
-	    // wait for rendering finished
-	    surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	    if (vaSyncSurface(decoder->VaDisplay, surface)
-		!= VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: vaSyncSurface failed\n"));
-	    }
-	    // debug duplicate frames
-	} else if (filled == 1) {
-	    static int last_warned_frame;
-
+	// FIXME: this should check the caller
+	// check decoder, if new surface is available
+	if (filled <= 1) {
+	    // keep use of last surface
 	    ++decoder->FramesDuped;
-	    decoder->DropNextFrame = 0;
 	    // FIXME: don't warn after stream start, don't warn during pause
-	    if (last_warned_frame != decoder->FrameCounter) {
-		Warning(_
-		    ("video: display buffer empty, duping frame (%d/%d) %d\n"),
-		    decoder->FramesDuped, decoder->FrameCounter,
-		    VideoGetBuffers());
-	    }
-	    last_warned_frame = decoder->FrameCounter;
-	    if (!(decoder->FramesDisplayed % 300)) {
-		VaapiPrintFrames(decoder);
-	    }
-	    // wait for rendering finished
-	    surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	    if (vaSyncSurface(decoder->VaDisplay, surface)
-		!= VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: vaSyncSurface failed\n"));
-	    }
+	    Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
+		decoder->FramesDuped, decoder->FrameCounter,
+		VideoGetBuffers());
+	    return;
 	}
+	// wait for rendering finished
+	surface = decoder->SurfacesRb[decoder->SurfaceRead];
+	if (vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: vaSyncSurface failed\n"));
+	}
+
+	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
+	atomic_dec(&decoder->SurfacesFilled);
+
+	// progressiv oder software deinterlacer
+	decoder->SurfaceField = !decoder->Interlaced
+	    || VideoDeinterlace[decoder->Resolution]
+	    >= VideoDeinterlaceSoftBob;
+	return;
     }
+    decoder->SurfaceField = 1;
 }
 
 ///
@@ -4273,6 +4293,7 @@ static void VaapiDisplayFrame(void)
 	// no surface availble show black with possible osd
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
+	    VaapiMessage(3, "video/vaapi: black surface displayed\n");
 	    continue;
 	}
 
@@ -4306,9 +4327,11 @@ static void VaapiDisplayFrame(void)
 	    put2 = put1;
 	}
 	clock_gettime(CLOCK_REALTIME, &nowtime);
+	// FIXME: 31 only correct for 50Hz
 	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-		decoder->FrameTime.tv_nsec) > 30 * 1000 * 1000) {
+		decoder->FrameTime.tv_nsec) > 31 * 1000 * 1000) {
+	    // FIXME: ignore still-frame, trick-speed
 	    Debug(3, "video/vaapi: time/frame too long %ldms\n",
 		((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
@@ -4333,11 +4356,62 @@ static void VaapiDisplayFrame(void)
 }
 
 ///
-///	Sync and display surface.
+///	Set VA-API decoder video clock.
+///
+///	@param decoder	VA-API hardware decoder
+///	@param pts	audio presentation timestamp
+///
+void VaapiSetClock(VaapiDecoder * decoder, int64_t pts)
+{
+    decoder->PTS = pts;
+}
+
+///
+///	Get VA-API decoder video clock.
 ///
 ///	@param decoder	VA-API decoder
 ///
-static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
+static int64_t VaapiGetClock(const VaapiDecoder * decoder)
+{
+    // pts is the timestamp of the latest decoded frame
+    if (decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
+	return AV_NOPTS_VALUE;
+    }
+    // subtract buffered decoded frames
+    if (decoder->Interlaced) {
+	return decoder->PTS -
+	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField);
+    }
+    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
+	2);
+}
+
+///
+///	Set trick play speed.
+///
+///	@param decoder		VA-API decoder
+///	@param speed		trick speed (0 = normal)
+///
+static void VaapiSetTrickSpeed(VaapiDecoder * decoder, int speed)
+{
+    decoder->TrickSpeed = speed;
+    decoder->TrickCounter = 0;
+}
+
+///
+///	Sync decoder output to audio.
+///
+///	trick-speed	show frame <n> times
+///	still-picture	show frame until new frame arrives
+///	60hz-mode	repeat every 5th picture
+///	video>audio	slow down video by duplicating frames
+///	video<audio	speed up video by skipping frames
+///	soft-start	show every second frame
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VaapiSyncDecoder(VaapiDecoder * decoder)
 {
     int err;
     int filled;
@@ -4345,67 +4419,129 @@ static void VaapiSyncDisplayFrame(VaapiDecoder * decoder)
     int64_t video_clock;
 
     err = 0;
-    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
-	// FIXME: drop next frame?
-	decoder->DupNextFrame++;
-    } else if (!decoder->DupNextFrame) {
-	VaapiAdvanceFrame();
-    }
-
-    VaapiDisplayFrame();
-
-    //
-    //	audio/video sync
-    //
     audio_clock = AudioGetClock();
-    video_clock = VideoGetClock();
+    video_clock = VaapiGetClock(decoder);
     filled = atomic_read(&decoder->SurfacesFilled);
-    // FIXME: audio not known assume 333ms delay
 
-    decoder->StartCounter++;
-    if (!VideoSoftStartSync && decoder->StartCounter < 60
+    // 60Hz: repeat every 5th field
+    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
+	if (audio_clock == (int64_t) AV_NOPTS_VALUE
+	    || video_clock == (int64_t) AV_NOPTS_VALUE) {
+	    goto out;
+	}
+	// both clocks are known
+	if (audio_clock + VideoAudioDelay <= video_clock + 15 * 90) {
+	    goto out;
+	}
+	// out of sync: audio before video
+	if (!decoder->TrickSpeed) {
+	    goto skip_sync;
+	}
+    }
+    // TrickSpeed
+    if (decoder->TrickSpeed) {
+	if (decoder->TrickCounter--) {
+	    goto out;
+	}
+	decoder->TrickCounter = decoder->TrickSpeed;
+    }
+    // at start of new video stream, soft or hard sync video to audio
+    if (!VideoSoftStartSync && decoder->FramesDisplayed < 60
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
-	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
-	decoder->DupNextFrame = 2;
-	err = 1;
+	err =
+	    VaapiMessage(3, "video: initial slow down video, frame %d\n",
+	    decoder->FramesDisplayed);
+	goto out;
     }
 
-    if (decoder->DupNextFrame) {
-	decoder->DupNextFrame--;
-	++decoder->FramesDuped;
-    } else if (audio_clock != (int64_t) AV_NOPTS_VALUE
+    if (decoder->SyncCounter && decoder->SyncCounter--) {
+	goto skip_sync;
+    }
+
+    if (audio_clock != (int64_t) AV_NOPTS_VALUE
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 
-	if (abs(video_clock - audio_clock) > 5000 * 90) {
-	    Debug(3, "video: pts difference too big\n");
-	    err = 1;
+	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
+	    err = VaapiMessage(3, "video: audio/video difference too big\n");
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
-	    Debug(3, "video: slow down video\n");
-	    err = 1;
-	    decoder->DupNextFrame += 2;
+	    // FIXME: this quicker sync step, did not work with new code!
+	    err = VaapiMessage(3, "video: slow down video, duping frame\n");
+	    ++decoder->FramesDuped;
+	    decoder->SyncCounter = 1;
+	    goto out;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
-	    Debug(3, "video: slow down video\n");
-	    err = 1;
-	    decoder->DupNextFrame++;
+	    err = VaapiMessage(3, "video: slow down video, duping frame\n");
+	    ++decoder->FramesDuped;
+	    decoder->SyncCounter = 1;
+	    goto out;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
-	    && filled > 1) {
-	    Debug(3, "video: speed up video\n");
-	    err = 1;
-	    decoder->DropNextFrame = 1;
+	    && filled > 1 + 2 * decoder->Interlaced) {
+	    err = VaapiMessage(3, "video: speed up video, droping frame\n");
+	    ++decoder->FramesDropped;
+	    VaapiAdvanceDecoderFrame(decoder);
+	    decoder->SyncCounter = 1;
 	}
     }
+
+  skip_sync:
+    // check if next field is available
+    if (decoder->SurfaceField && filled <= 1) {
+	if (filled == 1) {
+	    ++decoder->FramesDuped;
+	    // FIXME: don't warn after stream start, don't warn during pause
+	    err =
+		VaapiMessage(1,
+		_("video: decoder buffer empty, "
+		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
+		decoder->FrameCounter, VideoGetBuffers());
+	}
+	goto out;
+    }
+
+    VaapiAdvanceDecoderFrame(decoder);
+  out:
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (err || !(decoder->FramesDisplayed % AV_INFO_TIME)) {
+	if (!err) {
+	    VaapiMessage(0, NULL);
+	}
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
+	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
+	    VaapiPrintFrames(decoder);
+	}
     }
 #endif
+}
+
+///
+///	Sync a video frame.
+///
+static void VaapiSyncFrame(void)
+{
+    int i;
+
+    //
+    //	Sync video decoder to audio
+    //
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	VaapiSyncDecoder(VaapiDecoders[i]);
+    }
+}
+
+///
+///	Sync and display surface.
+///
+static void VaapiSyncDisplayFrame(void)
+{
+    VaapiDisplayFrame();
+    VaapiSyncFrame();
 }
 
 ///
@@ -4420,22 +4556,10 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 {
 #ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
-	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
+	Debug(3, "video: new stream frame %dms\n", GetMsTicks() - VideoSwitch);
     }
 #endif
 
-    if (decoder->DropNextFrame) {	// drop frame requested
-	// FIXME: interlace this drops two frames
-	++decoder->FramesDropped;
-	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
-	    decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 300)) {
-	    VaapiPrintFrames(decoder);
-	}
-	decoder->DropNextFrame--;
-	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
-	return;
-    }
     // if video output buffer is full, wait and display surface.
     // loop for interlace
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
@@ -4464,7 +4588,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	}
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
-	VaapiSyncDisplayFrame(decoder);
+	VaapiSyncDisplayFrame();
     }
 
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
@@ -4472,27 +4596,6 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 #ifdef USE_AUTOCROP
     VaapiCheckAutoCrop(decoder);
 #endif
-}
-
-///
-///	Get VA-API decoder video clock.
-///
-///	@param decoder	VA-API decoder
-///
-static int64_t VaapiGetClock(const VaapiDecoder * decoder)
-{
-    // pts is the timestamp of the latest decoded frame
-    if (!decoder || decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
-	return AV_NOPTS_VALUE;
-    }
-    // subtract buffered decoded frames
-    if (decoder->Interlaced) {
-	return decoder->PTS -
-	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
-	    - decoder->SurfaceField);
-    }
-    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
-	2);
 }
 
 ///
@@ -4560,7 +4663,7 @@ static void VaapiDisplayHandlerThread(void)
     }
 
     pthread_mutex_lock(&VideoLockMutex);
-    VaapiSyncDisplayFrame(decoder);
+    VaapiSyncDisplayFrame();
     pthread_mutex_unlock(&VideoLockMutex);
 }
 
@@ -4805,6 +4908,10 @@ static const VideoModule VaapiModule = {
 	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
+    .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
+    .SetTrickSpeed =
+	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
@@ -4883,12 +4990,12 @@ typedef struct _vdpau_decoder_
     atomic_t SurfacesFilled;		///< how many of the buffer is used
 
     int SurfaceField;			///< current displayed field
-    int DropNextFrame;			///< flag drop next frame
-    int DupNextFrame;			///< flag duplicate next frame
+    int TrickSpeed;			///< current trick speed
+    int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
     int64_t PTS;			///< video PTS clock
 
-    int StartCounter;			///< number of start frames
+    int SyncCounter;			///< counter to sync frames
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -5014,18 +5121,40 @@ static void VdpauOsdInit(int, int);	///< forward definition
 ///
 ///	Reduce output.
 ///
-static void VdpauMessage(int level, const char *format, ...)
+///	@param level	message level (Error, Warning, Info, Debug, ...)
+///	@param format	printf format string (NULL to flush messages)
+///	@param ...	printf arguments
+///
+///	@returns true, if message shown
+///
+static int VdpauMessage(int level, const char *format, ...)
 {
     if (SysLogLevel > level || DebugLevel > level) {
+	static const char *last_format;
+	static char buf[256];
 	va_list ap;
 
 	va_start(ap, format);
-	vsyslog(LOG_ERR, format, ap);
+	if (format != last_format) {	// don't repeat same message
+	    last_format = format;
+	    if (buf[0]) {		// print last repeated message
+		syslog(LOG_ERR, "%s", buf);
+		buf[0] = '\0';
+	    }
+
+	    if (format) {
+		vsyslog(LOG_ERR, format, ap);
+	    }
+	    va_end(ap);
+	    return 1;
+	}
+	vsnprintf(buf, sizeof(buf), format, ap);
 	va_end(ap);
     }
+    return 0;
 }
 
-//----------------------------------------------------------------------------
+//	Surfaces -------------------------------------------------------------
 
 ///
 ///	Create surfaces for VDPAU decoder.
@@ -5174,9 +5303,9 @@ static void VdpauReleaseSurface(VdpauDecoder * decoder, unsigned surface)
 ///
 static void VdpauPrintFrames(const VdpauDecoder * decoder)
 {
-    Debug(3, "video/vdpau: %d missed, %d duped, %d dropped frames of %d\n",
+    Debug(3, "video/vdpau: %d missed, %d duped, %d dropped frames of %d,%d\n",
 	decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped,
-	decoder->FrameCounter);
+	decoder->FrameCounter, decoder->FramesDisplayed);
 #ifndef DEBUG
     (void)decoder;
 #endif
@@ -5509,9 +5638,6 @@ static VdpauDecoder *VdpauNewHwDecoder(void)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VDP_INVALID_HANDLE;
     }
-    // we advance before display, to loose no surface, we set it before
-    //decoder->SurfaceRead = VIDEO_SURFACES_MAX - 1;
-    //decoder->SurfaceField = 1;
 
 #ifdef DEBUG
     if (VIDEO_SURFACES_MAX < 1 + 1 + 1 + 1) {
@@ -5582,11 +5708,10 @@ static void VdpauCleanup(VdpauDecoder * decoder)
     }
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
-
     decoder->SurfaceField = 0;
 
-    //decoder->FrameCounter = 0;
-    decoder->StartCounter = 0;
+    decoder->FrameCounter = 0;
+    decoder->FramesDisplayed = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -5610,7 +5735,6 @@ static void VdpauDelHwDecoder(VdpauDecoder * decoder)
     }
 
     VdpauCleanup(decoder);
-
     VdpauPrintFrames(decoder);
 
     free(decoder);
@@ -6300,7 +6424,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     VdpStatus status;
     int max_refs;
 
-    Debug(3, "video: new stream format %d\n", GetMsTicks() - VideoSwitch);
+    Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
     VdpauCleanup(decoder);
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
@@ -6444,6 +6568,8 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 
 #ifdef USE_GRAB
 
+#ifdef DEBUG				// function not used
+
 ///
 ///	Grab video surface.
 ///
@@ -6508,6 +6634,8 @@ static void VdpauGrabVideoSurface(VdpauDecoder * decoder)
 
     free(base);
 }
+
+#endif
 
 ///
 ///	Grab output surface.
@@ -7261,7 +7389,7 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
     source_rect.x1 = 0;
     source_rect.y1 = 0;
 
-    if ( 0 ) {
+    if (0) {
 	// FIXME: wrong for radio channels
 	output_rect.x0 = decoder->OutputX;	// video output (scale)
 	output_rect.y0 = decoder->OutputY;
@@ -7274,8 +7402,9 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 	output_rect.y1 = VideoWindowHeight;
     }
 
-    status = VdpauOutputSurfaceRenderOutputSurface(
-	VdpauSurfacesRb[VdpauSurfaceIndex], &output_rect,
+    status =
+	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
+	[VdpauSurfaceIndex], &output_rect,
 	VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
 	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
     if (status != VDP_STATUS_OK) {
@@ -7285,53 +7414,37 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 }
 
 ///
-///	Advance displayed frame.
+///	Advance displayed frame of decoder.
 ///
-static void VdpauAdvanceFrame(void)
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauAdvanceDecoderFrame(VdpauDecoder * decoder)
 {
-    int i;
-
-    for (i = 0; i < VdpauDecoderN; ++i) {
+    // next surface, if complete frame is displayed (1 -> 0)
+    if (decoder->SurfaceField) {
 	int filled;
-	VdpauDecoder *decoder;
 
-	decoder = VdpauDecoders[i];
-
-	// next field
-	if (decoder->Interlaced) {
-	    decoder->SurfaceField ^= 1;
+	// FIXME: this should check the caller
+	// check decoder, if new surface is available
+	// need 2 frames for progressive
+	// need 4 frames for interlaced
+	filled = atomic_read(&decoder->SurfacesFilled);
+	if (filled <= 1 + 2 * decoder->Interlaced) {
+	    // keep use of last surface
+	    ++decoder->FramesDuped;
+	    // FIXME: don't warn after stream start, don't warn during pause
+	    Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
+		decoder->FramesDuped, decoder->FrameCounter,
+		VideoGetBuffers());
+	    return;
 	}
-	// next surface, if complete frame is displayed
-	if (!decoder->SurfaceField) {
-	    // check decoder, if new surface is available
-	    // need 2 frames for progressive
-	    // need 4 frames for interlaced
-	    filled = atomic_read(&decoder->SurfacesFilled);
-	    if (filled <= 1 + 2 * decoder->Interlaced) {
-		static int last_warned_frame;
-
-		// keep use of last surface
-		++decoder->FramesDuped;
-		decoder->DropNextFrame = 0;
-		// FIXME: don't warn after stream start, don't warn during pause
-		if (last_warned_frame != decoder->FrameCounter) {
-		    Warning(_
-			("video: display buffer empty, duping frame (%d/%d) %d\n"),
-			decoder->FramesDuped, decoder->FrameCounter,
-			VideoGetBuffers());
-		}
-		last_warned_frame = decoder->FrameCounter;
-		if (!(decoder->FramesDisplayed % 300)) {
-		    VdpauPrintFrames(decoder);
-		}
-		decoder->SurfaceField = decoder->Interlaced;
-	    } else {
-		decoder->SurfaceRead = (decoder->SurfaceRead + 1)
-		    % VIDEO_SURFACES_MAX;
-		atomic_dec(&decoder->SurfacesFilled);
-	    }
-	}
+	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
+	atomic_dec(&decoder->SurfacesFilled);
+	decoder->SurfaceField = !decoder->Interlaced;
+	return;
     }
+    // next field
+    decoder->SurfaceField = 1;
 }
 
 ///
@@ -7345,12 +7458,12 @@ static void VdpauDisplayFrame(void)
     int i;
 
     if (VideoSurfaceModesChanged) {	// handle changed modes
+	VideoSurfaceModesChanged = 0;
 	for (i = 0; i < VdpauDecoderN; ++i) {
 	    if (VdpauDecoders[i]->VideoMixer != VDP_INVALID_HANDLE) {
 		VdpauMixerSetup(VdpauDecoders[i]);
 	    }
 	}
-	VideoSurfaceModesChanged = 0;
     }
     //
     //	wait for surface visible (blocks max ~5ms)
@@ -7365,17 +7478,15 @@ static void VdpauDisplayFrame(void)
     // check if surface was displayed for more than 1 frame
     // FIXME: 21 only correct for 50Hz
     if (last_time && first_time > last_time + 21 * 1000 * 1000) {
+	// FIXME: ignore still-frame, trick-speed
 	Debug(3, "video/vdpau: %ld display time %ld\n", first_time / 1000,
 	    (first_time - last_time) / 1000);
 	// FIXME: can be more than 1 frame long shown
 	for (i = 0; i < VdpauDecoderN; ++i) {
 	    VdpauDecoders[i]->FramesMissed++;
-	    Warning(_("video: missed frame (%d/%d)\n"),
+	    VdpauMessage(2, _("video/vdpau: missed frame (%d/%d)\n"),
 		VdpauDecoders[i]->FramesMissed,
 		VdpauDecoders[i]->FrameCounter);
-	    if (!(VdpauDecoders[i]->FramesDisplayed % 300)) {
-		VdpauPrintFrames(VdpauDecoders[i]);
-	    }
 	}
     }
     last_time = first_time;
@@ -7395,6 +7506,7 @@ static void VdpauDisplayFrame(void)
 	if (filled < 1 + 2 * decoder->Interlaced) {
 	    // FIXME: rewrite MixVideo to support less surfaces
 	    VdpauBlackSurface(decoder);
+	    VdpauMessage(3, "video/vdpau: black surface displayed\n");
 	    continue;
 	}
 
@@ -7419,6 +7531,7 @@ static void VdpauDisplayFrame(void)
     }
 
     for (i = 0; i < VdpauDecoderN; ++i) {
+	// remember time of last shown surface
 	clock_gettime(CLOCK_REALTIME, &VdpauDecoders[i]->FrameTime);
     }
 
@@ -7428,11 +7541,72 @@ static void VdpauDisplayFrame(void)
 }
 
 ///
-///	Sync and display surface.
+///	Set VDPAU decoder video clock.
+///
+///	@param decoder	VDPAU hardware decoder
+///	@param pts	audio presentation timestamp
+///
+void VdpauSetClock(VdpauDecoder * decoder, int64_t pts)
+{
+    decoder->PTS = pts;
+}
+
+///
+///	Get VDPAU decoder video clock.
 ///
 ///	@param decoder	VDPAU hw decoder
 ///
-static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
+///	FIXME: 20 wrong for 60hz dvb streams
+///
+static int64_t VdpauGetClock(const VdpauDecoder * decoder)
+{
+    // pts is the timestamp of the latest decoded frame
+    if (decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
+	return AV_NOPTS_VALUE;
+    }
+    // subtract buffered decoded frames
+    if (decoder->Interlaced) {
+	/*
+	   Info("video: %s =pts field%d #%d\n",
+	   Timestamp2String(decoder->PTS),
+	   decoder->SurfaceField,
+	   atomic_read(&decoder->SurfacesFilled));
+	 */
+	// - 2 fields are future, + 2 in driver queue
+	return decoder->PTS -
+	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField - 2 + 2);
+    }
+    // + 2 in driver queue
+    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
+	2);
+}
+
+///
+///	Set trick play speed.
+///
+///	@param decoder		VDPAU decoder
+///	@param speed		trick speed (0 = normal)
+///
+static void VdpauSetTrickSpeed(VdpauDecoder * decoder, int speed)
+{
+    decoder->TrickSpeed = speed;
+    decoder->TrickCounter = speed;
+}
+
+///
+///	Sync decoder output to audio.
+///
+///	trick-speed	show frame <n> times
+///	still-picture	show frame until new frame arrives
+///	60hz-mode	repeat every 5th picture
+///	video>audio	slow down video by duplicating frames
+///	video<audio	speed up video by skipping frames
+///	soft-start	show every second frame
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void VdpauSyncDecoder(VdpauDecoder * decoder)
 {
     int err;
     int filled;
@@ -7440,67 +7614,129 @@ static void VdpauSyncDisplayFrame(VdpauDecoder * decoder)
     int64_t video_clock;
 
     err = 0;
-    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
-	// FIXME: drop next frame?
-	decoder->DupNextFrame++;
-    } else if (!decoder->DupNextFrame) {
-	VdpauAdvanceFrame();
-    }
-
-    VdpauDisplayFrame();
-
-    //
-    //	audio/video sync
-    //
     audio_clock = AudioGetClock();
-    video_clock = VideoGetClock();
+    video_clock = VdpauGetClock(decoder);
     filled = atomic_read(&decoder->SurfacesFilled);
-    // FIXME: audio not known assume 333ms delay
 
-    decoder->StartCounter++;
-    if (!VideoSoftStartSync && decoder->StartCounter < 60
+    // 60Hz: repeat every 5th field
+    if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
+	if (audio_clock == (int64_t) AV_NOPTS_VALUE
+	    || video_clock == (int64_t) AV_NOPTS_VALUE) {
+	    goto out;
+	}
+	// both clocks are known
+	if (audio_clock + VideoAudioDelay <= video_clock + 15 * 90) {
+	    goto out;
+	}
+	// out of sync: audio before video
+	if (!decoder->TrickSpeed) {
+	    goto skip_sync;
+	}
+    }
+    // TrickSpeed
+    if (decoder->TrickSpeed) {
+	if (decoder->TrickCounter--) {
+	    goto out;
+	}
+	decoder->TrickCounter = decoder->TrickSpeed;
+    }
+    // at start of new video stream, soft or hard sync video to audio
+    if (!VideoSoftStartSync && decoder->FramesDisplayed < 60
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
-	Debug(3, "video: initial slow down %d\n", decoder->StartCounter);
-	err = 1;
-	decoder->DupNextFrame = 2;
+	err =
+	    VdpauMessage(3, "video: initial slow down video, frame %d\n",
+	    decoder->FramesDisplayed);
+	goto out;
     }
 
-    if (decoder->DupNextFrame) {
-	decoder->DupNextFrame--;
-	++decoder->FramesDuped;
-    } else if (audio_clock != (int64_t) AV_NOPTS_VALUE
+    if (decoder->SyncCounter && decoder->SyncCounter--) {
+	goto skip_sync;
+    }
+
+    if (audio_clock != (int64_t) AV_NOPTS_VALUE
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 
-	if (abs(video_clock - audio_clock) > 5000 * 90) {
-	    Debug(3, "video: pts difference too big\n");
-	    err = 1;
+	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
+	    err = VdpauMessage(3, "video: audio/video difference too big\n");
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
-	    Debug(3, "video: slow down video\n");
-	    err = 1;
-	    decoder->DupNextFrame += 2;
+	    // FIXME: this quicker sync step, did not work with new code!
+	    err = VdpauMessage(3, "video: slow down video, duping frame\n");
+	    ++decoder->FramesDuped;
+	    decoder->SyncCounter = 1;
+	    goto out;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
-	    Debug(3, "video: slow down video\n");
-	    err = 1;
-	    decoder->DupNextFrame++;
+	    err = VdpauMessage(3, "video: slow down video, duping frame\n");
+	    ++decoder->FramesDuped;
+	    decoder->SyncCounter = 1;
+	    goto out;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1 + 2 * decoder->Interlaced) {
-	    Debug(3, "video: speed up video\n");
-	    err = 1;
-	    decoder->DropNextFrame = 1;
+	    err = VdpauMessage(3, "video: speed up video, droping frame\n");
+	    ++decoder->FramesDropped;
+	    VdpauAdvanceDecoderFrame(decoder);
+	    decoder->SyncCounter = 1;
 	}
     }
+
+  skip_sync:
+    // check if next field is available
+    if (decoder->SurfaceField && filled <= 1 + 2 * decoder->Interlaced) {
+	if (filled == 1 + 2 * decoder->Interlaced) {
+	    ++decoder->FramesDuped;
+	    // FIXME: don't warn after stream start, don't warn during pause
+	    err =
+		VdpauMessage(1,
+		_("video: decoder buffer empty, "
+		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
+		decoder->FrameCounter, VideoGetBuffers());
+	}
+	goto out;
+    }
+
+    VdpauAdvanceDecoderFrame(decoder);
+  out:
 #if defined(DEBUG) || defined(AV_INFO)
     // debug audio/video sync
     if (err || !(decoder->FramesDisplayed % AV_INFO_TIME)) {
+	if (!err) {
+	    VdpauMessage(0, NULL);
+	}
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
+	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
+	    VdpauPrintFrames(decoder);
+	}
     }
 #endif
+}
+
+///
+///	Sync a video frame.
+///
+static void VdpauSyncFrame(void)
+{
+    int i;
+
+    //
+    //	Sync video decoder to audio
+    //
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	VdpauSyncDecoder(VdpauDecoders[i]);
+    }
+}
+
+///
+///	Sync and display surface.
+///
+static void VdpauSyncDisplayFrame(void)
+{
+    VdpauDisplayFrame();
+    VdpauSyncFrame();
 }
 
 ///
@@ -7520,28 +7756,17 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     }
 #ifdef DEBUG
     if (!atomic_read(&decoder->SurfacesFilled)) {
-	Debug(3, "video: new stream frame %d\n", GetMsTicks() - VideoSwitch);
+	Debug(3, "video: new stream frame %dms\n", GetMsTicks() - VideoSwitch);
     }
 #endif
 
-    if (decoder->DropNextFrame) {	// drop frame requested
-	// FIXME: interlace this drops two frames
-	++decoder->FramesDropped;
-	Warning(_("video: dropping frame (%d/%d)\n"), decoder->FramesDropped,
-	    decoder->FrameCounter);
-	if (!(decoder->FramesDisplayed % 300)) {
-	    VdpauPrintFrames(decoder);
-	}
-	decoder->DropNextFrame--;
-	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
-	return;
-    }
     if (VdpauPreemption) {		// display preempted
 	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
 	return;
     }
     // if video output buffer is full, wait and display surface.
     // loop for interlace
+    // FIXME: wrong for multiple streams
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
@@ -7572,32 +7797,11 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	if (VdpauPreemption) {		// display become preempted
 	    return;
 	}
-	VdpauSyncDisplayFrame(decoder);
+	VdpauSyncDisplayFrame();
     }
 
     VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
     VdpauRenderFrame(decoder, video_ctx, frame);
-}
-
-///
-///	Get VDPAU decoder video clock.
-///
-///	@param decoder	VDPAU hw decoder
-///
-static int64_t VdpauGetClock(const VdpauDecoder * decoder)
-{
-    // pts is the timestamp of the latest decoded frame
-    if (!decoder || decoder->PTS == (int64_t) AV_NOPTS_VALUE) {
-	return AV_NOPTS_VALUE;
-    }
-    // subtract buffered decoded frames
-    if (decoder->Interlaced) {
-	return decoder->PTS -
-	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
-	    - decoder->SurfaceField);
-    }
-    return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
-	2);
 }
 
 ///
@@ -7723,7 +7927,7 @@ static void VdpauDisplayHandlerThread(void)
     }
 
     pthread_mutex_lock(&VideoLockMutex);
-    VdpauSyncDisplayFrame(decoder);
+    VdpauSyncDisplayFrame();
     pthread_mutex_unlock(&VideoLockMutex);
 }
 
@@ -8001,6 +8205,10 @@ static const VideoModule VdpauModule = {
 	    AVCodecContext *, const enum PixelFormat *))Vdpau_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VdpauSyncRenderFrame,
+    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VdpauSetClock,
+    .GetClock = (int64_t(*const) (const VideoHwDecoder *))VdpauGetClock,
+    .SetTrickSpeed =
+	(void (*const) (const VideoHwDecoder *, int))VdpauSetTrickSpeed,
     .GrabOutput = VdpauGrabOutputSurface,
     .SetBackground = VdpauSetBackground,
     .SetVideoMode = VdpauSetVideoMode,
@@ -8148,6 +8356,10 @@ static const VideoModule NoopModule = {
 	    AVCodecContext *, const enum PixelFormat *))Noop_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))NoopSyncRenderFrame,
+    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))NoopSetClock,
+    .GetClock = (int64_t(*const) (const VideoHwDecoder *))NoopGetClock,
+    .SetTrickSpeed =
+	(void (*const) (const VideoHwDecoder *, int))NoopSetTrickSpeed,
     .GrabOutput = NoopGrabOutputSurface,
 #endif
     .SetBackground = NoopSetBackground,
@@ -8692,84 +8904,93 @@ VideoHwDecoder *VideoNewHwDecoder(void)
 ///
 ///	Destroy a video hw decoder.
 ///
-///	@param decoder	video hardware decoder
+///	@param hw_decoder	video hardware decoder
 ///
-void VideoDelHwDecoder(VideoHwDecoder * decoder)
+void VideoDelHwDecoder(VideoHwDecoder * hw_decoder)
 {
-    if (decoder) {
-	VideoUsedModule->DelHwDecoder(decoder);
+    if (hw_decoder) {
+	VideoUsedModule->DelHwDecoder(hw_decoder);
     }
 }
 
 ///
 ///	Get a free hardware decoder surface.
 ///
-///	@param decoder	video hardware decoder
+///	@param hw_decoder	video hardware decoder
 ///
 ///	@returns the oldest free surface or invalid surface
 ///
-unsigned VideoGetSurface(VideoHwDecoder * decoder)
+unsigned VideoGetSurface(VideoHwDecoder * hw_decoder)
 {
-    return VideoUsedModule->GetSurface(decoder);
+    return VideoUsedModule->GetSurface(hw_decoder);
 }
 
 ///
 ///	Release a hardware decoder surface.
 ///
-///	@param decoder	VDPAU video hardware decoder
-///	@param surface	surface no longer used
+///	@param hw_decoder	video hardware decoder
+///	@param surface		surface no longer used
 ///
-void VideoReleaseSurface(VideoHwDecoder * decoder, unsigned surface)
+void VideoReleaseSurface(VideoHwDecoder * hw_decoder, unsigned surface)
 {
     // FIXME: must be guarded against calls, after VideoExit
-    VideoUsedModule->ReleaseSurface(decoder, surface);
+    VideoUsedModule->ReleaseSurface(hw_decoder, surface);
 }
 
 ///
 ///	Callback to negotiate the PixelFormat.
 ///
-///	@param fmt	is the list of formats which are supported by the codec,
-///			it is terminated by -1 as 0 is a valid format, the
-///			formats are ordered by quality.
+///	@param hw_decoder	video hardware decoder
+///	@param fmt		is the list of formats which are supported by
+///				the codec, it is terminated by -1 as 0 is a
+///				valid format, the formats are ordered by
+///				quality.
 ///
-enum PixelFormat Video_get_format(VideoHwDecoder * decoder,
+enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
+    int ms_delay;
+
+    // FIXME: use frame time
+    ms_delay = (1000 * video_ctx->time_base.num * video_ctx->ticks_per_frame)
+	/ video_ctx->time_base.den;
+
+    Debug(3, "video: ready %s %dms/frame\n",
+	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
     AudioVideoReady();
-    return VideoUsedModule->get_format(decoder, video_ctx, fmt);
-    //return fmt[0];
+    return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
 }
 
 ///
 ///	Display a ffmpeg frame
 ///
-///	@param decoder		VDPAU video hardware decoder
+///	@param hw_decoder	video hardware decoder
 ///	@param video_ctx	ffmpeg video codec context
 ///	@param frame		frame to display
 ///
-void VideoRenderFrame(VideoHwDecoder * decoder,
+void VideoRenderFrame(VideoHwDecoder * hw_decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     if (frame->repeat_pict && !VideoIgnoreRepeatPict) {
 	Warning(_("video: repeated pict %d found, but not handled\n"),
 	    frame->repeat_pict);
     }
-    VideoUsedModule->RenderFrame(decoder, video_ctx, frame);
+    VideoUsedModule->RenderFrame(hw_decoder, video_ctx, frame);
 }
 
 ///
 ///	Get VA-API ffmpeg context
 ///
-///	@param decoder	VA-API decoder
+///	@param hw_decoder	video hardware decoder (must be VA-API)
 ///
-struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
+struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * hw_decoder)
 {
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
-	return decoder->Vaapi.VaapiContext;
+	return hw_decoder->Vaapi.VaapiContext;
     }
 #endif
-    (void)decoder;
+    (void)hw_decoder;
     Error(_("video/vaapi: get vaapi context, without vaapi enabled\n"));
     return NULL;
 }
@@ -8779,8 +9000,8 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * decoder)
 ///
 ///	Draw ffmpeg vdpau render state.
 ///
-///	@param decoder	video hw decoder
-///	@param vrs	vdpau render state
+///	@param hw_decoder	video hardware decoder
+///	@param vrs		vdpau render state
 ///
 void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
     struct vdpau_render_state *vrs)
@@ -8832,25 +9053,44 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 #endif
 
 ///
+///	Set video clock.
+///
+///	@param hw_decoder	video hardware decoder
+///	@param pts		audio presentation timestamp
+///
+void VideoSetClock(VideoHwDecoder * hw_decoder, int64_t pts)
+{
+    Debug(3, "video: set clock %s\n", Timestamp2String(pts));
+    if (hw_decoder) {
+	VideoUsedModule->SetClock(hw_decoder, pts);
+    }
+}
+
+///
 ///	Get video clock.
 ///
-///	@note this isn't monoton, decoding reorders frames,
-///	setter keeps it monotonic
-///	@todo we have multiple clocks, for multiple stream
+///	@param hw_decoder	video hardware decoder
 ///
-int64_t VideoGetClock(void)
+///	@note this isn't monoton, decoding reorders frames, setter keeps it
+///	monotonic
+///
+int64_t VideoGetClock(const VideoHwDecoder * hw_decoder)
 {
-#ifdef USE_VDPAU
-    if (VideoUsedModule == &VdpauModule) {
-	return VdpauGetClock(VdpauDecoders[0]);
+    if (hw_decoder) {
+	return VideoUsedModule->GetClock(hw_decoder);
     }
-#endif
-#ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
-	return VaapiGetClock(VaapiDecoders[0]);
-    }
-#endif
     return AV_NOPTS_VALUE;
+}
+
+///
+///	Set trick play speed.
+///
+///	@param hw_decoder	video hardware decoder
+///	@param speed		trick speed (0 = normal)
+///
+void VideoSetTrickSpeed(VideoHwDecoder * hw_decoder, int speed)
+{
+    return VideoUsedModule->SetTrickSpeed(hw_decoder, speed);
 }
 
 ///
@@ -9647,11 +9887,14 @@ void VideoInit(const char *display_name)
 	    || (!VideoDevice && VideoModules[i]->Enabled)) {
 	    if (VideoModules[i]->Init(display_name)) {
 		VideoUsedModule = VideoModules[i];
-		break;
+		goto found;
 	    }
 	}
     }
+    Error(_("video: '%s' output module isn't supported\n"), VideoDevice);
+    VideoUsedModule = &NoopModule;
 
+  found:
     // FIXME: make it configurable from gui
     VideoHardwareDecoder = -1;
     if (getenv("NO_MPEG_HW")) {

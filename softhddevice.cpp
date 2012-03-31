@@ -1085,7 +1085,7 @@ int64_t cSoftHdDevice::GetSTC(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    return::VideoGetClock();
+    return::GetSTC();
 }
 
 /**
