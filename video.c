@@ -7713,6 +7713,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	}
     }
 #endif
+    return;				// fix gcc bug!
 }
 
 ///
