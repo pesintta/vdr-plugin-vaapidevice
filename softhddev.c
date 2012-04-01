@@ -1905,7 +1905,8 @@ void TrickSpeed(int speed)
     if (MyHwDecoder) {
 	VideoSetTrickSpeed(MyHwDecoder, speed);
     } else {
-	Error(_("softhddev: %s called without hw decoder\n"), __FUNCTION__);
+	// can happen, during startup
+	Debug(3, "softhddev: %s called without hw decoder\n", __FUNCTION__);
     }
     StreamFreezed = 0;
 }
