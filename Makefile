@@ -37,7 +37,7 @@ CXX	 ?= g++
 CFLAGS	 ?=	-g -O2 -W -Wall -Wextra -Winit-self \
 		-Wdeclaration-after-statement \
 		-ftree-vectorize -msse3 -flax-vector-conversions
-CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Woverloaded-virtual
+CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Werror=overloaded-virtual
 
 ### The directory environment:
 
