@@ -4518,6 +4518,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	}
     }
 #endif
+    return;
 }
 
 ///
