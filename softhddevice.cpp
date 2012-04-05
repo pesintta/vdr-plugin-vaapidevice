@@ -1402,7 +1402,7 @@ class cPluginSoftHdDevice:public cPlugin
     virtual bool Initialize(void);
     virtual bool Start(void);
     virtual void Stop(void);
-    // virtual void Housekeeping(void);
+    virtual void Housekeeping(void);
     virtual void MainThreadHook(void);
     virtual const char *MainMenuEntry(void);
     virtual cOsdObject *MainMenuAction(void);
@@ -1501,14 +1501,16 @@ bool cPluginSoftHdDevice::Start(void)
     return true;
 }
 
+/**
+**	Shutdown plugin.  Stop any background activities the plugin is
+**	performing.
+*/
 void cPluginSoftHdDevice::Stop(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     ::Stop();
 }
-
-#if 0
 
 /**
 **	Perform any cleanup or other regular tasks.
@@ -1517,10 +1519,18 @@ void cPluginSoftHdDevice::Housekeeping(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    // ::Housekeeping();
-}
+    // check if user is inactive, automatic enter suspend mode
+    // FIXME: cControl prevents shutdown, disable this until fixed
+    if (0 && SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
+	// don't overwrite already suspended suspend mode
+	cControl::Launch(new cSoftHdControl);
+	cControl::Attach();
+	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
+	SuspendMode = SUSPEND_NORMAL;
+    }
 
-#endif
+    ::Housekeeping();
+}
 
 /**
 **	Create main menu entry.
@@ -1555,16 +1565,6 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 	    __FUNCTION__, DoMakePrimary);
 	cDevice::SetPrimaryDevice(DoMakePrimary);
 	DoMakePrimary = 0;
-    }
-    // check if user is inactive, automatic enter suspend mode
-    // FIXME: cControl prevents shutdown, disable this until fixed
-    // FIXME: move this to ::Housekeeping
-    if (0 && SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
-	// don't overwrite already suspended suspend mode
-	cControl::Launch(new cSoftHdControl);
-	cControl::Attach();
-	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
-	SuspendMode = SUSPEND_NORMAL;
     }
 
     ::MainThreadHook();
