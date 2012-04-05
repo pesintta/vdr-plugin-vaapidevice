@@ -119,11 +119,11 @@ extern void VideoSetDenoise(int[]);
     /// Set sharpen.
 extern void VideoSetSharpen(int[]);
 
-    /// Set skip lines.
-extern void VideoSetSkipLines(int);
+    /// Set cut top and bottom.
+extern void VideoSetCutTopBottom(int[]);
 
-    /// Set skip pixels.
-extern void VideoSetSkipPixels(int);
+    /// Set cut left and right.
+extern void VideoSetCutLeftRight(int[]);
 
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);

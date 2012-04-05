@@ -77,8 +77,6 @@ static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 
 static uint32_t ConfigVideoBackground;	///< config video background color
-static int ConfigVideoSkipLines;	///< config skip lines top/bottom
-static int ConfigVideoSkipPixels;	///< config skip pixels left/right
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
@@ -100,6 +98,12 @@ static int ConfigVideoSharpen[RESOLUTIONS];
 
     /// config scaling
 static int ConfigVideoScaling[RESOLUTIONS];
+
+    /// config cut top and bottom pixels
+static int ConfigVideoCutTopBottom[RESOLUTIONS];
+
+    /// config cut left and right pixels
+static int ConfigVideoCutLeftRight[RESOLUTIONS];
 
 static int ConfigVideoAudioDelay;	///< config audio delay
 static int ConfigAudioPassthrough;	///< config audio pass-through
@@ -469,8 +473,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int HideMainMenuEntry;
     uint32_t Background;
     uint32_t BackgroundAlpha;
-    int SkipLines;
-    int SkipPixels;
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
@@ -480,6 +482,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int InverseTelecine[RESOLUTIONS];
     int Denoise[RESOLUTIONS];
     int Sharpen[RESOLUTIONS];
+    int CutTopBottom[RESOLUTIONS];
+    int CutLeftRight[RESOLUTIONS];
     int AudioDelay;
     int AudioPassthrough;
     int AudioDownmix;
@@ -550,12 +554,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	    (int *)&Background, 0, 0x00FFFFFF));
     Add(new cMenuEditIntItem(tr("video background color (Alpha)"),
 	    (int *)&BackgroundAlpha, 0, 0xFF));
-    SkipLines = ConfigVideoSkipLines;
-    Add(new cMenuEditIntItem(tr("Skip lines top+bot (pixel)"), &SkipLines, 0,
-	    64));
-    SkipPixels = ConfigVideoSkipPixels;
-    Add(new cMenuEditIntItem(tr("Skip pixels left+right (pixel)"), &SkipPixels,
-	    0, 64));
     StudioLevels = ConfigVideoStudioLevels;
     Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
 	    &StudioLevels, trVDR("no"), trVDR("yes")));
@@ -585,6 +583,13 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	Sharpen[i] = ConfigVideoSharpen[i];
 	Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
 		&Sharpen[i], -1000, 1000, tr("blur max"), tr("sharpen max")));
+
+	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
+	Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
+		&CutTopBottom[i], 0, 250));
+	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
+	Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
+		&CutLeftRight[i], 0, 250));
     }
     //
     //	audio
@@ -638,10 +643,6 @@ void cMenuSetupSoft::Store(void)
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
     VideoSetBackground(ConfigVideoBackground);
-    SetupStore("SkipLines", ConfigVideoSkipLines = SkipLines);
-    VideoSetSkipLines(ConfigVideoSkipLines);
-    SetupStore("SkipPixels", ConfigVideoSkipPixels = SkipPixels);
-    VideoSetSkipPixels(ConfigVideoSkipPixels);
     SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
     VideoSetStudioLevels(ConfigVideoStudioLevels);
     SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
@@ -666,6 +667,11 @@ void cMenuSetupSoft::Store(void)
 	SetupStore(buf, ConfigVideoDenoise[i] = Denoise[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
 	SetupStore(buf, ConfigVideoSharpen[i] = Sharpen[i]);
+
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutTopBottom");
+	SetupStore(buf, ConfigVideoCutTopBottom[i] = CutTopBottom[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
+	SetupStore(buf, ConfigVideoCutLeftRight[i] = CutLeftRight[i]);
     }
     VideoSetScaling(ConfigVideoScaling);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
@@ -673,6 +679,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetInverseTelecine(ConfigVideoInverseTelecine);
     VideoSetDenoise(ConfigVideoDenoise);
     VideoSetSharpen(ConfigVideoSharpen);
+    VideoSetCutTopBottom(ConfigVideoCutTopBottom);
+    VideoSetCutLeftRight(ConfigVideoCutLeftRight);
 
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
     VideoSetAudioDelay(ConfigVideoAudioDelay);
@@ -1606,14 +1614,6 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	VideoSetBackground(ConfigVideoBackground = strtoul(value, NULL, 0));
 	return true;
     }
-    if (!strcasecmp(name, "SkipLines")) {
-	VideoSetSkipLines(ConfigVideoSkipLines = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "SkipPixels")) {
-	VideoSetSkipPixels(ConfigVideoSkipPixels = atoi(value));
-	return true;
-    }
     if (!strcasecmp(name, "StudioLevels")) {
 	VideoSetStudioLevels(ConfigVideoStudioLevels = atoi(value));
 	return true;
@@ -1664,6 +1664,19 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	if (!strcasecmp(name, buf)) {
 	    ConfigVideoSharpen[i] = atoi(value);
 	    VideoSetSharpen(ConfigVideoSharpen);
+	    return true;
+	}
+
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutTopBottom");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoCutTopBottom[i] = atoi(value);
+	    VideoSetCutTopBottom(ConfigVideoCutTopBottom);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoCutLeftRight[i] = atoi(value);
+	    VideoSetCutLeftRight(ConfigVideoCutLeftRight);
 	    return true;
 	}
     }

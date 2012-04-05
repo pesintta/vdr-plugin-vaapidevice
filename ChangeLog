@@ -2,6 +2,15 @@ User johns
 Date:
 
     Release Version 0.5.0
+
+User: CafeDelMar
+Date: Thu Apr  5 22:44:06 CEST 2012
+
+    Cutting pixels are now configured for each resolution.
+
+User johns
+Date: Thu Apr 5 15:47:59 CEST 2012
+
     Buffer less video and audio.
     Fix 100% cpu use, with mp3 plugin.
     Audio/Video sync rewrite, trick-speed support moved to video.

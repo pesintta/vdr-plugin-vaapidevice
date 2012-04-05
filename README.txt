@@ -138,6 +138,12 @@ Setup: /etc/vdr/setup.conf
 	-1000 .. 1000 noise reduction level (0 off, -1000 max blur,
 	    1000 max sharp)
 
+	softhddevice.<res>.CutTopBottom = 0
+	Cut 'n' pixels at at top and bottom of the video picture.
+
+	softhddevice.<res>.CutLeftRight = 0
+	Cut 'n' pixels at at left and right of the video picture.
+
 	softhddevice.AudioDelay = 0
 	+n or -n ms
 	delay audio or delay video
@@ -170,12 +176,6 @@ Setup: /etc/vdr/setup.conf
 	grey 127 * 16777216 + 127 * 65536 + 127 * 256 => 2139062016
 	in the setup menu this is entered as (24bit RGB and 8bit Alpha)
 	(Red * 65536 +  Green * 256 + Blue)
-
-	softhddevice.SkipLines = 0
-	skip 'n' lines at top and bottom of the video picture.
-
-	softhddevice.SkipPixels = 0
-	skip 'n' pixels at left and right of the video picture.
 
 	softhddevice.StudioLevels = 0
 		0 use PC levels (0-255) with vdpau.
