@@ -2,6 +2,8 @@ User johns
 Date:
 
     Release Version 0.5.0
+    Buffer less video and audio.
+    Fix 100% cpu use, with mp3 plugin.
     Audio/Video sync rewrite, trick-speed support moved to video.
     Faster VdpauBlackSurface version.
     Fix bug: VideoSetPts wrong position for multi frame packets.

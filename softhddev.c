@@ -878,13 +878,12 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
     // channel switch: SetAudioChannelDevice: SetDigitalAudioDevice:
 
-    if (StreamFreezed) {		// stream freezed
-	return 0;
-    }
     if (SkipAudio || !MyAudioDecoder) {	// skip audio
 	return size;
     }
-
+    if (StreamFreezed) {		// stream freezed
+	return 0;
+    }
     if (NewAudioStream) {
 	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
@@ -893,8 +892,12 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	AudioChannelID = -1;
 	NewAudioStream = 0;
     }
-    // Don't overrun audio buffers on replay
+    // hard limit buffer full: don't overrun audio buffers on replay
     if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
+	return 0;
+    }
+    // soft limit buffer full
+    if (AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE && VideoGetBuffers() > 3) {
 	return 0;
     }
     // PES header 0x00 0x00 0x01 ID
@@ -1088,17 +1091,12 @@ int PlayTsAudio(const uint8_t * data, int size)
 {
     static TsDemux tsdx[1];
 
-    if (StreamFreezed) {		// stream freezed
-	return 0;
-    }
     if (SkipAudio || !MyAudioDecoder) {	// skip audio
 	return size;
     }
-    // Don't overrun audio buffers on replay
-    if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
+    if (StreamFreezed) {		// stream freezed
 	return 0;
     }
-
     if (NewAudioStream) {
 	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
@@ -1109,6 +1107,15 @@ int PlayTsAudio(const uint8_t * data, int size)
 	NewAudioStream = 0;
 	PesReset(PesDemuxAudio);
     }
+    // hard limit buffer full: don't overrun audio buffers on replay
+    if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
+	return 0;
+    }
+    // soft limit buffer full
+    if (AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE && VideoGetBuffers() > 3) {
+	return 0;
+    }
+
     return TsDemuxer(tsdx, data, size);
 }
 
@@ -1612,10 +1619,6 @@ int PlayVideo(const uint8_t * data, int size)
     int z;
     int l;
 
-    if (Usr1Signal) {			// x11 server ready
-	Usr1Signal = 0;
-	StartVideo();
-    }
     if (!MyVideoDecoder) {		// no x11 video started
 	return size;
     }
@@ -1660,8 +1663,13 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 	return size;
     }
-    // buffer full: needed for replay
+    // hard limit buffer full: needed for replay
     if (atomic_read(&VideoPacketsFilled) >= VIDEO_PACKET_MAX - 3) {
+	return 0;
+    }
+    // soft limit buffer full
+    if (atomic_read(&VideoPacketsFilled) > 3
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
     // get pts/dts
@@ -2069,6 +2077,7 @@ int Poll(int timeout)
     // poll is only called during replay, flush buffers after replay
     VideoClearClose = 1;
     for (;;) {
+#if 0
 	int empty;
 	int t;
 
@@ -2078,6 +2087,18 @@ int Poll(int timeout)
 	if (empty || !timeout) {
 	    return empty;
 	}
+#else
+	int full;
+	int t;
+
+	// one buffer is full
+	full = AudioFreeBytes() >= AUDIO_MIN_BUFFER_FREE
+	    || atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX - 3;
+
+	if (!full || !timeout) {
+	    return !full;
+	}
+#endif
 	t = 15;
 	if (timeout < t) {
 	    t = timeout;
@@ -2462,10 +2483,22 @@ void Stop(void)
 }
 
 /**
+**	Perform any cleanup or other regular tasks.
+*/
+void Housekeeping(void)
+{
+}
+
+/**
 **	Main thread hook, periodic called from main thread.
 */
 void MainThreadHook(void)
 {
+    if (Usr1Signal) {			// x11 server ready
+	Usr1Signal = 0;
+	StartVideo();
+	VideoDisplayWakeup();
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

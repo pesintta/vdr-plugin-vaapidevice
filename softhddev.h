@@ -81,6 +81,8 @@ extern "C"
     extern int Start(void);
     /// C plugin stop code
     extern void Stop(void);
+    /// C plugin house keeping
+    extern void Housekeeping(void);
     /// C plugin main thread hook
     extern void MainThreadHook(void);
 
