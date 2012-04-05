@@ -20,23 +20,24 @@ $Id$
 
 A software and GPU emulated HD output device plugin for VDR.
 
-    o Video VA-API/VA-API (with intel, nvidia and amd backend supported)
-    o Video CPU/VA-API
-    o Video VDPAU/VDPAU
-    o Video CPU/VDPAU
-    o Audio FFMpeg/Alsa/Analog
-    o Audio FFMpeg/Alsa/Digital
-    o Audio FFMpeg/OSS/Analog
-    o HDMI/SPDIF Passthrough
-    o VA-API bob software deinterlace
-    o Auto-crop
+    o Video decoder CPU / VA-API / VDPAU
+    o Video output VA-API / VDPAU
+    o Audio FFMpeg / Alsa / Analog
+    o Audio FFMpeg / Alsa / Digital
+    o Audio FFMpeg / OSS / Analog
+    o HDMI/SPDIF pass-through
+    o YaepgHD support
+    o Software deinterlacer Bob (VA-API only)
+    o Autocrop
+    o Grab image (VDPAU only)
+    o Suspend
+    o Letterbox, Stretch and Center cut-out video display modes
 
-    o planned: Video VA-API/Opengl
-    o planned: Video VDPAU/Opengl
-    o planned: Video CPU/Xv
-    o planned: Video CPU/Opengl
+    o planned: Video decoder VA-API Branch: vaapi-ext/staging
+    o planned: Video output XvBA / Opengl / Xv
+    o planned: VA-API grab image
     o planned: Improved Software Deinterlacer (yadif or/and ffmpeg filters)
-    o planned: Video XvBA/XvBA
+    o planned: software volume, software channel resample
     o planned: atmo light support
 
 To compile you must have the 'requires' installed.

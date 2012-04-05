@@ -19,28 +19,24 @@ GNU Affero General Public License for more details.
 $Id: $
 
 missing:
-    software deinterlace (yadif, ...)
-    software decoder with software deinterlace
+    more software deinterlace (yadif, ...)
+    more software decoder with software deinterlace
     suspend output / energie saver: stop and restart X11
     suspend plugin didn't restore full-screen (is this wanted?)
     Option deinterlace off / deinterlace force!
     ColorSpace aren't configurable with the gui.
-    Replay of old vdr 1.6 recordings.
     works for me: restart vdr not working, when started x11 was killed.
-
-crash:
-    AudioPlayHandlerThread -> pthread_cond_wait
 
 video:
     subtitle not cleared
     subtitle could be asyncron
-    reduce warnings after channel switch
     grab image with hardware and better scaling support
-    hard channel switch
     yaepghd changed position is lost on channel switch
     pause (live tv) has sometime problems with SAT1 HD Pro7 HD
     radio show black background
     radio no need to wait on video buffers
+    starting with radio and own X11 server, shows no video
+    some low-bandwidth tv channels have hiccups.
 
 vdpau:
     software decoder path not working
@@ -54,8 +50,8 @@ libva:
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
     [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
 
-libva: branch vaapi-ext
-    add support for vaapi-ext
+libva: branch vaapi-ext / staging
+    add support for vaapi-ext / staging
 
 libva-intel-driver:
     deinterlace only supported with vaapi-ext
