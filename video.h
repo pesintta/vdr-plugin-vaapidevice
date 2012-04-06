@@ -35,6 +35,7 @@ typedef struct _video_hw_decoder_ VideoHwDecoder;
 //----------------------------------------------------------------------------
 
 extern char VideoIgnoreRepeatPict;	///< disable repeat pict warning
+extern int VideoAudioDelay;		///< audio/video delay
 
 //----------------------------------------------------------------------------
 //	Prototypes

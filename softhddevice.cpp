@@ -844,6 +844,13 @@ static void HandleHotkey(int code)
 	case 12:			// toggle pass-through
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
 	    break;
+	case 13:			// decrease audio delay
+	    VideoSetAudioDelay(VideoAudioDelay / 90 - 10);
+	    break;
+	case 14:			// increase audio delay
+	    VideoSetAudioDelay(VideoAudioDelay / 90 + 10);
+	    break;
+
 	case 20:			// disable full screen
 	    VideoSetFullscreen(0);
 	    break;
@@ -1779,6 +1786,8 @@ static const char *SVDRPHelpText[] = {
 	"    10: disable audio pass-through\n"
 	"    11: enable audio pass-through\n"
 	"    12: toggle audio pass-through\n"
+	"    13: decrease audio delay by 10ms\n"
+	"    14: increase audio delay by 10ms\n"
 	"    20: disable fullscreen\n"
 	"    21: enable fullscreen\n"
 	"    22: toggle fullscreen\n",
