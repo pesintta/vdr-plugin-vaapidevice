@@ -844,6 +844,15 @@ static void HandleHotkey(int code)
 	case 12:			// toggle pass-through
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
 	    break;
+	case 20:			// disable full screen
+	    VideoSetFullscreen(0);
+	    break;
+	case 21:			// enable full screen
+	    VideoSetFullscreen(1);
+	    break;
+	case 22:			// toggle full screen
+	    VideoSetFullscreen(-1);
+	    break;
 	default:
 	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
@@ -1769,7 +1778,10 @@ static const char *SVDRPHelpText[] = {
 	"    key is the hotkey number, following are supported:\n"
 	"    10: disable audio pass-through\n"
 	"    11: enable audio pass-through\n"
-	"    12: toggle audio pass-through\n",
+	"    12: toggle audio pass-through\n"
+	"    20: disable fullscreen\n"
+	"    21: enable fullscreen\n"
+	"    22: toggle fullscreen\n",
     NULL
 };
 
