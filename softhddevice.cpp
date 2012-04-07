@@ -845,10 +845,12 @@ static void HandleHotkey(int code)
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
 	    break;
 	case 13:			// decrease audio delay
-	    VideoSetAudioDelay(VideoAudioDelay / 90 - 10);
+	    ConfigVideoAudioDelay -= 10;
+	    VideoSetAudioDelay(ConfigVideoAudioDelay);
 	    break;
 	case 14:			// increase audio delay
-	    VideoSetAudioDelay(VideoAudioDelay / 90 + 10);
+	    ConfigVideoAudioDelay += 10;
+	    VideoSetAudioDelay(ConfigVideoAudioDelay);
 	    break;
 
 	case 20:			// disable full screen
