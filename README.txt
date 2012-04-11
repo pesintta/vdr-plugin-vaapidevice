@@ -248,6 +248,15 @@ Keymacros:
 	@softhddevice Blue 1 0		disable pass-through
 	@softhddevice Blue 1 1		enable pass-through
 	@softhddevice Blue 1 2		toggle pass-through
+	@softhddevice Blue 1 3		decrease audio delay by 10ms
+	@softhddevice Blue 1 4		increase audio delay by 10ms
+	@softhddevice Blue 2 0		disable fullscreen
+	@softhddevice Blue 2 1		enable fullscreen
+	@softhddevice Blue 2 2		toggle fullscreen
+	@softhddevice Blue 3 0		stretch 4:3 to 16:9
+	@softhddevice Blue 3 1		letter box 4:3 in 16:9
+	@softhddevice Blue 3 2		center cut-out 4:3 to 16:9
+	@softhddevice Blue 3 9		rotate 4:3 to 16:9 zoom mode
 
 Running:
 --------

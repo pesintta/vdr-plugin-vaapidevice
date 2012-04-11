@@ -9592,6 +9592,8 @@ void VideoSetVideoMode( __attribute__ ((unused))
 ///
 ///	Set video display format.
 ///
+///	@param format	video format (stretch, normal, center cut-out)
+///
 void VideoSetDisplayFormat(int format)
 {
     VideoOsdExit();
@@ -9600,6 +9602,9 @@ void VideoSetDisplayFormat(int format)
     VideoThreadLock();
 
     switch (format) {
+	case -1:			// rotate settings
+	    Video4to3ZoomMode = (Video4to3ZoomMode + 1) % VideoCenterCutOut;
+	    break;
 	case 0:			// pan&scan (we have no pan&scan)
 	    Video4to3ZoomMode = VideoStretch;
 	    break;

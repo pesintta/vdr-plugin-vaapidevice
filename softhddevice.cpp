@@ -48,7 +48,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.5.0"
+static const char *const VERSION = "0.5.1"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -862,6 +862,14 @@ static void HandleHotkey(int code)
 	case 22:			// toggle full screen
 	    VideoSetFullscreen(-1);
 	    break;
+	case 30:			// change 4:3 -> 16:9 mode
+	case 31:
+	case 32:
+	    VideoSetDisplayFormat(code - 30);
+	    break;
+	case 39:			// rortate 4:3 -> 16:9 mode
+	    VideoSetDisplayFormat(-1);
+	    break;
 	default:
 	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
@@ -1506,15 +1514,13 @@ bool cPluginSoftHdDevice::Start(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     if (!MyDevice->IsPrimaryDevice()) {
-	isyslog("[softhddev] softhddevice is not the primary device!");
+	isyslog("[softhddev] softhddevice %d is not the primary device!",
+	    MyDevice->DeviceNumber());
 	if (ConfigMakePrimary) {
 	    // Must be done in the main thread
 	    dsyslog("[softhddev] makeing softhddevice %d the primary device!",
 		MyDevice->DeviceNumber());
 	    DoMakePrimary = MyDevice->DeviceNumber() + 1;
-	} else {
-	    isyslog("[softhddev] softhddevice %d is not the primary device!",
-		MyDevice->DeviceNumber());
 	}
     }
 
@@ -1793,6 +1799,10 @@ static const char *SVDRPHelpText[] = {
 	"    20: disable fullscreen\n"
 	"    21: enable fullscreen\n"
 	"    22: toggle fullscreen\n",
+	"    30: stretch 4:3 to 16:9\n"
+	"    31: letter box 4:3 in 16:9\n"
+	"    32: center cut-out 4:3 to 16:9\n",
+	"    39: rotate 4:3 to 16:9 zoom mode\n",
     NULL
 };
 
