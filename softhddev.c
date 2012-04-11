@@ -1732,8 +1732,8 @@ int PlayVideo(const uint8_t * data, int size)
 	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
 	}
 #endif
-	// SKIP PES header
-	VideoEnqueue(pts, check - 2, l + 2);
+	// SKIP PES header, begin of start code
+	VideoEnqueue(pts, check - z, l + z);
 	return size;
     }
     // this happens when vdr sends incomplete packets
