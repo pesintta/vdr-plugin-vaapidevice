@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Show message for hot-keys.
     Fix bug: playback errors with old PES recordings.
     Adds Hot-key support for 4:3 zoom modes.
 

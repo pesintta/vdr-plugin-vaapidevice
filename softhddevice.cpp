@@ -837,20 +837,33 @@ static void HandleHotkey(int code)
     switch (code) {
 	case 10:			// disable pass-through
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 0);
+	    Skins.QueueMessage(mtInfo, tr("pass-through disabled"));
 	    break;
 	case 11:			// enable pass-through
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 1);
+	    Skins.QueueMessage(mtInfo, tr("pass-through enabled"));
 	    break;
 	case 12:			// toggle pass-through
 	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
+	    if (ConfigAudioPassthrough) {
+		Skins.QueueMessage(mtInfo, tr("pass-through enabled"));
+	    } else {
+		Skins.QueueMessage(mtInfo, tr("pass-through disabled"));
+	    }
 	    break;
 	case 13:			// decrease audio delay
 	    ConfigVideoAudioDelay -= 10;
 	    VideoSetAudioDelay(ConfigVideoAudioDelay);
+	    Skins.QueueMessage(mtInfo,
+		cString::sprintf(tr("audio delay changed to %d"),
+		    ConfigVideoAudioDelay));
 	    break;
 	case 14:			// increase audio delay
 	    ConfigVideoAudioDelay += 10;
 	    VideoSetAudioDelay(ConfigVideoAudioDelay);
+	    Skins.QueueMessage(mtInfo,
+		cString::sprintf(tr("audio delay changed to %d"),
+		    ConfigVideoAudioDelay));
 	    break;
 
 	case 20:			// disable full screen
@@ -1796,12 +1809,10 @@ static const char *SVDRPHelpText[] = {
 	"    12: toggle audio pass-through\n"
 	"    13: decrease audio delay by 10ms\n"
 	"    14: increase audio delay by 10ms\n"
-	"    20: disable fullscreen\n"
-	"    21: enable fullscreen\n"
+	"    20: disable fullscreen\n    21: enable fullscreen\n"
 	"    22: toggle fullscreen\n",
-	"    30: stretch 4:3 to 16:9\n"
-	"    31: letter box 4:3 in 16:9\n"
-	"    32: center cut-out 4:3 to 16:9\n",
+	"    30: stretch 4:3 to 16:9\n    31: letter box 4:3 in 16:9\n"
+	"    32: center cut-out 4:3 to 16:9\n"
 	"    39: rotate 4:3 to 16:9 zoom mode\n",
     NULL
 };
