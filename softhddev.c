@@ -2333,6 +2333,8 @@ static void StartXServer(void)
     argn = 1;
     if (X11DisplayName) {		// append display name
 	args[argn++] = X11DisplayName;
+	// export display for childs
+	setenv("DISPLAY", X11DisplayName, 1);
     }
     //	split X server arguments string into words
     if ((sval = X11ServerArguments)) {
@@ -2370,10 +2372,12 @@ static void StartXServer(void)
     }
     // child
     signal(SIGUSR1, SIG_IGN);		// ignore to force answer
+    //setpgid(0,getpid());
     //	start the X server
     execvp(args[0], (char *const *)args);
 
     Error(_("x-setup: Failed to start X server '%s'\n"), args[0]);
+    exit(-1);
 }
 
 /**
@@ -2495,6 +2499,8 @@ void Housekeeping(void)
 void MainThreadHook(void)
 {
     if (Usr1Signal) {			// x11 server ready
+	// FIYME: x11 server keeps sending sigusr1 signals
+	signal(SIGUSR1, SIG_IGN);	// ignore further signals
 	Usr1Signal = 0;
 	StartVideo();
 	VideoDisplayWakeup();
