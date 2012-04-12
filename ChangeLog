@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: VDPAU looses preemption callback.
     Fix bug: X11 server keeps sending USR1 signals, which confuses suspend.
     Show message for hot-keys.
     Fix bug: playback errors with old PES recordings.

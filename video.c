@@ -6291,6 +6291,8 @@ static int VdpauInit(const char *display_name)
     }
     // FIXME: does only check for rgba formats, but no action
 
+    // FIXME: what if preemption happens during setup?
+
     //
     //	Create presentation queue, only one queue pro window
     //
@@ -7830,10 +7832,6 @@ static int VdpauPreemptionRecover(void)
     VdpStatus status;
     int i;
 
-    VdpauPreemption = 0;
-
-    Debug(3, "video/vdpau: display preempted\n");
-
     status =
 	vdp_device_create_x11(XlibDisplay, DefaultScreen(XlibDisplay),
 	&VdpauDevice, &VdpauGetProcAddress);
@@ -7841,6 +7839,17 @@ static int VdpauPreemptionRecover(void)
 	VdpauPreemption = 1;
 	return -1;
     }
+    // VDPAU seems to loose the callback during preemption
+    status =
+	VdpauPreemptionCallbackRegister(VdpauDevice, VdpauPreemptionCallback,
+	NULL);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't register preemption callback: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+
+    VdpauPreemption = 0;
+    Debug(3, "video/vdpau: display preemption recovery\n");
 
     VdpauInitOutputQueue();
 
@@ -7862,8 +7871,8 @@ static int VdpauPreemptionRecover(void)
 	VdpauOsdBitmapSurface[i] = VDP_INVALID_HANDLE;
 #else
 	VdpauOsdOutputSurface[i] = VDP_INVALID_HANDLE;
-    }
 #endif
+    }
 
     VdpauOsdInit(OsdWidth, OsdHeight);
 
@@ -7909,6 +7918,7 @@ static void VdpauDisplayHandlerThread(void)
     VdpauDecoder *decoder;
 
     if (!(decoder = VdpauDecoders[0])) {	// no stream available
+	usleep(15 * 1000);
 	return;
     }
 
