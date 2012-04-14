@@ -2198,7 +2198,8 @@ const char *CommandLineHelp(void)
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
 	"\talsa-driver-broken\tdisable broken alsa driver message\n"
-	"\tignore-repeat-pict\tdisable repeat pict message\n";
+	"\tignore-repeat-pict\tdisable repeat pict message\n"
+	"  -D\t\tstart in detached mode\n";
 }
 
 /**
@@ -2249,6 +2250,9 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 's':			// start in suspend mode
 		ConfigStartSuspended = 1;
+		continue;
+	    case 'D':			// start in detached mode
+		ConfigStartSuspended = -1;
 		continue;
 	    case 'w':			// workarounds
 		if (!strcasecmp("no-hw-decoder", optarg)) {
@@ -2440,6 +2444,10 @@ void SoftHdDeviceExit(void)
 
 /**
 **	Prepare plugin.
+**
+**	@retval 0	normal start
+**	@retval 1	suspended start
+**	@retval -1	detached start
 */
 int Start(void)
 {
@@ -2469,9 +2477,11 @@ int Start(void)
 #ifndef NO_TS_AUDIO
     PesInit(PesDemuxAudio);
 #endif
-    Info(_("[softhddev] ready%s\n"), ConfigStartSuspended ? " suspended" : "");
+    Info(_("[softhddev] ready%s\n"),
+	ConfigStartSuspended ? ConfigStartSuspended ==
+	-1 ? "detached" : " suspended" : "");
 
-    return !ConfigStartSuspended;
+    return ConfigStartSuspended;
 }
 
 /**

@@ -1537,10 +1537,18 @@ bool cPluginSoftHdDevice::Start(void)
 	}
     }
 
-    if (!::Start()) {
-	cControl::Launch(new cSoftHdControl);
-	cControl::Attach();
-	SuspendMode = SUSPEND_NORMAL;
+    switch (::Start()) {
+	case 1:
+	    cControl::Launch(new cSoftHdControl);
+	    cControl::Attach();
+	    SuspendMode = SUSPEND_NORMAL;
+	    break;
+	case -1:
+	    SuspendMode = SUSPEND_DETACHED;
+	    break;
+	case 0:
+	default:
+	    break;
     }
 
     return true;
