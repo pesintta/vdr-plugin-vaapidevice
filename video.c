@@ -284,6 +284,7 @@ static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
 static xcb_window_t VideoWindow;	///< video window
+static uint32_t VideoBlankTick;		///< blank cursor timer
 static xcb_cursor_t VideoBlankCursor;	///< empty invisible cursor
 
 static int VideoWindowX;		///< video output window x coordinate
@@ -8692,6 +8693,7 @@ static void VideoEvent(void)
     XEvent event;
     KeySym keysym;
     char buf[32];
+    uint32_t values[1];
 
     XNextEvent(XlibDisplay, &event);
     switch (event.type) {
@@ -8708,6 +8710,7 @@ static void VideoEvent(void)
 	    // µwm workaround
 	    xcb_change_window_attributes(Connection, VideoWindow,
 		XCB_CW_CURSOR, &VideoBlankCursor);
+	    VideoBlankTick = 0;
 	    break;
 	case Expose:
 	    //Debug(3, "video/event: Expose\n");
@@ -8734,6 +8737,12 @@ static void VideoEvent(void)
 	    break;
 	case KeyRelease:
 	    break;
+	case MotionNotify:
+	    values[0] = XCB_NONE;
+	    xcb_change_window_attributes(Connection, VideoWindow,
+		XCB_CW_CURSOR, values);
+	    VideoBlankTick = GetMsTicks();
+	    break;
 	default:
 #if 0
 	    if (XShmGetEventBase(XlibDisplay) + ShmCompletion == event.type) {
@@ -8750,6 +8759,13 @@ static void VideoEvent(void)
 ///
 void VideoPollEvent(void)
 {
+    // hide cursor, after xx ms
+    if (VideoBlankTick && VideoWindow != XCB_NONE
+	&& VideoBlankTick + 200 < GetMsTicks()) {
+	xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
+	    &VideoBlankCursor);
+	VideoBlankTick = 0;
+    }
     while (XlibDisplay && XPending(XlibDisplay)) {
 	VideoEvent();
     }
@@ -9400,7 +9416,8 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
     values[2] =
 	XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_KEY_RELEASE |
 	XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
-	XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+	XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_EXPOSURE |
+	XCB_EVENT_MASK_STRUCTURE_NOTIFY;
     values[3] = VideoColormap;
     VideoWindow = xcb_generate_id(Connection);
     xcb_create_window(Connection, depth, VideoWindow, parent, VideoWindowX,
@@ -9482,6 +9499,7 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
     xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
 	values);
     VideoBlankCursor = cursor;
+    VideoBlankTick = 0;
     // FIXME: free cursor/pixmap needed?
 }
 
