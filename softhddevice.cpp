@@ -109,6 +109,7 @@ static int ConfigVideoAudioDelay;	///< config audio delay
 static int ConfigAudioPassthrough;	///< config audio pass-through
 static int ConfigAudioDownmix;		///< config audio downmix
 
+static int ConfigAutoCropEnabled;	///< auto crop detection enabled
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
 static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
@@ -695,6 +696,7 @@ void cMenuSetupSoft::Store(void)
 	AutoCropTolerance);
     VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
 	ConfigAutoCropTolerance);
+    ConfigAutoCropEnabled = ConfigAutoCropInterval;
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
@@ -874,6 +876,28 @@ static void HandleHotkey(int code)
 	    break;
 	case 22:			// toggle full screen
 	    VideoSetFullscreen(-1);
+	    break;
+	case 23:			// disable auto-crop
+	    ConfigAutoCropEnabled = 0;
+	    VideoSetAutoCrop(0, ConfigAutoCropDelay,
+		ConfigAutoCropTolerance);
+	    break;
+	case 24:			// enable auto-crop
+	    ConfigAutoCropEnabled = 1;
+	    if ( !ConfigAutoCropInterval ) {
+		ConfigAutoCropInterval = 50;
+	    }
+	    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
+		ConfigAutoCropTolerance);
+	    break;
+	case 25:			// toggle auto-crop
+	    ConfigAutoCropEnabled ^= 1;
+	    // no interval configured, use some default
+	    if ( !ConfigAutoCropInterval ) {
+		ConfigAutoCropInterval = 50;
+	    }
+	    VideoSetAutoCrop(ConfigAutoCropEnabled * ConfigAutoCropInterval,
+		ConfigAutoCropDelay, ConfigAutoCropTolerance);
 	    break;
 	case 30:			// change 4:3 -> 16:9 mode
 	case 31:
@@ -1742,6 +1766,7 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     if (!strcasecmp(name, "AutoCrop.Interval")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval =
 	    atoi(value), ConfigAutoCropDelay, ConfigAutoCropTolerance);
+	ConfigAutoCropEnabled = ConfigAutoCropInterval;
 	return true;
     }
     if (!strcasecmp(name, "AutoCrop.Delay")) {
@@ -1819,6 +1844,8 @@ static const char *SVDRPHelpText[] = {
 	"    14: increase audio delay by 10ms\n"
 	"    20: disable fullscreen\n    21: enable fullscreen\n"
 	"    22: toggle fullscreen\n",
+	"    23: disable auto-crop\n    24: enable auto-crop\n"
+	"    25: toggle auto-crop\n",
 	"    30: stretch 4:3 to 16:9\n    31: letter box 4:3 in 16:9\n"
 	"    32: center cut-out 4:3 to 16:9\n"
 	"    39: rotate 4:3 to 16:9 zoom mode\n",
