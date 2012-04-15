@@ -1039,7 +1039,7 @@ static void HandleHotkey(int code)
 	    Skins.QueueMessage(mtInfo, tr("auto-crop enabled"));
 	    break;
 	case 25:			// toggle auto-crop
-	    ConfigAutoCropEnabled ^= 1;
+	    ConfigAutoCropEnabled = !ConfigAutoCropEnabled;
 	    // no interval configured, use some default
 	    if (!ConfigAutoCropInterval) {
 		ConfigAutoCropInterval = 50;
