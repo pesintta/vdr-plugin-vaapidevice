@@ -75,6 +75,8 @@ static const char *const Resolution[RESOLUTIONS] = {
 
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
+static char ConfigSuspendClose;		///< suspend should close devices
+static char ConfigSuspendX11;		///< suspend should stop x11
 
 static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideoStudioLevels;	///< config use studio levels
@@ -105,17 +107,20 @@ static int ConfigVideoCutTopBottom[RESOLUTIONS];
     /// config cut left and right pixels
 static int ConfigVideoCutLeftRight[RESOLUTIONS];
 
-static int ConfigVideoAudioDelay;	///< config audio delay
-static int ConfigAudioPassthrough;	///< config audio pass-through
-static int ConfigAudioDownmix;		///< config audio downmix
-
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
 static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
 
-static char ConfigSuspendClose;		///< suspend should close devices
-static char ConfigSuspendX11;		///< suspend should stop x11
+static int ConfigVideoAudioDelay;	///< config audio delay
+static int ConfigAudioPassthrough;	///< config audio pass-through
+static int ConfigAudioDownmix;		///< config ffmpeg audio downmix
+static char ConfigAudioSoftvol;		///< config use software volume
+static char ConfigAudioNormalize;	///< config use normalize volume
+static int ConfigAudioMaxNormalize;	///< config max normalize factor
+static char ConfigAudioCompression;	///< config use volume compression
+static int ConfigAudioMaxCompression;	///< config max volume compression
+static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 
 static volatile int DoMakePrimary;	///< switch primary device to this
 
@@ -470,13 +475,20 @@ class cMenuSetupSoft:public cMenuSetupPage
     ///
     /// local copies of global setup variables:
     /// @{
+    int General;
     int MakePrimary;
     int HideMainMenuEntry;
+    int SuspendClose;
+    int SuspendX11;
+
+    int Video;
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
+
+    int ResolutionShown[RESOLUTIONS];
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
     int SkipChromaDeinterlace[RESOLUTIONS];
@@ -485,19 +497,30 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen[RESOLUTIONS];
     int CutTopBottom[RESOLUTIONS];
     int CutLeftRight[RESOLUTIONS];
-    int AudioDelay;
-    int AudioPassthrough;
-    int AudioDownmix;
+
     int AutoCropInterval;
     int AutoCropDelay;
     int AutoCropTolerance;
-    int SuspendClose;
-    int SuspendX11;
+
+    int Audio;
+    int AudioDelay;
+    int AudioPassthrough;
+    int AudioDownmix;
+    int AudioSoftvol;
+    int AudioNormalize;
+    int AudioMaxNormalize;
+    int AudioCompression;
+    int AudioMaxCompression;
+    int AudioStereoDescent;
     /// @}
+  private:
+     inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
+    void Create(void);			// create sub-menu
   protected:
      virtual void Store(void);
   public:
      cMenuSetupSoft(void);
+    virtual eOSState ProcessKey(eKeys);	// handle input
 };
 
 /**
@@ -516,9 +539,28 @@ static inline cOsdItem *SeparatorItem(const char *label)
 }
 
 /**
-**	Constructor setup menu.
+**	Create a collapsed item.
+**
+**	@param label	text inside collapsed
+**	@param flag	flag handling collapsed or opened
+**	@param msg	open message
 */
-cMenuSetupSoft::cMenuSetupSoft(void)
+inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag,
+    const char *msg)
+{
+    cOsdItem *item;
+
+    item =
+	new cMenuEditBoolItem(hk(cString::sprintf("* %s", label)), &flag,
+	msg ? msg : tr("show"), tr("hide"));
+
+    return item;
+}
+
+/**
+**	Create setup menu.
+*/
+void cMenuSetupSoft::Create(void)
 {
     static const char *const deinterlace[] = {
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
@@ -533,101 +575,206 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     static const char *const resolution[RESOLUTIONS] = {
 	"576i", "720p", "fake 1080i", "1080i"
     };
+    int current;
     int i;
 
-    // cMenuEditBoolItem cMenuEditBitItem cMenuEditNumItem
-    // cMenuEditStrItem cMenuEditStraItem cMenuEditIntItem
-    MakePrimary = ConfigMakePrimary;
-    Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
-	    trVDR("no"), trVDR("yes")));
-    HideMainMenuEntry = ConfigHideMainMenuEntry;
-    Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &HideMainMenuEntry,
-	    trVDR("no"), trVDR("yes")));
+    current = Current();		// get current menu item index
+    Clear();				// clear the menu
+
+    // FIXME: support this:
+    SetHasHotkeys();
+
+    //
+    //	general
+    //
+    Add(CollapsedItem(tr("General"), General));
+
+    if (General) {
+	Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary,
+		trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Hide main menu entry"),
+		&HideMainMenuEntry, trVDR("no"), trVDR("yes")));
+	//
+	//	suspend
+	//
+	Add(SeparatorItem(tr("Suspend")));
+	Add(new cMenuEditBoolItem(tr("suspend closes video+audio"),
+		&SuspendClose, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("suspend stops x11"), &SuspendX11,
+		trVDR("no"), trVDR("yes")));
+    }
     //
     //	video
     //
-    Add(SeparatorItem(tr("Video")));
+    Add(CollapsedItem(tr("Video"), Video));
 
-    // no unsigned int menu item supported, split background color/alpha
-    Background = ConfigVideoBackground >> 8;
-    BackgroundAlpha = ConfigVideoBackground & 0xFF;
-    Add(new cMenuEditIntItem(tr("video background color (RGB)"),
-	    (int *)&Background, 0, 0x00FFFFFF));
-    Add(new cMenuEditIntItem(tr("video background color (Alpha)"),
-	    (int *)&BackgroundAlpha, 0, 0xFF));
-    StudioLevels = ConfigVideoStudioLevels;
-    Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
-	    &StudioLevels, trVDR("no"), trVDR("yes")));
-    _60HzMode = ConfigVideo60HzMode;
-    Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"),
-	    trVDR("yes")));
-    SoftStartSync = ConfigVideoSoftStartSync;
-    Add(new cMenuEditBoolItem(tr("soft start a/v sync"), &SoftStartSync,
-	    trVDR("no"), trVDR("yes")));
+    if (Video) {
+	Add(new cMenuEditIntItem(tr("video background color (RGB)"),
+		(int *)&Background, 0, 0x00FFFFFF));
+	Add(new cMenuEditIntItem(tr("video background color (Alpha)"),
+		(int *)&BackgroundAlpha, 0, 0xFF));
+	Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
+		&StudioLevels, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode,
+		trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("soft start a/v sync"), &SoftStartSync,
+		trVDR("no"), trVDR("yes")));
 
-    for (i = 0; i < RESOLUTIONS; ++i) {
-	Add(SeparatorItem(resolution[i]));
-	Scaling[i] = ConfigVideoScaling[i];
-	Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4, scaling));
-	Deinterlace[i] = ConfigVideoDeinterlace[i];
-	Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], 6,
-		deinterlace));
-	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
-	Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
-		&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
-	InverseTelecine[i] = ConfigVideoInverseTelecine[i];
-	Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
-		&InverseTelecine[i], trVDR("no"), trVDR("yes")));
-	Denoise[i] = ConfigVideoDenoise[i];
-	Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"), &Denoise[i],
-		0, 1000, tr("off"), tr("max")));
-	Sharpen[i] = ConfigVideoSharpen[i];
-	Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
-		&Sharpen[i], -1000, 1000, tr("blur max"), tr("sharpen max")));
+	for (i = 0; i < RESOLUTIONS; ++i) {
+	    Add(CollapsedItem(resolution[i], ResolutionShown[i]));
 
-	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
-	Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
-		&CutTopBottom[i], 0, 250));
-	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
-	Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
-		&CutLeftRight[i], 0, 250));
+	    if (ResolutionShown[i]) {
+		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4,
+			scaling));
+		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
+			6, deinterlace));
+		Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
+			&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
+		Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
+			&InverseTelecine[i], trVDR("no"), trVDR("yes")));
+		Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"),
+			&Denoise[i], 0, 1000, tr("off"), tr("max")));
+		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
+			&Sharpen[i], -1000, 1000, tr("blur max"),
+			tr("sharpen max")));
+
+		Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
+			&CutTopBottom[i], 0, 250));
+		Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
+			&CutLeftRight[i], 0, 250));
+	    }
+	}
+	//
+	//  auto-crop
+	//
+	Add(SeparatorItem(tr("Auto-crop")));
+	Add(new cMenuEditIntItem(tr("autocrop interval (frames)"),
+		&AutoCropInterval, 0, 200, tr("off")));
+	Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
+		&AutoCropDelay, 0, 200));
+	Add(new cMenuEditIntItem(tr("autocrop tolerance (pixel)"),
+		&AutoCropTolerance, 0, 32));
     }
     //
     //	audio
     //
-    Add(SeparatorItem(tr("Audio")));
-    AudioDelay = ConfigVideoAudioDelay;
-    Add(new cMenuEditIntItem(tr("Audio delay (ms)"), &AudioDelay, -1000,
-	    1000));
-    AudioPassthrough = ConfigAudioPassthrough;
-    Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough, 2,
-	    passthrough));
-    AudioDownmix = ConfigAudioDownmix;
-    Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
-	    trVDR("no"), trVDR("yes")));
+    Add(CollapsedItem(tr("Audio"), Audio));
+
+    if (Audio) {
+	Add(new cMenuEditIntItem(tr("Audio/Video delay (ms)"), &AudioDelay,
+		-1000, 1000));
+	Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough,
+		2, passthrough));
+	Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
+		trVDR("no"), trVDR("yes")));
+    }
+
+    SetCurrent(Get(current));		// restore selected menu entry
+    Display();				// display build menu
+}
+
+/**
+**	Process key for setup menu.
+*/
+eOSState cMenuSetupSoft::ProcessKey(eKeys key)
+{
+    eOSState state;
+    int old_general;
+    int old_video;
+    int old_audio;
+    int old_resolution_shown[RESOLUTIONS];
+    int i;
+
+    old_general = General;
+    old_video = Video;
+    old_audio = Audio;
+    memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
+    state = cMenuSetupPage::ProcessKey(key);
+
+    if (key != kNone) {
+	// update menu only, if something on the structure has changed
+	// this needed because VDR menus are evil slow
+	if (old_general != General || old_video != Video || old_audio != Audio) {
+	    Create();			// update menu
+	} else {
+	    for (i = 0; i < RESOLUTIONS; ++i) {
+		if (old_resolution_shown[i] != ResolutionShown[i]) {
+		    Create();		// update menu
+		    break;
+		}
+	    }
+	}
+    }
+
+    return state;
+}
+
+/**
+**	Constructor setup menu.
+**
+**	Import global config variables into setup.
+*/
+cMenuSetupSoft::cMenuSetupSoft(void)
+{
+    int i;
+
     //
-    //	auto-crop
+    //	general
     //
-    Add(SeparatorItem(tr("Auto-crop")));
-    AutoCropInterval = ConfigAutoCropInterval;
-    Add(new cMenuEditIntItem(tr("autocrop interval (frames)"),
-	    &AutoCropInterval, 0, 200, tr("off")));
-    AutoCropDelay = ConfigAutoCropDelay;
-    Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
-	    &AutoCropDelay, 0, 200));
-    AutoCropTolerance = ConfigAutoCropTolerance;
-    Add(new cMenuEditIntItem(tr("autocrop tolerance (pixel)"),
-	    &AutoCropTolerance, 0, 32));
+    General = 0;
+    MakePrimary = ConfigMakePrimary;
+    HideMainMenuEntry = ConfigHideMainMenuEntry;
     //
     //	suspend
     //
-    Add(SeparatorItem(tr("Suspend")));
     SuspendClose = ConfigSuspendClose;
-    Add(new cMenuEditBoolItem(tr("suspend closes video+audio"), &SuspendClose,
-	    trVDR("no"), trVDR("yes")));
     SuspendX11 = ConfigSuspendX11;
-    Add(new cMenuEditBoolItem(tr("suspend stops x11"), &SuspendX11,
-	    trVDR("no"), trVDR("yes")));
+
+    //
+    //	video
+    //
+    Video = 0;
+    // no unsigned int menu item supported, split background color/alpha
+    Background = ConfigVideoBackground >> 8;
+    BackgroundAlpha = ConfigVideoBackground & 0xFF;
+    StudioLevels = ConfigVideoStudioLevels;
+    _60HzMode = ConfigVideo60HzMode;
+    SoftStartSync = ConfigVideoSoftStartSync;
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	ResolutionShown[i] = 0;
+	Scaling[i] = ConfigVideoScaling[i];
+	Deinterlace[i] = ConfigVideoDeinterlace[i];
+	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
+	InverseTelecine[i] = ConfigVideoInverseTelecine[i];
+	Denoise[i] = ConfigVideoDenoise[i];
+	Sharpen[i] = ConfigVideoSharpen[i];
+
+	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
+	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
+    }
+    //
+    //	auto-crop
+    //
+    AutoCropInterval = ConfigAutoCropInterval;
+    AutoCropDelay = ConfigAutoCropDelay;
+    AutoCropTolerance = ConfigAutoCropTolerance;
+
+    //
+    //	audio
+    //
+    Audio = 0;
+    AudioDelay = ConfigVideoAudioDelay;
+    AudioPassthrough = ConfigAudioPassthrough;
+    AudioDownmix = ConfigAudioDownmix;
+    AudioSoftvol = ConfigAudioSoftvol;
+    AudioNormalize = ConfigAudioNormalize;
+    AudioMaxNormalize = ConfigAudioMaxNormalize;
+    AudioCompression = ConfigAudioCompression;
+    AudioMaxCompression = ConfigAudioMaxCompression;
+    AudioStereoDescent = ConfigAudioStereoDescent;
+
+    Create();
 }
 
 /**
@@ -640,6 +787,8 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
 	HideMainMenuEntry);
+    SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
+    SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
 
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
@@ -683,13 +832,6 @@ void cMenuSetupSoft::Store(void)
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
     VideoSetCutLeftRight(ConfigVideoCutLeftRight);
 
-    SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
-    VideoSetAudioDelay(ConfigVideoAudioDelay);
-    SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
-    CodecSetAudioPassthrough(ConfigAudioPassthrough);
-    SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
-    CodecSetAudioDownmix(ConfigAudioDownmix);
-
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
     SetupStore("AutoCrop.Tolerance", ConfigAutoCropTolerance =
@@ -698,8 +840,13 @@ void cMenuSetupSoft::Store(void)
 	ConfigAutoCropTolerance);
     ConfigAutoCropEnabled = ConfigAutoCropInterval;
 
-    SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
-    SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
+    SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
+    VideoSetAudioDelay(ConfigVideoAudioDelay);
+    SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
+    CodecSetAudioPassthrough(ConfigAudioPassthrough);
+    SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
+    CodecSetAudioDownmix(ConfigAudioDownmix);
+    // FIXME: new audio
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -879,25 +1026,32 @@ static void HandleHotkey(int code)
 	    break;
 	case 23:			// disable auto-crop
 	    ConfigAutoCropEnabled = 0;
-	    VideoSetAutoCrop(0, ConfigAutoCropDelay,
-		ConfigAutoCropTolerance);
+	    VideoSetAutoCrop(0, ConfigAutoCropDelay, ConfigAutoCropTolerance);
+	    Skins.QueueMessage(mtInfo, tr("auto-crop disabled and freezed"));
 	    break;
 	case 24:			// enable auto-crop
 	    ConfigAutoCropEnabled = 1;
-	    if ( !ConfigAutoCropInterval ) {
+	    if (!ConfigAutoCropInterval) {
 		ConfigAutoCropInterval = 50;
 	    }
 	    VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
 		ConfigAutoCropTolerance);
+	    Skins.QueueMessage(mtInfo, tr("auto-crop enabled"));
 	    break;
 	case 25:			// toggle auto-crop
 	    ConfigAutoCropEnabled ^= 1;
 	    // no interval configured, use some default
-	    if ( !ConfigAutoCropInterval ) {
+	    if (!ConfigAutoCropInterval) {
 		ConfigAutoCropInterval = 50;
 	    }
 	    VideoSetAutoCrop(ConfigAutoCropEnabled * ConfigAutoCropInterval,
 		ConfigAutoCropDelay, ConfigAutoCropTolerance);
+	    if (ConfigAutoCropEnabled) {
+		Skins.QueueMessage(mtInfo, tr("auto-crop enabled"));
+	    } else {
+		Skins.QueueMessage(mtInfo,
+		    tr("auto-crop disabled and freezed"));
+	    }
 	    break;
 	case 30:			// change 4:3 -> 16:9 mode
 	case 31:
@@ -1679,6 +1833,15 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
+    if (!strcasecmp(name, "Suspend.Close")) {
+	ConfigSuspendClose = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "Suspend.X11")) {
+	ConfigSuspendX11 = atoi(value);
+	return true;
+    }
+
     if (!strcasecmp(name, "Background")) {
 	VideoSetBackground(ConfigVideoBackground = strtoul(value, NULL, 0));
 	return true;
@@ -1750,19 +1913,6 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	}
     }
 
-    if (!strcasecmp(name, "AudioDelay")) {
-	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "AudioPassthrough")) {
-	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "AudioDownmix")) {
-	CodecSetAudioDownmix(ConfigAudioDownmix = atoi(value));
-	return true;
-    }
-
     if (!strcasecmp(name, "AutoCrop.Interval")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval =
 	    atoi(value), ConfigAutoCropDelay, ConfigAutoCropTolerance);
@@ -1780,14 +1930,20 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
 
-    if (!strcasecmp(name, "Suspend.Close")) {
-	ConfigSuspendClose = atoi(value);
+    if (!strcasecmp(name, "AudioDelay")) {
+	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
 	return true;
     }
-    if (!strcasecmp(name, "Suspend.X11")) {
-	ConfigSuspendX11 = atoi(value);
+    if (!strcasecmp(name, "AudioPassthrough")) {
+	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
 	return true;
     }
+    if (!strcasecmp(name, "AudioDownmix")) {
+	CodecSetAudioDownmix(ConfigAudioDownmix = atoi(value));
+	return true;
+    }
+    // FIXME: new audio
+
     return false;
 }
 
@@ -1842,11 +1998,11 @@ static const char *SVDRPHelpText[] = {
 	"    12: toggle audio pass-through\n"
 	"    13: decrease audio delay by 10ms\n"
 	"    14: increase audio delay by 10ms\n"
-	"    20: disable fullscreen\n    21: enable fullscreen\n"
-	"    22: toggle fullscreen\n",
-	"    23: disable auto-crop\n    24: enable auto-crop\n"
-	"    25: toggle auto-crop\n",
-	"    30: stretch 4:3 to 16:9\n    31: letter box 4:3 in 16:9\n"
+	"    20: disable fullscreen\n	 21: enable fullscreen\n"
+	"    22: toggle fullscreen\n"
+	"    23: disable auto-crop\n	24: enable auto-crop\n"
+	"    25: toggle auto-crop\n"
+	"    30: stretch 4:3 to 16:9\n    31: pillar box 4:3 in 16:9\n"
 	"    32: center cut-out 4:3 to 16:9\n"
 	"    39: rotate 4:3 to 16:9 zoom mode\n",
     NULL
