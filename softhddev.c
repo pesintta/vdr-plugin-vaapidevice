@@ -1408,6 +1408,7 @@ int VideoDecode(void)
 	    if (last_codec_id != CODEC_ID_NONE) {
 		last_codec_id = CODEC_ID_NONE;
 		CodecVideoClose(MyVideoDecoder);
+		VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 		goto skip;
 	    }
 	    // FIXME: look if more close are in the queue
@@ -1639,6 +1640,7 @@ int PlayVideo(const uint8_t * data, int size)
 	VideoNextPacket(CODEC_ID_NONE);
 	VideoCodecID = CODEC_ID_NONE;
 	// clear clock until new stream starts
+	// FIXME: still reordered frames in queue
 	VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 	ClosingVideoStream = 1;
 	NewVideoStream = 0;
@@ -2214,7 +2216,7 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
     for (;;) {
-	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:x")) {
+	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:xD")) {
 	    case 'a':			// audio device for pcm
 		AudioSetDevice(optarg);
 		continue;
