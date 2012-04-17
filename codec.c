@@ -949,8 +949,14 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	av_resample_compensate(audio_decoder->AvResample,
 	    audio_decoder->DriftCorr / 10, distance);
     }
-    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n", audio_decoder->DriftCorr,
-	drift * 1000 / 90, corr);
+    if (1) {
+	static int c;
+
+	if (!(c++ % 10)) {
+	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
+		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+	}
+    }
 }
 
 /**

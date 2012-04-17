@@ -42,6 +42,10 @@ extern void AudioPlay(void);		///< play audio
 extern void AudioPause(void);		///< pause audio
 
 extern void AudioSetBufferTime(int);	///< set audio buffer time
+extern void AudioSetSoftvol(int);	///< enable/disable softvol
+extern void AudioSetNormalize(int, int);	///< set normalize parameters
+extern void AudioSetCompression(int, int);	///< set compression parameters
+extern void AudioSetStereoDescent(int);	///< set stereo loudness descent
 
 extern void AudioSetDevice(const char *);	///< set PCM audio device
 extern void AudioSetDeviceAC3(const char *);	///< set pass-through device

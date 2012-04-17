@@ -61,6 +61,7 @@ static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
 #define ConfigVdpauDecoder 0		///< no vdpau decoder configured
 #endif
 
+extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
 static char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigStartX11Server;	///< flag start the x11 server
@@ -887,7 +888,8 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (NewAudioStream) {
 	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
-	AudioSetBufferTime(0);
+	AudioFlushBuffers();
+	AudioSetBufferTime(ConfigAudioBufferTime);
 	AudioCodecID = CODEC_ID_NONE;
 	AudioChannelID = -1;
 	NewAudioStream = 0;
@@ -972,6 +974,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    samplerate = samplerates[p[5] >> 4];
 	    channels = (p[5] & 0x7) + 1;
 
+	    // FIXME: ConfigAudioBufferTime + x
 	    AudioSetBufferTime(400);
 	    AudioSetup(&samplerate, &channels, 0);
 	    if (samplerate != samplerates[p[5] >> 4]) {
@@ -1002,6 +1005,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	p += 4;
 	n -= 4;				// skip track header
 	if (AudioCodecID == CODEC_ID_NONE) {
+	    // FIXME: ConfigAudioBufferTime + x
 	    AudioSetBufferTime(400);
 	}
     }
@@ -1100,8 +1104,9 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (NewAudioStream) {
 	// this clears the audio ringbuffer indirect, open and setup does it
 	CodecAudioClose(MyAudioDecoder);
+	AudioFlushBuffers();
 	// max time between audio packets 200ms + 24ms hw buffer
-	AudioSetBufferTime(264);
+	AudioSetBufferTime(ConfigAudioBufferTime);
 	AudioCodecID = CODEC_ID_NONE;
 	AudioChannelID = -1;
 	NewAudioStream = 0;
@@ -1128,7 +1133,7 @@ int PlayTsAudio(const uint8_t * data, int size)
 */
 void SetVolumeDevice(int volume)
 {
-    AudioSetVolume((volume * 100) / 255);
+    AudioSetVolume((volume * 1000) / 255);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1408,7 +1413,6 @@ int VideoDecode(void)
 	    if (last_codec_id != CODEC_ID_NONE) {
 		last_codec_id = CODEC_ID_NONE;
 		CodecVideoClose(MyVideoDecoder);
-		VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 		goto skip;
 	    }
 	    // FIXME: look if more close are in the queue
@@ -1459,11 +1463,6 @@ int VideoDecode(void)
 	    who_designed_this_is____ = write(fildes, avpkt->data, avpkt->size);
 	    close(fildes);
 	}
-    }
-
-    if (ClosingVideoStream) {		// closing don't sync
-	avpkt->pts = AV_NOPTS_VALUE;
-	avpkt->dts = AV_NOPTS_VALUE;
     }
 
     if (last_codec_id == CODEC_ID_MPEG2VIDEO) {
@@ -1639,9 +1638,6 @@ int PlayVideo(const uint8_t * data, int size)
 	}
 	VideoNextPacket(CODEC_ID_NONE);
 	VideoCodecID = CODEC_ID_NONE;
-	// clear clock until new stream starts
-	// FIXME: still reordered frames in queue
-	VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 	ClosingVideoStream = 1;
 	NewVideoStream = 0;
     }
@@ -1858,6 +1854,8 @@ int SetPlayMode(int play_mode)
     if (MyVideoDecoder) {		// tell video parser we have new stream
 	if (VideoCodecID != CODEC_ID_NONE) {
 	    NewVideoStream = 1;
+	    // tell hw decoder we are closing stream
+	    VideoSetClosing(MyHwDecoder);
 #ifdef DEBUG
 	    VideoSwitch = GetMsTicks();
 #endif
@@ -1873,11 +1871,9 @@ int SetPlayMode(int play_mode)
 	    break;
 	case 2:			// audio only
 	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
-	    VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 	    break;
 	case 3:			// audio only, black screen
 	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
-	    VideoSetClock(MyHwDecoder, AV_NOPTS_VALUE);
 	    break;
 	case 4:			// video only
 	    break;

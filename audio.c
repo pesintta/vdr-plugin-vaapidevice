@@ -105,7 +105,7 @@ typedef struct _audio_module_
 {
     const char *Name;			///< audio output module name
 
-    void (*const Thread) (void);	///< module thread handler
+    int (*const Thread) (void);		///< module thread handler
     void (*const Enqueue) (const void *, int);	///< enqueue samples for output
     void (*const VideoReady) (void);	///< video ready, start audio
     void (*const FlushBuffers) (void);	///< flush sample buffers
@@ -140,10 +140,13 @@ static const char *AudioMixerChannel;	///< alsa/OSS mixer channel name
 static volatile char AudioRunning;	///< thread running / stopped
 static volatile char AudioPaused;	///< audio paused
 static volatile char AudioVideoIsReady;	///< video ready start early
-static unsigned AudioSampleRate;	///< audio sample rate in hz
+static unsigned AudioSampleRate;	///< audio sample rate in Hz
 static unsigned AudioChannels;		///< number of audio channels
 static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
+
+#ifndef USE_AUDIO_THREAD
+#endif
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
@@ -154,15 +157,221 @@ static pthread_cond_t AudioStartCond;	///< condition variable
 static const int AudioThread;		///< dummy audio thread
 #endif
 
+static char AudioSoftVolume;		///< flag use soft volume
+static char AudioNormalize;		///< flag use volume normalize
+static char AudioCompression;		///< flag use compress volume
+static char AudioMute;			///< flag muted
+static int AudioAmplifier;		///< software volume factor
+static int AudioMaxNormalize;		///< max. normalize factor
+static int AudioCompressionFactor;	///< current compression factor
+static int AudioMaxCompression;		///< max. compression factor
+static int AudioStereoDescent;		///< volume descent for stereo
+static int AudioVolume;			///< volume (0 .. 1000)
+
 extern int VideoAudioDelay;		///< import audio/video delay
+
+    /// default ring buffer size ~2s 8ch 16bit
+static const unsigned AudioRingBufferSize = 2 * 48000 * 8 * 2;
+
+static int AudioChannelsInHw[8];	///< table which channels are supported
+enum _audio_rates
+{					///< sample rates enumeration
+    // HW: 32000 44100 48000 88200 96000 176400 192000
+    //Audio32000,				///< 32.0Khz
+    Audio44100,				///< 44.1Khz
+    Audio48000,				///< 48.0Khz
+    //Audio88200,				///< 88.2Khz
+    //Audio96000,				///< 96.0Khz
+    //Audio176400,				///< 176.4Khz
+    //Audio192000,				///< 192.0Khz
+    AudioRatesMax			///< max index
+};
+static int AudioRatesInHw[AudioRatesMax];	///< table which rates are supported
 
 #ifdef USE_AUDIORING
 
 //----------------------------------------------------------------------------
-//	ring buffer
+//	filter
 //----------------------------------------------------------------------------
 
-// FIXME: use this code, to combine alsa&OSS ring buffers
+static const int AudioNormSamples = 32768;	///< number of samples
+
+#define AudioNormIndexes 128		///< number of average values
+    /// average of n last sample blocks
+static uint32_t AudioNormAverage[AudioNormIndexes];
+static int AudioNormIndex;		///< index into average table
+static int AudioNormCounter;		///< sample counter
+
+/**
+**	Audio normalizer.
+**
+**	@param samples	sample buffer
+**	@param count	number of bytes in sample buffer
+*/
+static void AudioNormalizer(int16_t * samples, int count)
+{
+    int i;
+    int n;
+    uint32_t avg;
+
+    // average samples
+    avg = 0;
+    n = count / AudioBytesProSample;
+    for (i = 0; i < n; ++i) {
+	int t;
+
+	t = samples[i];
+	avg += t * t;
+	avg /= 2;
+    }
+
+    // FIXME: more todo
+}
+
+/**
+**	Reset normalizer.
+*/
+static void AudioResetNormalizer(void)
+{
+}
+
+/**
+**	Audio compression.
+**
+**	@param samples	sample buffer
+**	@param count	number of bytes in sample buffer
+*/
+static void AudioCompressor(int16_t * samples, int count)
+{
+    int max_sample;
+    int i;
+    int factor;
+
+    // find loudest sample
+    max_sample = 0;
+    for (i = 0; i < count / AudioBytesProSample; ++i) {
+	int t;
+
+	t = abs(samples[i]);
+	if (t > max_sample) {
+	    max_sample = t;
+	}
+    }
+
+    // calculate compression factor
+    if (max_sample > 0) {
+	factor = (INT16_MAX * 1000) / max_sample;
+	// smooth compression (FIXME: make configurable?)
+	AudioCompressionFactor =
+	    (AudioCompressionFactor * 950 + factor * 50) / 1000;
+	if (AudioCompressionFactor > factor) {
+	    AudioCompressionFactor = factor;	// no clipping
+	}
+	if (AudioCompressionFactor > AudioMaxCompression) {
+	    AudioCompressionFactor = AudioMaxCompression;
+	}
+    } else {
+	return;				// silent nothing todo
+    }
+
+    Debug(4, "audio/compress: max %5d, fac=%6.3f, com=%6.3f\n", max_sample,
+	factor / 1000.0, AudioCompressionFactor / 1000.0);
+
+    // apply compression factor
+    for (i = 0; i < count / AudioBytesProSample; ++i) {
+	int t;
+
+	t = (samples[i] * AudioCompressionFactor) / 1000;
+	if (t < INT16_MIN) {
+	    t = INT16_MIN;
+	} else if (t > INT16_MAX) {
+	    t = INT16_MAX;
+	}
+	samples[i] = t;
+    }
+}
+
+/**
+**	Reset compressor.
+*/
+static void AudioResetCompressor(void)
+{
+    AudioCompressionFactor = 2000;
+    if (AudioCompressionFactor > AudioMaxCompression) {
+	AudioCompressionFactor = AudioMaxCompression;
+    }
+}
+
+/**
+**	Audio software amplifier.
+**
+**	@param samples	sample buffer
+**	@param count	number of bytes in sample buffer
+**
+**	@todo FIXME: this does hard clipping
+*/
+static void AudioSoftAmplifier(int16_t * samples, int count)
+{
+    int i;
+
+    // silence
+    if (AudioMute || !AudioAmplifier) {
+	memset(samples, 0, count);
+	return;
+    }
+
+    for (i = 0; i < count / AudioBytesProSample; ++i) {
+	int t;
+
+	t = (samples[i] * AudioAmplifier) / 1000;
+	if (t < INT16_MIN) {
+	    t = INT16_MIN;
+	} else if (t > INT16_MAX) {
+	    t = INT16_MAX;
+	}
+	samples[i] = t;
+    }
+}
+
+/**
+**	Upmix mono to stereo.
+**
+**	@param in	input sample buffer
+**	@param count	number of bytes in sample buffer
+**	@param out	output sample buffer
+*/
+static void AudioMono2Stereo(const int16_t * in, int count, int16_t * out)
+{
+    int i;
+
+    for (i = 0; i < count / AudioBytesProSample; ++i) {
+	int t;
+
+	t = in[i];
+	out[i * 2 + 0] = t;
+	out[i * 2 + 1] = t;
+    }
+}
+
+/**
+**	Downmix stereo to mono.
+**
+**	@param in	input sample buffer
+**	@param count	number of bytes in sample buffer
+**	@param out	output sample buffer
+*/
+static void AudioStereo2Mono(const int16_t * in, int count, int16_t * out)
+{
+    int i;
+
+    for (i = 0; i < count / (2 * AudioBytesProSample); ++i) {
+	out[i] = (in[i * 2 + 0] + in[i * 2 + 1]) / 2;
+    }
+}
+
+//----------------------------------------------------------------------------
+//	ring buffer
+//----------------------------------------------------------------------------
 
 #define AUDIO_RING_MAX 8		///< number of audio ring buffers
 
@@ -172,41 +381,57 @@ extern int VideoAudioDelay;		///< import audio/video delay
 typedef struct _audio_ring_ring_
 {
     char FlushBuffers;			///< flag: flush buffers
-    unsigned SampleRate;		///< sample rate in hz
-    unsigned Channels;			///< number of channels
+    char UseAc3;			///< flag: use ac3 pass-through
+    unsigned HwSampleRate;		///< hardware sample rate in Hz
+    unsigned HwChannels;		///< hardware number of channels
+    unsigned InSampleRate;		///< input sample rate in Hz
+    unsigned InChannels;		///< input number of channels
+    int64_t PTS;			///< pts clock
+    RingBuffer *RingBuffer;		///< sample ring buffer
 } AudioRingRing;
+
+    /// default ring buffer size ~2s 8ch 16bit
+//static const unsigned AudioRingBufferSize = 2 * 48000 * 8 * 2;
 
     /// ring of audio ring buffers
 static AudioRingRing AudioRing[AUDIO_RING_MAX];
 static int AudioRingWrite;		///< audio ring write pointer
 static int AudioRingRead;		///< audio ring read pointer
 static atomic_t AudioRingFilled;	///< how many of the ring is used
+static unsigned AudioStartThreshold;	///< start play, if filled
 
 /**
 **	Add sample rate, number of channel change to ring.
 **
 **	@param freq	sample frequency
 **	@param channels	number of channels
+**	@param use_ac3	use ac3/pass-through device
+**
+**	@retval -1	error
+**	@retval 0	okay
 */
-static int AudioRingAdd(int freq, int channels)
+static int AudioRingAdd(int freq, int channels, int use_ac3)
 {
-    int filled;
-
-    filled = atomic_read(&AudioRingFilled);
-    if (filled == AUDIO_RING_MAX) {	// no free slot
+    if (atomic_read(&AudioRingFilled) == AUDIO_RING_MAX) {	// no free slot
 	// FIXME: can wait for ring buffer empty
 	Error(_("audio: out of ring buffers\n"));
 	return -1;
     }
-    AudioRing[AudioRingWrite].FlushBuffers = 1;
-    AudioRing[AudioRingWrite].SampleRate = freq;
-    AudioRing[AudioRingWrite].Channels = channels;
-
     AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
+
+    // FIXME: don't flush buffers here
+    AudioRing[AudioRingWrite].FlushBuffers = 1;
+    AudioRing[AudioRingWrite].UseAc3 = use_ac3;
+    AudioRing[AudioRingWrite].HwSampleRate = freq;
+    AudioRing[AudioRingWrite].HwChannels = channels;
+    AudioRing[AudioRingWrite].PTS = INT64_C(0x8000000000000000);
+    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
+	RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer));
+
     atomic_inc(&AudioRingFilled);
 
 #ifdef USE_AUDIO_THREAD
-    // tell thread, that something todo
+    // tell thread, that there is something todo
     AudioRunning = 1;
     pthread_cond_signal(&AudioStartCond);
 #endif
@@ -222,12 +447,10 @@ static void AudioRingInit(void)
     int i;
 
     for (i = 0; i < AUDIO_RING_MAX; ++i) {
-	// FIXME:
-	//AlsaRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
+	// ~2s 8ch 16bit
+	AudioRing[i].RingBuffer = RingBufferNew(AudioRingBufferSize);
     }
-    // one slot always reservered
-    AudioRingWrite = 1;
-    atomic_set(&AudioRingFilled, 1);
+    atomic_set(&AudioRingFilled, 0);
 }
 
 /**
@@ -238,9 +461,14 @@ static void AudioRingExit(void)
     int i;
 
     for (i = 0; i < AUDIO_RING_MAX; ++i) {
-	// FIXME:
-	//RingBufferDel(AlsaRingBuffer);
+	if (AudioRing[i].RingBuffer) {
+	    RingBufferDel(AudioRing[i].RingBuffer);
+	    AudioRing[i].RingBuffer = NULL;
+	}
+	AudioRing[i].HwSampleRate = 0;	// checked for valid setup
     }
+    AudioRingRead = 0;
+    AudioRingWrite = 0;
 }
 
 #endif
@@ -259,6 +487,8 @@ static snd_pcm_t *AlsaPCMHandle;	///< alsa pcm handle
 static char AlsaCanPause;		///< hw supports pause
 static int AlsaUseMmap;			///< use mmap
 
+#ifndef USE_AUDIORING
+
 static RingBuffer *AlsaRingBuffer;	///< audio ring buffer
 static unsigned AlsaStartThreshold;	///< start play, if filled
 
@@ -266,9 +496,166 @@ static unsigned AlsaStartThreshold;	///< start play, if filled
 static volatile char AlsaFlushBuffer;	///< flag empty buffer
 #endif
 
+#endif
+
 static snd_mixer_t *AlsaMixer;		///< alsa mixer handle
 static snd_mixer_elem_t *AlsaMixerElem;	///< alsa pcm mixer element
 static int AlsaRatio;			///< internal -> mixer ratio * 1000
+
+#ifdef USE_AUDIORING
+
+//----------------------------------------------------------------------------
+//	alsa pcm
+//----------------------------------------------------------------------------
+
+/**
+**	Play samples from ringbuffer.
+**
+**	Fill the kernel buffer, as much as possible.
+**
+**	@retval	0	ok
+**	@retval 1	ring buffer empty
+**	@retval -1	underrun error
+*/
+static int AlsaPlayRingbuffer(void)
+{
+    int first;
+    int avail;
+    int n;
+    int err;
+    int frames;
+    const void *p;
+
+    first = 1;
+    for (;;) {				// loop for ring buffer wrap
+	// how many bytes can be written?
+	n = snd_pcm_avail_update(AlsaPCMHandle);
+	if (n < 0) {
+	    if (n == -EAGAIN) {
+		continue;
+	    }
+	    Warning(_("audio/alsa: avail underrun error? '%s'\n"),
+		snd_strerror(n));
+	    err = snd_pcm_recover(AlsaPCMHandle, n, 0);
+	    if (err >= 0) {
+		continue;
+	    }
+	    Error(_("audio/alsa: snd_pcm_avail_update(): %s\n"),
+		snd_strerror(n));
+	    return -1;
+	}
+	avail = snd_pcm_frames_to_bytes(AlsaPCMHandle, n);
+	if (avail < 256) {		// too much overhead
+	    if (first) {
+		// happens with broken alsa drivers
+		if (AudioThread) {
+		    if (!AudioAlsaDriverBroken) {
+			Error(_("audio/alsa: broken driver %d state '%s'\n"),
+			    avail,
+			    snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+		    }
+		    // try to recover
+		    if (snd_pcm_state(AlsaPCMHandle)
+			== SND_PCM_STATE_PREPARED) {
+			if ((err = snd_pcm_start(AlsaPCMHandle)) < 0) {
+			    Error(_("audio/alsa: snd_pcm_start(): %s\n"),
+				snd_strerror(err));
+			}
+		    }
+		    usleep(5 * 1000);
+		}
+	    }
+	    Debug(4, "audio/alsa: break state '%s'\n",
+		snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+	    break;
+	}
+
+	n = RingBufferGetReadPointer(AudioRing[AudioRingRead].RingBuffer, &p);
+	if (!n) {			// ring buffer empty
+	    if (first) {		// only error on first loop
+		Debug(4, "audio/alsa: empty buffers %d\n", avail);
+		// ring buffer empty
+		// AlsaLowWaterMark = 1;
+		return 1;
+	    }
+	    return 0;
+	}
+	if (n < avail) {		// not enough bytes in ring buffer
+	    avail = n;
+	}
+	if (!avail) {			// full or buffer empty
+	    break;
+	}
+	if (AudioSoftVolume) {
+	    // FIXME: quick&dirty cast
+	    AudioSoftAmplifier((int16_t *) p, avail);
+	}
+	frames = snd_pcm_bytes_to_frames(AlsaPCMHandle, avail);
+
+	for (;;) {
+	    if (AlsaUseMmap) {
+		err = snd_pcm_mmap_writei(AlsaPCMHandle, p, frames);
+	    } else {
+		err = snd_pcm_writei(AlsaPCMHandle, p, frames);
+	    }
+	    //Debug(3, "audio/alsa: wrote %d/%d frames\n", err, frames);
+	    if (err != frames) {
+		if (err < 0) {
+		    if (err == -EAGAIN) {
+			continue;
+		    }
+		    /*
+		       if (err == -EBADFD) {
+		       goto again;
+		       }
+		     */
+		    Warning(_("audio/alsa: writei underrun error? '%s'\n"),
+			snd_strerror(err));
+		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
+		    if (err >= 0) {
+			continue;
+		    }
+		    Error(_("audio/alsa: snd_pcm_writei failed: %s\n"),
+			snd_strerror(err));
+		    return -1;
+		}
+		// this could happen, if underrun happened
+		Warning(_("audio/alsa: not all frames written\n"));
+		avail = snd_pcm_frames_to_bytes(AlsaPCMHandle, err);
+	    }
+	    break;
+	}
+	RingBufferReadAdvance(AudioRing[AudioRingRead].RingBuffer, avail);
+	first = 0;
+    }
+
+    return 0;
+}
+
+/**
+**	Flush alsa buffers.
+*/
+static void AlsaFlushBuffers(void)
+{
+    if (AlsaPCMHandle) {
+	int err;
+	snd_pcm_state_t state;
+
+	state = snd_pcm_state(AlsaPCMHandle);
+	Debug(3, "audio/alsa: flush state %s\n", snd_pcm_state_name(state));
+	if (state != SND_PCM_STATE_OPEN) {
+	    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
+		Error(_("audio: snd_pcm_drop(): %s\n"), snd_strerror(err));
+	    }
+	    // ****ing alsa crash, when in open state here
+	    if ((err = snd_pcm_prepare(AlsaPCMHandle)) < 0) {
+		Error(_("audio: snd_pcm_prepare(): %s\n"), snd_strerror(err));
+	    }
+	}
+    }
+}
+
+#else
 
 //----------------------------------------------------------------------------
 //	alsa pcm
@@ -645,16 +1032,81 @@ static void AlsaEnqueue(const void *samples, int count)
 
 #endif
 
+#endif
+
 #ifdef USE_AUDIO_THREAD
 
 //----------------------------------------------------------------------------
 //	thread playback
 //----------------------------------------------------------------------------
 
+#ifdef USE_AUDIORING
+
+/**
+**	Alsa thread
+**
+**	Play some samples and return.
+**
+**	@retval	-1	error
+**	@retval 0	underrun
+**	@retval	1	running
+*/
+static int AlsaThread(void)
+{
+    int err;
+
+    if (!AlsaPCMHandle) {
+	usleep(24 * 1000);
+	return -1;
+    }
+    for (;;) {
+	pthread_testcancel();
+	if (AudioPaused) {
+	    return 1;
+	}
+	// wait for space in kernel buffers
+	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
+	    Warning(_("audio/alsa: wait underrun error? '%s'\n"),
+		snd_strerror(err));
+	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
+	    if (err >= 0) {
+		continue;
+	    }
+	    Error(_("audio/alsa: snd_pcm_wait(): %s\n"), snd_strerror(err));
+	    usleep(24 * 1000);
+	    return -1;
+	}
+	break;
+    }
+    if (!err || AudioPaused) {		// timeout or some commands
+	return 1;
+    }
+
+    if ((err = AlsaPlayRingbuffer())) {	// empty or error
+	snd_pcm_state_t state;
+
+	if (err < 0) {			// underrun error
+	    return -1;
+	}
+
+	state = snd_pcm_state(AlsaPCMHandle);
+	if (state != SND_PCM_STATE_RUNNING) {
+	    Debug(3, "audio/alsa: stopping play '%s'\n",
+		snd_pcm_state_name(state));
+	    return 0;
+	}
+
+	usleep(24 * 1000);		// let fill/empty the buffers
+    }
+    return 1;
+}
+
+#else
+
 /**
 **	Alsa thread
 */
-static void AlsaThread(void)
+static int AlsaThread(void)
 {
     for (;;) {
 	int err;
@@ -707,6 +1159,7 @@ static void AlsaThread(void)
 	    usleep(24 * 1000);		// let fill/empty the buffers
 	}
     }
+    return 0;
 }
 
 /**
@@ -783,6 +1236,8 @@ static void AlsaThreadFlushBuffers(void)
 
 #endif
 
+#endif
+
 //----------------------------------------------------------------------------
 
 /**
@@ -831,12 +1286,10 @@ static void AlsaInitPCM(void)
     snd_pcm_hw_params_t *hw_params;
     int err;
 
-    //snd_pcm_uframes_t buffer_size;
-
     if (!(handle = AlsaOpenPCM(0))) {
 	return;
     }
-
+    // FIXME: pass-through and pcm out can support different features
     snd_pcm_hw_params_alloca(&hw_params);
     // choose all parameters
     if ((err = snd_pcm_hw_params_any(handle, hw_params)) < 0) {
@@ -846,9 +1299,6 @@ static void AlsaInitPCM(void)
     }
     AlsaCanPause = snd_pcm_hw_params_can_pause(hw_params);
     Info(_("audio/alsa: supports pause: %s\n"), AlsaCanPause ? "yes" : "no");
-    // needs audio setup
-    //snd_pcm_hw_params_get_buffer_size_max(hw_params, &buffer_size);
-    //Info(_("audio/alsa: max buffer size %lu\n"), buffer_size);
 
     AlsaPCMHandle = handle;
 }
@@ -858,16 +1308,16 @@ static void AlsaInitPCM(void)
 //----------------------------------------------------------------------------
 
 /**
-**	Set alsa mixer volume (0-100)
+**	Set alsa mixer volume (0-1000)
 **
-**	@param volume	volume (0 .. 100)
+**	@param volume	volume (0 .. 1000)
 */
 static void AlsaSetVolume(int volume)
 {
     int v;
 
     if (AlsaMixer && AlsaMixerElem) {
-	v = (volume * AlsaRatio) / 1000;
+	v = (volume * AlsaRatio) / (1000 * 1000);
 	snd_mixer_selem_set_playback_volume(AlsaMixerElem, 0, v);
 	snd_mixer_selem_set_playback_volume(AlsaMixerElem, 1, v);
     }
@@ -911,8 +1361,7 @@ static void AlsaInitMixer(void)
 	    if (!strcasecmp(name, alsa_mixer_elem_name)) {
 		snd_mixer_selem_get_playback_volume_range(alsa_mixer_elem,
 		    &alsa_mixer_elem_min, &alsa_mixer_elem_max);
-		AlsaRatio =
-		    (1000 * (alsa_mixer_elem_max - alsa_mixer_elem_min)) / 100;
+		AlsaRatio = 1000 * (alsa_mixer_elem_max - alsa_mixer_elem_min);
 		Debug(3, "audio/alsa: PCM mixer found %ld - %ld ratio %d\n",
 		    alsa_mixer_elem_min, alsa_mixer_elem_max, AlsaRatio);
 		break;
@@ -931,6 +1380,169 @@ static void AlsaInitMixer(void)
 //----------------------------------------------------------------------------
 //	Alsa API
 //----------------------------------------------------------------------------
+
+#ifdef USE_AUDIORING
+
+/**
+**	Get alsa audio delay in time-stamps.
+**
+**	@returns audio delay in time-stamps.
+**
+**	@todo FIXME: handle the case no audio running
+*/
+static int64_t AlsaGetDelay(void)
+{
+    int err;
+    snd_pcm_sframes_t delay;
+    int64_t pts;
+
+    if (!AlsaPCMHandle) {		// setup error
+	return 0L;
+    }
+    // delay in frames in alsa + kernel buffers
+    if ((err = snd_pcm_delay(AlsaPCMHandle, &delay)) < 0) {
+	//Debug(3, "audio/alsa: no hw delay\n");
+	delay = 0L;
+    } else if (snd_pcm_state(AlsaPCMHandle) != SND_PCM_STATE_RUNNING) {
+	//Debug(3, "audio/alsa: %ld frames delay ok, but not running\n", delay);
+    }
+    //Debug(3, "audio/alsa: %ld frames hw delay\n", delay);
+
+    // delay can be negative when underrun occur
+    if (delay < 0) {
+	delay = 0L;
+    }
+
+    pts =
+	((int64_t) delay * 90 * 1000) / AudioRing[AudioRingRead].HwSampleRate;
+
+    return pts;
+}
+
+/**
+**	Setup alsa audio for requested format.
+**
+**	@param freq	sample frequency
+**	@param channels	number of channels
+**	@param use_ac3	use ac3/pass-through device
+**
+**	@retval 0	everything ok
+**	@retval 1	didn't support frequency/channels combination
+**	@retval -1	something gone wrong
+**
+**	@todo FIXME: remove pointer for freq + channels
+*/
+static int AlsaSetup(int *freq, int *channels, int use_ac3)
+{
+    snd_pcm_uframes_t buffer_size;
+    snd_pcm_uframes_t period_size;
+    int err;
+    int delay;
+
+    if (!AlsaPCMHandle) {		// alsa not running yet
+	return -1;
+    }
+    if (1) {				// close+open to fix HDMI no sound bug
+	snd_pcm_t *handle;
+
+	handle = AlsaPCMHandle;
+	// FIXME: need lock
+	AlsaPCMHandle = NULL;		// other threads should check handle
+	snd_pcm_close(handle);
+	if (!(handle = AlsaOpenPCM(use_ac3))) {
+	    return -1;
+	}
+	AlsaPCMHandle = handle;
+    }
+
+    for (;;) {
+	if ((err =
+		snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
+		    AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
+		    SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
+		    96 * 1000))) {
+
+	    /*
+	       if ( err == -EBADFD ) {
+	       snd_pcm_close(AlsaPCMHandle);
+	       AlsaPCMHandle = NULL;
+	       continue;
+	       }
+	     */
+
+	    Error(_("audio/alsa: set params error: %s\n"), snd_strerror(err));
+	    // FIXME: must stop sound, AudioChannels ... invalid
+	    return -1;
+	}
+	break;
+    }
+
+    // this is disabled, no advantages!
+    if (0) {				// no underruns allowed, play silence
+	snd_pcm_sw_params_t *sw_params;
+	snd_pcm_uframes_t boundary;
+
+	snd_pcm_sw_params_alloca(&sw_params);
+	err = snd_pcm_sw_params_current(AlsaPCMHandle, sw_params);
+	if (err < 0) {
+	    Error(_("audio: snd_pcm_sw_params_current failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err = snd_pcm_sw_params_get_boundary(sw_params, &boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_get_boundary failed: %s\n"),
+		snd_strerror(err));
+	}
+	Debug(4, "audio/alsa: boundary %lu frames\n", boundary);
+	if ((err =
+		snd_pcm_sw_params_set_stop_threshold(AlsaPCMHandle, sw_params,
+		    boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err =
+		snd_pcm_sw_params_set_silence_size(AlsaPCMHandle, sw_params,
+		    boundary)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
+		snd_strerror(err));
+	}
+	if ((err = snd_pcm_sw_params(AlsaPCMHandle, sw_params)) < 0) {
+	    Error(_("audio: snd_pcm_sw_params failed: %s\n"),
+		snd_strerror(err));
+	}
+    }
+    // update buffer
+
+    snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
+    Debug(3, "audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n",
+	buffer_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
+	    buffer_size) * 1000 / (*freq * *channels * AudioBytesProSample),
+	period_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
+	    period_size) * 1000 / (*freq * *channels * AudioBytesProSample));
+    Debug(3, "audio/alsa: state %s\n",
+	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+
+    AudioStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
+    // buffer time/delay in ms
+    delay = AudioBufferTime;
+    if (VideoAudioDelay > 0) {
+	delay += VideoAudioDelay / 90;
+    }
+    if (AudioStartThreshold <
+	(*freq * *channels * AudioBytesProSample * delay) / 1000U) {
+	AudioStartThreshold =
+	    (*freq * *channels * AudioBytesProSample * delay) / 1000U;
+    }
+    // no bigger, than 1/3 the buffer
+    if (AudioStartThreshold > AudioRingBufferSize / 3) {
+	AudioStartThreshold = AudioRingBufferSize / 3;
+    }
+    Info(_("audio/alsa: start delay %ums\n"), (AudioStartThreshold * 1000)
+	/ (*freq * *channels * AudioBytesProSample));
+
+    return 0;
+}
+
+#else
 
 /**
 **	Get alsa audio delay in time stamps.
@@ -1208,6 +1820,8 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     return ret;
 }
 
+#endif
+
 /**
 **	Play audio.
 */
@@ -1272,7 +1886,9 @@ static void AlsaInit(void)
 #else
     (void)AlsaNoopCallback;
 #endif
-    AlsaRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
+#ifndef USE_AUDIORING
+    AlsaRingBuffer = RingBufferNew(AudioRingBufferSize);
+#endif
 
     AlsaInitPCM();
     AlsaInitMixer();
@@ -1292,11 +1908,13 @@ static void AlsaExit(void)
 	AlsaMixer = NULL;
 	AlsaMixerElem = NULL;
     }
+#ifndef USE_AUDIORING
     if (AlsaRingBuffer) {
 	RingBufferDel(AlsaRingBuffer);
 	AlsaRingBuffer = NULL;
     }
     AlsaFlushBuffer = 0;
+#endif
 }
 
 /**
@@ -1306,17 +1924,25 @@ static const AudioModule AlsaModule = {
     .Name = "alsa",
 #ifdef USE_AUDIO_THREAD
     .Thread = AlsaThread,
+#ifdef USE_AUDIORING
+    //.Enqueue = AlsaThreadEnqueue,
+    //.VideoReady = AlsaVideoReady,
+    .FlushBuffers = AlsaFlushBuffers,
+#else
     .Enqueue = AlsaThreadEnqueue,
     .VideoReady = AlsaVideoReady,
     .FlushBuffers = AlsaThreadFlushBuffers,
+#endif
 #else
     .Enqueue = AlsaEnqueue,
     .VideoReady = AlsaVideoReady,
     .FlushBuffers = AlsaFlushBuffers,
 #endif
+#ifndef USE_AUDIORING
     .Poller = AlsaPoller,
     .FreeBytes = AlsaFreeBytes,
     .UsedBytes = AlsaUsedBytes,
+#endif
     .GetDelay = AlsaGetDelay,
     .SetVolume = AlsaSetVolume,
     .Setup = AlsaSetup,
@@ -1533,7 +2159,7 @@ static int OssUsedBytes(void)
 /**
 **	OSS thread
 */
-static void OssThread(void)
+static int OssThread(void)
 {
     for (;;) {
 	struct pollfd fds[1];
@@ -1573,6 +2199,7 @@ static void OssThread(void)
 	    usleep(OssFragmentTime * 1000);	// let fill/empty the buffers
 	}
     }
+    return 0;
 }
 
 /**
@@ -1679,16 +2306,16 @@ static void OssInitPCM(void)
 //----------------------------------------------------------------------------
 
 /**
-**	Set OSS mixer volume (0-100)
+**	Set OSS mixer volume (0-1000)
 **
-**	@param volume	volume (0 .. 100)
+**	@param volume	volume (0 .. 1000)
 */
 static void OssSetVolume(int volume)
 {
     int v;
 
     if (OssMixerFildes != -1) {
-	v = (volume * 255) / 100;
+	v = (volume * 255) / 1000;
 	v &= 0xff;
 	v = (v << 8) | v;
 	if (ioctl(OssMixerFildes, MIXER_WRITE(OssMixerChannel), &v) < 0) {
@@ -1863,7 +2490,7 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
 	return -1;
     }
     if (tmp != *freq) {
-	Warning(_("audio/oss: device doesn't support %d Hz sample rate.\n"),
+	Warning(_("audio/oss: device doesn't support %dHz sample rate.\n"),
 	    *freq);
 	*freq = tmp;
 	ret = 1;
@@ -1945,7 +2572,7 @@ void OssPause(void)
 */
 static void OssInit(void)
 {
-    OssRingBuffer = RingBufferNew(2 * 48000 * 8 * 2);	// ~2s 8ch 16bit
+    OssRingBuffer = RingBufferNew(AudioRingBufferSize);
 
     OssInitPCM();
     OssInitMixer();
@@ -2039,9 +2666,9 @@ static int64_t NoopGetDelay(void)
 }
 
 /**
-**	Set mixer volume (0-100)
+**	Set mixer volume (0-1000)
 **
-**	@param volume	volume (0 .. 100)
+**	@param volume	volume (0 .. 1000)
 */
 static void NoopSetVolume( __attribute__ ((unused))
     int volume)
@@ -2095,8 +2722,47 @@ static const AudioModule NoopModule = {
 
 #ifdef USE_AUDIO_THREAD
 
+#ifdef USE_AUDIORING
+
+/**
+**	Prepare next ring buffer.
+*/
+static int AudioNextRing(void)
+{
+    int use_ac3;
+    int sample_rate;
+    int channels;
+
+    // update audio format
+    // not always needed, but check if needed is too complex
+    use_ac3 = AudioRing[AudioRingRead].UseAc3;
+    sample_rate = AudioRing[AudioRingRead].HwSampleRate;
+    channels = AudioRing[AudioRingRead].HwChannels;
+    if (AudioUsedModule->Setup(&sample_rate, &channels, use_ac3)) {
+	Error(_("audio: can't set channels %d sample-rate %dHz\n"), channels,
+	    sample_rate);
+	// FIXME: handle error
+	AudioRing[AudioRingRead].HwSampleRate = 0;
+	return -1;
+    }
+    AudioSetVolume(AudioVolume);	// update channel delta
+    AudioResetCompressor();
+    AudioResetNormalizer();
+    AudioRing[AudioRingRead].HwSampleRate = sample_rate;
+    AudioRing[AudioRingRead].HwChannels = channels;
+
+    // stop if not enough in next buffer
+    if (AudioStartThreshold >=
+	RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)) {
+	return 1;
+    }
+    return 0;
+}
+
 /**
 **	Audio play thread.
+**
+**	@param dummy	unused thread argument
 */
 static void *AudioPlayHandlerThread(void *dummy)
 {
@@ -2109,49 +2775,118 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    pthread_cond_wait(&AudioStartCond, &AudioMutex);
 	    // cond_wait can return, without signal!
 	} while (!AudioRunning);
+	pthread_mutex_unlock(&AudioMutex);
+
+	Debug(3, "audio: ----> %dms start\n", (AudioUsedBytes() * 1000)
+	    / (!AudioRing[AudioRingRead].HwSampleRate +
+		!AudioRing[AudioRingRead].HwChannels +
+		AudioRing[AudioRingRead].HwSampleRate *
+		AudioRing[AudioRingRead].HwChannels * AudioBytesProSample));
+
+	do {
+	    int filled;
+	    int read;
+	    int flush;
+	    int err;
+
+	    // look if there is a flush command in the queue
+	    flush = 0;
+	    filled = atomic_read(&AudioRingFilled);
+	    read = AudioRingRead;
+	    while (filled--) {
+		read = (read + 1) % AUDIO_RING_MAX;
+		if (AudioRing[read].FlushBuffers) {
+		    AudioRing[read].FlushBuffers = 0;
+		    AudioRingRead = read;
+		    atomic_set(&AudioRingFilled, filled);
+		    // handle all flush in queue
+		    flush = 1;
+		}
+	    }
+
+	    if (flush) {
+		AudioUsedModule->FlushBuffers();
+		if (AudioNextRing()) {
+		    break;
+		}
+	    }
+	    // try to play some samples
+	    err = AudioUsedModule->Thread();
+	    // underrun, check if new ring buffer is available
+	    if (!err) {
+		int use_ac3;
+		int sample_rate;
+		int channels;
+		int old_use_ac3;
+		int old_sample_rate;
+		int old_channels;
+
+		// underrun, and no new ring buffer, goto sleep.
+		if (!atomic_read(&AudioRingFilled)) {
+		    break;
+		}
+
+		Debug(3, "audio: next ring buffer\n");
+		old_use_ac3 = AudioRing[AudioRingRead].UseAc3;
+		old_sample_rate = AudioRing[AudioRingRead].HwSampleRate;
+		old_channels = AudioRing[AudioRingRead].HwChannels;
+
+		atomic_dec(&AudioRingFilled);
+		AudioRingRead = (AudioRingRead + 1) % AUDIO_RING_MAX;
+
+		use_ac3 = AudioRing[AudioRingRead].UseAc3;
+		sample_rate = AudioRing[AudioRingRead].HwSampleRate;
+		channels = AudioRing[AudioRingRead].HwChannels;
+		Debug(3, "audio: thread channels %d frequency %dHz %s\n",
+		    channels, sample_rate, use_ac3 ? "ac3" : "pcm");
+		// audio config changed?
+		if (old_use_ac3 != use_ac3 || old_sample_rate != sample_rate
+		    || old_channels != channels) {
+		    // FIXME: wait for buffer drain
+		    if (AudioNextRing()) {
+			break;
+		    }
+		} else {
+		    AudioResetCompressor();
+		    AudioResetNormalizer();
+		}
+	    }
+	} while (AudioRing[AudioRingRead].HwSampleRate);
+    }
+    return dummy;
+}
+
+#else
+
+/**
+**	Audio play thread.
+**
+**	@param dummy	unused thread argument
+*/
+static void *AudioPlayHandlerThread(void *dummy)
+{
+    Debug(3, "audio: play thread started\n");
+    for (;;) {
+	Debug(3, "audio: wait on start condition\n");
+	pthread_mutex_lock(&AudioMutex);
+	AudioRunning = 0;
+	do {
+	    pthread_cond_wait(&AudioStartCond, &AudioMutex);
+	    // cond_wait can return, without signal!
+	} while (!AudioRunning);
+	pthread_mutex_unlock(&AudioMutex);
 
 	Debug(3, "audio: ----> %dms start\n", (AudioUsedBytes() * 1000)
 	    / (!AudioSampleRate + !AudioChannels +
 		AudioSampleRate * AudioChannels * AudioBytesProSample));
-
-	pthread_mutex_unlock(&AudioMutex);
-
-#ifdef USE_AUDIORING
-	if (atomic_read(&AudioRingFilled) > 1) {
-	    int sample_rate;
-	    int channels;
-
-	    // skip all sample changes between
-	    while (atomic_read(&AudioRingFilled) > 1) {
-		Debug(3, "audio: skip ring buffer\n");
-		AudioRingRead = (AudioRingRead + 1) % AUDIO_RING_MAX;
-		atomic_dec(&AudioRingFilled);
-	    }
-
-#ifdef USE_ALSA
-	    // FIXME: flush only if there is something to flush
-	    AlsaFlushBuffers();
-
-	    sample_rate = AudioRing[AudioRingRead].SampleRate;
-	    channels = AudioRing[AudioRingRead].Channels;
-	    Debug(3, "audio: thread channels %d sample-rate %d hz\n", channels,
-		sample_rate);
-
-	    if (AlsaSetup(&sample_rate, &channels)) {
-		Error(_("audio: can't set channels %d sample-rate %d hz\n"),
-		    channels, sample_rate);
-	    }
-	    Debug(3, "audio: thread channels %d sample-rate %d hz\n",
-		AudioChannels, AudioSampleRate);
-#endif
-	}
-#endif
 
 	AudioUsedModule->Thread();
     }
 
     return dummy;
 }
+
+#endif
 
 /**
 **	Initialize audio thread.
@@ -2162,9 +2897,10 @@ static void AudioInitThread(void)
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
     pthread_setname_np(AudioThread, "softhddev audio");
-
+#ifndef USE_AUDIORING
     pthread_yield();
     usleep(5 * 1000);			// give thread some time to start
+#endif
 }
 
 /**
@@ -2213,6 +2949,68 @@ static const AudioModule *AudioModules[] = {
 */
 void AudioEnqueue(const void *samples, int count)
 {
+#ifdef USE_AUDIORING
+    size_t n;
+
+#ifdef DEBUG
+    static uint32_t last_tick;
+    uint32_t tick;
+
+    tick = GetMsTicks();
+    if (tick - last_tick > 101) {
+	Debug(3, "audio: enqueue %4d %dms\n", count, tick - last_tick);
+    }
+    last_tick = tick;
+#endif
+
+    if (!AudioRing[AudioRingWrite].HwSampleRate) {
+	Debug(3, "audio: enqueue not ready\n");
+	return;				// no setup yet
+    }
+
+    if (AudioCompression) {
+	// FIXME: quick&dirty const cast
+	AudioCompressor((int16_t *) samples, count);
+    }
+    if (AudioNormalize) {
+	// FIXME: quick&dirty const cast
+	AudioNormalizer((int16_t *) samples, count);
+    }
+
+    n = RingBufferWrite(AudioRing[AudioRingWrite].RingBuffer, samples, count);
+    if (n != (size_t) count) {
+	Error(_("audio: can't place %d samples in ring buffer\n"), count);
+	// too many bytes are lost
+	// FIXME: caller checks buffer full.
+	// FIXME: should skip more, longer skip, but less often?
+	// FIXME: round to channel + sample border
+    }
+
+    if (!AudioRunning) {		// check, if we can start the thread
+	//int64_t video_pts;
+
+	//video_pts = VideoGetClock();
+	n = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+	Debug(3, "audio: start? %4zdms\n", (n * 1000)
+	    / (AudioRing[AudioRingWrite].HwSampleRate *
+		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
+
+	// forced start or enough video + audio buffered
+	if (AudioStartThreshold * 2 < n || (AudioVideoIsReady
+		&& AudioStartThreshold < n)) {
+	    // restart play-back
+	    // no lock needed, can wakeup next time
+	    AudioRunning = 1;
+	    pthread_cond_signal(&AudioStartCond);
+	}
+    }
+    // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
+    if (AudioRing[AudioRingWrite].PTS != (int64_t) INT64_C(0x8000000000000000)) {
+	AudioRing[AudioRingWrite].PTS += ((int64_t) count * 90 * 1000)
+	    / (AudioRing[AudioRingWrite].HwSampleRate *
+	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
+    }
+#else
     if (!AudioSampleRate || !AudioChannels) {
 	return;				// not setup
     }
@@ -2239,15 +3037,59 @@ void AudioEnqueue(const void *samples, int count)
 	    ((int64_t) count * 90 * 1000) / (AudioSampleRate * AudioChannels *
 	    AudioBytesProSample);
     }
+#endif
 }
 
 /**
 **	Video is ready.
+**
+**	@param pts	video presentation timestamp
 */
-void AudioVideoReady(void)
+void AudioVideoReady(int64_t pts)
 {
+#ifdef USE_AUDIORING
+    if (AudioRing[AudioRingWrite].HwSampleRate
+	&& AudioRing[AudioRingWrite].HwChannels) {
+	if (pts != (int64_t) INT64_C(0x8000000000000000)
+	    && AudioRing[AudioRingWrite].PTS !=
+	    (int64_t) INT64_C(0x8000000000000000)) {
+	    Debug(3, "audio: a/v %d %s\n",
+		(int)(pts - AudioRing[AudioRingWrite].PTS) / 90,
+		AudioRunning ? "running" : "stopped");
+	}
+	Debug(3, "audio: start %4zdms %s|%s video ready\n",
+	    (RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer) * 1000)
+	    / (AudioRing[AudioRingWrite].HwSampleRate *
+		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
+	    Timestamp2String(pts),
+	    Timestamp2String(AudioRing[AudioRingWrite].PTS));
+	if (!AudioRunning) {
+	    size_t used;
+
+	    used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+	    // enough video + audio buffered
+	    if (AudioStartThreshold < used) {
+		// too much audio buffered, skip it
+		if (AudioStartThreshold * 2 < used) {
+		    Debug(3, "audio: start %4zdms skip video ready\n",
+			((used - AudioStartThreshold * 2) * 1000)
+			/ (AudioRing[AudioRingWrite].HwSampleRate *
+			    AudioRing[AudioRingWrite].HwChannels *
+			    AudioBytesProSample));
+		    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
+			used - AudioStartThreshold * 2);
+		}
+		AudioRunning = 1;
+		pthread_cond_signal(&AudioStartCond);
+	    }
+	}
+    }
+    AudioVideoIsReady = 1;
+#else
+    (void)pts;
     AudioVideoIsReady = 1;
     AudioUsedModule->VideoReady();
+#endif
 }
 
 /**
@@ -2255,7 +3097,30 @@ void AudioVideoReady(void)
 */
 void AudioFlushBuffers(void)
 {
+#ifdef USE_AUDIORING
+    int old;
+
+    old = AudioRingWrite;
+    AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
+    AudioRing[AudioRingWrite].FlushBuffers = 1;
+    AudioRing[AudioRingWrite].UseAc3 = AudioRing[old].UseAc3;
+    AudioRing[AudioRingWrite].HwSampleRate = AudioRing[old].HwSampleRate;
+    AudioRing[AudioRingWrite].HwChannels = AudioRing[old].HwChannels;
+    AudioRing[AudioRingWrite].PTS = INT64_C(0x8000000000000000);
+    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
+	RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer));
+    Debug(3, "audio: reset video ready\n");
+    AudioVideoIsReady = 0;
+
+    atomic_inc(&AudioRingFilled);
+
+    if (!AudioRunning) {		// wakeup thread to flush buffers
+	AudioRunning = 1;
+	pthread_cond_signal(&AudioStartCond);
+    }
+#else
     AudioUsedModule->FlushBuffers();
+#endif
 }
 
 /**
@@ -2271,7 +3136,13 @@ void AudioPoller(void)
 */
 int AudioFreeBytes(void)
 {
+#ifdef USE_AUDIORING
+    return AudioRing[AudioRingWrite].
+	RingBuffer ? RingBufferFreeBytes(AudioRing[AudioRingWrite].
+	RingBuffer) : INT32_MAX;
+#else
     return AudioUsedModule->FreeBytes();
+#endif
 }
 
 /**
@@ -2279,7 +3150,13 @@ int AudioFreeBytes(void)
 */
 int AudioUsedBytes(void)
 {
+#ifdef USE_AUDIORING
+    return AudioRing[AudioRingWrite].
+	RingBuffer ? RingBufferUsedBytes(AudioRing[AudioRingWrite].
+	RingBuffer) : 0;
+#else
     return AudioUsedModule->UsedBytes();
+#endif
 }
 
 /**
@@ -2289,7 +3166,29 @@ int AudioUsedBytes(void)
 */
 int64_t AudioGetDelay(void)
 {
+#ifdef USE_AUDIORING
+    int64_t pts;
+
+    if (!AudioRunning) {
+	return 0L;			// audio not running
+    }
+    if (!AudioRing[AudioRingRead].HwSampleRate) {
+	return 0L;			// audio not setup
+    }
+    if (atomic_read(&AudioRingFilled)) {
+	return 0L;			// invalid delay
+    }
+    pts = AudioUsedModule->GetDelay();
+    pts += ((int64_t) RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)
+	* 90 * 1000) / (AudioRing[AudioRingRead].HwSampleRate *
+	AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
+    Debug(4, "audio/alsa: hw+sw delay %zd %" PRId64 "ms\n",
+	RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer), pts / 90);
+
+    return pts;
+#else
     return AudioUsedModule->GetDelay();
+#endif
 }
 
 /**
@@ -2299,6 +3198,14 @@ int64_t AudioGetDelay(void)
 */
 void AudioSetClock(int64_t pts)
 {
+#ifdef USE_AUDIORING
+    if (AudioRing[AudioRingWrite].PTS != pts) {
+	Debug(4, "audio: set clock %s -> %s pts\n",
+	    Timestamp2String(AudioRing[AudioRingWrite].PTS),
+	    Timestamp2String(pts));
+    }
+    AudioRing[AudioRingWrite].PTS = pts;
+#else
 #ifdef DEBUG
     if (AudioPTS != pts) {
 	Debug(4, "audio: set clock %s -> %s pts\n", Timestamp2String(AudioPTS),
@@ -2306,6 +3213,7 @@ void AudioSetClock(int64_t pts)
     }
 #endif
     AudioPTS = pts;
+#endif
 }
 
 /**
@@ -2315,6 +3223,18 @@ void AudioSetClock(int64_t pts)
 */
 int64_t AudioGetClock(void)
 {
+#ifdef USE_AUDIORING
+    // (cast) needed for the evil gcc
+    if (AudioRing[AudioRingRead].PTS != (int64_t) INT64_C(0x8000000000000000)) {
+	int64_t delay;
+
+	// delay zero, if no valid time stamp
+	if ((delay = AudioGetDelay())) {
+	    return AudioRing[AudioRingRead].PTS - delay;
+	}
+    }
+    return INT64_C(0x8000000000000000);
+#else
     // (cast) needed for the evil gcc
     if (AudioPTS != (int64_t) INT64_C(0x8000000000000000)) {
 	int64_t delay;
@@ -2324,16 +3244,34 @@ int64_t AudioGetClock(void)
 	}
     }
     return INT64_C(0x8000000000000000);
+#endif
 }
 
 /**
-**	Set mixer volume (0-100)
+**	Set mixer volume (0-1000)
 **
-**	@param volume	volume (0 .. 100)
+**	@param volume	volume (0 .. 1000)
 */
 void AudioSetVolume(int volume)
 {
-    return AudioUsedModule->SetVolume(volume);
+    AudioVolume = volume;
+#ifdef USE_AUDIORING
+    // reduce loudness for stereo output
+    if (AudioStereoDescent && AudioRing[AudioRingRead].HwChannels == 2
+	&& !AudioRing[AudioRingRead].UseAc3) {
+	volume -= AudioStereoDescent;
+	if (volume < 0) {
+	    volume = 0;
+	} else if (volume > 1000) {
+	    volume = 1000;
+	}
+    }
+#endif
+    AudioAmplifier = volume;
+    printf("volume %d\n", volume);
+    if (!AudioSoftVolume) {
+	AudioUsedModule->SetVolume(volume);
+    }
 }
 
 /**
@@ -2346,12 +3284,10 @@ void AudioSetVolume(int volume)
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
 **	@retval -1	something gone wrong
-**
-**	@todo audio changes must be queued and done when the buffer is empty
 */
 int AudioSetup(int *freq, int *channels, int use_ac3)
 {
-    Debug(3, "audio: channels %d frequency %d hz %s\n", *channels, *freq,
+    Debug(3, "audio: setup channels %d frequency %dHz %s\n", *channels, *freq,
 	use_ac3 ? "ac3" : "pcm");
 
     // invalid parameter
@@ -2362,9 +3298,16 @@ int AudioSetup(int *freq, int *channels, int use_ac3)
     }
 #ifdef USE_AUDIORING
     // FIXME: need to store possible combination and report this
+    if (*freq != 44100 && *freq != 48000) {
+	return -1;
+    }
+    if (*channels < 1 || *channels > 8) {
+	return -1;
+    }
     return AudioRingAdd(*freq, *channels, use_ac3);
-#endif
+#else
     return AudioUsedModule->Setup(freq, channels, use_ac3);
+#endif
 }
 
 /**
@@ -2400,6 +3343,7 @@ void AudioPause(void)
 **	PES audio packets have a max distance of 300 ms.
 **	TS audio packet have a max distance of 100 ms.
 **	The period size of the audio buffer is 24 ms.
+**	With streamdev sometimes extra +100ms are needed.
 */
 void AudioSetBufferTime(int delay)
 {
@@ -2407,6 +3351,69 @@ void AudioSetBufferTime(int delay)
 	delay = 336;
     }
     AudioBufferTime = delay;
+}
+
+/**
+**	Enable/disable software volume.
+**
+**	@param onoff	-1 toggle, true turn on, false turn off
+*/
+void AudioSetSoftvol(int onoff)
+{
+    if (onoff < 0) {
+	AudioSoftVolume ^= 1;
+    } else {
+	AudioSoftVolume = onoff;
+    }
+}
+
+/**
+**	Set normalize volume parameters.
+**
+**	@param onoff	-1 toggle, true turn on, false turn off
+**	@param maxfac	max. factor of normalize /1000
+*/
+void AudioSetNormalize(int onoff, int maxfac)
+{
+    if (onoff < 0) {
+	AudioNormalize ^= 1;
+    } else {
+	AudioNormalize = onoff;
+    }
+    AudioMaxNormalize = maxfac;
+}
+
+/**
+**	Set volume compression parameters.
+**
+**	@param onoff	-1 toggle, true turn on, false turn off
+**	@param maxfac	max. factor of compression /1000
+*/
+void AudioSetCompression(int onoff, int maxfac)
+{
+    if (onoff < 0) {
+	AudioCompression ^= 1;
+    } else {
+	AudioCompression = onoff;
+    }
+    AudioMaxCompression = maxfac;
+    if (!AudioCompressionFactor) {
+	AudioCompressionFactor = 1000;
+    }
+    if (AudioCompressionFactor > AudioMaxCompression) {
+	AudioCompressionFactor = AudioMaxCompression;
+    }
+}
+
+/**
+**	Set stereo loudness descent.
+**
+**	@param delta	value (/1000) to reduce stereo volume
+*/
+void AudioSetStereoDescent(int delta)
+{
+    AudioStereoDescent = delta;
+    AudioSetVolume(AudioVolume);	// update channel delta
 }
 
 /**
@@ -2468,10 +3475,13 @@ void AudioSetChannel(const char *channel)
 */
 void AudioInit(void)
 {
-    int freq;
-    int chan;
     unsigned u;
     const char *name;
+
+#ifndef USE_AUDIORING
+    int freq;
+    int chan;
+#endif
 
     name = "noop";
 #ifdef USE_OSS
@@ -2500,19 +3510,20 @@ void AudioInit(void)
   found:
 #ifdef USE_AUDIORING
     AudioRingInit();
-#endif
+    AudioUsedModule->Init();
+#else
     AudioUsedModule->Init();
     freq = 48000;
     chan = 2;
     if (AudioSetup(&freq, &chan, 0)) {	// set default parameters
 	Error(_("audio: can't do initial setup\n"));
     }
+#endif
 #ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
 	AudioInitThread();
     }
 #endif
-    AudioPaused = 0;
 }
 
 /**
@@ -2521,7 +3532,9 @@ void AudioInit(void)
 void AudioExit(void)
 {
 #ifdef USE_AUDIO_THREAD
-    AudioExitThread();
+    if (AudioUsedModule->Thread) {	// supports threads
+	AudioExitThread();
+    }
 #endif
     AudioUsedModule->Exit();
     AudioUsedModule = &NoopModule;
@@ -2529,6 +3542,7 @@ void AudioExit(void)
     AudioRingExit();
 #endif
     AudioRunning = 0;
+    AudioPaused = 0;
 }
 
 #ifdef AUDIO_TEST

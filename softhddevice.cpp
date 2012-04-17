@@ -35,10 +35,10 @@
 #include "softhddevice.h"
 extern "C"
 {
+#include "audio.h"
 #include "video.h"
     extern const char *X11DisplayName;	///< x11 display name
 
-    extern void AudioPoller(void);
     extern void CodecSetAudioPassthrough(int);
     extern void CodecSetAudioDownmix(int);
 }
@@ -121,6 +121,7 @@ static int ConfigAudioMaxNormalize;	///< config max normalize factor
 static char ConfigAudioCompression;	///< config use volume compression
 static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
+int ConfigAudioBufferTime;		///< config size ms of audio buffer
 
 static volatile int DoMakePrimary;	///< switch primary device to this
 
@@ -482,6 +483,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int SuspendX11;
 
     int Video;
+    int VideoFormat;
+    int VideoDisplayFormat;
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int StudioLevels;
@@ -512,6 +515,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioCompression;
     int AudioMaxCompression;
     int AudioStereoDescent;
+    int AudioBufferTime;
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
@@ -562,6 +566,12 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag,
 */
 void cMenuSetupSoft::Create(void)
 {
+    static const char *const video_display_formats_4_3[] = {
+	"pan&scan", "letterbox", "center cut-out",
+    };
+    static const char *const video_display_formats_16_9[] = {
+	"pan&scan", "pillarbox", "center cut-out",
+    };
     static const char *const deinterlace[] = {
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
 	"Software Spatial",
@@ -598,26 +608,36 @@ void cMenuSetupSoft::Create(void)
 	//	suspend
 	//
 	Add(SeparatorItem(tr("Suspend")));
-	Add(new cMenuEditBoolItem(tr("suspend closes video+audio"),
+	Add(new cMenuEditBoolItem(tr("Suspend closes video+audio"),
 		&SuspendClose, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("suspend stops x11"), &SuspendX11,
+	Add(new cMenuEditBoolItem(tr("Suspend stops x11"), &SuspendX11,
 		trVDR("no"), trVDR("yes")));
     }
     //
     //	video
     //
     Add(CollapsedItem(tr("Video"), Video));
-
     if (Video) {
-	Add(new cMenuEditIntItem(tr("video background color (RGB)"),
+	Add(new cMenuEditBoolItem(trVDR("Setup.DVB$Video format"),
+		&VideoFormat, "4:3", "16:9"));
+	if (VideoFormat) {
+	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
+		&VideoDisplayFormat, 3, video_display_formats_16_9));
+	} else {
+	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
+		&VideoDisplayFormat, 3, video_display_formats_4_3));
+	}
+
+	// FIXME: switch config gray/color configuration
+	Add(new cMenuEditIntItem(tr("Video background color (RGB)"),
 		(int *)&Background, 0, 0x00FFFFFF));
-	Add(new cMenuEditIntItem(tr("video background color (Alpha)"),
+	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"),
 		(int *)&BackgroundAlpha, 0, 0xFF));
 	Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
 		&StudioLevels, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode,
 		trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("soft start a/v sync"), &SoftStartSync,
+	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync,
 		trVDR("no"), trVDR("yes")));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
@@ -648,11 +668,11 @@ void cMenuSetupSoft::Create(void)
 	//  auto-crop
 	//
 	Add(SeparatorItem(tr("Auto-crop")));
-	Add(new cMenuEditIntItem(tr("autocrop interval (frames)"),
+	Add(new cMenuEditIntItem(tr("Autocrop interval (frames)"),
 		&AutoCropInterval, 0, 200, tr("off")));
-	Add(new cMenuEditIntItem(tr("autocrop delay (n * interval)"),
+	Add(new cMenuEditIntItem(tr("Autocrop delay (n * interval)"),
 		&AutoCropDelay, 0, 200));
-	Add(new cMenuEditIntItem(tr("autocrop tolerance (pixel)"),
+	Add(new cMenuEditIntItem(tr("Autocrop tolerance (pixel)"),
 		&AutoCropTolerance, 0, 32));
     }
     //
@@ -667,6 +687,20 @@ void cMenuSetupSoft::Create(void)
 		2, passthrough));
 	Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
 		trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol,
+		tr("Hardware"), tr("Software")));
+	Add(new cMenuEditBoolItem(tr("Enable normalize volume"),
+		&AudioMaxNormalize, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditIntItem(tr("  Max normalize factor (/1000)"),
+		&AudioMaxNormalize, 0, 5000));
+	Add(new cMenuEditBoolItem(tr("Enable volume compression"),
+		&AudioCompression, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditIntItem(tr("  Max compression factor (/1000)"),
+		&AudioMaxCompression, 0, 10000));
+	Add(new cMenuEditIntItem(tr("Reduce stereo volume (/1000)"),
+		&AudioStereoDescent, 0, 1000));
+	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"),
+		&AudioBufferTime, 0, 1000));
     }
 
     SetCurrent(Get(current));		// restore selected menu entry
@@ -682,19 +716,22 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_general;
     int old_video;
     int old_audio;
+    int old_video_format;
     int old_resolution_shown[RESOLUTIONS];
     int i;
 
     old_general = General;
     old_video = Video;
     old_audio = Audio;
+    old_video_format = VideoFormat;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     state = cMenuSetupPage::ProcessKey(key);
 
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
 	// this needed because VDR menus are evil slow
-	if (old_general != General || old_video != Video || old_audio != Audio) {
+	if (old_general != General || old_video != Video
+		|| old_audio != Audio || old_video_format != VideoFormat) {
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
@@ -734,6 +771,8 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     //	video
     //
     Video = 0;
+    VideoFormat = Setup.VideoFormat;
+    VideoDisplayFormat = Setup.VideoDisplayFormat;
     // no unsigned int menu item supported, split background color/alpha
     Background = ConfigVideoBackground >> 8;
     BackgroundAlpha = ConfigVideoBackground & 0xFF;
@@ -773,6 +812,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioCompression = ConfigAudioCompression;
     AudioMaxCompression = ConfigAudioMaxCompression;
     AudioStereoDescent = ConfigAudioStereoDescent;
+    AudioBufferTime = ConfigAudioBufferTime;
 
     Create();
 }
@@ -789,6 +829,20 @@ void cMenuSetupSoft::Store(void)
 	HideMainMenuEntry);
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
+    // FIXME: this is also in VDR-DVB setup
+    if (Setup.VideoFormat != VideoFormat) {
+	Setup.VideoFormat = VideoFormat;
+	cDevice::PrimaryDevice()->SetVideoFormat(Setup.VideoFormat);
+	printf("video-format\n");
+    }
+    SetupStore("VideoFormat", Setup.VideoFormat);
+    if (Setup.VideoDisplayFormat != VideoDisplayFormat) {
+	Setup.VideoDisplayFormat = VideoDisplayFormat;
+	cDevice::PrimaryDevice()->SetVideoDisplayFormat(
+		eVideoDisplayFormat(Setup.VideoDisplayFormat));
+	printf("video-display-format\n");
+    }
+    SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
 
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
@@ -838,7 +892,7 @@ void cMenuSetupSoft::Store(void)
 	AutoCropTolerance);
     VideoSetAutoCrop(ConfigAutoCropInterval, ConfigAutoCropDelay,
 	ConfigAutoCropTolerance);
-    ConfigAutoCropEnabled = ConfigAutoCropInterval;
+    ConfigAutoCropEnabled = ConfigAutoCropInterval != 0;
 
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
     VideoSetAudioDelay(ConfigVideoAudioDelay);
@@ -846,7 +900,17 @@ void cMenuSetupSoft::Store(void)
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
     SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
     CodecSetAudioDownmix(ConfigAudioDownmix);
-    // FIXME: new audio
+    SetupStore("AudioSoftvol", ConfigAudioSoftvol = AudioSoftvol );
+    AudioSetSoftvol(ConfigAudioSoftvol);
+    SetupStore("AudioNormalize", ConfigAudioNormalize = AudioNormalize );
+    SetupStore("AudioMaxNormalize", ConfigAudioMaxNormalize = AudioMaxNormalize );
+    AudioSetNormalize(ConfigAudioNormalize, ConfigAudioMaxNormalize);
+    SetupStore("AudioCompression", ConfigAudioCompression = AudioCompression );
+    SetupStore("AudioMaxCompression", ConfigAudioMaxCompression = AudioMaxCompression );
+    AudioSetCompression(ConfigAudioCompression, ConfigAudioMaxCompression);
+    SetupStore("AudioStereoDescent", ConfigAudioStereoDescent = AudioStereoDescent );
+    AudioSetStereoDescent(ConfigAudioStereoDescent);
+    SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime );
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1039,7 +1103,7 @@ static void HandleHotkey(int code)
 	    Skins.QueueMessage(mtInfo, tr("auto-crop enabled"));
 	    break;
 	case 25:			// toggle auto-crop
-	    ConfigAutoCropEnabled = !ConfigAutoCropEnabled;
+	    ConfigAutoCropEnabled ^= 1;
 	    // no interval configured, use some default
 	    if (!ConfigAutoCropInterval) {
 		ConfigAutoCropInterval = 50;
@@ -1283,6 +1347,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	    return true;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    dsyslog("[softhddev] play mode external\n");
+	    // FIXME: what if already suspended?
 	    Suspend(1, 1, 0);
 	    SuspendMode = SUSPEND_EXTERNAL;
 	    return true;
@@ -1916,7 +1981,7 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     if (!strcasecmp(name, "AutoCrop.Interval")) {
 	VideoSetAutoCrop(ConfigAutoCropInterval =
 	    atoi(value), ConfigAutoCropDelay, ConfigAutoCropTolerance);
-	ConfigAutoCropEnabled = ConfigAutoCropInterval;
+	ConfigAutoCropEnabled = ConfigAutoCropInterval != 0;
 	return true;
     }
     if (!strcasecmp(name, "AutoCrop.Delay")) {
@@ -1942,7 +2007,39 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	CodecSetAudioDownmix(ConfigAudioDownmix = atoi(value));
 	return true;
     }
-    // FIXME: new audio
+    if (!strcasecmp(name, "AudioSoftvol")) {
+	AudioSetSoftvol(ConfigAudioSoftvol =  atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "AudioNormalize")) {
+	ConfigAudioNormalize = atoi(value);
+	AudioSetNormalize(ConfigAudioNormalize, ConfigAudioMaxNormalize);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioMaxNormalize")) {
+	ConfigAudioMaxNormalize = atoi(value);
+	AudioSetNormalize(ConfigAudioNormalize, ConfigAudioMaxNormalize);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioCompression")) {
+	ConfigAudioCompression = atoi(value);
+	AudioSetCompression(ConfigAudioCompression, ConfigAudioMaxCompression);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioMaxCompression")) {
+	ConfigAudioMaxCompression = atoi(value);
+	AudioSetCompression(ConfigAudioCompression, ConfigAudioMaxCompression);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioStereoDescent")) {
+	ConfigAudioStereoDescent = atoi(value);
+	AudioSetStereoDescent(ConfigAudioStereoDescent);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioBufferTime")) {
+	ConfigAudioBufferTime = atoi(value);
+	return true;
+    }
 
     return false;
 }

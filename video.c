@@ -356,7 +356,7 @@ static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 #ifdef DEBUG
 extern uint32_t VideoSwitch;		///< ticks for channel switch
 #endif
-extern void AudioVideoReady(void);	///< tell audio video is ready
+extern void AudioVideoReady(int64_t);	///< tell audio video is ready
 
 #ifdef USE_VIDEO_THREAD
 
@@ -427,6 +427,8 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 		}
 		return;
 	    }
+	} else {			// first new clock value
+	    AudioVideoReady(pts);
 	}
 	if (*pts_p != pts) {
 	    Debug(4,
@@ -1334,6 +1336,7 @@ struct _vaapi_decoder_
     int TrickSpeed;			///< current trick speed
     int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
+    int Closing;			///< flag about closing current stream
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
@@ -1856,6 +1859,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
+    decoder->Closing = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -4504,6 +4508,9 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
+	    if (decoder->Closing == -1) {
+		atomic_set(&decoder->SurfacesFilled, 0);
+	    }
 	}
 	goto out;
     }
@@ -4600,7 +4607,9 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	VaapiSyncDisplayFrame();
     }
 
-    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+    if (!decoder->Closing) {
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+    }
     VaapiRenderFrame(decoder, video_ctx, frame);
 #ifdef USE_AUTOCROP
     VaapiCheckAutoCrop(decoder);
@@ -4661,6 +4670,10 @@ static void VaapiDisplayHandlerThread(void)
     if (err) {
 	// FIXME: sleep on wakeup
 	usleep(5 * 1000);		// nothing buffered
+	if (err == -1 && decoder->Closing > 0) {
+	    Debug(3, "video/vaapi: closing eof\n");
+	    decoder->Closing = -1;
+	}
     }
 
     clock_gettime(CLOCK_REALTIME, &nowtime);
@@ -5002,6 +5015,7 @@ typedef struct _vdpau_decoder_
     int TrickSpeed;			///< current trick speed
     int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
+    int Closing;			///< flag about closing current stream
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
@@ -5721,6 +5735,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
+    decoder->Closing = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
 }
@@ -7711,6 +7726,9 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
+	    if (decoder->Closing == -1) {
+		atomic_set(&decoder->SurfacesFilled, 0);
+	    }
 	}
 	goto out;
     }
@@ -7782,7 +7800,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 #endif
 
     if (VdpauPreemption) {		// display preempted
-	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+	if (!decoder->Closing) {
+	    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+	}
 	return;
     }
     // if video output buffer is full, wait and display surface.
@@ -7821,7 +7841,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	VdpauSyncDisplayFrame();
     }
 
-    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+    if (!decoder->Closing) {
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+    }
     VdpauRenderFrame(decoder, video_ctx, frame);
 }
 
@@ -7944,6 +7966,10 @@ static void VdpauDisplayHandlerThread(void)
     if (err) {
 	// FIXME: sleep on wakeup
 	usleep(5 * 1000);		// nothing buffered
+	if (err == -1 && decoder->Closing > 0) {
+	    Debug(3, "video/vdpau: closing eof\n");
+	    decoder->Closing = -1;
+	}
     }
 
     clock_gettime(CLOCK_REALTIME, &nowtime);
@@ -9001,7 +9027,7 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 
     Debug(3, "video: ready %s %dms/frame\n",
 	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
-    AudioVideoReady();
+    AudioVideoReady(VideoGetClock(hw_decoder));
     return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
 }
 
@@ -9124,6 +9150,29 @@ int64_t VideoGetClock(const VideoHwDecoder * hw_decoder)
 	return VideoUsedModule->GetClock(hw_decoder);
     }
     return AV_NOPTS_VALUE;
+}
+
+///
+///	Set closing stream flag.
+///
+///	@param hw_decoder	video hardware decoder
+///
+void VideoSetClosing(VideoHwDecoder * hw_decoder)
+{
+    Debug(3, "video: set closing\n");
+    // FIXME: test to check if working, than make module function
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	hw_decoder->Vdpau.Closing = 1;
+    }
+#endif
+#ifdef USE_VAPI
+    if (VideoUsedModule == &VaapiModule) {
+	hw_decoder->Vaapi.Closing = 1;
+    }
+#endif
+    // clear clock to avoid further sync
+    VideoSetClock(hw_decoder, AV_NOPTS_VALUE);
 }
 
 ///

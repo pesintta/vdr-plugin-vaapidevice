@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Show black picture, if no video stream is available.
     Setup split into foldable sections.
     Adds show cursor on pointer move and hide after 200ms.
     Adds Hot-key support for auto-crop enable/disable/toggle.

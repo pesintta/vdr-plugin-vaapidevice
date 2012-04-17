@@ -157,6 +157,28 @@ Setup: /etc/vdr/setup.conf
 	0 = none, 1 = downmix
 	downmix AC-3 to stero.
 
+	softhddevice.AudioSoftvol
+	FIXME:
+
+	softhddevice.AudioNormalize
+	FIXME:
+
+	softhddevice.AudioMaxNormalize
+	FIXME:
+
+	softhddevice.AudioCompression
+	FIXME:
+
+	softhddevice.AudioMaxCompression
+	FIXME:
+
+	softhddevice.AudioStereoDescent
+	FIXME:
+
+	softhddevice.AudioBufferTime
+	FIXME:
+
+
 	softhddevice.AutoCrop.Interval = 0
 	0 disables auto-crop
 	n each 'n' frames auto-crop is checked.
@@ -253,6 +275,9 @@ Keymacros:
 	@softhddevice Blue 2 0		disable fullscreen
 	@softhddevice Blue 2 1		enable fullscreen
 	@softhddevice Blue 2 2		toggle fullscreen
+	@softhddevice Blue 2 3		disable auto-crop
+	@softhddevice Blue 2 4		enable auto-crop
+	@softhddevice Blue 2 5		toggle auto-crop
 	@softhddevice Blue 3 0		stretch 4:3 to 16:9
 	@softhddevice Blue 3 1		letter box 4:3 in 16:9
 	@softhddevice Blue 3 2		center cut-out 4:3 to 16:9
