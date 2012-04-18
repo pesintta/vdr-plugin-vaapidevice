@@ -4508,7 +4508,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
-	    if (decoder->Closing == -1) {
+	    if (decoder->Closing < -300) {
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
@@ -4670,9 +4670,12 @@ static void VaapiDisplayHandlerThread(void)
     if (err) {
 	// FIXME: sleep on wakeup
 	usleep(5 * 1000);		// nothing buffered
-	if (err == -1 && decoder->Closing > 0) {
-	    Debug(3, "video/vaapi: closing eof\n");
-	    decoder->Closing = -1;
+	if (err == -1 && decoder->Closing) {
+	    decoder->Closing--;
+	    if (!decoder->Closing) {
+		Debug(3, "video/vaapi: closing eof\n");
+		decoder->Closing = -1;
+	    }
 	}
     }
 
@@ -7726,7 +7729,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
-	    if (decoder->Closing == -1) {
+	    if (decoder->Closing < -300) {
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
@@ -7966,9 +7969,12 @@ static void VdpauDisplayHandlerThread(void)
     if (err) {
 	// FIXME: sleep on wakeup
 	usleep(5 * 1000);		// nothing buffered
-	if (err == -1 && decoder->Closing > 0) {
-	    Debug(3, "video/vdpau: closing eof\n");
-	    decoder->Closing = -1;
+	if (err == -1 && decoder->Closing) {
+	    decoder->Closing--;
+	    if (!decoder->Closing) {
+		Debug(3, "video/vdpau: closing eof\n");
+		decoder->Closing = -1;
+	    }
 	}
     }
 
