@@ -1857,6 +1857,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     decoder->SurfaceWrite = 0;
     decoder->SurfaceField = 0;
 
+    decoder->SyncCounter = 0;
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
     decoder->Closing = 0;
@@ -5736,6 +5737,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
     decoder->SurfaceWrite = 0;
     decoder->SurfaceField = 0;
 
+    decoder->SyncCounter = 0;
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
     decoder->Closing = 0;

@@ -48,6 +48,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <string.h>
+#include <math.h>
 
 #include <libintl.h>
 #define _(str) gettext(str)		///< gettext shortcut
@@ -163,6 +164,8 @@ static char AudioNormalize;		///< flag use volume normalize
 static char AudioCompression;		///< flag use compress volume
 static char AudioMute;			///< flag muted
 static int AudioAmplifier;		///< software volume factor
+static int AudioNormalizeFactor;	///< current normalize factor
+static const int AudioMinNormalize = 100;	///< min. normalize factor
 static int AudioMaxNormalize;		///< max. normalize factor
 static int AudioCompressionFactor;	///< current compression factor
 static int AudioMaxCompression;		///< max. compression factor
@@ -205,12 +208,13 @@ static const unsigned AudioRatesTable[AudioRatesMax] = {
 //	filter
 //----------------------------------------------------------------------------
 
-static const int AudioNormSamples = 32768;	///< number of samples
+static const int AudioNormSamples = 4096;	///< number of samples
 
-#define AudioNormIndexes 128		///< number of average values
+#define AudioNormMaxIndex 128		///< number of average values
     /// average of n last sample blocks
-static uint32_t AudioNormAverage[AudioNormIndexes];
+static uint32_t AudioNormAverage[AudioNormMaxIndex];
 static int AudioNormIndex;		///< index into average table
+static int AudioNormReady;		///< index counter
 static int AudioNormCounter;		///< sample counter
 
 /**
@@ -222,21 +226,77 @@ static int AudioNormCounter;		///< sample counter
 static void AudioNormalizer(int16_t * samples, int count)
 {
     int i;
+    int l;
     int n;
     uint32_t avg;
+    int factor;
+    int16_t *data;
 
     // average samples
-    avg = 0;
-    n = count / AudioBytesProSample;
-    for (i = 0; i < n; ++i) {
+    l = count / AudioBytesProSample;
+    data = samples;
+    do {
+	n = l;
+	if (AudioNormCounter + n > AudioNormSamples) {
+	    n = AudioNormSamples - AudioNormCounter;
+	}
+	avg = AudioNormAverage[AudioNormIndex];
+	for (i = 0; i < n; ++i) {
+	    int t;
+
+	    t = data[i];
+	    avg += (t * t) / AudioNormSamples;
+	}
+	AudioNormAverage[AudioNormIndex] = avg;
+	AudioNormCounter += n;
+	if (AudioNormCounter >= AudioNormSamples) {
+	    if (AudioNormReady < AudioNormMaxIndex) {
+		AudioNormReady++;
+	    } else {
+		avg = 0;
+		for (i = 0; i < AudioNormMaxIndex; ++i) {
+		    avg += AudioNormAverage[i] / AudioNormMaxIndex;
+		}
+
+		// calculate normalize factor
+		if (avg > 0) {
+		    factor = ((INT16_MAX / 8) * 1000U) / (uint32_t) sqrt(avg);
+		    // smooth normalize
+		    AudioNormalizeFactor =
+			(AudioNormalizeFactor * 500 + factor * 500) / 1000;
+		    if (AudioNormalizeFactor < AudioMinNormalize) {
+			AudioNormalizeFactor = AudioMinNormalize;
+		    }
+		    if (AudioNormalizeFactor > AudioMaxNormalize) {
+			AudioNormalizeFactor = AudioMaxNormalize;
+		    }
+		} else {
+		    factor = 1000;
+		}
+		Debug(4, "audio/noramlize: avg %8d, fac=%6.3f, norm=%6.3f\n",
+		    avg, factor / 1000.0, AudioNormalizeFactor / 1000.0);
+	    }
+
+	    AudioNormIndex = (AudioNormIndex + 1) % AudioNormMaxIndex;
+	    AudioNormCounter = 0;
+	    AudioNormAverage[AudioNormIndex] = 0U;
+	}
+	data += n;
+	l -= n;
+    } while (l > 0);
+
+    // apply normalize factor
+    for (i = 0; i < count / AudioBytesProSample; ++i) {
 	int t;
 
-	t = samples[i];
-	avg += t * t;
-	avg /= 2;
+	t = (samples[i] * AudioNormalizeFactor) / 1000;
+	if (t < INT16_MIN) {
+	    t = INT16_MIN;
+	} else if (t > INT16_MAX) {
+	    t = INT16_MAX;
+	}
+	samples[i] = t;
     }
-
-    // FIXME: more todo
 }
 
 /**
@@ -244,6 +304,14 @@ static void AudioNormalizer(int16_t * samples, int count)
 */
 static void AudioResetNormalizer(void)
 {
+    int i;
+
+    AudioNormCounter = 0;
+    AudioNormReady = 0;
+    for (i = 0; i < AudioNormMaxIndex; ++i) {
+	AudioNormAverage[i] = 0U;
+    }
+    AudioNormalizeFactor = 1000;
 }
 
 /**

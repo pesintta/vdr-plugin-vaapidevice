@@ -690,9 +690,9 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol,
 		tr("Hardware"), tr("Software")));
 	Add(new cMenuEditBoolItem(tr("Enable normalize volume"),
-		&AudioMaxNormalize, trVDR("no"), trVDR("yes")));
+		&AudioNormalize, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditIntItem(tr("  Max normalize factor (/1000)"),
-		&AudioMaxNormalize, 0, 5000));
+		&AudioMaxNormalize, 0, 10000));
 	Add(new cMenuEditBoolItem(tr("Enable volume compression"),
 		&AudioCompression, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditIntItem(tr("  Max compression factor (/1000)"),

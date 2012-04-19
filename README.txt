@@ -157,27 +157,28 @@ Setup: /etc/vdr/setup.conf
 	0 = none, 1 = downmix
 	downmix AC-3 to stero.
 
-	softhddevice.AudioSoftvol
-	FIXME:
+	softhddevice.AudioSoftvol = 0
+	0 = off, use hardware volume control
+	1 = on, use software volume control
 
-	softhddevice.AudioNormalize
-	FIXME:
+	softhddevice.AudioNormalize = 0
+	0 = off, 1 = enable audio normalize
 
-	softhddevice.AudioMaxNormalize
-	FIXME:
+	softhddevice.AudioMaxNormalize = 0
+	maximal volume factor/1000 of the normalize filter
 
-	softhddevice.AudioCompression
-	FIXME:
+	softhddevice.AudioCompression = 0
+	0 = off, 1 = enable audio compression
 
-	softhddevice.AudioMaxCompression
-	FIXME:
+	softhddevice.AudioMaxCompression = 0
+	maximal volume factor/1000 of the compression filter
 
-	softhddevice.AudioStereoDescent
-	FIXME:
+	softhddevice.AudioStereoDescent = 0
+	reduce volume level (/1000) for stereo sources
 
-	softhddevice.AudioBufferTime
-	FIXME:
-
+	softhddevice.AudioBufferTime = 0
+	0 = default (336 ms)
+	1 - 1000 = size of the buffer in ms
 
 	softhddevice.AutoCrop.Interval = 0
 	0 disables auto-crop
