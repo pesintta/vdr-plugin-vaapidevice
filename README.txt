@@ -219,6 +219,10 @@ Setup: /etc/vdr/setup.conf
 	0 disable soft start of audio/video sync
 	1 enable soft start of audio/video sync
 
+	softhddevice.BlackPicture = 0
+	0 disable black picture during channel switch
+	1 enable black picture during channel switch
+
 	VideoDisplayFormat = ?
 	0 pan and scan
 	1 letter box

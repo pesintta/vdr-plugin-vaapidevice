@@ -82,6 +82,7 @@ static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
+static char ConfigVideoBlackPicture;	///< config enable black picture mode
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -490,6 +491,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
+    int BlackPicture;
 
     int ResolutionShown[RESOLUTIONS];
     int Scaling[RESOLUTIONS];
@@ -639,6 +641,8 @@ void cMenuSetupSoft::Create(void)
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync,
 		trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Black during channel switch"),
+		&BlackPicture, trVDR("no"), trVDR("yes")));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    Add(CollapsedItem(resolution[i], ResolutionShown[i]));
@@ -779,6 +783,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     StudioLevels = ConfigVideoStudioLevels;
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
+    BlackPicture = ConfigVideoBlackPicture;
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	ResolutionShown[i] = 0;
@@ -853,6 +858,8 @@ void cMenuSetupSoft::Store(void)
     VideoSet60HzMode(ConfigVideo60HzMode);
     SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
+    SetupStore("BlackPicture", ConfigVideoBlackPicture = BlackPicture);
+    VideoSetBlackPicture(ConfigVideoBlackPicture);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -1921,6 +1928,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "SoftStartSync")) {
 	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "BlackPicture")) {
+	VideoSetBlackPicture(ConfigVideoBlackPicture = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {

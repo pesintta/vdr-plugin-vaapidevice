@@ -348,6 +348,8 @@ static VideoZoomModes Video4to3ZoomMode;
 
 static char Video60HzMode;		///< handle 60hz displays
 static char VideoSoftStartSync;		///< soft start sync audio/video
+static const int VideoSoftStartFrames = 120;	///< soft start frames
+static char VideoShowBlackPicture;	///< flag show black picture
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
@@ -4459,7 +4461,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	decoder->TrickCounter = decoder->TrickSpeed;
     }
     // at start of new video stream, soft or hard sync video to audio
-    if (!VideoSoftStartSync && decoder->FramesDisplayed < 60
+    if (!VideoSoftStartSync && decoder->FramesDisplayed < VideoSoftStartFrames
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
@@ -4510,7 +4512,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
 	    if (decoder->Closing < -300) {
-		atomic_set(&decoder->SurfacesFilled, 0);
+		atomic_set(&decoder->SurfacesFilled, 1);
 	    }
 	}
 	goto out;
@@ -7545,8 +7547,10 @@ static void VdpauDisplayFrame(void)
 	// need 1 frame for progressive, 3 frames for interlaced
 	if (filled < 1 + 2 * decoder->Interlaced) {
 	    // FIXME: rewrite MixVideo to support less surfaces
-	    VdpauBlackSurface(decoder);
-	    VdpauMessage(3, "video/vdpau: black surface displayed\n");
+	    if (VideoShowBlackPicture || decoder->Closing < -300) {
+		VdpauBlackSurface(decoder);
+		VdpauMessage(3, "video/vdpau: black surface displayed\n");
+	    }
 	    continue;
 	}
 
@@ -7681,7 +7685,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	decoder->TrickCounter = decoder->TrickSpeed;
     }
     // at start of new video stream, soft or hard sync video to audio
-    if (!VideoSoftStartSync && decoder->FramesDisplayed < 60
+    if (!VideoSoftStartSync && decoder->FramesDisplayed < VideoSoftStartFrames
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
@@ -7732,7 +7736,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
 	    if (decoder->Closing < -300) {
-		atomic_set(&decoder->SurfacesFilled, 0);
+		atomic_set(&decoder->SurfacesFilled, 1);
 	    }
 	}
 	goto out;
@@ -9606,6 +9610,16 @@ void VideoSet60HzMode(int onoff)
 void VideoSetSoftStartSync(int onoff)
 {
     VideoSoftStartSync = onoff;
+}
+
+///
+///	Set show black picture during channel switch.
+///
+///	@param onoff	enable / disable black picture.
+///
+void VideoSetBlackPicture(int onoff)
+{
+    VideoShowBlackPicture = onoff;
 }
 
 ///

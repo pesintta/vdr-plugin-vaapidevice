@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Made showing black picture configurable.
     Show black picture, if no video stream is available.
     Setup split into foldable sections.
     Adds show cursor on pointer move and hide after 200ms.

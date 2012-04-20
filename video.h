@@ -90,6 +90,9 @@ extern void VideoSet60HzMode(int);
     /// Set soft start audio/video sync.
 extern void VideoSetSoftStartSync(int);
 
+    /// Set show black picture during channel switch.
+extern void VideoSetBlackPicture(int);
+
     /// Set video output position.
 extern void VideoSetOutputPosition(int, int, int, int);
 
