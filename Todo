@@ -37,6 +37,7 @@ video:
     radio no need to wait on video buffers
     starting with radio and own X11 server, shows no video
     some low-bandwidth tv channels have hiccups.
+    check start with 24Hz display rate
 
 vdpau:
     software decoder path not working
@@ -73,10 +74,8 @@ x11:
     support embedded mode
 
 audio:
-    Combine alsa+oss ringbuffer code.
     Make alsa thread/polled and oss thread/polled output module runtime
     selectable.
-    software volume support (could be done with asound.conf)
     Mute should do a real mute and not only set volume to zero.
     Starting suspended and muted, didn't register the mute.
     Relaxed audio sync checks at end of packet and already in sync
@@ -84,12 +83,10 @@ audio:
     only wait for video start, if video is running.
     Not primary device, don't use and block audio/video.
     multiple open of audio device, reduce them.
+    Not all channel conversions are written (f.e. 2->3 ... 5->6 ...)
 
 audio/alsa:
-    better downmix of >2 channels on 2 channel hardware
     remix support of unsupported sample rates
-    libav supports only resample of mono to 2 channels
-    ffmpeg didn't support resample of 5 to 2 channels
 
 audio/oss:
     alsa oss emulation mixer "pcm" not working

@@ -35,13 +35,12 @@
 ///
 ///
 ///	@todo FIXME: there can be problems with little/big endian.
-///	@todo FIXME: can combine OSS and alsa ring buffer
 ///
 
 //#define USE_ALSA			///< enable alsa support
 //#define USE_OSS			///< enable OSS support
 #define USE_AUDIO_THREAD		///< use thread for audio playback
-#define USE_AUDIORING			///< new audio ring code (incomplete)
+#define USE_AUDIORING			///< new audio ring code (testing)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -107,12 +106,16 @@ typedef struct _audio_module_
     const char *Name;			///< audio output module name
 
     int (*const Thread) (void);		///< module thread handler
+#ifndef USE_AUDIORING
     void (*const Enqueue) (const void *, int);	///< enqueue samples for output
     void (*const VideoReady) (void);	///< video ready, start audio
+#endif
     void (*const FlushBuffers) (void);	///< flush sample buffers
+#ifndef USE_AUDIORING
     void (*const Poller) (void);	///< output poller
     int (*const FreeBytes) (void);	///< number of bytes free in buffer
     int (*const UsedBytes) (void);	///< number of bytes used in buffer
+#endif
      int64_t(*const GetDelay) (void);	///< get current audio delay
     void (*const SetVolume) (int);	///< set output volume
     int (*const Setup) (int *, int *, int);	///< setup channels, samplerate
@@ -142,13 +145,14 @@ static char AudioDoingInit;		///> flag in init, reduce error
 static volatile char AudioRunning;	///< thread running / stopped
 static volatile char AudioPaused;	///< audio paused
 static volatile char AudioVideoIsReady;	///< video ready start early
+
+#ifndef USE_AUDIORING
 static unsigned AudioSampleRate;	///< audio sample rate in Hz
 static unsigned AudioChannels;		///< number of audio channels
-static const int AudioBytesProSample = 2;	///< number of bytes per sample
 static int64_t AudioPTS;		///< audio pts clock
-
-#ifndef USE_AUDIO_THREAD
 #endif
+static const int AudioBytesProSample = 2;	///< number of bytes per sample
+
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
 #ifdef USE_AUDIO_THREAD
@@ -170,7 +174,7 @@ static int AudioMaxNormalize;		///< max. normalize factor
 static int AudioCompressionFactor;	///< current compression factor
 static int AudioMaxCompression;		///< max. compression factor
 static int AudioStereoDescent;		///< volume descent for stereo
-static int AudioVolume;			///< volume (0 .. 1000)
+static int AudioVolume;			///< current volume (0 .. 1000)
 
 extern int VideoAudioDelay;		///< import audio/video delay
 
@@ -752,14 +756,15 @@ static int AlsaRatio;			///< internal -> mixer ratio * 1000
 static int AlsaPlayRingbuffer(void)
 {
     int first;
-    int avail;
-    int n;
-    int err;
-    int frames;
-    const void *p;
 
     first = 1;
     for (;;) {				// loop for ring buffer wrap
+	int avail;
+	int n;
+	int err;
+	int frames;
+	const void *p;
+
 	// how many bytes can be written?
 	n = snd_pcm_avail_update(AlsaPCMHandle);
 	if (n < 0) {
@@ -821,6 +826,7 @@ static int AlsaPlayRingbuffer(void)
 	if (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3) {
 	    // FIXME: quick&dirty cast
 	    AudioSoftAmplifier((int16_t *) p, avail);
+	    // FIXME: if not all are written, we double amplify them
 	}
 	frames = snd_pcm_bytes_to_frames(AlsaPCMHandle, avail);
 
@@ -1658,9 +1664,9 @@ static int64_t AlsaGetDelay(void)
 /**
 **	Setup alsa audio for requested format.
 **
-**	@param freq	sample frequency
-**	@param channels	number of channels
-**	@param use_ac3	use ac3/pass-through device
+**	@param freq		sample frequency
+**	@param channels		number of channels
+**	@param use_ac3		use ac3/pass-through device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -2209,13 +2215,103 @@ static const AudioModule AlsaModule = {
 static int OssPcmFildes = -1;		///< pcm file descriptor
 static int OssMixerFildes = -1;		///< mixer file descriptor
 static int OssMixerChannel;		///< mixer channel index
-static RingBuffer *OssRingBuffer;	///< audio ring buffer
 static int OssFragmentTime;		///< fragment time in ms
+
+#ifndef USE_AUDIORING
+static RingBuffer *OssRingBuffer;	///< audio ring buffer
 static unsigned OssStartThreshold;	///< start play, if filled
+#endif
 
 #ifdef USE_AUDIO_THREAD
 static volatile char OssFlushBuffer;	///< flag empty buffer
 #endif
+
+#ifdef USE_AUDIORING
+
+//----------------------------------------------------------------------------
+//	OSS pcm
+//----------------------------------------------------------------------------
+
+/**
+**	Play samples from ringbuffer.
+**
+**	@retval	0	ok
+**	@retval 1	ring buffer empty
+**	@retval -1	underrun error
+*/
+static int OssPlayRingbuffer(void)
+{
+    int first;
+
+    first = 1;
+    for (;;) {
+	audio_buf_info bi;
+	const void *p;
+	int n;
+
+	if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
+	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
+		strerror(errno));
+	    return -1;
+	}
+	Debug(4, "audio/oss: %d bytes free\n", bi.bytes);
+
+	n = RingBufferGetReadPointer(AudioRing[AudioRingRead].RingBuffer, &p);
+	if (!n) {			// ring buffer empty
+	    if (first) {		// only error on first loop
+		return 1;
+	    }
+	    return 0;
+	}
+	if (n < bi.bytes) {		// not enough bytes in ring buffer
+	    bi.bytes = n;
+	}
+	if (bi.bytes <= 0) {		// full or buffer empty
+	    break;			// bi.bytes could become negative!
+	}
+
+	if (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3) {
+	    // FIXME: quick&dirty cast
+	    AudioSoftAmplifier((int16_t *) p, bi.bytes);
+	    // FIXME: if not all are written, we double amplify them
+	}
+	for (;;) {
+	    n = write(OssPcmFildes, p, bi.bytes);
+	    if (n != bi.bytes) {
+		if (n < 0) {
+		    if (n == EAGAIN) {
+			continue;
+		    }
+		    Error(_("audio/oss: write error: %s\n"), strerror(errno));
+		    return 1;
+		}
+		Warning(_("audio/oss: error not all bytes written\n"));
+	    }
+	    break;
+	}
+	// advance how many could written
+	RingBufferReadAdvance(AudioRing[AudioRingRead].RingBuffer, n);
+	first = 0;
+    }
+
+    return 0;
+}
+
+/**
+**	Flush OSS buffers.
+*/
+static void OssFlushBuffers(void)
+{
+    if (OssPcmFildes != -1) {
+	// flush kernel buffers
+	if (ioctl(OssPcmFildes, SNDCTL_DSP_HALT_OUTPUT, NULL) < 0) {
+	    Error(_("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s\n"),
+		strerror(errno));
+	}
+    }
+}
+
+#else
 
 //----------------------------------------------------------------------------
 //	OSS pcm
@@ -2392,11 +2488,70 @@ static int OssUsedBytes(void)
     return OssRingBuffer ? RingBufferUsedBytes(OssRingBuffer) : 0;
 }
 
+#endif
+
 #ifdef USE_AUDIO_THREAD
 
 //----------------------------------------------------------------------------
 //	thread playback
 //----------------------------------------------------------------------------
+
+#ifdef USE_AUDIORING
+
+/**
+**	OSS thread
+**
+**	@retval -1	error
+**	@retval 0	underrun
+**	@retval 1	running
+*/
+static int OssThread(void)
+{
+    int err;
+
+    if (!OssPcmFildes) {
+	usleep(OssFragmentTime * 1000);
+	return -1;
+    }
+    for (;;) {
+	struct pollfd fds[1];
+
+	pthread_testcancel();
+	if (AudioPaused) {
+	    return 1;
+	}
+	// wait for space in kernel buffers
+	fds[0].fd = OssPcmFildes;
+	fds[0].events = POLLOUT | POLLERR;
+	// wait for space in kernel buffers
+	err = poll(fds, 1, OssFragmentTime);
+	if (err < 0) {
+	    if (err == EAGAIN) {
+		continue;
+	    }
+	    Error(_("audio/oss: error poll %s\n"), strerror(errno));
+	    usleep(OssFragmentTime * 1000);
+	    return -1;
+	}
+	break;
+    }
+    if (!err || AudioPaused) {		// timeout or some commands
+	return 1;
+    }
+
+    if ((err = OssPlayRingbuffer())) {	// empty / error
+	if (err < 0) {			// underrun error
+	    return -1;
+	}
+	pthread_yield();
+	usleep(OssFragmentTime * 1000);	// let fill/empty the buffers
+	return 0;
+    }
+
+    return 1;
+}
+
+#else
 
 /**
 **	OSS thread
@@ -2500,6 +2655,7 @@ static void OssThreadFlushBuffers(void)
 }
 
 #endif
+#endif
 
 //----------------------------------------------------------------------------
 
@@ -2519,7 +2675,10 @@ static int OssOpenPCM(int use_ac3)
 	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
 	device = "/dev/dsp";
     }
-    Info(_("audio/oss: using %sdevice '%s'\n"), use_ac3 ? "ac3" : "", device);
+    if (!AudioDoingInit) {
+	Info(_("audio/oss: using %sdevice '%s'\n"), use_ac3 ? "ac3 " : "",
+	    device);
+    }
 
     if ((fildes = open(device, O_WRONLY)) < 0) {
 	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
@@ -2625,6 +2784,171 @@ static void OssInitMixer(void)
 //----------------------------------------------------------------------------
 //	OSS API
 //----------------------------------------------------------------------------
+
+#ifdef USE_AUDIORING
+
+/**
+**	Get OSS audio delay in time stamps.
+**
+**	@returns audio delay in time stamps.
+*/
+static int64_t OssGetDelay(void)
+{
+    int delay;
+    int64_t pts;
+
+    // setup failure
+    if (OssPcmFildes == -1 || !AudioRing[AudioRingRead].HwSampleRate) {
+	return 0L;
+    }
+    if (!AudioRunning) {		// audio not running
+	Error(_("audio/oss: should not happen\n"));
+	return 0L;
+    }
+    // delay in bytes in kernel buffers
+    delay = -1;
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_GETODELAY, &delay) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETODELAY): %s\n"),
+	    strerror(errno));
+	return 0L;
+    }
+    if (delay < 0) {
+	delay = 0;
+    }
+
+    pts = ((int64_t) delay * 90 * 1000)
+	/ (AudioRing[AudioRingRead].HwSampleRate *
+	AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
+
+    return pts;
+}
+
+/**
+**	Setup OSS audio for requested format.
+**
+**	@param sample_rate		sample rate/frequency
+**	@param channels		number of channels
+**	@param use_ac3		use ac3/pass-through device
+**
+**	@retval 0	everything ok
+**	@retval 1	didn't support frequency/channels combination
+**	@retval -1	something gone wrong
+*/
+static int OssSetup(int *sample_rate, int *channels, int use_ac3)
+{
+    int ret;
+    int tmp;
+    int delay;
+    audio_buf_info bi;
+
+    if (OssPcmFildes == -1) {		// OSS not ready
+	// FIXME: if open fails for ac3, we never recover
+	return -1;
+    }
+
+    if (1) {				// close+open for pcm / ac3
+	int fildes;
+
+	fildes = OssPcmFildes;
+	OssPcmFildes = -1;
+	close(fildes);
+	if (!(fildes = OssOpenPCM(use_ac3))) {
+	    return -1;
+	}
+	OssPcmFildes = fildes;
+    }
+
+    ret = 0;
+
+    tmp = AFMT_S16_NE;			// native 16 bits
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_SETFMT, &tmp) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_SETFMT): %s\n"), strerror(errno));
+	// FIXME: stop player, set setup failed flag
+	return -1;
+    }
+    if (tmp != AFMT_S16_NE) {
+	Error(_("audio/oss: device doesn't support 16 bit sample format.\n"));
+	// FIXME: stop player, set setup failed flag
+	return -1;
+    }
+
+    tmp = *channels;
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_CHANNELS, &tmp) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_CHANNELS): %s\n"),
+	    strerror(errno));
+	return -1;
+    }
+    if (tmp != *channels) {
+	Warning(_("audio/oss: device doesn't support %d channels.\n"),
+	    *channels);
+	*channels = tmp;
+	ret = 1;
+    }
+
+    tmp = *sample_rate;
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_SPEED, &tmp) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_SPEED): %s\n"), strerror(errno));
+	return -1;
+    }
+    if (tmp != *sample_rate) {
+	Warning(_("audio/oss: device doesn't support %dHz sample rate.\n"),
+	    *sample_rate);
+	*sample_rate = tmp;
+	ret = 1;
+    }
+#ifdef SNDCTL_DSP_POLICY
+    tmp = 3;
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_POLICY, &tmp) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_POLICY): %s\n"), strerror(errno));
+    } else {
+	Info("audio/oss: set policy to %d\n", tmp);
+    }
+#endif
+
+    if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
+	    strerror(errno));
+	bi.fragsize = 4096;
+	bi.fragstotal = 16;
+    } else {
+	Debug(3, "audio/oss: %d bytes buffered\n", bi.bytes);
+    }
+
+    OssFragmentTime = (bi.fragsize * 1000)
+	/ (*sample_rate * *channels * AudioBytesProSample);
+
+    Debug(3, "audio/oss: buffer size %d %dms, fragment size %d %dms\n",
+	bi.fragsize * bi.fragstotal, (bi.fragsize * bi.fragstotal * 1000)
+	/ (*sample_rate * *channels * AudioBytesProSample), bi.fragsize,
+	OssFragmentTime);
+
+    // start when enough bytes for initial write
+    AudioStartThreshold = (bi.fragsize - 1) * bi.fragstotal;
+
+    // buffer time/delay in ms
+    delay = AudioBufferTime + 300;
+    if (VideoAudioDelay > 0) {
+	delay += VideoAudioDelay / 90;
+    }
+    if (AudioStartThreshold <
+	(*sample_rate * *channels * AudioBytesProSample * delay) / 1000U) {
+	AudioStartThreshold =
+	    (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U;
+    }
+    // no bigger, than 1/3 the buffer
+    if (AudioStartThreshold > AudioRingBufferSize / 3) {
+	AudioStartThreshold = AudioRingBufferSize / 3;
+    }
+
+    if (!AudioDoingInit) {
+	Info(_("audio/oss: delay %ums\n"), (AudioStartThreshold * 1000)
+	    / (*sample_rate * *channels * AudioBytesProSample));
+    }
+
+    return ret;
+}
+
+#else
 
 /**
 **	Get OSS audio delay in time stamps.
@@ -2795,6 +3119,8 @@ static int OssSetup(int *freq, int *channels, int use_ac3)
     return ret;
 }
 
+#endif
+
 /**
 **	Play audio.
 */
@@ -2814,7 +3140,9 @@ void OssPause(void)
 */
 static void OssInit(void)
 {
+#ifndef USE_AUDIORING
     OssRingBuffer = RingBufferNew(AudioRingBufferSize);
+#endif
 
     OssInitPCM();
     OssInitMixer();
@@ -2843,17 +3171,25 @@ static const AudioModule OssModule = {
     .Name = "oss",
 #ifdef USE_AUDIO_THREAD
     .Thread = OssThread,
+#ifdef USE_AUDIORING
+    //.Enqueue = OssThreadEnqueue,
+    //.VideoReady = OssVideoReady,
+    .FlushBuffers = OssFlushBuffers,
+#else
     .Enqueue = OssThreadEnqueue,
     .VideoReady = OssVideoReady,
     .FlushBuffers = OssThreadFlushBuffers,
+#endif
 #else
     .Enqueue = OssEnqueue,
     .VideoReady = OssVideoReady,
     .FlushBuffers = OssFlushBuffers,
 #endif
+#ifndef USE_AUDIORING
     .Poller = OssPoller,
     .FreeBytes = OssFreeBytes,
     .UsedBytes = OssUsedBytes,
+#endif
     .GetDelay = OssGetDelay,
     .SetVolume = OssSetVolume,
     .Setup = OssSetup,
@@ -2868,6 +3204,8 @@ static const AudioModule OssModule = {
 //============================================================================
 //	Noop
 //============================================================================
+
+#ifndef USE_AUDIORING
 
 /**
 **	Noop enqueue samples.
@@ -2896,6 +3234,8 @@ static int NoopUsedBytes(void)
 {
     return 0;				// no driver, nothing used
 }
+
+#endif
 
 /**
 **	Get audio delay in time stamps.
@@ -2943,12 +3283,16 @@ static void NoopVoid(void)
 */
 static const AudioModule NoopModule = {
     .Name = "noop",
+#ifndef USE_AUDIORING
     .Enqueue = NoopEnqueue,
     .VideoReady = NoopVoid,
+#endif
     .FlushBuffers = NoopVoid,
+#ifndef USE_AUDIORING
     .Poller = NoopVoid,
     .FreeBytes = NoopFreeBytes,
     .UsedBytes = NoopUsedBytes,
+#endif
     .GetDelay = NoopGetDelay,
     .SetVolume = NoopSetVolume,
     .Setup = NoopSetup,
@@ -3388,7 +3732,9 @@ void AudioFlushBuffers(void)
 */
 void AudioPoller(void)
 {
+#ifndef USE_AUDIORING
     AudioUsedModule->Poller();
+#endif
 }
 
 /**
