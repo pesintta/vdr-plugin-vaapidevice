@@ -67,8 +67,14 @@ extern void CodecAudioOpen(AudioDecoder *, const char *, int);
     /// Close audio codec.
 extern void CodecAudioClose(AudioDecoder *);
 
-    /// Decode an audio packet.
-extern void CodecAudioDecodeOld(AudioDecoder *, const AVPacket *);
+    /// Set audio drift correction.
+extern void CodecSetAudioDrift(int);
+
+    /// Set audio pass-through.
+extern void CodecSetAudioPassthrough(int);
+
+    /// Set audio downmix.
+extern void CodecSetAudioDownmix(int);
 
     /// Decode an audio packet.
 extern void CodecAudioDecode(AudioDecoder *, const AVPacket *);

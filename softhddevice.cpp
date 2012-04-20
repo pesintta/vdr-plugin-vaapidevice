@@ -39,6 +39,7 @@ extern "C"
 #include "video.h"
     extern const char *X11DisplayName;	///< x11 display name
 
+    extern void CodecSetAudioDrift(int);
     extern void CodecSetAudioPassthrough(int);
     extern void CodecSetAudioDownmix(int);
 }
@@ -114,8 +115,9 @@ static int ConfigAutoCropDelay;		///< auto crop detection delay
 static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
 
 static int ConfigVideoAudioDelay;	///< config audio delay
-static int ConfigAudioPassthrough;	///< config audio pass-through
-static int ConfigAudioDownmix;		///< config ffmpeg audio downmix
+static char ConfigAudioDrift;		///< config audio drift
+static char ConfigAudioPassthrough;	///< config audio pass-through
+static char ConfigAudioDownmix;		///< config ffmpeg audio downmix
 static char ConfigAudioSoftvol;		///< config use software volume
 static char ConfigAudioNormalize;	///< config use normalize volume
 static int ConfigAudioMaxNormalize;	///< config max normalize factor
@@ -509,6 +511,7 @@ class cMenuSetupSoft:public cMenuSetupPage
 
     int Audio;
     int AudioDelay;
+    int AudioDrift;
     int AudioPassthrough;
     int AudioDownmix;
     int AudioSoftvol;
@@ -580,6 +583,9 @@ void cMenuSetupSoft::Create(void)
     };
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
+    };
+    static const char *const audiodrift[] = {
+	"None", "PCM", "AC-3", "PCM + AC-3"
     };
     static const char *const passthrough[] = {
 	"None", "AC-3"
@@ -687,6 +693,8 @@ void cMenuSetupSoft::Create(void)
     if (Audio) {
 	Add(new cMenuEditIntItem(tr("Audio/Video delay (ms)"), &AudioDelay,
 		-1000, 1000));
+	Add(new cMenuEditStraItem(tr("Audio drift correction"),
+		&AudioDrift, 4, audiodrift));
 	Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough,
 		2, passthrough));
 	Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
@@ -809,6 +817,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     //
     Audio = 0;
     AudioDelay = ConfigVideoAudioDelay;
+    AudioDrift = ConfigAudioDrift;
     AudioPassthrough = ConfigAudioPassthrough;
     AudioDownmix = ConfigAudioDownmix;
     AudioSoftvol = ConfigAudioSoftvol;
@@ -904,6 +913,8 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("AudioDelay", ConfigVideoAudioDelay = AudioDelay);
     VideoSetAudioDelay(ConfigVideoAudioDelay);
+    SetupStore("AudioDrift", ConfigAudioDrift = AudioDrift);
+    CodecSetAudioDrift(ConfigAudioDrift);
     SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
     SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
@@ -2012,6 +2023,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 
     if (!strcasecmp(name, "AudioDelay")) {
 	VideoSetAudioDelay(ConfigVideoAudioDelay = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "AudioDrift")) {
+	CodecSetAudioDrift(ConfigAudioDrift = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "AudioPassthrough")) {

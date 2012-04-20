@@ -33,7 +33,9 @@
     /// compile with passthrough support (stable, ac3 only)
 #define USE_PASSTHROUGH
     /// compile audio drift correction support (experimental)
-#define noUSE_AUDIO_DRIFT_CORRECTION
+#define USE_AUDIO_DRIFT_CORRECTION
+    /// compile AC3 audio drift correction support (experimental)
+#define USE_AC3_DRIFT_CORRECTION
 
 #include <stdio.h>
 #include <unistd.h>
@@ -631,6 +633,11 @@ struct _audio_decoder_
     int RemainCount;			///< number of remaining samples
 };
 
+#ifdef USE_AUDIO_DRIFT_CORRECTION
+static char CodecAudioDrift;		///< flag: enable audio-drift correction
+#else
+static const int CodecAudioDrift = 0;
+#endif
 #ifdef USE_PASSTHROUGH
 //static char CodecPassthroughPCM;	///< pass pcm through (unsupported)
 static char CodecPassthroughAC3;	///< pass ac3 through
@@ -774,7 +781,22 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 }
 
 /**
+**	Set audio drift correction.
+**
+**	@param mask	enable mask (PCM, AC3)
+*/
+void CodecSetAudioDrift(int mask)
+{
+#ifdef USE_AUDIO_DRIFT_CORRECTION
+    CodecAudioDrift = mask & 3;
+#endif
+    (void)mask;
+}
+
+/**
 **	Set audio pass-through.
+**
+**	@param mask	enable mask (PCM, AC3)
 */
 void CodecSetAudioPassthrough(int mask)
 {
@@ -791,6 +813,10 @@ void CodecSetAudioPassthrough(int mask)
 */
 void CodecSetAudioDownmix(int onoff)
 {
+    if (onoff == -1) {
+	CodecDownmix ^= 1;
+	return;
+    }
     CodecDownmix = onoff;
 }
 
@@ -921,12 +947,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	drift += audio_decoder->Drift;
 	audio_decoder->Drift = drift;
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
-#if defined(USE_PASSTHROUGH) && !defined(USE_AC3_DRIFT_CORRECTION)
 	// SPDIF/HDMI passthrough
-	if (!CodecPassthroughAC3
-	    || audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
-#endif
-	{
+	if ((CodecAudioDrift & 2) && (!CodecPassthroughAC3
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
 
@@ -1031,7 +1054,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     }
     // prepare audio drift resample
 #ifdef USE_AUDIO_DRIFT_CORRECTION
-    if (!isAC3) {
+    if ((CodecAudioDrift & 1) && !isAC3) {
 	if (audio_decoder->AvResample) {
 	    Error(_("codec/audio: overwrite resample\n"));
 	}
@@ -1062,7 +1085,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 {
 #ifdef USE_AUDIO_DRIFT_CORRECTION
-    if (audio_decoder->AvResample) {
+    if ((CodecAudioDrift & 1) && audio_decoder->AvResample) {
 	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
 	    FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
 	int16_t buftmp[MAX_CHANNELS][(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4];
@@ -1217,7 +1240,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		buf_sz = 6144;
 
 #ifdef USE_AC3_DRIFT_CORRECTION
-		if (1) {
+		if (CodecAudioDrift & 2) {
 		    int x;
 
 		    x = (audio_decoder->DriftFrac +

@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Always compile audio drift correction.
+    Add audio drift correction configuration to the setup.
+
 User mini73
 Date: Fri Apr 20 16:51:14 CEST 2012
 
