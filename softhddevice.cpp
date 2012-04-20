@@ -624,10 +624,10 @@ void cMenuSetupSoft::Create(void)
 		&VideoFormat, "4:3", "16:9"));
 	if (VideoFormat) {
 	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
-		&VideoDisplayFormat, 3, video_display_formats_16_9));
+		    &VideoDisplayFormat, 3, video_display_formats_16_9));
 	} else {
 	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
-		&VideoDisplayFormat, 3, video_display_formats_4_3));
+		    &VideoDisplayFormat, 3, video_display_formats_4_3));
 	}
 
 	// FIXME: switch config gray/color configuration
@@ -734,8 +734,8 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
 	// this needed because VDR menus are evil slow
-	if (old_general != General || old_video != Video
-		|| old_audio != Audio || old_video_format != VideoFormat) {
+	if (old_general != General || old_video != Video || old_audio != Audio
+	    || old_video_format != VideoFormat) {
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
@@ -843,8 +843,9 @@ void cMenuSetupSoft::Store(void)
     SetupStore("VideoFormat", Setup.VideoFormat);
     if (Setup.VideoDisplayFormat != VideoDisplayFormat) {
 	Setup.VideoDisplayFormat = VideoDisplayFormat;
-	cDevice::PrimaryDevice()->SetVideoDisplayFormat(
-		eVideoDisplayFormat(Setup.VideoDisplayFormat));
+	cDevice::
+	    PrimaryDevice()->SetVideoDisplayFormat(eVideoDisplayFormat
+	    (Setup.VideoDisplayFormat));
 	printf("video-display-format\n");
     }
     SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
@@ -907,17 +908,20 @@ void cMenuSetupSoft::Store(void)
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
     SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
     CodecSetAudioDownmix(ConfigAudioDownmix);
-    SetupStore("AudioSoftvol", ConfigAudioSoftvol = AudioSoftvol );
+    SetupStore("AudioSoftvol", ConfigAudioSoftvol = AudioSoftvol);
     AudioSetSoftvol(ConfigAudioSoftvol);
-    SetupStore("AudioNormalize", ConfigAudioNormalize = AudioNormalize );
-    SetupStore("AudioMaxNormalize", ConfigAudioMaxNormalize = AudioMaxNormalize );
+    SetupStore("AudioNormalize", ConfigAudioNormalize = AudioNormalize);
+    SetupStore("AudioMaxNormalize", ConfigAudioMaxNormalize =
+	AudioMaxNormalize);
     AudioSetNormalize(ConfigAudioNormalize, ConfigAudioMaxNormalize);
-    SetupStore("AudioCompression", ConfigAudioCompression = AudioCompression );
-    SetupStore("AudioMaxCompression", ConfigAudioMaxCompression = AudioMaxCompression );
+    SetupStore("AudioCompression", ConfigAudioCompression = AudioCompression);
+    SetupStore("AudioMaxCompression", ConfigAudioMaxCompression =
+	AudioMaxCompression);
     AudioSetCompression(ConfigAudioCompression, ConfigAudioMaxCompression);
-    SetupStore("AudioStereoDescent", ConfigAudioStereoDescent = AudioStereoDescent );
+    SetupStore("AudioStereoDescent", ConfigAudioStereoDescent =
+	AudioStereoDescent);
     AudioSetStereoDescent(ConfigAudioStereoDescent);
-    SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime );
+    SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2019,7 +2023,7 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
     if (!strcasecmp(name, "AudioSoftvol")) {
-	AudioSetSoftvol(ConfigAudioSoftvol =  atoi(value));
+	AudioSetSoftvol(ConfigAudioSoftvol = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "AudioNormalize")) {
@@ -2106,13 +2110,19 @@ static const char *SVDRPHelpText[] = {
 	"    12: toggle audio pass-through\n"
 	"    13: decrease audio delay by 10ms\n"
 	"    14: increase audio delay by 10ms\n"
-	"    20: disable fullscreen\n	 21: enable fullscreen\n"
+	"    20: disable fullscreen\n    21: enable fullscreen\n"
 	"    22: toggle fullscreen\n"
-	"    23: disable auto-crop\n	24: enable auto-crop\n"
+	"    23: disable auto-crop\n    24: enable auto-crop\n"
 	"    25: toggle auto-crop\n"
 	"    30: stretch 4:3 to 16:9\n    31: pillar box 4:3 in 16:9\n"
 	"    32: center cut-out 4:3 to 16:9\n"
 	"    39: rotate 4:3 to 16:9 zoom mode\n",
+    "STAT\n" "  Display SuspendMode of the plugin.\n\n"
+	"    reply code is 910 + SuspendMode\n"
+	"    SUSPEND_EXTERNAL == -1  (909)\n"
+	"    NOT_SUSPENDED    ==  0  (910)\n"
+	"    SUSPEND_NORMAL   ==  1  (911)\n"
+	"    SUSPEND_DETACHED ==  2  (912)\n",
     NULL
 };
 
@@ -2137,6 +2147,19 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     const char *option, __attribute__ ((unused)) int &reply_code)
 {
+    if (!strcasecmp(command, "STAT")) {
+	reply_code = 910 + SuspendMode;
+	switch (SuspendMode) {
+	    case SUSPEND_EXTERNAL:
+		return "SuspendMode is SUSPEND_EXTERNAL";
+	    case NOT_SUSPENDED:
+		return "SuspendMode is NOT_SUSPENDED";
+	    case SUSPEND_NORMAL:
+		return "SuspendMode is SUSPEND_NORMAL";
+	    case SUSPEND_DETACHED:
+		return "SuspendMode is SUSPEND_DETACHED";
+	}
+    }
     if (!strcasecmp(command, "SUSP")) {
 	if (cSoftHdControl::Player) {	// already suspended
 	    return "SoftHdDevice already suspended";

@@ -1,6 +1,14 @@
 User johns
 Date:
 
+User mini73
+Date: Fri Apr 20 16:51:14 CEST 2012
+
+    Add support for svdr command "stat".
+
+User johns
+Date: Fri Apr 20 16:05:40 CEST 2012
+
     Made showing black picture configurable.
     Show black picture, if no video stream is available.
     Setup split into foldable sections.
