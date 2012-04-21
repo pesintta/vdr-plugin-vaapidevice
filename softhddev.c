@@ -1374,6 +1374,7 @@ int VideoDecode(void)
 	VideoPacketRead = VideoPacketWrite;
 	if (MyVideoDecoder) {
 	    CodecVideoFlushBuffers(MyVideoDecoder);
+	    VideoResetStart(MyHwDecoder);
 	}
 	VideoClearBuffers = 0;
 	return 1;

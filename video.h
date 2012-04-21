@@ -159,6 +159,9 @@ extern int64_t VideoGetClock(const VideoHwDecoder *);
     /// Set closing flag.
 extern void VideoSetClosing(VideoHwDecoder *);
 
+    /// Reset start of frame counter
+extern void VideoResetStart(VideoHwDecoder *);
+
     /// Set trick play speed.
 extern void VideoSetTrickSpeed(VideoHwDecoder *, int);
 

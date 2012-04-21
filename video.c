@@ -1342,6 +1342,7 @@ struct _vaapi_decoder_
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
+    int StartCounter;			///< counter for video start
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -1862,6 +1863,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     decoder->SyncCounter = 0;
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
+    decoder->StartCounter = 0;
     decoder->Closing = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
@@ -4303,6 +4305,7 @@ static void VaapiDisplayFrame(void)
 
 	decoder = VaapiDecoders[i];
 	decoder->FramesDisplayed++;
+	decoder->StartCounter++;
 
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// no surface availble show black with possible osd
@@ -4461,12 +4464,12 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	decoder->TrickCounter = decoder->TrickSpeed;
     }
     // at start of new video stream, soft or hard sync video to audio
-    if (!VideoSoftStartSync && decoder->FramesDisplayed < VideoSoftStartFrames
+    if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
 	    VaapiMessage(3, "video: initial slow down video, frame %d\n",
-	    decoder->FramesDisplayed);
+	    decoder->StartCounter);
 	goto out;
     }
 
@@ -5025,6 +5028,7 @@ typedef struct _vdpau_decoder_
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
+    int StartCounter;			///< counter for video start
     int FramesDuped;			///< number of frames duplicated
     int FramesMissed;			///< number of frames missed
     int FramesDropped;			///< number of frames dropped
@@ -5742,6 +5746,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
     decoder->SyncCounter = 0;
     decoder->FrameCounter = 0;
     decoder->FramesDisplayed = 0;
+    decoder->StartCounter = 0;
     decoder->Closing = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
@@ -7542,6 +7547,7 @@ static void VdpauDisplayFrame(void)
 
 	decoder = VdpauDecoders[i];
 	decoder->FramesDisplayed++;
+	decoder->StartCounter++;
 
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// need 1 frame for progressive, 3 frames for interlaced
@@ -7685,12 +7691,12 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	decoder->TrickCounter = decoder->TrickSpeed;
     }
     // at start of new video stream, soft or hard sync video to audio
-    if (!VideoSoftStartSync && decoder->FramesDisplayed < VideoSoftStartFrames
+    if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
 	    VdpauMessage(3, "video: initial slow down video, frame %d\n",
-	    decoder->FramesDisplayed);
+	    decoder->StartCounter);
 	goto out;
     }
 
@@ -9184,6 +9190,29 @@ void VideoSetClosing(VideoHwDecoder * hw_decoder)
     }
 #endif
     // clear clock to avoid further sync
+    VideoSetClock(hw_decoder, AV_NOPTS_VALUE);
+}
+
+///
+///	Reset start of frame counter.
+///
+///	@param hw_decoder	video hardware decoder
+///
+void VideoResetStart(VideoHwDecoder * hw_decoder)
+{
+    Debug(3, "video: reset start\n");
+    // FIXME: test to check if working, than make module function
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	hw_decoder->Vdpau.StartCounter = 0;
+    }
+#endif
+#ifdef USE_VAPI
+    if (VideoUsedModule == &VaapiModule) {
+	hw_decoder->Vaapi.StartCounter = 0;
+    }
+#endif
+    // clear clock to trigger new video stream
     VideoSetClock(hw_decoder, AV_NOPTS_VALUE);
 }
 
