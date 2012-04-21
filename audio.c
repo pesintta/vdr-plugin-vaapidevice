@@ -536,6 +536,30 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 }
 
 /**
+**	Upmix @a in_chan channels to @a out_chan.
+**
+**	@param in	input sample buffer
+**	@param in_chan	nr. of input channels
+**	@param frames	number of frames in sample buffer
+**	@param out	output sample buffer
+**	@param out_chan	nr. of output channels
+*/
+static void AudioUpmix(const int16_t * in, int in_chan, int frames,
+    int16_t * out, int out_chan)
+{
+    while (frames--) {
+	int i;
+
+	for (i = 0; i < in_chan; ++i) {	// copy existing channels
+	    *out++ = *in++;
+	}
+	for (; i < out_chan; ++i) {	// silents missing channels
+	    *out++ = 0;
+	}
+    }
+}
+
+/**
 **	Resample ffmpeg sample format to hardware format.
 **
 **	@param in	input sample buffer
@@ -571,6 +595,9 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 	case 7 * 8 + 2:
 	case 8 * 8 + 2:
 	    AudioSurround2Stereo(in, in_chan, frames, out);
+	    break;
+	case 5 * 8 + 6:
+	    AudioUpmix(in, in_chan, frames, out, out_chan);
 	    break;
 
 	default:
