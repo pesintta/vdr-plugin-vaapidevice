@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: alloca wrong size for audio buffer.
     Handle jump in stream like stream start.
     Always compile audio drift correction.
     Add audio drift correction configuration to the setup.

@@ -3561,7 +3561,7 @@ void AudioEnqueue(const void *samples, int count)
     frames =
 	count / (AudioRing[AudioRingWrite].InChannels * AudioBytesProSample);
     buffer =
-	alloca(frames * AudioRing[AudioRingWrite].InChannels *
+	alloca(frames * AudioRing[AudioRingWrite].HwChannels *
 	AudioBytesProSample);
     AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames,
 	buffer, AudioRing[AudioRingWrite].HwChannels);
