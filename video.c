@@ -1772,6 +1772,8 @@ static VaapiDecoder *VaapiNewHwDecoder(void)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    decoder->Closing = -300 - 1;
+
     decoder->PTS = AV_NOPTS_VALUE;
 
     // get/put still not working
@@ -5679,15 +5681,17 @@ static VdpauDecoder *VdpauNewHwDecoder(void)
     }
 #endif
 
-    decoder->OutputWidth = VideoWindowWidth;
-    decoder->OutputHeight = VideoWindowHeight;
-
     // Procamp operation parameterization data
     decoder->Procamp.struct_version = VDP_PROCAMP_VERSION;
     decoder->Procamp.brightness = 0.0;
     decoder->Procamp.contrast = 1.0;
     decoder->Procamp.saturation = 1.0;
     decoder->Procamp.hue = 0.0;		// default values
+
+    decoder->OutputWidth = VideoWindowWidth;
+    decoder->OutputHeight = VideoWindowHeight;
+
+    decoder->Closing = -300 - 1;
 
     decoder->PTS = AV_NOPTS_VALUE;
 
