@@ -49,6 +49,18 @@ struct _ring_buffer_
 };
 
 /**
+**	Reset ring buffer pointers.
+**
+**	@param rb	Ring buffer to reset read/write pointers.
+*/
+void RingBufferReset(RingBuffer * rb)
+{
+    rb->ReadPointer = rb->Buffer;
+    rb->WritePointer = rb->Buffer;
+    atomic_set(&rb->Filled, 0);
+}
+
+/**
 **	Allocate a new ring buffer.
 **
 **	@param size	Size of the ring buffer.
@@ -69,10 +81,8 @@ RingBuffer *RingBufferNew(size_t size)
     }
 
     rb->Size = size;
-    rb->ReadPointer = rb->Buffer;
-    rb->WritePointer = rb->Buffer;
     rb->BufferEnd = rb->Buffer + size;
-    atomic_set(&rb->Filled, 0);
+    RingBufferReset(rb);
 
     return rb;
 }
@@ -89,7 +99,7 @@ void RingBufferDel(RingBuffer * rb)
 /**
 **	Advance write pointer in ring buffer.
 **
-**	@param rb	Ring buffer to adance write pointer.
+**	@param rb	Ring buffer to advance write pointer.
 **	@param cnt	Number of bytes to be adavanced.
 **
 **	@returns	Number of bytes that could be advanced in ring buffer.
@@ -198,7 +208,7 @@ size_t RingBufferGetWritePointer(RingBuffer * rb, void **wp)
 /**
 **	Advance read pointer in ring buffer.
 **
-**	@param rb	Ring buffer to adance read pointer.
+**	@param rb	Ring buffer to advance read pointer.
 **	@param cnt	Number of bytes to be advanced.
 **
 **	@returns	Number of bytes that could be advanced in ring buffer.

@@ -23,13 +23,16 @@
 /// @addtogroup Ringbuffer
 /// @{
 
-    ///< ring buffer typedef
+    /// ring buffer typedef
 typedef struct _ring_buffer_ RingBuffer;
 
-    ///< create new ring buffer
+    /// reset ring buffer pointers
+extern void RingBufferReset(RingBuffer *);
+
+    /// create new ring buffer
 extern RingBuffer *RingBufferNew(size_t);
 
-    ///< free ring buffer
+    /// free ring buffer
 extern void RingBufferDel(RingBuffer *);
 
     /// write into ring buffer

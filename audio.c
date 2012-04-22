@@ -178,8 +178,8 @@ static int AudioVolume;			///< current volume (0 .. 1000)
 
 extern int VideoAudioDelay;		///< import audio/video delay
 
-    /// default ring buffer size ~2s 8ch 16bit
-static const unsigned AudioRingBufferSize = 2 * 48000 * 8 * 2;
+    /// default ring buffer size ~2s 8ch 16bit (3 * 5 * 7 * 8)
+static const unsigned AudioRingBufferSize = 3 * 5 * 7 * 8 * 2 * 1000;
 
 static int AudioChannelsInHw[9];	///< table which channels are supported
 enum _audio_rates
@@ -684,9 +684,7 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int use_ac3)
     AudioRing[AudioRingWrite].HwSampleRate = sample_rate;
     AudioRing[AudioRingWrite].HwChannels = AudioChannelMatrix[u][channels];
     AudioRing[AudioRingWrite].PTS = INT64_C(0x8000000000000000);
-    // reset ring-buffer
-    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
-	RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer));
+    RingBufferReset(AudioRing[AudioRingWrite].RingBuffer);
 
     atomic_inc(&AudioRingFilled);
 
@@ -856,6 +854,11 @@ static int AlsaPlayRingbuffer(void)
 	    // FIXME: if not all are written, we double amplify them
 	}
 	frames = snd_pcm_bytes_to_frames(AlsaPCMHandle, avail);
+	if (avail != snd_pcm_frames_to_bytes(AlsaPCMHandle, frames)) {
+	    Error(_("audio/alsa: bytes lost -> out of sync\n"));
+	}
+#ifdef DEBUG
+#endif
 
 	for (;;) {
 	    if (AlsaUseMmap) {

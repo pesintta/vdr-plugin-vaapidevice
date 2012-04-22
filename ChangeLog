@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Make audio ring buffer size a multiple of 3,5,7,8.
+    Add reset ring buffer support.
     Fix bug: alloca wrong size for audio buffer.
     Handle jump in stream like stream start.
     Always compile audio drift correction.
