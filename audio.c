@@ -3570,7 +3570,7 @@ void AudioEnqueue(const void *samples, int count)
     int16_t *buffer;
     int frames;
 
-#ifdef DEBUG
+#ifdef noDEBUG
     static uint32_t last_tick;
     uint32_t tick;
 
@@ -3585,28 +3585,34 @@ void AudioEnqueue(const void *samples, int count)
 	Debug(3, "audio: enqueue not ready\n");
 	return;				// no setup yet
     }
-    //
-    //	Convert / resample input to hardware format
-    //
-    frames =
-	count / (AudioRing[AudioRingWrite].InChannels * AudioBytesProSample);
-    buffer =
-	alloca(frames * AudioRing[AudioRingWrite].HwChannels *
-	AudioBytesProSample);
-    AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames,
-	buffer, AudioRing[AudioRingWrite].HwChannels);
+    if (AudioRing[AudioRingWrite].UseAc3) {
+	buffer = (void*)samples;
+    } else {
+	//
+	//	Convert / resample input to hardware format
+	//
+	frames =
+	    count / (AudioRing[AudioRingWrite].InChannels *
+	    AudioBytesProSample);
+	buffer =
+	    alloca(frames * AudioRing[AudioRingWrite].HwChannels *
+	    AudioBytesProSample);
+	AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames,
+	    buffer, AudioRing[AudioRingWrite].HwChannels);
 
-    count =
-	frames * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
+	count =
+	    frames * AudioRing[AudioRingWrite].HwChannels *
+	    AudioBytesProSample;
 
-    // resample into ring-buffer is too complex in the case of a roundabout
-    // just use a temporary buffer
+	// resample into ring-buffer is too complex in the case of a roundabout
+	// just use a temporary buffer
 
-    if (AudioCompression) {		// in place operation
-	AudioCompressor(buffer, count);
-    }
-    if (AudioNormalize) {		// in place operation
-	AudioNormalizer(buffer, count);
+	if (AudioCompression) {		// in place operation
+	    AudioCompressor(buffer, count);
+	}
+	if (AudioNormalize) {		// in place operation
+	    AudioNormalizer(buffer, count);
+	}
     }
 
     n = RingBufferWrite(AudioRing[AudioRingWrite].RingBuffer, buffer, count);

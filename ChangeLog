@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Release Version 0.5.1
+    Fix bug: don't normalize or compress pass-through samples.
     Make audio ring buffer size a multiple of 3,5,7,8.
     Add reset ring buffer support.
     Fix bug: alloca wrong size for audio buffer.
