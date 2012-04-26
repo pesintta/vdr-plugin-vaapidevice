@@ -4464,6 +4464,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    goto out;
 	}
 	decoder->TrickCounter = decoder->TrickSpeed;
+	goto skip_sync;
     }
     // at start of new video stream, soft or hard sync video to audio
     if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
@@ -7626,7 +7627,7 @@ static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 	   decoder->SurfaceField,
 	   atomic_read(&decoder->SurfacesFilled));
 	 */
-	// - 2 fields are future, + 2 in driver queue
+	// 1 field is future, 2 fields are past, + 2 in driver queue
 	return decoder->PTS -
 	    20 * 90 * (2 * atomic_read(&decoder->SurfacesFilled)
 	    - decoder->SurfaceField - 2 + 2);
@@ -7693,6 +7694,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    goto out;
 	}
 	decoder->TrickCounter = decoder->TrickSpeed;
+	goto skip_sync;
     }
     // at start of new video stream, soft or hard sync video to audio
     if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
