@@ -848,16 +848,17 @@ static int AlsaPlayRingbuffer(void)
 	if (!avail) {			// full or buffer empty
 	    break;
 	}
-	if (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3) {
+	// muting ac3, can produce disturbance
+	if (AudioMute || (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3)) {
 	    // FIXME: quick&dirty cast
 	    AudioSoftAmplifier((int16_t *) p, avail);
 	    // FIXME: if not all are written, we double amplify them
 	}
 	frames = snd_pcm_bytes_to_frames(AlsaPCMHandle, avail);
+#ifdef DEBUG
 	if (avail != snd_pcm_frames_to_bytes(AlsaPCMHandle, frames)) {
 	    Error(_("audio/alsa: bytes lost -> out of sync\n"));
 	}
-#ifdef DEBUG
 #endif
 
 	for (;;) {
@@ -3586,7 +3587,7 @@ void AudioEnqueue(const void *samples, int count)
 	return;				// no setup yet
     }
     if (AudioRing[AudioRingWrite].UseAc3) {
-	buffer = (void*)samples;
+	buffer = (void *)samples;
     } else {
 	//
 	//	Convert / resample input to hardware format
@@ -3897,6 +3898,7 @@ int64_t AudioGetClock(void)
 void AudioSetVolume(int volume)
 {
     AudioVolume = volume;
+    AudioMute = !volume;
 #ifdef USE_AUDIORING
     // reduce loudness for stereo output
     if (AudioStereoDescent && AudioRing[AudioRingRead].InChannels == 2
