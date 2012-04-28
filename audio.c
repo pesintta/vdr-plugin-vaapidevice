@@ -145,6 +145,7 @@ static char AudioDoingInit;		///> flag in init, reduce error
 static volatile char AudioRunning;	///< thread running / stopped
 static volatile char AudioPaused;	///< audio paused
 static volatile char AudioVideoIsReady;	///< video ready start early
+static int AudioSkip;			///< skip audio to sync to video
 
 #ifndef USE_AUDIORING
 static unsigned AudioSampleRate;	///< audio sample rate in Hz
@@ -1120,6 +1121,7 @@ static void AlsaFlushBuffers(void)
     }
     AudioRunning = 0;
     AudioVideoIsReady = 0;
+    AudioSkip = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -2453,6 +2455,7 @@ static void OssFlushBuffers(void)
     }
     AudioRunning = 0;
     AudioVideoIsReady = 0;
+    AudioSkip = 0;
     AudioPTS = INT64_C(0x8000000000000000);
 }
 
@@ -3626,16 +3629,25 @@ void AudioEnqueue(const void *samples, int count)
     }
 
     if (!AudioRunning) {		// check, if we can start the thread
-	//int64_t video_pts;
+	int skip;
 
-	//video_pts = VideoGetClock();
 	n = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+	skip = AudioSkip;
+	if (skip) {
+	    if (n < (unsigned)skip) {
+		skip = n;
+	    }
+	    AudioSkip -= skip;
+	    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer, skip);
+	    n = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+	}
+
 	Debug(3, "audio: start? %4zdms\n", (n * 1000)
 	    / (AudioRing[AudioRingWrite].HwSampleRate *
 		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
 	// forced start or enough video + audio buffered
-	if (AudioStartThreshold * 2 < n || (AudioVideoIsReady
+	if (AudioStartThreshold * 4 < n || (AudioVideoIsReady
 		&& AudioStartThreshold < n)) {
 	    // restart play-back
 	    // no lock needed, can wakeup next time
@@ -3687,6 +3699,65 @@ void AudioEnqueue(const void *samples, int count)
 void AudioVideoReady(int64_t pts)
 {
 #ifdef USE_AUDIORING
+    int64_t audio_pts;
+    size_t used;
+
+    if (pts == (int64_t) INT64_C(0x8000000000000000)) {
+	return;
+    }
+    // no valid audio known
+    if (!AudioRing[AudioRingWrite].HwSampleRate
+	|| !AudioRing[AudioRingWrite].HwChannels
+	|| AudioRing[AudioRingWrite].PTS ==
+	(int64_t) INT64_C(0x8000000000000000)) {
+	Debug(3, "audio: a/v start, no valid audio\n");
+	AudioVideoIsReady = 1;
+	return;
+    }
+    // Audio.PTS = next written sample time stamp
+
+    used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+    audio_pts =
+	AudioRing[AudioRingWrite].PTS -
+	(used * 90 * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
+	AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
+
+    Debug(3, "audio: a/v buf:%4zdms %s|%s = %dms video ready\n",
+	(used * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
+	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
+	Timestamp2String(pts), Timestamp2String(audio_pts),
+	(int)(pts - audio_pts) / 90);
+
+    if (!AudioRunning) {
+	int skip;
+
+	// keep ~5 frames
+	skip = pts - 5 * 20 - audio_pts;
+	if (skip > 0) {
+	    skip = (((int64_t) skip * AudioRing[AudioRingWrite].HwSampleRate)
+		/ (1000 * 90))
+		* AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
+	    if ((unsigned)skip > used) {
+		AudioSkip = skip - used;
+		skip = used;
+	    }
+	    Debug(3, "audio: advance %dms %d/%zd\n",
+		(skip * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
+		    AudioRing[AudioRingWrite].HwChannels *
+		    AudioBytesProSample), skip, used);
+	    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer, skip);
+
+	    used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
+	    // enough video + audio buffered
+	    if (AudioStartThreshold < used) {
+		AudioRunning = 1;
+		pthread_cond_signal(&AudioStartCond);
+	    }
+	}
+    }
+
+    AudioVideoIsReady = 1;
+#if 0
     if (AudioRing[AudioRingWrite].HwSampleRate
 	&& AudioRing[AudioRingWrite].HwChannels) {
 	if (pts != (int64_t) INT64_C(0x8000000000000000)
@@ -3702,6 +3773,7 @@ void AudioVideoReady(int64_t pts)
 		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
 	    Timestamp2String(pts),
 	    Timestamp2String(AudioRing[AudioRingWrite].PTS));
+
 	if (!AudioRunning) {
 	    size_t used;
 
@@ -3709,14 +3781,14 @@ void AudioVideoReady(int64_t pts)
 	    // enough video + audio buffered
 	    if (AudioStartThreshold < used) {
 		// too much audio buffered, skip it
-		if (AudioStartThreshold * 2 < used) {
+		if (AudioStartThreshold < used) {
 		    Debug(3, "audio: start %4zdms skip video ready\n",
-			((used - AudioStartThreshold * 2) * 1000)
+			((used - AudioStartThreshold) * 1000)
 			/ (AudioRing[AudioRingWrite].HwSampleRate *
 			    AudioRing[AudioRingWrite].HwChannels *
 			    AudioBytesProSample));
 		    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
-			used - AudioStartThreshold * 2);
+			used - AudioStartThreshold);
 		}
 		AudioRunning = 1;
 		pthread_cond_signal(&AudioStartCond);
@@ -3724,6 +3796,7 @@ void AudioVideoReady(int64_t pts)
 	}
     }
     AudioVideoIsReady = 1;
+#endif
 #else
     (void)pts;
     AudioVideoIsReady = 1;
@@ -3752,6 +3825,7 @@ void AudioFlushBuffers(void)
 	RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer));
     Debug(3, "audio: reset video ready\n");
     AudioVideoIsReady = 0;
+    AudioSkip = 0;
 
     atomic_inc(&AudioRingFilled);
 
