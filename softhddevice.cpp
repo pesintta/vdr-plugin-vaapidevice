@@ -1835,7 +1835,7 @@ void cPluginSoftHdDevice::Stop(void)
 */
 void cPluginSoftHdDevice::Housekeeping(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     // check if user is inactive, automatic enter suspend mode
     // FIXME: cControl prevents shutdown, disable this until fixed
