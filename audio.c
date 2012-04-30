@@ -3732,7 +3732,7 @@ void AudioVideoReady(int64_t pts)
 	int skip;
 
 	// keep ~5 frames
-	skip = pts - 5 * 20 - audio_pts;
+	skip = pts - 5 * 20 * 90 - audio_pts - VideoAudioDelay;
 	if (skip > 0) {
 	    skip = (((int64_t) skip * AudioRing[AudioRingWrite].HwSampleRate)
 		/ (1000 * 90))
