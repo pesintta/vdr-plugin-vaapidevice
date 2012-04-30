@@ -2,6 +2,15 @@ User johns
 Date:
 
     Release Version 0.5.1
+
+User durchflieger
+Date: Mon Apr 30 14:46:51 CEST 2012
+
+    Adds VDR DFAtmo Plugin support.
+
+User johns
+Date: Mon Apr 30 13:56:26 CEST 2012
+
     Fix bug: don't normalize or compress pass-through samples.
     Make audio ring buffer size a multiple of 3,5,7,8.
     Add reset ring buffer support.

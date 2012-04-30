@@ -121,7 +121,6 @@ future features (not planed for 1.0 - 1.5)
     video out with opengl
     video out with xvba
     software decoder for xv / opengl
-    atmolight support
     multistream handling
     pip support
     save and use auto-crop with channel zapping

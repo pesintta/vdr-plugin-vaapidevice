@@ -33,6 +33,7 @@
 
 #include "softhddev.h"
 #include "softhddevice.h"
+#include "softhddevice_service.h"
 extern "C"
 {
 #include "audio.h"
@@ -693,8 +694,8 @@ void cMenuSetupSoft::Create(void)
     if (Audio) {
 	Add(new cMenuEditIntItem(tr("Audio/Video delay (ms)"), &AudioDelay,
 		-1000, 1000));
-	Add(new cMenuEditStraItem(tr("Audio drift correction"),
-		&AudioDrift, 4, audiodrift));
+	Add(new cMenuEditStraItem(tr("Audio drift correction"), &AudioDrift, 4,
+		audiodrift));
 	Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough,
 		2, passthrough));
 	Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
@@ -1720,7 +1721,7 @@ class cPluginSoftHdDevice:public cPlugin
     virtual cOsdObject *MainMenuAction(void);
     virtual cMenuSetupPage *SetupMenu(void);
     virtual bool SetupParse(const char *, const char *);
-//    virtual bool Service(const char *, void * = NULL);
+    virtual bool Service(const char *, void * = NULL);
     virtual const char **SVDRPHelpPages(void);
     virtual cString SVDRPCommand(const char *, const char *, int &);
 };
@@ -2074,16 +2075,47 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     return false;
 }
 
-#if 0
-
-bool cPluginSoftHdDevice::Service(const char *Id, void *Data)
+/**
+**	Receive requests or messages.
+**
+**	@param id	unique identification string that identifies the
+**			service protocol
+**	@param data	custom data structure
+*/
+bool cPluginSoftHdDevice::Service(const char *id, void *data)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    dsyslog("[softhddev]%s: id %s\n", __FUNCTION__, id);
 
+    if (strcmp(id, ATMO_GRAB_SERVICE) == 0) {
+	int width;
+	int height;
+
+	if (data == NULL) {
+	    return true;
+	}
+
+	SoftHDDevice_AtmoGrabService_v1_0_t *r =
+	    (SoftHDDevice_AtmoGrabService_v1_0_t *) data;
+	if (r->structSize != sizeof(SoftHDDevice_AtmoGrabService_v1_0_t)
+	    || r->analyseSize < 64 || r->analyseSize > 256
+	    || r->clippedOverscan < 0 || r->clippedOverscan > 200) {
+	    return false;
+	}
+
+	width = r->analyseSize * -1;	// Internal marker for Atmo grab service
+	height = r->clippedOverscan;
+
+	r->img = VideoGrabService(&r->imgSize, &width, &height);
+	if (r->img == NULL) {
+	    return false;
+	}
+	r->imgType = GRAB_IMG_RGBA_FORMAT_B8G8R8A8;
+	r->width = width;
+	r->height = height;
+	return true;
+    }
     return false;
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 //	cPlugin SVDRP

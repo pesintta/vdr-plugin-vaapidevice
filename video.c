@@ -5079,6 +5079,10 @@ static VdpOutputSurface VdpauOsdOutputSurface[2] = {
 #endif
 static int VdpauOsdSurfaceIndex;	///< index into double buffered osd
 
+    /// grab render output surface
+static VdpOutputSurface VdpauGrabRenderSurface = VDP_INVALID_HANDLE;
+static pthread_mutex_t VdpauGrabMutex;
+
 ///
 ///	Function pointer of the VDPAU device.
 ///
@@ -5807,6 +5811,7 @@ static inline void VdpauGetProc(const VdpFuncId id, void *addr,
 static void VdpauInitOutputQueue(void)
 {
     VdpStatus status;
+    VdpRGBAFormat format;
     int i;
 
     status =
@@ -5839,12 +5844,10 @@ static void VdpauInitOutputQueue(void)
     //
     //	Create display output surfaces
     //
+    format = VDP_RGBA_FORMAT_B8G8R8A8;
+    // FIXME: does a 10bit rgba produce a better output?
+    // format = VDP_RGBA_FORMAT_R10G10B10A2;
     for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
-	VdpRGBAFormat format;
-
-	format = VDP_RGBA_FORMAT_B8G8R8A8;
-	// FIXME: does a 10bit rgba produce a better output?
-	// format = VDP_RGBA_FORMAT_R10G10B10A2;
 	status =
 	    VdpauOutputSurfaceCreate(VdpauDevice, format, VideoWindowWidth,
 	    VideoWindowHeight, VdpauSurfacesRb + i);
@@ -5855,6 +5858,20 @@ static void VdpauInitOutputQueue(void)
 	Debug(3, "video/vdpau: created output surface %dx%d with id 0x%08x\n",
 	    VideoWindowWidth, VideoWindowHeight, VdpauSurfacesRb[i]);
     }
+
+    //
+    //	 Create render output surface for grabbing
+    //
+    status =
+	VdpauOutputSurfaceCreate(VdpauDevice, format, VideoWindowWidth,
+	VideoWindowHeight, &VdpauGrabRenderSurface);
+    if (status != VDP_STATUS_OK) {
+	Fatal(_("video/vdpau: can't create grab render output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+    Debug(3,
+	"video/vdpau: created grab render output surface %dx%d with id 0x%08x\n",
+	VideoWindowWidth, VideoWindowHeight, VdpauGrabRenderSurface);
 }
 
 ///
@@ -5863,13 +5880,12 @@ static void VdpauInitOutputQueue(void)
 static void VdpauExitOutputQueue(void)
 {
     int i;
+    VdpStatus status;
 
     //
     //	destroy display output surfaces
     //
     for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
-	VdpStatus status;
-
 	Debug(4, "video/vdpau: destroy output surface with id 0x%08x\n",
 	    VdpauSurfacesRb[i]);
 	if (VdpauSurfacesRb[i] != VDP_INVALID_HANDLE) {
@@ -5880,6 +5896,15 @@ static void VdpauExitOutputQueue(void)
 	    }
 	    VdpauSurfacesRb[i] = VDP_INVALID_HANDLE;
 	}
+    }
+    if (VdpauGrabRenderSurface != VDP_INVALID_HANDLE) {
+	status = VdpauOutputSurfaceDestroy(VdpauGrabRenderSurface);
+	if (status != VDP_STATUS_OK) {
+	    Error(_
+		("video/vdpau: can't destroy grab render output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+	VdpauGrabRenderSurface = VDP_INVALID_HANDLE;
     }
     if (VdpauQueue) {
 	VdpauPresentationQueueDestroy(VdpauQueue);
@@ -5926,6 +5951,8 @@ static int VdpauInit(const char *display_name)
     VdpBool flag;
     uint32_t max_width;
     uint32_t max_height;
+
+    pthread_mutex_init(&VdpauGrabMutex, NULL);
 
     status =
 	vdp_device_create_x11(XlibDisplay, DefaultScreen(XlibDisplay),
@@ -6358,6 +6385,8 @@ static void VdpauExit(void)
 	}
 	VdpauDevice = 0;
     }
+
+    pthread_mutex_destroy(&VdpauGrabMutex);
 }
 
 ///
@@ -6684,13 +6713,13 @@ static void VdpauGrabVideoSurface(VdpauDecoder * decoder)
 #endif
 
 ///
-///	Grab output surface.
+///	Grab output surface already locked.
 ///
 ///	@param ret_size[out]		size of allocated surface copy
 ///	@param ret_width[in,out]	width of output
 ///	@param ret_height[in,out]	height of output
 ///
-static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
+static uint8_t *VdpauGrabOutputSurfaceLocked(int *ret_size, int *ret_width,
     int *ret_height)
 {
     VdpOutputSurface surface;
@@ -6703,8 +6732,7 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     void *data[1];
     uint32_t pitches[1];
     VdpRect source_rect;
-
-    // FIXME: test function to grab output surface content
+    VdpRect output_rect;
 
     surface = VdpauSurfacesRb[VdpauSurfaceIndex];
 
@@ -6721,8 +6749,62 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     Debug(3, "video/vdpau: grab %dx%d format %d\n", width, height,
 	rgba_format);
 
-    // FIXME: scale surface to requested size with
-    //		VdpauOutputSurfaceRenderOutputSurface
+    source_rect.x0 = 0;
+    source_rect.y0 = 0;
+    source_rect.x1 = width;
+    source_rect.y1 = height;
+
+    if (ret_width && ret_height) {
+	if (*ret_width <= -64) {	// this is a Atmo grab service request
+	    int overscan;
+
+	    // calculate aspect correct size of analyze image
+	    width = *ret_width * -1;
+	    height = (width * source_rect.y1) / source_rect.x1;
+
+	    // calculate size of grab (sub) window
+	    overscan = *ret_height;
+
+	    if (overscan > 0 && overscan <= 200) {
+		source_rect.x0 = source_rect.x1 * overscan / 1000;
+		source_rect.x1 -= source_rect.x0;
+		source_rect.y0 = source_rect.y1 * overscan / 1000;
+		source_rect.y1 -= source_rect.y0;
+	    }
+	} else {
+	    if (*ret_width > 0 && (unsigned)*ret_width < width) {
+		width = *ret_width;
+	    }
+	    if (*ret_height > 0 && (unsigned)*ret_height < height) {
+		height = *ret_height;
+	    }
+	}
+
+	Debug(3, "video/vdpau: grab source rect %d,%d:%d,%d dest dim %dx%d\n",
+	    source_rect.x0, source_rect.y0, source_rect.x1, source_rect.y1,
+	    width, height);
+
+	if ((source_rect.x1 - source_rect.x0) != width
+	    || (source_rect.y1 - source_rect.y0) != height) {
+	    output_rect.x0 = 0;
+	    output_rect.y0 = 0;
+	    output_rect.x1 = width;
+	    output_rect.y1 = height;
+
+	    status =
+		VdpauOutputSurfaceRenderOutputSurface(VdpauGrabRenderSurface,
+		&output_rect, surface, &source_rect, NULL, NULL,
+		VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't render output surface: %s\n"),
+		    VdpauGetErrorString(status));
+		return NULL;
+	    }
+
+	    surface = VdpauGrabRenderSurface;
+	    source_rect = output_rect;
+	}
+    }
 
     switch (rgba_format) {
 	case VDP_RGBA_FORMAT_B8G8R8A8:
@@ -6744,10 +6826,6 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
 	    return NULL;
     }
 
-    source_rect.x0 = 0;
-    source_rect.y0 = 0;
-    source_rect.x1 = source_rect.x0 + width;
-    source_rect.y1 = source_rect.y0 + height;
     status =
 	VdpauOutputSurfaceGetBitsNative(surface, &source_rect, data, pitches);
     if (status != VDP_STATUS_OK) {
@@ -6768,6 +6846,28 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     }
 
     return base;
+}
+
+///
+///	Grab output surface.
+///
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
+///
+static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
+    int *ret_height)
+{
+    uint8_t *img;
+
+    if (VdpauGrabRenderSurface == VDP_INVALID_HANDLE) {
+	return NULL;			// vdpau video module not yet initialized
+    }
+
+    pthread_mutex_lock(&VdpauGrabMutex);
+    img = VdpauGrabOutputSurfaceLocked(ret_size, ret_width, ret_height);
+    pthread_mutex_unlock(&VdpauGrabMutex);
+    return img;
 }
 
 #endif
@@ -9264,6 +9364,8 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	scale_height = *height;
 	n = 0;
 	data = VideoUsedModule->GrabOutput(size, width, height);
+	if (data == NULL)
+	    return NULL;
 
 	if (scale_width <= 0) {
 	    scale_width = *width;
@@ -9347,6 +9449,32 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
     (void)width;
     (void)height;
     (void)write_header;
+    return NULL;
+}
+
+///
+///	Grab image service.
+///
+///	@param size[out]	size of allocated image
+///	@param width[in,out]	width of image
+///	@param height[in,out]	height of image
+///
+uint8_t *VideoGrabService(int *size, int *width, int *height)
+{
+    Debug(3, "video: grab service\n");
+
+#ifdef USE_GRAB
+    if (VideoUsedModule->GrabOutput) {
+	return VideoUsedModule->GrabOutput(size, width, height);
+    } else
+#endif
+    {
+	Warning(_("softhddev: grab unsupported\n"));
+    }
+
+    (void)size;
+    (void)width;
+    (void)height;
     return NULL;
 }
 
