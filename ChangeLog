@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.5.1
+    Fix bug #959: log flooded with service messages.
 
 User durchflieger
 Date: Mon Apr 30 14:46:51 CEST 2012

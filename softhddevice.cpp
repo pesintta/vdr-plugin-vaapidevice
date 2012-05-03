@@ -2084,7 +2084,7 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 */
 bool cPluginSoftHdDevice::Service(const char *id, void *data)
 {
-    dsyslog("[softhddev]%s: id %s\n", __FUNCTION__, id);
+    //dsyslog("[softhddev]%s: id %s\n", __FUNCTION__, id);
 
     if (strcmp(id, ATMO_GRAB_SERVICE) == 0) {
 	int width;
