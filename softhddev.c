@@ -348,11 +348,76 @@ static int Ac3Check(const uint8_t * data, int size)
     frmsizcod = data[4] & 0x3F;		// invalid is checked by fast
     frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
 
-    if (frame_size + 2 > size) {
-	return -frame_size - 2;
+    if (frame_size + 5 > size) {
+	return -frame_size - 5;
     }
     // check if after this frame a new AC-3 frame starts
     if (FastAc3Check(data + frame_size)) {
+	return frame_size;
+    }
+
+    return 0;
+}
+
+///
+///	Fast check for ADTS Audio Data Transport Stream.
+///
+///	7/9 bytes 0xFFFxxxxxxxxxxx(xxxx)  ADTS audio
+///
+static inline int FastAdtsCheck(const uint8_t * p)
+{
+    if (p[0] != 0xFF) {			// 12bit sync
+	return 0;
+    }
+    if ((p[1] & 0xF6) != 0xF0) {	// sync + layer must be 0
+	return 0;
+    }
+    if ((p[2] & 0x3C) == 0x3C) {	// sampling frequency index != 15
+	return 0;
+    }
+    return 1;
+}
+
+///
+///	Check for ADTS Audio Data Transport Stream.
+///
+///	0xFFF already checked.
+///
+///	@param data	incomplete PES packet
+///	@param size	number of bytes
+///
+///	@retval <0	possible ADTS audio, but need more data
+///	@retval 0	no valid ADTS audio
+///	@retval >0	valid AC-3 audio
+///
+///	AAAAAAAA AAAABCCD EEFFFFGH HHIJKLMM MMMMMMMM MMMOOOOO OOOOOOPP
+///	(QQQQQQQQ QQQQQQQ)
+///
+///	o A*12	syncword 0xFFF
+///	o B*1	MPEG Version: 0 for MPEG-4, 1 for MPEG-2
+///	o C*2	layer: always 0
+///	o ..
+///	o F*4 	sampling frequency index (15 is invalid)
+///	o ..
+///	o M*13	frame length
+///
+static int AdtsCheck(const uint8_t * data, int size)
+{
+    int frame_size;
+
+    if (size < 6) {
+	return -6;
+    }
+
+    frame_size = (data[3] & 0x03) << 11;
+    frame_size |= (data[4] & 0xFF) << 3;
+    frame_size |= (data[5] & 0xE0) >> 5;
+
+    if (frame_size + 3 > size) {
+	return -frame_size - 3;
+    }
+    // check if after this frame a new ADTS frame starts
+    if (FastAdtsCheck(data + frame_size)) {
 	return frame_size;
     }
 
@@ -541,11 +606,13 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    unsigned codec_id;
 
 		    // 4 bytes 0xFFExxxxx Mpeg audio
-		    // 3 bytes 0x56Exxx AAC LATM audio
 		    // 5 bytes 0x0B77xxxxxx AC3 audio
+		    // 3 bytes 0x56Exxx AAC LATM audio
+		    // 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 		    // PCM audio can't be found
+		    // FIXME: simple+faster detection, if codec already known
 		    r = 0;
-		    if (FastMpegCheck(q)) {
+		    if (!r && FastMpegCheck(q)) {
 			r = MpegCheck(q, n);
 			codec_id = CODEC_ID_MP2;
 		    }
@@ -556,6 +623,10 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    if (!r && FastLatmCheck(q)) {
 			r = LatmCheck(q, n);
 			codec_id = CODEC_ID_AAC_LATM;
+		    }
+		    if (!r && FastAdtsCheck(q)) {
+			r = AdtsCheck(q, n);
+			codec_id = CODEC_ID_AAC;
 		    }
 		    if (r < 0) {	// need more bytes
 			break;
@@ -1041,6 +1112,10 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	       r = n;
 	       }
 	     */
+	}
+	if (id != 0xbd && !r && FastAdtsCheck(p)) {
+	    r = AdtsCheck(p, n);
+	    codec_id = CODEC_ID_AAC;
 	}
 	if (r < 0) {			// need more bytes
 	    break;
@@ -1857,6 +1932,7 @@ int SetPlayMode(int play_mode)
 	    NewVideoStream = 1;
 	    // tell hw decoder we are closing stream
 	    VideoSetClosing(MyHwDecoder);
+	    VideoResetStart(MyHwDecoder);
 #ifdef DEBUG
 	    VideoSwitch = GetMsTicks();
 #endif
@@ -1926,16 +2002,20 @@ void Clear(void)
     int i;
 
     VideoResetPacket();			// terminate work
+    VideoSetClosing(MyHwDecoder);
+    VideoResetStart(MyHwDecoder);
     VideoClearBuffers = 1;
     AudioFlushBuffers();
     //NewAudioStream = 1;
     // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
 
     // wait for empty buffers
+    // FIXME: without softstart sync VideoDecode isn't called.
     for (i = 0; VideoClearBuffers && i < 20; ++i) {
 	usleep(1 * 1000);
     }
-    Debug(3, "[softhddev]%s: buffers %d\n", __FUNCTION__, VideoGetBuffers());
+    Debug(3, "[softhddev]%s: %dms buffers %d\n", __FUNCTION__, i,
+	VideoGetBuffers());
 }
 
 /**
