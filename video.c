@@ -284,6 +284,7 @@ static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
 static xcb_window_t VideoWindow;	///< video window
+static xcb_screen_t const *VideoScreen;	///< video screen
 static uint32_t VideoBlankTick;		///< blank cursor timer
 static xcb_cursor_t VideoBlankCursor;	///< empty invisible cursor
 
@@ -461,8 +462,11 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     }
 
     av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-	input_width * input_aspect_ratio.num,
-	input_height * input_aspect_ratio.den, 1024 * 1024);
+	(int64_t) input_width * input_aspect_ratio.num *
+	VideoScreen->width_in_pixels * VideoScreen->height_in_millimeters,
+	(int64_t) input_height * input_aspect_ratio.den *
+	VideoScreen->height_in_pixels * VideoScreen->width_in_millimeters,
+	1024 * 1024);
 
     // InputWidth/Height can be zero = uninitialized
     if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
@@ -10077,7 +10081,7 @@ void VideoInit(const char *display_name)
     int screen_nr;
     int i;
     xcb_screen_iterator_t screen_iter;
-    xcb_screen_t *screen;
+    xcb_screen_t const *screen;
 
     if (XlibDisplay) {			// allow multiple calls
 	Debug(3, "video: x11 already setup\n");
@@ -10122,6 +10126,7 @@ void VideoInit(const char *display_name)
 	xcb_screen_next(&screen_iter);
     }
     screen = screen_iter.data;
+    VideoScreen = screen;
 
     //
     //	Default window size
