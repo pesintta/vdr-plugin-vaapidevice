@@ -698,8 +698,8 @@ void cMenuSetupSoft::Create(void)
 		audiodrift));
 	Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough,
 		2, passthrough));
-	Add(new cMenuEditBoolItem(tr("Enable AC-3 downmix"), &AudioDownmix,
-		trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Enable AC-3 (decoder) downmix"),
+		&AudioDownmix, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol,
 		tr("Hardware"), tr("Software")));
 	Add(new cMenuEditBoolItem(tr("Enable normalize volume"),
@@ -848,17 +848,15 @@ void cMenuSetupSoft::Store(void)
     if (Setup.VideoFormat != VideoFormat) {
 	Setup.VideoFormat = VideoFormat;
 	cDevice::PrimaryDevice()->SetVideoFormat(Setup.VideoFormat);
-	printf("video-format\n");
     }
-    SetupStore("VideoFormat", Setup.VideoFormat);
+    //SetupStore("VideoFormat", Setup.VideoFormat);
     if (Setup.VideoDisplayFormat != VideoDisplayFormat) {
 	Setup.VideoDisplayFormat = VideoDisplayFormat;
 	cDevice::
 	    PrimaryDevice()->SetVideoDisplayFormat(eVideoDisplayFormat
 	    (Setup.VideoDisplayFormat));
-	printf("video-display-format\n");
     }
-    SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
+    //SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
 
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
@@ -1686,6 +1684,10 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
     dsyslog("[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
 	quality, width, height);
 
+    if (SuspendMode != NOT_SUSPENDED) {
+	return NULL;
+    }
+
     return::GrabImage(&size, jpeg, quality, width, height);
 }
 
@@ -2092,6 +2094,10 @@ bool cPluginSoftHdDevice::Service(const char *id, void *data)
 
 	if (data == NULL) {
 	    return true;
+	}
+
+	if (SuspendMode != NOT_SUSPENDED) {
+	    return false;
 	}
 
 	SoftHDDevice_AtmoGrabService_v1_0_t *r =
