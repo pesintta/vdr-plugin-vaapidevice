@@ -397,7 +397,7 @@ static inline int FastAdtsCheck(const uint8_t * p)
 ///	o B*1	MPEG Version: 0 for MPEG-4, 1 for MPEG-2
 ///	o C*2	layer: always 0
 ///	o ..
-///	o F*4 	sampling frequency index (15 is invalid)
+///	o F*4	sampling frequency index (15 is invalid)
 ///	o ..
 ///	o M*13	frame length
 ///
@@ -654,6 +654,12 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			// FIXME: switch to decoder state
 			//pesdx->State = PES_MPEG_DECODE;
 			break;
+		    }
+		    if (AudioCodecID != CODEC_ID_NONE) {
+			// shouldn't happen after we have a vaild codec
+			// detected
+			Debug(4, "pesdemux: skip @%d %02x\n", pesdx->Skip,
+			    q[0]);
 		    }
 		    // try next byte
 		    ++pesdx->Skip;
@@ -1093,6 +1099,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	// 4 bytes 0xFFExxxxx Mpeg audio
 	// 3 bytes 0x56Exxx AAC LATM audio
 	// 5 bytes 0x0B77xxxxxx AC3 audio
+	// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 	// PCM audio can't be found
 	r = 0;
 	codec_id = CODEC_ID_NONE;	// keep compiler happy
@@ -1428,13 +1435,33 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 }
 
 /**
+**	Poll PES packet ringbuffer.
+**
+**	Called if video frame buffers are full.
+*/
+int VideoPollInput(void)
+{
+    if (VideoClearBuffers) {
+	atomic_set(&VideoPacketsFilled, 0);
+	VideoPacketRead = VideoPacketWrite;
+	if (MyVideoDecoder) {
+	    CodecVideoFlushBuffers(MyVideoDecoder);
+	    VideoResetStart(MyHwDecoder);
+	}
+	VideoClearBuffers = 0;
+	return 1;
+    }
+    return 0;
+}
+
+/**
 **	Decode from PES packet ringbuffer.
 **
 **	@retval 0	packet decoded
 **	@retval	1	stream paused
 **	@retval	-1	empty stream
 */
-int VideoDecode(void)
+int VideoDecodeInput(void)
 {
     int filled;
     AVPacket *avpkt;

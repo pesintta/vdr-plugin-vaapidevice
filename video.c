@@ -4677,8 +4677,10 @@ static void VaapiDisplayHandlerThread(void)
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
-	err = VideoDecode();
+	err = VideoDecodeInput();
 	pthread_mutex_unlock(&VideoLockMutex);
+    } else {
+	err = VideoPollInput();
     }
     if (err) {
 	// FIXME: sleep on wakeup
@@ -8085,8 +8087,10 @@ static void VdpauDisplayHandlerThread(void)
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
-	err = VideoDecode();
+	err = VideoDecodeInput();
 	pthread_mutex_unlock(&VideoLockMutex);
+    } else {
+	err = VideoPollInput();
     }
     if (err) {
 	// FIXME: sleep on wakeup
@@ -10296,7 +10300,7 @@ void FeedKeyPress( __attribute__ ((unused))
 {
 }
 
-int VideoDecode(void)
+int VideoDecodeInput(void)
 {
     return -1;
 }

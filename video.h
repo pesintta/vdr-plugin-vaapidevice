@@ -177,8 +177,8 @@ extern void VideoOsdExit(void);		///< Cleanup osd.
 extern void VideoInit(const char *);	///< Setup video module.
 extern void VideoExit(void);		///< Cleanup and exit video module.
 
-extern void VideoFlushInput(void);	///< Flush video input buffers.
-extern int VideoDecode(void);		///< Decode video input buffers.
+extern int VideoPollInput(void);	///< Poll video input buffers.
+extern int VideoDecodeInput(void);	///< Decode video input buffers.
 extern int VideoGetBuffers(void);	///< Get number of input buffers.
 
 /// @}
