@@ -1451,7 +1451,10 @@ int VideoPollInput(void)
 	VideoClearBuffers = 0;
 	return 1;
     }
-    return 0;
+    if (!atomic_read(&VideoPacketsFilled)) {
+	return -1;
+    }
+    return 1;
 }
 
 /**
@@ -1468,9 +1471,6 @@ int VideoDecodeInput(void)
     int saved_size;
     static int last_codec_id = CODEC_ID_NONE;
 
-    if (StreamFreezed) {		// stream freezed
-	return 1;
-    }
     if (VideoClearBuffers) {
 	atomic_set(&VideoPacketsFilled, 0);
 	VideoPacketRead = VideoPacketWrite;
@@ -1479,6 +1479,10 @@ int VideoDecodeInput(void)
 	    VideoResetStart(MyHwDecoder);
 	}
 	VideoClearBuffers = 0;
+	return 1;
+    }
+    if (StreamFreezed) {		// stream freezed
+	// clear is called during freezed
 	return 1;
     }
 
@@ -2029,7 +2033,8 @@ void Clear(void)
     int i;
 
     VideoResetPacket();			// terminate work
-    VideoSetClosing(MyHwDecoder);
+    //closing not reset:
+    //VideoSetClosing(MyHwDecoder);
     VideoResetStart(MyHwDecoder);
     VideoClearBuffers = 1;
     AudioFlushBuffers();
