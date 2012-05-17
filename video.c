@@ -453,6 +453,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     int *crop_y, int *crop_width, int *crop_height)
 {
     AVRational display_aspect_ratio;
+    AVRational tmp_ratio;
 
     if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
 	input_aspect_ratio.num = 1;
@@ -461,19 +462,22 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 	    input_aspect_ratio.den);
     }
 
-    av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-	(int64_t) input_width * input_aspect_ratio.num *
-	VideoScreen->width_in_pixels * VideoScreen->height_in_millimeters,
-	(int64_t) input_height * input_aspect_ratio.den *
-	VideoScreen->height_in_pixels * VideoScreen->width_in_millimeters,
-	1024 * 1024);
+    av_reduce(&input_aspect_ratio.num, &input_aspect_ratio.den,
+	input_width * input_aspect_ratio.num,
+	input_height * input_aspect_ratio.den, 1024 * 1024);
 
     // InputWidth/Height can be zero = uninitialized
-    if (!display_aspect_ratio.num || !display_aspect_ratio.den) {
-	display_aspect_ratio.num = 1;
-	display_aspect_ratio.den = 1;
+    if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
+	input_aspect_ratio.num = 1;
+	input_aspect_ratio.den = 1;
     }
 
+    display_aspect_ratio.num =
+	VideoScreen->width_in_pixels * VideoScreen->height_in_millimeters;
+    display_aspect_ratio.den =
+	VideoScreen->height_in_pixels * VideoScreen->width_in_millimeters;
+
+    display_aspect_ratio = av_mul_q(input_aspect_ratio, display_aspect_ratio);
     Debug(3, "video: aspect %d:%d\n", display_aspect_ratio.num,
 	display_aspect_ratio.den);
 
@@ -483,7 +487,9 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     *crop_height = input_height - VideoCutTopBottom[resolution] * 2;
 
     // FIXME: store different positions for the ratios
-    if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+    tmp_ratio.num = 4;
+    tmp_ratio.den = 3;
+    if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	switch (Video4to3ZoomMode) {
 	    case VideoNormal:
 		goto normal;
@@ -2971,14 +2977,17 @@ static void VaapiCheckAutoCrop(VaapiDecoder * decoder)
     // reduce load, check only n frames
     if (Video4to3ZoomMode == VideoNormal && AutoCropInterval
 	&& !(decoder->FrameCounter % AutoCropInterval)) {
-	AVRational display_aspect_ratio;
+	AVRational input_aspect_ratio;
+	AVRational tmp_ratio;
 
-	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	av_reduce(&input_aspect_ratio.num, &input_aspect_ratio.den,
 	    decoder->InputWidth * decoder->InputAspect.num,
 	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
 
+	tmp_ratio.num = 4;
+	tmp_ratio.den = 3;
 	// only 4:3 with 16:9/14:9 inside supported
-	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	    VaapiAutoCrop(decoder);
 	} else {
 	    decoder->AutoCrop->Count = 0;
@@ -4471,7 +4480,9 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	goto skip_sync;
     }
     // at start of new video stream, soft or hard sync video to audio
+    // FIXME: video waits for audio, audio for video
     if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
+	&& video_clock != (int64_t) AV_NOPTS_VALUE
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
@@ -4672,7 +4683,6 @@ static void VaapiDisplayHandlerThread(void)
     // fill frame output ring buffer
     //
     filled = atomic_read(&decoder->SurfacesFilled);
-    err = 1;
     if (filled < VIDEO_SURFACES_MAX - 1) {
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
@@ -7049,14 +7059,17 @@ static void VdpauCheckAutoCrop(VdpauDecoder * decoder)
     // reduce load, check only n frames
     if (Video4to3ZoomMode == VideoNormal && AutoCropInterval
 	&& !(decoder->FrameCounter % AutoCropInterval)) {
-	AVRational display_aspect_ratio;
+	AVRational input_aspect_ratio;
+	AVRational tmp_ratio;
 
-	av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+	av_reduce(&input_aspect_ratio.num, &input_aspect_ratio.den,
 	    decoder->InputWidth * decoder->InputAspect.num,
 	    decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
 
+	tmp_ratio.num = 4;
+	tmp_ratio.den = 3;
 	// only 4:3 with 16:9/14:9 inside supported
-	if (display_aspect_ratio.num == 4 && display_aspect_ratio.den == 3) {
+	if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	    VdpauAutoCrop(decoder);
 	} else {
 	    decoder->AutoCrop->Count = 0;
@@ -7804,6 +7817,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
     }
     // at start of new video stream, soft or hard sync video to audio
     if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames
+	&& video_clock != (int64_t) AV_NOPTS_VALUE
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE
 	    || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
 	err =
@@ -8082,7 +8096,6 @@ static void VdpauDisplayHandlerThread(void)
     // fill frame output ring buffer
     //
     filled = atomic_read(&decoder->SurfacesFilled);
-    err = 1;
     if (filled < VIDEO_SURFACES_MAX) {
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
