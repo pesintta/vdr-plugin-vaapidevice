@@ -4533,7 +4533,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
 	    if (decoder->Closing < -300) {
-		atomic_set(&decoder->SurfacesFilled, 1);
+		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
 	goto out;
@@ -7868,7 +7868,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers());
 	    if (decoder->Closing < -300) {
-		atomic_set(&decoder->SurfacesFilled, 1);
+		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
 	goto out;
