@@ -370,6 +370,8 @@ static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 
 #endif
 
+static int OsdConfigWidth;		///< osd configured width
+static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
 static int OsdWidth;			///< osd width
 static int OsdHeight;			///< osd height
@@ -8667,6 +8669,9 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
 ///
 ///	Get OSD size.
 ///
+///	@param[out] width	OSD width
+///	@param[out] height	OSD height
+///
 void VideoGetOsdSize(int *width, int *height)
 {
     *width = 1920;
@@ -8674,6 +8679,21 @@ void VideoGetOsdSize(int *width, int *height)
     if (OsdWidth && OsdHeight) {
 	*width = OsdWidth;
 	*height = OsdHeight;
+    }
+}
+
+///	Set OSD Size.
+///
+///	@param width	OSD width
+///	@param height	OSD height
+///
+void VideoSetOsdSize(int width, int height)
+{
+    if (OsdConfigWidth != width || OsdConfigHeight != height) {
+	VideoOsdExit();
+	OsdConfigWidth = width;
+	OsdConfigHeight = height;
+	VideoOsdInit();
     }
 }
 
@@ -8685,8 +8705,13 @@ void VideoGetOsdSize(int *width, int *height)
 ///
 void VideoOsdInit(void)
 {
-    OsdWidth = VideoWindowWidth;	// FIXME: must be configured
-    OsdHeight = VideoWindowHeight;
+    if (OsdConfigWidth && OsdConfigHeight) {
+	OsdWidth = OsdConfigWidth;
+	OsdHeight = OsdConfigHeight;
+    } else {
+	OsdWidth = VideoWindowWidth;
+	OsdHeight = VideoWindowHeight;
+    }
 
 #ifdef USE_GLX
     // FIXME: make an extra function for this

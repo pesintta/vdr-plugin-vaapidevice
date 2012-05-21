@@ -150,6 +150,9 @@ extern void VideoOsdDrawARGB(int, int, int, int, const uint8_t *);
     /// Get OSD size.
 extern void VideoGetOsdSize(int *, int *);
 
+    /// Set OSD size.
+extern void VideoSetOsdSize(int, int);
+
     /// Set video clock.
 extern void VideoSetClock(VideoHwDecoder *, int64_t);
 

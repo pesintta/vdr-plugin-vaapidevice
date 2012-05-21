@@ -108,11 +108,16 @@ Setup: /etc/vdr/setup.conf
 ------
 	Following is supported:
 
-	softhddevice.MakePrimary = 1
+	softhddevice.MakePrimary = 0
 	0 = no change, 1 make softhddevice primary at start
 
 	softhddevice.HideMainMenuEntry = 0
 	0 = show softhddevice main menu entry, 1 = hide entry
+
+	softhddevice.Osd.Width = 0
+	0 = auto (=display, unscaled) n = fixed osd size scaled for display
+	softhddevice.Osd.Height = 0
+	0 = auto (=display, unscaled) n = fixed osd size scaled for display
 
 	<res> of the next parameters is 576i, 720p, 1080i_fake or 1080i.
 	1080i_fake is 1280x1080 or 1440x1080

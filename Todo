@@ -38,6 +38,7 @@ video:
     starting with radio and own X11 server, shows no video
     some low-bandwidth tv channels have hiccups.
     check start with 24Hz display rate
+    crash with ffmpeg without vaapi and vdpau.
 
 vdpau:
     software decoder path not working

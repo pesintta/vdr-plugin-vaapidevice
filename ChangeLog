@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.5.1
+    Makes OSD size configurable.
     Support display with non-square pixels.
     Initial ADTS (AAC+) support.
     Fix bug #959: log flooded with service messages.

@@ -81,6 +81,8 @@ static char ConfigSuspendClose;		///< suspend should close devices
 static char ConfigSuspendX11;		///< suspend should stop x11
 
 static uint32_t ConfigVideoBackground;	///< config video background color
+static int ConfigOsdWidth;		///< config OSD width
+static int ConfigOsdHeight;		///< config OSD height
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
@@ -483,6 +485,9 @@ class cMenuSetupSoft:public cMenuSetupPage
     int General;
     int MakePrimary;
     int HideMainMenuEntry;
+    int OsdSize;
+    int OsdWidth;
+    int OsdHeight;
     int SuspendClose;
     int SuspendX11;
 
@@ -572,6 +577,9 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag,
 */
 void cMenuSetupSoft::Create(void)
 {
+    static const char *const osd_size[] = {
+	"auto", "1920x1080", "1280x720", "custom",
+    };
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
     };
@@ -613,6 +621,14 @@ void cMenuSetupSoft::Create(void)
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Hide main menu entry"),
 		&HideMainMenuEntry, trVDR("no"), trVDR("yes")));
+	//
+	//	osd
+	//
+	Add(new cMenuEditStraItem(tr("Osd size"), &OsdSize, 4, osd_size));
+	if (OsdSize == 3) {
+	    Add(new cMenuEditIntItem(tr("Osd width"), &OsdWidth, 0, 4096));
+	    Add(new cMenuEditIntItem(tr("Osd height"), &OsdHeight, 0, 4096));
+	}
 	//
 	//	suspend
 	//
@@ -729,6 +745,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_general;
     int old_video;
     int old_audio;
+    int old_osd_size;
     int old_video_format;
     int old_resolution_shown[RESOLUTIONS];
     int i;
@@ -736,15 +753,16 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_general = General;
     old_video = Video;
     old_audio = Audio;
+    old_osd_size = OsdSize;
     old_video_format = VideoFormat;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     state = cMenuSetupPage::ProcessKey(key);
 
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
-	// this needed because VDR menus are evil slow
+	// this is needed because VDR menus are evil slow
 	if (old_general != General || old_video != Video || old_audio != Audio
-	    || old_video_format != VideoFormat) {
+	    || old_osd_size != OsdSize || old_video_format != VideoFormat) {
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
@@ -774,6 +792,20 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     General = 0;
     MakePrimary = ConfigMakePrimary;
     HideMainMenuEntry = ConfigHideMainMenuEntry;
+    //
+    //	osd
+    //
+    OsdWidth = ConfigOsdWidth;
+    OsdHeight = ConfigOsdHeight;
+    if (!OsdWidth && !OsdHeight) {
+	OsdSize = 0;
+    } else if (OsdWidth == 1920 && OsdHeight == 1080) {
+	OsdSize = 1;
+    } else if (OsdWidth == 1280 && OsdHeight == 720) {
+	OsdSize = 2;
+    } else {
+	OsdSize = 3;
+    }
     //
     //	suspend
     //
@@ -842,6 +874,28 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
 	HideMainMenuEntry);
+    switch (OsdSize) {
+	case 0:
+	    OsdWidth = 0;
+	    OsdHeight = 0;
+	    break;
+	case 1:
+	    OsdWidth = 1920;
+	    OsdHeight = 1080;
+	    break;
+	case 2:
+	    OsdWidth = 1280;
+	    OsdHeight = 720;
+	default:
+	    break;
+    }
+    if (ConfigOsdWidth != OsdWidth || ConfigOsdHeight != OsdHeight) {
+	VideoSetOsdSize(ConfigOsdWidth = OsdWidth, ConfigOsdHeight =
+	    OsdHeight);
+    }
+    SetupStore("Osd.Width", ConfigOsdWidth);
+    SetupStore("Osd.Height", ConfigOsdHeight);
+
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
     // FIXME: this is also in VDR-DVB setup
@@ -1923,6 +1977,16 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
+    if (!strcasecmp(name, "Osd.Width")) {
+	ConfigOsdWidth = atoi(value);
+	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
+	return true;
+    }
+    if (!strcasecmp(name, "Osd.Height")) {
+	ConfigOsdHeight = atoi(value);
+	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
+	return true;
+    }
     if (!strcasecmp(name, "Suspend.Close")) {
 	ConfigSuspendClose = atoi(value);
 	return true;
@@ -2132,7 +2196,7 @@ bool cPluginSoftHdDevice::Service(const char *id, void *data)
 **	FIXME: translation?
 */
 static const char *SVDRPHelpText[] = {
-    "SUSP\n" "   Suspend plugin.\n\n"
+    "SUSP\n" "\040   Suspend plugin.\n\n"
 	"    The plugin is suspended to save energie. Depending on the setup\n"
 	"    'softhddevice.Suspend.Close = 0' only the video and audio output\n"
 	"    is stopped or with 'softhddevice.Suspend.Close = 1' the video\n"
@@ -2140,15 +2204,15 @@ static const char *SVDRPHelpText[] = {
 	"    If 'softhddevice.Suspend.X11 = 1' is set and the X11 server was\n"
 	"    started by the plugin, the X11 server would also be closed.\n"
 	"    (Stopping X11 while suspended isn't supported yet)\n",
-    "RESU\n" "   Resume plugin.\n\n"
+    "RESU\n" "\040   Resume plugin.\n\n"
 	"    Resume the suspended plugin. The plugin could be suspended by\n"
 	"    the command line option '-s' or by a previous SUSP command.\n"
 	"    If the x11 server was stopped by the plugin, it will be\n"
 	"    restarted.",
-    "DETA\n" "   Detach plugin.\n\n"
+    "DETA\n" "\040   Detach plugin.\n\n"
 	"    The plugin will be detached from the audio, video and DVB\n"
 	"    devices.  Other programs or plugins can use them now.\n",
-    "ATTA <-d display>\n" "   Attach plugin.\n\n"
+    "ATTA <-d display>\n" "    Attach plugin.\n\n"
 	"    Attach the plugin to audio, video and DVB devices.\n"
 	"    Use -d display (f.e. -d :0.0) to use another X11 display.\n",
     "PRIM <n>\n" "    Make <n> the primary device.\n\n"
@@ -2163,14 +2227,14 @@ static const char *SVDRPHelpText[] = {
 	"    12: toggle audio pass-through\n"
 	"    13: decrease audio delay by 10ms\n"
 	"    14: increase audio delay by 10ms\n"
-	"    20: disable fullscreen\n    21: enable fullscreen\n"
+	"    20: disable fullscreen\n\040   21: enable fullscreen\n"
 	"    22: toggle fullscreen\n"
-	"    23: disable auto-crop\n    24: enable auto-crop\n"
+	"    23: disable auto-crop\n\040   24: enable auto-crop\n"
 	"    25: toggle auto-crop\n"
-	"    30: stretch 4:3 to 16:9\n    31: pillar box 4:3 in 16:9\n"
+	"    30: stretch 4:3 to 16:9\n\040   31: pillar box 4:3 in 16:9\n"
 	"    32: center cut-out 4:3 to 16:9\n"
 	"    39: rotate 4:3 to 16:9 zoom mode\n",
-    "STAT\n" "  Display SuspendMode of the plugin.\n\n"
+    "STAT\n" "\040   Display SuspendMode of the plugin.\n\n"
 	"    reply code is 910 + SuspendMode\n"
 	"    SUSPEND_EXTERNAL == -1  (909)\n"
 	"    NOT_SUSPENDED    ==  0  (910)\n"
