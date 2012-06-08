@@ -26,19 +26,19 @@ A software and GPU emulated HD output device plugin for VDR.
     o Audio FFMpeg / Alsa / Digital
     o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
+    o Software volume, compression, normalize and channel resample
     o YaepgHD support
     o Software deinterlacer Bob (VA-API only)
     o Autocrop
     o Grab image (VDPAU only)
     o Suspend
     o Letterbox, Stretch and Center cut-out video display modes
+    o atmo light support with plugin http://github.com/durchflieger/DFAtmo
 
     o planned: Video decoder VA-API Branch: vaapi-ext/staging
     o planned: Video output XvBA / Opengl / Xv
     o planned: VA-API grab image
     o planned: Improved Software Deinterlacer (yadif or/and ffmpeg filters)
-    o planned: software volume, software channel resample
-    o planned: atmo light support
 
 To compile you must have the 'requires' installed.
 
@@ -302,6 +302,11 @@ Running:
 Warning:
 --------
 	libav is not supported, expect many bugs with it.
+
+Known Bugs:
+-----------
+	VA-API doesn't v-sync 1080i streams
+	vdr-image not working
 
 Requires:
 ---------

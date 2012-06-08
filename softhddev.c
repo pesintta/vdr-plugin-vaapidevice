@@ -2203,8 +2203,8 @@ int Poll(int timeout)
 	int t;
 
 	// one buffer is full
-	full = AudioFreeBytes() >= AUDIO_MIN_BUFFER_FREE
-	    || atomic_read(&VideoPacketsFilled) < VIDEO_PACKET_MAX - 3;
+	full = AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE
+	    || atomic_read(&VideoPacketsFilled) > VIDEO_PACKET_MAX - 3;
 
 	if (!full || !timeout) {
 	    return !full;
