@@ -585,7 +585,9 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 */
 void CodecVideoFlushBuffers(VideoDecoder * decoder)
 {
-    avcodec_flush_buffers(decoder->VideoCtx);
+    if (decoder->VideoCtx) {
+	avcodec_flush_buffers(decoder->VideoCtx);
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -908,7 +910,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital delay %zd ms\n", delay / 90);
+	Debug(3, "codec/audio: inital delay %" PRId64 "ms\n", delay / 90);
 	return;
     }
     // collect over some time
@@ -932,9 +934,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     audio_decoder->LastDelay = delay;
 
     if (0) {
-	Debug(3, "codec/audio: interval P:%5zdms T:%5zdms D:%4zdms %f %d\n",
-	    pts_diff / 90, tim_diff / (1000 * 1000), delay / 90, drift / 90.0,
-	    audio_decoder->DriftCorr);
+	Debug(3,
+	    "codec/audio: interval P:%5zdms T:%5" PRId64 "ms D:%4" PRId64
+	    "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000), delay / 90,
+	    drift / 90.0, audio_decoder->DriftCorr);
     }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
@@ -942,6 +945,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	Debug(3, "codec/audio: drift(%6d) %3dms reset\n",
 	    audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
+#ifdef DEBUG
+	corr = 0;			// keep gcc happy
+#endif
     } else {
 
 	drift += audio_decoder->Drift;
