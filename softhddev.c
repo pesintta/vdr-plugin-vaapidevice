@@ -880,7 +880,9 @@ static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size)
 
     p = data;
     while (size >= TS_PACKET_SIZE) {
+#ifdef DEBUG
 	int pid;
+#endif
 	int payload;
 
 	if (p[0] != TS_PACKET_SYNC) {
@@ -894,11 +896,11 @@ static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size)
 	    // FIXME: kill all buffers
 	    goto next_packet;
 	}
-
+#ifdef DEBUG
 	pid = (p[1] & 0x1F) << 8 | p[2];
 	Debug(4, "tsdemux: PID: %#04x%s%s\n", pid, p[1] & 0x40 ? " start" : "",
 	    p[3] & 0x10 ? " payload" : "");
-
+#endif
 	// skip adaptation field
 	switch (p[3] & 0x30) {		// adaption field
 	    case 0x00:			// reserved
@@ -1549,28 +1551,6 @@ int VideoDecodeInput(void)
     saved_size = avpkt->size;
     avpkt->size = avpkt->stream_index;
     avpkt->stream_index = 0;
-
-    if (0) {
-	static int done;
-
-	if (done < 2) {
-	    int fildes;
-	    int who_designed_this_is____;
-
-	    if (done == 0)
-		fildes =
-		    open("frame0.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
-	    else if (done == 1)
-		fildes =
-		    open("frame1.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
-	    else
-		fildes =
-		    open("frame2.pes", O_WRONLY | O_TRUNC | O_CREAT, 0666);
-	    done++;
-	    who_designed_this_is____ = write(fildes, avpkt->data, avpkt->size);
-	    close(fildes);
-	}
-    }
 
     if (last_codec_id == CODEC_ID_MPEG2VIDEO) {
 	FixPacketForFFMpeg(MyVideoDecoder, avpkt);
