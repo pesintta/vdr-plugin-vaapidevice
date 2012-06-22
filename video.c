@@ -1342,6 +1342,9 @@ struct _vaapi_decoder_
 
     /// video surface ring buffer
     VASurfaceID SurfacesRb[VIDEO_SURFACES_MAX];
+#ifdef VA_EXP
+    VASurfaceID LastSurface;		///< last surface
+#endif
     int SurfaceWrite;			///< write pointer
     int SurfaceRead;			///< read pointer
     atomic_t SurfacesFilled;		///< how many of the buffer is used
@@ -1763,6 +1766,9 @@ static VaapiDecoder *VaapiNewHwDecoder(void)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
+#ifdef VA_EXP
+    decoder->LastSurface = VA_INVALID_ID;
+#endif
 
     decoder->BlackSurface = VA_INVALID_ID;
 
@@ -1832,6 +1838,9 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
+#ifdef VA_EXP
+    decoder->LastSurface = VA_INVALID_ID;
+#endif
 
     decoder->WrongInterlacedWarned = 0;
 
@@ -3128,7 +3137,10 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 static void VaapiBlackSurface(VaapiDecoder * decoder)
 {
     VAStatus status;
+
+#ifdef DEBUG
     uint32_t start;
+#endif
     uint32_t sync;
     uint32_t put1;
 
@@ -3199,14 +3211,17 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't put image!\n"));
 	}
-
+#ifdef DEBUG
 	start = GetMsTicks();
+#endif
 	if (vaSyncSurface(decoder->VaDisplay,
 		decoder->BlackSurface) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: vaSyncSurface failed\n"));
 	}
     } else {
+#ifdef DEBUG
 	start = GetMsTicks();
+#endif
     }
 
     Debug(4, "video/vaapi: yy black video surface %#010x displayed\n",
@@ -3397,6 +3412,7 @@ static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width,
 static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     VAImage * dst2)
 {
+#ifdef DEBUG
     uint32_t tick1;
     uint32_t tick2;
     uint32_t tick3;
@@ -3405,6 +3421,7 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     uint32_t tick6;
     uint32_t tick7;
     uint32_t tick8;
+#endif
     void *src_base;
     void *dst1_base;
     void *dst2_base;
@@ -3414,22 +3431,30 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     int pitch;
     int width;
 
+#ifdef DEBUG
     tick1 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, src->buf,
 	    &src_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick2 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, dst1->buf,
 	    &dst1_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick3 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, dst2->buf,
 	    &dst2_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick4 = GetMsTicks();
+#endif
 
     if (0) {				// test all updated
 	memset(dst1_base, 0x00, dst1->data_size);
@@ -3542,24 +3567,31 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     }
     free(tmp);
 
+#ifdef DEBUG
     tick5 = GetMsTicks();
-
+#endif
     if (vaUnmapBuffer(decoder->VaDisplay, dst2->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick6 = GetMsTicks();
+#endif
     if (vaUnmapBuffer(decoder->VaDisplay, dst1->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick7 = GetMsTicks();
+#endif
     if (vaUnmapBuffer(decoder->VaDisplay, src->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick8 = GetMsTicks();
 
     Debug(3, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
 	tick6 - tick5, tick7 - tick6, tick8 - tick7);
+#endif
 }
 
 ///
@@ -3570,6 +3602,7 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     VAImage * dst2)
 {
+#ifdef DEBUG
     uint32_t tick1;
     uint32_t tick2;
     uint32_t tick3;
@@ -3578,28 +3611,37 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     uint32_t tick6;
     uint32_t tick7;
     uint32_t tick8;
+#endif
     void *src_base;
     void *dst1_base;
     void *dst2_base;
     unsigned y;
     unsigned p;
 
+#ifdef DEBUG
     tick1 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, src->buf,
 	    &src_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick2 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, dst1->buf,
 	    &dst1_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick3 = GetMsTicks();
+#endif
     if (vaMapBuffer(decoder->VaDisplay, dst2->buf,
 	    &dst2_base) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't map the image!\n");
     }
+#ifdef DEBUG
     tick4 = GetMsTicks();
+#endif
 
     if (0) {				// test all updated
 	memset(dst1_base, 0x00, dst1->data_size);
@@ -3717,24 +3759,32 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     }
 #endif
 
+#ifdef DEBUG
     tick5 = GetMsTicks();
+#endif
 
     if (vaUnmapBuffer(decoder->VaDisplay, dst2->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick6 = GetMsTicks();
+#endif
     if (vaUnmapBuffer(decoder->VaDisplay, dst1->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick7 = GetMsTicks();
+#endif
     if (vaUnmapBuffer(decoder->VaDisplay, src->buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap image buffer\n"));
     }
+#ifdef DEBUG
     tick8 = GetMsTicks();
 
     Debug(4, "video/vaapi: map=%2d/%2d/%2d deint=%2d umap=%2d/%2d/%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4,
 	tick6 - tick5, tick7 - tick6, tick8 - tick7);
+#endif
 }
 
 ///
@@ -3804,11 +3854,13 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     //
     //	vaPutImage not working, vaDeriveImage
     //
+#ifdef DEBUG
     uint32_t tick1;
     uint32_t tick2;
     uint32_t tick3;
     uint32_t tick4;
     uint32_t tick5;
+#endif
     VAImage image[1];
     VAImage dest1[1];
     VAImage dest2[1];
@@ -3816,7 +3868,9 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     VASurfaceID out1;
     VASurfaceID out2;
 
+#ifdef DEBUG
     tick1 = GetMsTicks();
+#endif
 #if 0
     // get image test
     if (decoder->Image->image_id == VA_INVALID_ID) {
@@ -3847,7 +3901,9 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 	return;
     }
 #endif
+#ifdef DEBUG
     tick2 = GetMsTicks();
+#endif
 
     Debug(4, "video/vaapi: %c%c%c%c %dx%d*%d\n", image->format.fourcc,
 	image->format.fourcc >> 8, image->format.fourcc >> 16,
@@ -3864,7 +3920,9 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 		dest1)) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
     }
+#ifdef DEBUG
     tick3 = GetMsTicks();
+#endif
     out2 = VaapiGetSurface(decoder);
     if (out2 == VA_INVALID_ID) {
 	abort();
@@ -3874,7 +3932,9 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 		dest2)) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
     }
+#ifdef DEBUG
     tick4 = GetMsTicks();
+#endif
 
     switch (VideoDeinterlace[decoder->Resolution]) {
 	case VideoDeinterlaceSoftBob:
@@ -3885,7 +3945,9 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 	    VaapiSpatial(decoder, image, dest1, dest2);
 	    break;
     }
+#ifdef DEBUG
     tick5 = GetMsTicks();
+#endif
 
 #if 1
     if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
@@ -3902,10 +3964,12 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     VaapiQueueSurface(decoder, out1, 1);
     VaapiQueueSurface(decoder, out2, 1);
 
+#ifdef DEBUG
     tick5 = GetMsTicks();
 
     Debug(4, "video/vaapi: get=%2d get1=%2d get2=%d deint=%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4);
+#endif
 }
 
 ///
@@ -3919,11 +3983,13 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
     //
     //	vaPutImage working
     //
+#ifdef DEBUG
     uint32_t tick1;
     uint32_t tick2;
     uint32_t tick3;
     uint32_t tick4;
     uint32_t tick5;
+#endif
     VAImage *img1;
     VAImage *img2;
     VAImage *img3;
@@ -3945,7 +4011,9 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
     img2 = decoder->DeintImages + 1;
     img3 = decoder->DeintImages + 2;
 
+#ifdef DEBUG
     tick1 = GetMsTicks();
+#endif
     if (vaGetImage(decoder->VaDisplay, surface, 0, 0, decoder->InputWidth,
 	    decoder->InputHeight, img1->image_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't get source image\n"));
@@ -3953,7 +4021,9 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 	VaapiQueueSurface(decoder, surface, 0);
 	return;
     }
+#ifdef DEBUG
     tick2 = GetMsTicks();
+#endif
 
     // FIXME: handle top_field_first
 
@@ -3966,7 +4036,9 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 	    VaapiSpatial(decoder, img1, img2, img3);
 	    break;
     }
+#ifdef DEBUG
     tick3 = GetMsTicks();
+#endif
 
     // get a free surface and upload the image
     out = VaapiGetSurface(decoder);
@@ -3984,10 +4056,12 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
     if (0 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
+#ifdef DEBUG
     tick4 = GetMsTicks();
 
     Debug(4, "video/vaapi: deint %d %#010x -> %#010x\n", decoder->SurfaceField,
 	surface, out);
+#endif
 
     // get a free surface and upload the image
     out = VaapiGetSurface(decoder);
@@ -4003,10 +4077,12 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
     if (0 && vaSyncSurface(decoder->VaDisplay, out) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaSyncSurface failed\n"));
     }
+#ifdef DEBUG
     tick5 = GetMsTicks();
 
     Debug(4, "video/vaapi: get=%2d deint=%2d put1=%2d put2=%2d\n",
 	tick2 - tick1, tick3 - tick2, tick4 - tick3, tick5 - tick4);
+#endif
 }
 
 ///
@@ -4303,9 +4379,12 @@ static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 static void VaapiDisplayFrame(void)
 {
     struct timespec nowtime;
+
+#ifdef DEBUG
     uint32_t start;
     uint32_t put1;
     uint32_t put2;
+#endif
     int i;
     VaapiDecoder *decoder;
 
@@ -4324,23 +4403,39 @@ static void VaapiDisplayFrame(void)
 	decoder->FramesDisplayed++;
 	decoder->StartCounter++;
 
+#ifdef VA_EXP
+	// wait for display finished
+	if (decoder->LastSurface != VA_INVALID_ID) {
+	    if (vaSyncSurface(decoder->VaDisplay, decoder->LastSurface)
+		!= VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: vaSyncSurface failed\n"));
+	    }
+	}
+#endif
+
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// no surface availble show black with possible osd
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
+#ifdef VA_EXP
+	    decoder->LastSurface = decoder->BlackSurface;
+#endif
 	    VaapiMessage(3, "video/vaapi: black surface displayed\n");
 	    continue;
 	}
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
+#ifdef VA_EXP
+	decoder->LastSurface = surface;
+#endif
 #ifdef DEBUG
 	if (surface == VA_INVALID_ID) {
 	    printf(_("video/vaapi: invalid surface in ringbuffer\n"));
 	}
 	Debug(4, "video/vaapi: yy video surface %#010x displayed\n", surface);
-#endif
 
 	start = GetMsTicks();
+#endif
 
 	// VDPAU driver + INTEL driver does no v-sync with 1080
 	if (0 && decoder->Interlaced
@@ -4350,16 +4445,22 @@ static void VaapiDisplayFrame(void)
 	    && VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, 0);
+#ifdef DEBUG
 	    put1 = GetMsTicks();
+#endif
 
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, 1);
+#ifdef DEBUG
 	    put2 = GetMsTicks();
+#endif
 	} else {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
 		decoder->TopFieldFirst, decoder->SurfaceField);
+#ifdef DEBUG
 	    put1 = GetMsTicks();
 	    put2 = put1;
+#endif
 	}
 	clock_gettime(CLOCK_REALTIME, &nowtime);
 	// FIXME: 31 only correct for 50Hz
@@ -4784,8 +4885,10 @@ static void VaapiOsdClear(void)
 static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     const uint8_t * argb)
 {
+#ifdef DEBUG
     uint32_t start;
     uint32_t end;
+#endif
     void *image_buffer;
     int o;
 
@@ -4793,8 +4896,9 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     if (VaOsdImage.image_id == VA_INVALID_ID) {
 	return;
     }
-
+#ifdef DEBUG
     start = GetMsTicks();
+#endif
     // map osd surface/image into memory.
     if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer)
 	!= VA_STATUS_SUCCESS) {
@@ -4812,10 +4916,12 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't unmap osd image buffer\n"));
     }
+#ifdef DEBUG
     end = GetMsTicks();
 
     Debug(3, "video/vaapi: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
 	y, end - start, width * height * 4);
+#endif
 }
 
 ///
@@ -8252,8 +8358,11 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
     void const *data[1];
     uint32_t pitches[1];
     VdpRect dst_rect;
+
+#ifdef DEBUG
     uint32_t start;
     uint32_t end;
+#endif
 
     if (VdpauPreemption) {		// display preempted
 	return;
@@ -8269,7 +8378,9 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
     }
 #endif
 
+#ifdef DEBUG
     start = GetMsTicks();
+#endif
 
     dst_rect.x0 = x;
     dst_rect.y0 = y;
@@ -8295,10 +8406,12 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
 	    VdpauGetErrorString(status));
     }
 #endif
+#ifdef DEBUG
     end = GetMsTicks();
 
     Debug(3, "video/vdpau: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
 	y, end - start, width * height * 4);
+#endif
 }
 
 ///
@@ -9189,6 +9302,7 @@ void VideoReleaseSurface(VideoHwDecoder * hw_decoder, unsigned surface)
 enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
     AVCodecContext * video_ctx, const enum PixelFormat *fmt)
 {
+#ifdef DEBUG
     int ms_delay;
 
     // FIXME: use frame time
@@ -9197,6 +9311,8 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 
     Debug(3, "video: ready %s %dms/frame\n",
 	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
+#endif
+
     AudioVideoReady(VideoGetClock(hw_decoder));
     return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
 }
@@ -9790,11 +9906,8 @@ void VideoSetDevice(const char *device)
 ///
 int VideoSetGeometry(const char *geometry)
 {
-    int flags;
-
-    flags =
-	XParseGeometry(geometry, &VideoWindowX, &VideoWindowY,
-	&VideoWindowWidth, &VideoWindowHeight);
+    XParseGeometry(geometry, &VideoWindowX, &VideoWindowY, &VideoWindowWidth,
+	&VideoWindowHeight);
 
     return 0;
 }
