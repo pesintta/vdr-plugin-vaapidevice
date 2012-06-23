@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.5.1
+    Setup add preview of collapsed tree.
     Fix bug: dvd plugin times out.
     Makes OSD size configurable.
     Support display with non-square pixels.

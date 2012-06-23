@@ -590,8 +590,14 @@ void cMenuSetupSoft::Create(void)
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
 	"Software Spatial",
     };
+    static const char *const deinterlace_short[] = {
+	"B", "W", "T", "T+S", "S+B", "S+S",
+    };
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
+    };
+    static const char *const scaling_short[] = {
+	"N", "F", "HQ", "A"
     };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
@@ -668,7 +674,14 @@ void cMenuSetupSoft::Create(void)
 		&BlackPicture, trVDR("no"), trVDR("yes")));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
-	    Add(CollapsedItem(resolution[i], ResolutionShown[i]));
+	    cString msg;
+
+	    // short hidden informations
+	    msg =
+		cString::sprintf("%s,%s%s...", scaling_short[Scaling[i]],
+		deinterlace_short[Deinterlace[i]],
+		SkipChromaDeinterlace[i] ? ",skip" : "");
+	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
 		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4,
@@ -892,6 +905,7 @@ void cMenuSetupSoft::Store(void)
     if (ConfigOsdWidth != OsdWidth || ConfigOsdHeight != OsdHeight) {
 	VideoSetOsdSize(ConfigOsdWidth = OsdWidth, ConfigOsdHeight =
 	    OsdHeight);
+	// FIXME: shown osd size not updated
     }
     SetupStore("Osd.Width", ConfigOsdWidth);
     SetupStore("Osd.Height", ConfigOsdHeight);
