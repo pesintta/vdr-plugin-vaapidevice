@@ -349,7 +349,7 @@ static VideoZoomModes Video4to3ZoomMode;
 
 static char Video60HzMode;		///< handle 60hz displays
 static char VideoSoftStartSync;		///< soft start sync audio/video
-static const int VideoSoftStartFrames = 120;	///< soft start frames
+static const int VideoSoftStartFrames = 100;	///< soft start frames
 static char VideoShowBlackPicture;	///< flag show black picture
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
@@ -7943,21 +7943,21 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	// both clocks are known
 
 	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
-	    err = VdpauMessage(3, "video: audio/video difference too big\n");
+	    err = VdpauMessage(2, "video: audio/video difference too big\n");
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
-	    err = VdpauMessage(3, "video: slow down video, duping frame\n");
+	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
-	    err = VdpauMessage(3, "video: slow down video, duping frame\n");
+	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1 + 2 * decoder->Interlaced) {
-	    err = VdpauMessage(3, "video: speed up video, droping frame\n");
+	    err = VdpauMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VdpauAdvanceDecoderFrame(decoder);
 	    decoder->SyncCounter = 1;
