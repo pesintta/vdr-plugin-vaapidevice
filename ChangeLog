@@ -2,6 +2,8 @@ User johns
 Date:
 
     Release Version 0.5.1
+    Guard audio skip against old PTS values.
+    Improved audio skip, after channel switch.
     Setup add preview of collapsed tree.
     Fix bug: dvd plugin times out.
     Makes OSD size configurable.

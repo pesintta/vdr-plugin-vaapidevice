@@ -3750,9 +3750,12 @@ void AudioVideoReady(int64_t pts)
 	skip =
 	    pts - 15 * 20 * 90 - AudioBufferTime * 90 - audio_pts +
 	    VideoAudioDelay;
+#ifdef DEBUG
 	printf("%dms %dms %dms\n", (int)(pts - audio_pts) / 90,
 	    VideoAudioDelay / 90, skip / 90);
-	if (1 && skip > 0) {
+#endif
+	// guard against old PTS
+	if (skip> 0 && skip < 2000 * 90) {
 	    skip = (((int64_t) skip * AudioRing[AudioRingWrite].HwSampleRate)
 		/ (1000 * 90))
 		* AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
