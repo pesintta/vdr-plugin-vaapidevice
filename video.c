@@ -1394,6 +1394,8 @@ static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 ///
 ///	@returns true, if message shown
 ///
+///	@todo FIXME: combine VdpauMessage and VaapiMessage
+///
 static int VaapiMessage(int level, const char *format, ...)
 {
     if (SysLogLevel > level || DebugLevel > level) {
@@ -1403,13 +1405,13 @@ static int VaapiMessage(int level, const char *format, ...)
 
 	va_start(ap, format);
 	if (format != last_format) {	// don't repeat same message
-	    last_format = format;
 	    if (buf[0]) {		// print last repeated message
 		syslog(LOG_ERR, "%s", buf);
 		buf[0] = '\0';
 	    }
 
 	    if (format) {
+		last_format = format;
 		vsyslog(LOG_ERR, format, ap);
 	    }
 	    va_end(ap);
@@ -5300,13 +5302,13 @@ static int VdpauMessage(int level, const char *format, ...)
 
 	va_start(ap, format);
 	if (format != last_format) {	// don't repeat same message
-	    last_format = format;
 	    if (buf[0]) {		// print last repeated message
 		syslog(LOG_ERR, "%s", buf);
 		buf[0] = '\0';
 	    }
 
 	    if (format) {
+		last_format = format;
 		vsyslog(LOG_ERR, format, ap);
 	    }
 	    va_end(ap);
@@ -9313,7 +9315,7 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
 #endif
 
-    AudioVideoReady(VideoGetClock(hw_decoder));
+    //AudioVideoReady(VideoGetClock(hw_decoder));
     return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
 }
 
