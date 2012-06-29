@@ -3474,6 +3474,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 		    AudioResetNormalizer();
 		}
 	    }
+	    // FIXME: check AudioPaused ...Thread()
+	    if (AudioPaused) {
+		break;
+	    }
 	} while (AudioRing[AudioRingRead].HwSampleRate);
     }
     return dummy;
@@ -3755,7 +3759,7 @@ void AudioVideoReady(int64_t pts)
 	    VideoAudioDelay / 90, skip / 90);
 #endif
 	// guard against old PTS
-	if (skip> 0 && skip < 2000 * 90) {
+	if (skip > 0 && skip < 2000 * 90) {
 	    skip = (((int64_t) skip * AudioRing[AudioRingWrite].HwSampleRate)
 		/ (1000 * 90))
 		* AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
