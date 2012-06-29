@@ -580,12 +580,14 @@ void cMenuSetupSoft::Create(void)
     static const char *const osd_size[] = {
 	"auto", "1920x1080", "1280x720", "custom",
     };
+#if 0
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
     };
     static const char *const video_display_formats_16_9[] = {
 	"pan&scan", "pillarbox", "center cut-out",
     };
+#endif
     static const char *const deinterlace[] = {
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
 	"Software Spatial",
@@ -649,6 +651,7 @@ void cMenuSetupSoft::Create(void)
     //
     Add(CollapsedItem(tr("Video"), Video));
     if (Video) {
+#if 0	// disabled, not working as expected
 	Add(new cMenuEditBoolItem(trVDR("Setup.DVB$Video format"),
 		&VideoFormat, "4:3", "16:9"));
 	if (VideoFormat) {
@@ -658,6 +661,7 @@ void cMenuSetupSoft::Create(void)
 	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
 		    &VideoDisplayFormat, 3, video_display_formats_4_3));
 	}
+#endif
 
 	// FIXME: switch config gray/color configuration
 	Add(new cMenuEditIntItem(tr("Video background color (RGB)"),
