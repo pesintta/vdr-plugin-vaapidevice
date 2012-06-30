@@ -2181,10 +2181,15 @@ int Poll(int timeout)
 #else
 	int full;
 	int t;
+	int used;
+	int filled;
 
-	// one buffer is full
-	full = AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE
-	    || atomic_read(&VideoPacketsFilled) > VIDEO_PACKET_MAX - 3;
+	used = AudioUsedBytes();
+	filled = atomic_read(&VideoPacketsFilled);
+	// soft limit + hard limit
+	full = (used > AUDIO_MIN_BUFFER_FREE && filled > 3)
+	    || AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE
+	    || filled >= VIDEO_PACKET_MAX - 3;
 
 	if (!full || !timeout) {
 	    return !full;
