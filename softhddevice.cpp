@@ -566,7 +566,7 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag,
     cOsdItem *item;
 
     item =
-	new cMenuEditBoolItem(hk(cString::sprintf("* %s", label)), &flag,
+	new cMenuEditBoolItem(cString::sprintf("* %s", label), &flag,
 	msg ? msg : tr("show"), tr("hide"));
 
     return item;
@@ -615,9 +615,6 @@ void cMenuSetupSoft::Create(void)
 
     current = Current();		// get current menu item index
     Clear();				// clear the menu
-
-    // FIXME: support this:
-    SetHasHotkeys();
 
     //
     //	general
