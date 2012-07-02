@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.5.1
+    Display frame statistics in plugin menu.
     Fix bug: 100% CPU use during playback.
     Fix bug: audio use 100% CPU during pause.
     Guard audio skip against old PTS values.

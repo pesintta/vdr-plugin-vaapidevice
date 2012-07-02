@@ -2689,3 +2689,22 @@ void Resume(void)
 
     pthread_mutex_unlock(&SuspendLockMutex);
 }
+
+/*
+**	Get decoder statistics.
+**
+**	@param[out] missed	missed frames
+**	@param[out] duped	duped frames
+**	@param[out] dropped	dropped frames
+**	@param[out] count	number of decoded frames
+*/
+void GetStats(int *missed, int *duped, int *dropped, int *counter)
+{
+    *missed = 0;
+    *duped = 0;
+    *dropped = 0;
+    *counter = 0;
+    if (MyHwDecoder) {
+	VideoGetStats(MyHwDecoder, missed, duped, dropped, counter);
+    }
+}

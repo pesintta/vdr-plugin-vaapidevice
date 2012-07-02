@@ -9642,6 +9642,37 @@ uint8_t *VideoGrabService(int *size, int *width, int *height)
     return NULL;
 }
 
+///
+///	Get decoder statistics.
+///
+///	@param hw_decoder	video hardware decoder
+///	@param[out] missed	missed frames
+///	@param[out] duped	duped frames
+///	@param[out] dropped	dropped frames
+///	@param[out] count	number of decoded frames
+///
+void VideoGetStats(VideoHwDecoder * hw_decoder, int *missed, int *duped,
+    int *dropped, int *counter)
+{
+    // FIXME: test to check if working, than make module function
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*missed = hw_decoder->Vdpau.FramesMissed;
+	*duped = hw_decoder->Vdpau.FramesDuped;
+	*dropped = hw_decoder->Vdpau.FramesDropped;
+	*counter = hw_decoder->Vdpau.FrameCounter;
+    }
+#endif
+#ifdef USE_VAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*missed = hw_decoder->Vaapi.FramesMissed;
+	*duped = hw_decoder->Vaapi.FramesDuped;
+	*dropped = hw_decoder->Vaapi.FramesDropped;
+	*counter = hw_decoder->Vaapi.FrameCounter;
+    }
+#endif
+}
+
 #ifdef USE_SCREENSAVER
 
 //----------------------------------------------------------------------------

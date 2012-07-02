@@ -90,6 +90,9 @@ extern "C"
     extern void Suspend(int, int, int);
     /// Resume plugin
     extern void Resume(void);
+
+    /// Get decoder statistics
+    extern void GetStats(int *, int *, int *, int *);
 #ifdef __cplusplus
 }
 #endif

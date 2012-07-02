@@ -648,7 +648,7 @@ void cMenuSetupSoft::Create(void)
     //
     Add(CollapsedItem(tr("Video"), Video));
     if (Video) {
-#if 0	// disabled, not working as expected
+#if 0					// disabled, not working as expected
 	Add(new cMenuEditBoolItem(trVDR("Setup.DVB$Video format"),
 		&VideoFormat, "4:3", "16:9"));
 	if (VideoFormat) {
@@ -921,9 +921,9 @@ void cMenuSetupSoft::Store(void)
     //SetupStore("VideoFormat", Setup.VideoFormat);
     if (Setup.VideoDisplayFormat != VideoDisplayFormat) {
 	Setup.VideoDisplayFormat = VideoDisplayFormat;
-	cDevice::
-	    PrimaryDevice()->SetVideoDisplayFormat(eVideoDisplayFormat
-	    (Setup.VideoDisplayFormat));
+	cDevice::PrimaryDevice()->
+	    SetVideoDisplayFormat(eVideoDisplayFormat(Setup.
+		VideoDisplayFormat));
     }
     //SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
 
@@ -1102,13 +1102,42 @@ cSoftHdControl::~cSoftHdControl()
 */
 class cSoftHdMenu:public cOsdMenu
 {
+  private:
     int HotkeyState;			///< current hot-key state
     int HotkeyCode;			///< current hot-key code
+    void Create(void);			///< create plugin main menu
   public:
      cSoftHdMenu(const char *, int = 0, int = 0, int = 0, int = 0, int = 0);
      virtual ~ cSoftHdMenu();
     virtual eOSState ProcessKey(eKeys);
 };
+
+/**
+**	Create main menu.
+*/
+void cSoftHdMenu::Create(void)
+{
+    int current;
+    int missed;
+    int duped;
+    int dropped;
+    int counter;
+
+    current = Current();		// get current menu item index
+    Clear();				// clear the menu
+
+    SetHasHotkeys();
+    Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+    Add(new cOsdItem(NULL, osUnknown, false));
+    Add(new cOsdItem(NULL, osUnknown, false));
+    GetStats(&missed, &duped, &dropped, &counter);
+    Add(new cOsdItem(cString::
+	    sprintf(tr(" Frames missed(%d) duped(%d) dropped(%d) total(%d)"),
+		missed, duped, dropped, counter), osUnknown, false));
+
+    SetCurrent(Get(current));		// restore selected menu entry
+    Display();				// display build menu
+}
 
 /**
 **	Soft device menu constructor.
@@ -1119,8 +1148,7 @@ cSoftHdMenu::cSoftHdMenu(const char *title, int c0, int c1, int c2, int c3,
 {
     HotkeyState = 0;
 
-    SetHasHotkeys();
-    Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+    Create();
 }
 
 /**
@@ -1288,6 +1316,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 	    }
 	    return osEnd;
 	default:
+	    Create();
 	    break;
     }
     return state;
@@ -1581,8 +1610,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
-    video_display_format)
+void cSoftHdDevice::
+SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
     static int last = -1;
 
