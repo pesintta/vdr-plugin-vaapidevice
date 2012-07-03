@@ -298,7 +298,7 @@ static const VideoModule NoopModule;	///< forward definition of noop module
     /// selected video module
 static const VideoModule *VideoUsedModule = &NoopModule;
 
-static char VideoHardwareDecoder;	///< flag use hardware decoder
+char VideoHardwareDecoder = -1;		///< flag use hardware decoder
 
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
@@ -10380,7 +10380,6 @@ void VideoInit(const char *display_name)
 
   found:
     // FIXME: make it configurable from gui
-    VideoHardwareDecoder = -1;
     if (getenv("NO_MPEG_HW")) {
 	VideoHardwareDecoder = 1;
     }

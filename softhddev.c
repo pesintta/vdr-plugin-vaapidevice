@@ -2352,7 +2352,9 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 'w':			// workarounds
 		if (!strcasecmp("no-hw-decoder", optarg)) {
+		    VideoHardwareDecoder = 0;
 		} else if (!strcasecmp("no-mpeg-hw-decoder", optarg)) {
+		    VideoHardwareDecoder = 1;
 		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
