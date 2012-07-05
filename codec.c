@@ -935,9 +935,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 
     if (0) {
 	Debug(3,
-	    "codec/audio: interval P:%5zdms T:%5" PRId64 "ms D:%4" PRId64
-	    "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000), delay / 90,
-	    drift / 90.0, audio_decoder->DriftCorr);
+	    "codec/audio: interval P:%5 " PRId64 "ms T:%5" PRId64 "ms D:%4"
+	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
+	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
     }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {

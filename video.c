@@ -7760,8 +7760,8 @@ static void VdpauDisplayFrame(void)
     // FIXME: 21 only correct for 50Hz
     if (last_time && first_time > last_time + 21 * 1000 * 1000) {
 	// FIXME: ignore still-frame, trick-speed
-	Debug(3, "video/vdpau: %ld display time %ld\n", first_time / 1000,
-	    (first_time - last_time) / 1000);
+	Debug(3, "video/vdpau: %" PRId64 " display time %" PRId64 "\n",
+	    first_time / 1000, (first_time - last_time) / 1000);
 	// FIXME: can be more than 1 frame long shown
 	for (i = 0; i < VdpauDecoderN; ++i) {
 	    VdpauDecoders[i]->FramesMissed++;
