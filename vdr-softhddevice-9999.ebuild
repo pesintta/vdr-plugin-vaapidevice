@@ -36,8 +36,8 @@ DEPEND=">=x11-libs/libxcb-1.8
 		dev-util/pkgconfig
 		yaepg? ( >=media-video/vdr-1.7.23[yaepg] )
 		!yaepg? ( >=media-video/vdr-1.7.23 )
-		vdpau? ( x11-libs/libvdpau )
-		vaapi? ( x11-libs/libva )
+		vdpau? ( x11-libs/libvdpau virtual/ffmpeg[vdpau] )
+		vaapi? ( x11-libs/libva virtual/ffmpeg[vaapi] )
 		alsa? ( media-libs/alsa-lib )
 		oss? ( sys-kernel/linux-headers )
 		jpeg? ( virtual/jpeg )
