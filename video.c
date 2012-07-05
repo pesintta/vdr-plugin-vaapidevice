@@ -9454,7 +9454,7 @@ void VideoSetClosing(VideoHwDecoder * hw_decoder)
 	hw_decoder->Vdpau.Closing = 1;
     }
 #endif
-#ifdef USE_VAPI
+#ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
 	hw_decoder->Vaapi.Closing = 1;
     }
@@ -9477,7 +9477,7 @@ void VideoResetStart(VideoHwDecoder * hw_decoder)
 	hw_decoder->Vdpau.StartCounter = 0;
     }
 #endif
-#ifdef USE_VAPI
+#ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
 	hw_decoder->Vaapi.StartCounter = 0;
     }
@@ -9663,7 +9663,7 @@ void VideoGetStats(VideoHwDecoder * hw_decoder, int *missed, int *duped,
 	*counter = hw_decoder->Vdpau.FrameCounter;
     }
 #endif
-#ifdef USE_VAPI
+#ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
 	*missed = hw_decoder->Vaapi.FramesMissed;
 	*duped = hw_decoder->Vaapi.FramesDuped;
@@ -10004,7 +10004,7 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
 	VdpauSetOutputPosition(VdpauDecoders[0], x, y, width, height);
     }
 #endif
-#ifdef USE_VAPI
+#ifdef USE_VAAPI
     // FIXME: not supported by vaapi without unscaled OSD,
     // FIXME: if used to position video inside osd
 #endif

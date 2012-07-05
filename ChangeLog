@@ -1,4 +1,9 @@
 User johns
+Date:
+
+    Fix bug: spelling USE_VAPI wrong, missing functions.
+
+User johns
 Date: Tue Jul  3 16:35:46 CEST 2012
 
     Release Version 0.5.1
