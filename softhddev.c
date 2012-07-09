@@ -22,6 +22,9 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef __FreeBSD__
+#include <signal.h>
+#endif
 #include <fcntl.h>
 
 #include <stdio.h>
@@ -2309,6 +2312,13 @@ int ProcessArgs(int argc, char *const argv[])
     //
     //	Parse arguments.
     //
+#ifdef __FreeBSD__
+    if (!strcmp(*argv, "softhddevice")) {
+	++argv;
+	--argc;
+    }
+#endif
+
     for (;;) {
 	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:xD")) {
 	    case 'a':			// audio device for pcm
@@ -2396,7 +2406,11 @@ int ProcessArgs(int argc, char *const argv[])
 
 #define XSERVER_MAX_ARGS 512		///< how many arguments support
 
+#ifndef __FreeBSD__
 static const char *X11Server = "/usr/bin/X";	///< default x11 server
+#else
+static const char *X11Server = LOCALBASE "/bin/X";	///< default x11 server
+#endif
 static const char *X11ServerArguments;	///< default command arguments
 static pid_t X11ServerPid;		///< x11 server pid
 
@@ -2442,7 +2456,12 @@ static void StartXServer(void)
     if ((sval = X11ServerArguments)) {
 	char *s;
 
+#ifndef __FreeBSD__
 	s = buf = strdupa(sval);
+#else
+	s = buf = alloca(strlen(sval) + 1);
+	strcpy(buf, sval);
+#endif
 	while ((sval = strsep(&s, " \t"))) {
 	    args[argn++] = sval;
 
