@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Free used X11 resources colormap, pixmap, cursor.
     Fix bug: spelling USE_VAPI wrong, missing functions.
 
 User johns

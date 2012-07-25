@@ -286,6 +286,7 @@ static xcb_colormap_t VideoColormap;	///< video colormap
 static xcb_window_t VideoWindow;	///< video window
 static xcb_screen_t const *VideoScreen;	///< video screen
 static uint32_t VideoBlankTick;		///< blank cursor timer
+static xcb_pixmap_t VideoCursorPixmap;	///< blank curosr pixmap
 static xcb_cursor_t VideoBlankCursor;	///< empty invisible cursor
 
 static int VideoWindowX;		///< video output window x coordinate
@@ -9917,9 +9918,9 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
     values[0] = cursor;
     xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
 	values);
+    VideoCursorPixmap = pixmap;
     VideoBlankCursor = cursor;
     VideoBlankTick = 0;
-    // FIXME: free cursor/pixmap needed?
 }
 
 ///
@@ -10447,6 +10448,18 @@ void VideoExit(void)
     if (VideoWindow != XCB_NONE) {
 	xcb_destroy_window(Connection, VideoWindow);
 	VideoWindow = XCB_NONE;
+    }
+    if (VideoColormap != XCB_NONE) {
+	xcb_free_colormap(Connection, VideoColormap);
+	VideoColormap = XCB_NONE;
+    }
+    if (VideoBlankCursor != XCB_NONE) {
+	xcb_free_cursor(Connection, VideoBlankCursor);
+	VideoBlankCursor = XCB_NONE;
+    }
+    if (VideoCursorPixmap != XCB_NONE) {
+	xcb_free_pixmap(Connection, VideoCursorPixmap);
+	VideoCursorPixmap = XCB_NONE;
     }
     if (XlibDisplay) {
 	if (XCloseDisplay(XlibDisplay)) {
