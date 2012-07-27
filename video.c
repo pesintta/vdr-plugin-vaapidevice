@@ -1271,9 +1271,10 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 
 #ifdef USE_VAAPI
 
-static int VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
-static int VaapiBuggyIntel;		///< fix libva-driver-intel bugs
-static int VaapiNewIntel;		///< new libva-driver-intel driver
+static char VaapiBuggyXvBA;		///< fix xvba-video bugs
+static char VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
+static char VaapiBuggyIntel;		///< fix libva-driver-intel bugs
+static char VaapiNewIntel;		///< new libva-driver-intel driver
 
 static VADisplay *VaDisplay;		///< VA-API display
 
@@ -1591,7 +1592,10 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
 	surface = decoder->SurfacesFree[i];
 	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status)
 	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: vaQuerySurface failed\n"));
+	    // this fails with XvBA und mpeg softdecoder
+	    if (!VaapiBuggyXvBA) {
+		Error(_("video/vaapi: vaQuerySurface failed\n"));
+	    }
 	    status = VASurfaceReady;
 	}
 	// surface still in use, try next
@@ -2111,6 +2115,8 @@ static int VaapiInit(const char *display_name)
 	    display_name);
 	return 0;
     }
+    // XvBA needs this:
+    setenv("DISPLAY", display_name, 1);
 
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: Can't inititialize VA-API on '%s'\n"),
@@ -2129,6 +2135,9 @@ static int VaapiInit(const char *display_name)
 	Info(_("video/vaapi: use vdpau bug workaround\n"));
 	setenv("VDPAU_VIDEO_PUTSURFACE_FAST", "0", 0);
 	VaapiBuggyVdpau = 1;
+    }
+    if (strstr(s, "XvBA")) {
+	VaapiBuggyXvBA = 1;
     }
     if (strstr(s, "Intel i965")) {
 	VaapiBuggyIntel = 1;
