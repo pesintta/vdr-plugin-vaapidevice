@@ -222,9 +222,10 @@ class cSoftOsd:public cOsd
 {
   public:
     static volatile char Dirty;		///< flag force redraw everything
+    int OsdLevel;			///< current osd level
 
-     cSoftOsd(int, int, uint);		///< constructor
-     virtual ~ cSoftOsd(void);		///< destructor
+     cSoftOsd(int, int, uint);		///< osd constructor
+     virtual ~ cSoftOsd(void);		///< osd destructor
     virtual void Flush(void);		///< commits all data to the hardware
     virtual void SetActive(bool);	///< sets OSD to be the active one
 };
@@ -241,14 +242,26 @@ volatile char cSoftOsd::Dirty;		///< flag force redraw everything
 */
 void cSoftOsd::SetActive(bool on)
 {
-    //dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: %d level %d\n", __FUNCTION__, on, OsdLevel);
+#endif
 
     if (Active() == on) {
 	return;				// already active, no action
     }
     cOsd::SetActive(on);
+
+    // ignore sub-title if menu is open
+    if (OsdLevel >= OSD_LEVEL_SUBTITLES && IsOpen()) {
+	return;
+    }
+
     if (on) {
 	Dirty = 1;
+	// only flush here if there are already bitmaps
+	if (GetBitmap(0)) {
+	    Flush();
+	}
     } else {
 	OsdClose();
     }
@@ -266,11 +279,14 @@ void cSoftOsd::SetActive(bool on)
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
 {
+#ifdef OSD_DEBUG
     /* FIXME: OsdWidth/OsdHeight not correct!
-       dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
-       OsdHeight(), left, top, level);
      */
+    dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
+	OsdHeight(), left, top, level);
+#endif
 
+    OsdLevel = level;
     SetActive(true);
 }
 
@@ -281,7 +297,10 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 */
 cSoftOsd::~cSoftOsd(void)
 {
-    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: level %d\n", __FUNCTION__, OsdLevel);
+#endif
+
     SetActive(false);
     // done by SetActive: OsdClose();
 
@@ -306,14 +325,25 @@ void cSoftOsd::Flush(void)
 {
     cPixmapMemory *pm;
 
-    if (!Active()) {
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: level %d active %d\n", __FUNCTION__, OsdLevel,
+	Active());
+#endif
+
+    if (!Active()) {			// this osd is not active
+	return;
+    }
+    // don't draw sub-title if menu is active
+    if (OsdLevel >= OSD_LEVEL_SUBTITLES && IsOpen()) {
 	return;
     }
 #ifdef USE_YAEPG
     // support yaepghd, video window
     if (vidWin.bpp) {
+#ifdef OSD_DEBUG
 	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__, vidWin.Width(),
 	    vidWin.Height(), vidWin.x1, vidWin.y2);
+#endif
 
 	// FIXME: vidWin is OSD relative not video window.
 	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
@@ -321,16 +351,27 @@ void cSoftOsd::Flush(void)
     }
 #endif
 
+    //
+    //	VDR draws subtitle without clearing the old
+    //
+    if (OsdLevel >= OSD_LEVEL_SUBTITLES) {
+	VideoOsdClear();
+	cSoftOsd::Dirty = 1;
+    }
+
     if (!IsTrueColor()) {
-	static char warned;
 	cBitmap *bitmap;
 	int i;
+
+#ifdef OSD_DEBUG
+	static char warned;
 
 	if (!warned) {
 	    dsyslog("[softhddev]%s: FIXME: should be truecolor\n",
 		__FUNCTION__);
 	    warned = 1;
 	}
+#endif
 	// draw all bitmaps
 	for (i = 0; (bitmap = GetBitmap(i)); ++i) {
 	    uint8_t *argb;
@@ -383,6 +424,10 @@ void cSoftOsd::Flush(void)
 			bitmap->GetColor(x, y);
 		}
 	    }
+#ifdef OSD_DEBUG
+	    dsyslog("[softhddev]%s: draw %dx%d+%d+%d bm\n", __FUNCTION__, w, h,
+		Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1);
+#endif
 	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
 		w, h, argb);
 
@@ -406,15 +451,15 @@ void cSoftOsd::Flush(void)
 	w = pm->ViewPort().Width();
 	h = pm->ViewPort().Height();
 
-	/*
-	   dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h,
-	   x, y, pm->Data());
-	 */
-
+#ifdef OSD_DEBUG
+	dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h, x,
+	    y, pm->Data());
+#endif
 	OsdDrawARGB(x, y, w, h, pm->Data());
 
 	delete pm;
     }
+    cSoftOsd::Dirty = 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -427,11 +472,12 @@ void cSoftOsd::Flush(void)
 class cSoftOsdProvider:public cOsdProvider
 {
   private:
-    static cOsd *Osd;
+    static cOsd *Osd;			///< single OSD
   public:
     virtual cOsd * CreateOsd(int, int, uint);
     virtual bool ProvidesTrueColor(void);
-    cSoftOsdProvider(void);
+    cSoftOsdProvider(void);		///< OSD provider constructor
+    //virtual ~cSoftOsdProvider();	///< OSD provider destructor
 };
 
 cOsd *cSoftOsdProvider::Osd;		///< single osd
@@ -445,7 +491,9 @@ cOsd *cSoftOsdProvider::Osd;		///< single osd
 */
 cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
-    //dsyslog("[softhddev]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
+#endif
 
     return Osd = new cSoftOsd(left, top, level);
 }
@@ -466,8 +514,18 @@ bool cSoftOsdProvider::ProvidesTrueColor(void)
 cSoftOsdProvider::cSoftOsdProvider(void)
 :  cOsdProvider()
 {
-    //dsyslog("[softhddev]%s:\n", __FUNCTION__);
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+#endif
 }
+
+/**
+**	Destroy cOsdProvider class.
+cSoftOsdProvider::~cSoftOsdProvider()
+{
+    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+}
+*/
 
 //////////////////////////////////////////////////////////////////////////////
 //	cMenuSetupPage
