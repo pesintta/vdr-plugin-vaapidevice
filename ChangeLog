@@ -1,6 +1,18 @@
 User johns
 Date:
 
+    Removes old audio code (!USE_AUDIORING).
+    Use -DOSD_DEBUG to debug OSD.
+
+User arttupii
+Date: Tue Aug 7 16:46:23 2012 +0200
+
+    Fix bug #909: Subtitles destroy menu.
+    Fix bug #1003: Subtitles overlapping.
+
+User johns
+Date: Fri Jul 27 19:15:48 CEST 2012
+
     Free used X11 resources colormap, pixmap, cursor.
     Fix bug: spelling USE_VAPI wrong, missing functions.
 
