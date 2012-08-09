@@ -4,7 +4,7 @@
 .*.swp
 .gdb_history
 # work directory
-chaos
+.chaos
 # generated files
 .dependencies
 libvdr-softhddevice.so*

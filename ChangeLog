@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Resume plugin, if suspend control stops.
     Removes old audio code (!USE_AUDIORING).
     Use -DOSD_DEBUG to debug OSD.
 

@@ -1117,11 +1117,8 @@ eOSState cSoftHdControl::ProcessKey(eKeys key)
 {
     if (SuspendMode == SUSPEND_NORMAL && (!ISMODELESSKEY(key)
 	    || key == kMenu || key == kBack || key == kStop)) {
-	if (Player) {
-	    delete Player;
-
-	    Player = NULL;
-	}
+	delete Player;
+	Player = NULL;
 	Resume();
 	SuspendMode = NOT_SUSPENDED;
 	return osEnd;
@@ -1142,10 +1139,12 @@ cSoftHdControl::cSoftHdControl(void)
 */
 cSoftHdControl::~cSoftHdControl()
 {
-    if (Player) {
-	delete Player;
-
-	Player = NULL;
+    delete Player;
+    Player = NULL;
+    // loose control resume
+    if (SuspendMode == SUSPEND_NORMAL) {
+	Resume();
+	SuspendMode = NOT_SUSPENDED;
     }
 
     dsyslog("[softhddev]%s: dummy player stopped\n", __FUNCTION__);
