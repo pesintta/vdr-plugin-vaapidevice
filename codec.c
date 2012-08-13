@@ -363,22 +363,6 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     if (decoder->VideoCtx) {
 	Error(_("codec: missing close\n"));
     }
-    //
-    //	ffmpeg compatibility hack
-    //
-#if 1 || (LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52,96,0))
-    if (name) {
-	if (!strcmp(name, "h264video_vdpau")) {
-	    name = "h264_vdpau";
-	} else if (!strcmp(name, "mpeg4video_vdpau")) {
-	    name = "mpeg4_vdpau";
-	} else if (!strcmp(name, "vc1video_vdpau")) {
-	    name = "vc1_vdpau";
-	} else if (!strcmp(name, "wmv3video_vdpau")) {
-	    name = "wmv3_vdpau";
-	}
-    }
-#endif
 
     if (name && (video_codec = avcodec_find_decoder_by_name(name))) {
 	Debug(3, "codec: vdpau decoder found\n");
@@ -939,7 +923,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 
     if (0) {
 	Debug(3,
-	    "codec/audio: interval P:%5 " PRId64 "ms T:%5" PRId64 "ms D:%4"
+	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
 	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
 	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
     }

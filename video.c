@@ -5345,7 +5345,7 @@ static void VdpauCreateSurfaces(VdpauDecoder * decoder, int width, int height)
 
 #ifdef DEBUG
     if (!decoder->SurfacesNeeded) {
-	Error(_("video/vaapi: surface needed not set\n"));
+	Error(_("video/vdpau: surface needed not set\n"));
 	decoder->SurfacesNeeded = 3 + VIDEO_SURFACES_MAX;
     }
 #endif
@@ -7381,14 +7381,8 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    decoder->InputWidth = video_ctx->width;
 	    decoder->InputHeight = video_ctx->height;
 
-	    //
-	    //	detect interlaced input
-	    //
-	    Debug(3, "video/vdpau: interlaced %d top-field-first %d\n",
-		frame->interlaced_frame, frame->top_field_first);
-	    // FIXME: I hope this didn't change in the middle of the stream
-
 	    VdpauCleanup(decoder);
+	    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
 	    VdpauSetupOutput(decoder);
 	}
 	//
@@ -7402,6 +7396,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    default:
 		Fatal(_("video/vdpau: pixel format %d not supported\n"),
 		    video_ctx->pix_fmt);
+		// FIXME: no fatals!
 	}
 
 	// convert ffmpeg order to vdpau
@@ -7420,6 +7415,8 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	    Error(_("video/vdpau: can't put video surface bits: %s\n"),
 		VdpauGetErrorString(status));
 	}
+
+	Debug(4, "video/vdpau: sw render hw surface %#08x\n", surface);
 
 	VdpauQueueSurface(decoder, surface, 1);
     }
@@ -9940,6 +9937,19 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 void VideoSetDevice(const char *device)
 {
     VideoDevice = device;
+}
+
+///
+///	Get video driver name.
+///
+///	@returns name of current video driver.
+///
+const char *VideoGetDriverName(void)
+{
+    if (VideoUsedModule) {
+	return VideoUsedModule->Name;
+    }
+    return "";
 }
 
 ///

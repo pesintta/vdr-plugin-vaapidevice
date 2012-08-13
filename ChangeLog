@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: Can't use software decoder with VDPAU.
     Resume plugin, if suspend control stops.
     Removes old audio code (!USE_AUDIORING).
     Use -DOSD_DEBUG to debug OSD.

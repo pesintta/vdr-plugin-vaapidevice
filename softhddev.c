@@ -59,9 +59,9 @@ static int H264Dump(const uint8_t * data, int size);
 //////////////////////////////////////////////////////////////////////////////
 
 #ifdef USE_VDPAU
-static char ConfigVdpauDecoder = 1;	///< use vdpau decoder, if possible
+static char VdpauDecoder = 1;		///< vdpau decoder used
 #else
-#define ConfigVdpauDecoder 0		///< no vdpau decoder configured
+#define	VdpauDecoder 0			///< no vdpau decoder configured
 #endif
 
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
@@ -1533,17 +1533,16 @@ int VideoDecodeInput(void)
 	case CODEC_ID_MPEG2VIDEO:
 	    if (last_codec_id != CODEC_ID_MPEG2VIDEO) {
 		last_codec_id = CODEC_ID_MPEG2VIDEO;
-		CodecVideoOpen(MyVideoDecoder,
-		    ConfigVdpauDecoder ? "mpegvideo_vdpau" : NULL,
+		CodecVideoOpen(MyVideoDecoder, VideoHardwareDecoder < 0
+		    && VdpauDecoder ? "mpeg_vdpau" : NULL,
 		    CODEC_ID_MPEG2VIDEO);
 	    }
 	    break;
 	case CODEC_ID_H264:
 	    if (last_codec_id != CODEC_ID_H264) {
 		last_codec_id = CODEC_ID_H264;
-		CodecVideoOpen(MyVideoDecoder,
-		    ConfigVdpauDecoder ? "h264video_vdpau" : NULL,
-		    CODEC_ID_H264);
+		CodecVideoOpen(MyVideoDecoder, VideoHardwareDecoder
+		    && VdpauDecoder ? "h264_vdpau" : NULL, CODEC_ID_H264);
 	    }
 	    break;
 	default:
@@ -1587,6 +1586,10 @@ int VideoGetBuffers(void)
 static void StartVideo(void)
 {
     VideoInit(X11DisplayName);
+#ifdef USE_VDPAU
+    VdpauDecoder = !strcasecmp(VideoGetDriverName(), "vdpau");
+#endif
+
     if (ConfigFullscreen) {
 	// FIXME: not good looking, mapped and then resized.
 	VideoSetFullscreen(1);
@@ -2347,10 +2350,6 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 'v':			// video driver
 		VideoSetDevice(optarg);
-#ifdef USE_VDPAU
-		// FIXME: this is a big hack
-		ConfigVdpauDecoder = !strcasecmp(optarg, "vdpau");
-#endif
 		continue;
 	    case 'x':			// x11 server
 		ConfigStartX11Server = 1;
