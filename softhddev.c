@@ -1534,7 +1534,7 @@ int VideoDecodeInput(void)
 	    if (last_codec_id != CODEC_ID_MPEG2VIDEO) {
 		last_codec_id = CODEC_ID_MPEG2VIDEO;
 		CodecVideoOpen(MyVideoDecoder, VideoHardwareDecoder < 0
-		    && VdpauDecoder ? "mpeg_vdpau" : NULL,
+		    && VdpauDecoder ? "mpegvideo_vdpau" : NULL,
 		    CODEC_ID_MPEG2VIDEO);
 	    }
 	    break;

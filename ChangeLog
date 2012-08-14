@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Revert "mpeg_vdpau" back to "mpegvideo_vdpau".
     Fix bug: Can't use software decoder with VDPAU.
     Resume plugin, if suspend control stops.
     Removes old audio code (!USE_AUDIORING).
