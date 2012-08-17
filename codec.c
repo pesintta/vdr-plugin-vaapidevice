@@ -431,6 +431,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	decoder->VideoCtx->thread_count = 1;
 	decoder->VideoCtx->active_thread_type = 0;
     } else {
+	decoder->VideoCtx->get_format = Codec_get_format;
 	decoder->VideoCtx->hwaccel_context =
 	    VideoGetVaapiContext(decoder->HwDecoder);
     }
