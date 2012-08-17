@@ -4544,7 +4544,8 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 static void VaapiSetTrickSpeed(VaapiDecoder * decoder, int speed)
 {
     decoder->TrickSpeed = speed;
-    decoder->TrickCounter = 0;
+    decoder->TrickCounter = speed;
+    decoder->Closing = 0;
 }
 
 ///
@@ -7883,6 +7884,7 @@ static void VdpauSetTrickSpeed(VdpauDecoder * decoder, int speed)
 {
     decoder->TrickSpeed = speed;
     decoder->TrickCounter = speed;
+    decoder->Closing = 0;
 }
 
 ///
@@ -9322,7 +9324,6 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
 #endif
 
-    //AudioVideoReady(VideoGetClock(hw_decoder));
     return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
 }
 
