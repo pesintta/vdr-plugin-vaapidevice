@@ -4545,7 +4545,9 @@ static void VaapiSetTrickSpeed(VaapiDecoder * decoder, int speed)
 {
     decoder->TrickSpeed = speed;
     decoder->TrickCounter = speed;
-    decoder->Closing = 0;
+    if (speed) {
+	decoder->Closing = 0;
+    }
 }
 
 ///
@@ -7642,7 +7644,12 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
 	    &video_src_rect, VdpauSurfacesRb[VdpauSurfaceIndex], &dst_rect,
 	    &dst_video_rect, 0, NULL);
     } else {
-	current = decoder->SurfacesRb[decoder->SurfaceRead];
+	if (decoder->Interlaced) {
+	    current = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
+		% VIDEO_SURFACES_MAX];
+	} else {
+	    current = decoder->SurfacesRb[decoder->SurfaceRead];
+	}
 
 	status =
 	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
@@ -7884,7 +7891,9 @@ static void VdpauSetTrickSpeed(VdpauDecoder * decoder, int speed)
 {
     decoder->TrickSpeed = speed;
     decoder->TrickCounter = speed;
-    decoder->Closing = 0;
+    if (speed) {
+	decoder->Closing = 0;
+    }
 }
 
 ///
