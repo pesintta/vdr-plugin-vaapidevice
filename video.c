@@ -4665,11 +4665,13 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	if (!err) {
 	    VaapiMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d+%d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(),
+	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VaapiPrintFrames(decoder);
 	}
@@ -8010,11 +8012,13 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	if (!err) {
 	    VdpauMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d+%d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers());
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(),
+	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VdpauPrintFrames(decoder);
 	}
