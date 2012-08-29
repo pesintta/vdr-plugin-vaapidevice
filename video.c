@@ -9421,8 +9421,8 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 	}
 	if (end - start > 35) {
 	    // report this
-	    Info(_("video/vdpau: decoder render too slow %ums\n"),
-		end - start);
+	    Info(_("video/vdpau: %s: decoder render too slow %ums\n"),
+		Timestamp2String(decoder->PTS), end - start);
 	}
 	return;
     }
