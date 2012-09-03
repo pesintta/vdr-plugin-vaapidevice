@@ -97,6 +97,18 @@ extern void VideoSetSoftStartSync(int);
     /// Set show black picture during channel switch.
 extern void VideoSetBlackPicture(int);
 
+    /// Set brightness adjustment.
+extern void VideoSetBrightness(int);
+
+    /// Set contrast adjustment.
+extern void VideoSetContrast(int);
+
+    /// Set saturation adjustment.
+extern void VideoSetSaturation(int);
+
+    /// Set hue adjustment.
+extern void VideoSetHue(int);
+
     /// Set video output position.
 extern void VideoSetOutputPosition(int, int, int, int);
 

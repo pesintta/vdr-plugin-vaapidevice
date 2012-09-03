@@ -50,7 +50,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.5.1"
+static const char *const VERSION = "0.5.2"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -87,6 +87,11 @@ static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
 static char ConfigVideoBlackPicture;	///< config enable black picture mode
+
+static int ConfigVideoBrightness;	///< config video brightness
+static int ConfigVideoContrast = 1000;	///< config video contrast
+static int ConfigVideoSaturation = 1000;	///< config video saturation
+static int ConfigVideoHue;		///< config video hue
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -559,6 +564,11 @@ class cMenuSetupSoft:public cMenuSetupPage
     int SoftStartSync;
     int BlackPicture;
 
+    int Brightness;
+    int Contrast;
+    int Saturation;
+    int Hue;
+
     int ResolutionShown[RESOLUTIONS];
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
@@ -732,6 +742,15 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Black during channel switch"),
 		&BlackPicture, trVDR("no"), trVDR("yes")));
 
+	Add(new cMenuEditIntItem(tr("Brightness (-1000..1000) (vdpau)"),
+		&Brightness, -1000, 1000, tr("min"), tr("max")));
+	Add(new cMenuEditIntItem(tr("Contrast (0..10000) (vdpau)"), &Contrast,
+		0, 10000, tr("min"), tr("max")));
+	Add(new cMenuEditIntItem(tr("Saturation (0..10000) (vdpau)"),
+		&Saturation, 0, 10000, tr("min"), tr("max")));
+	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Brightness,
+		-3141, 3141, tr("min"), tr("max")));
+
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
 
@@ -898,6 +917,11 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     SoftStartSync = ConfigVideoSoftStartSync;
     BlackPicture = ConfigVideoBlackPicture;
 
+    Brightness = ConfigVideoBrightness;
+    Contrast = ConfigVideoContrast;
+    Saturation = ConfigVideoSaturation;
+    Hue = ConfigVideoHue;
+
     for (i = 0; i < RESOLUTIONS; ++i) {
 	ResolutionShown[i] = 0;
 	Scaling[i] = ConfigVideoScaling[i];
@@ -996,6 +1020,15 @@ void cMenuSetupSoft::Store(void)
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
     SetupStore("BlackPicture", ConfigVideoBlackPicture = BlackPicture);
     VideoSetBlackPicture(ConfigVideoBlackPicture);
+
+    SetupStore("Brightness", ConfigVideoBrightness = Brightness);
+    VideoSetBrightness(ConfigVideoBrightness);
+    SetupStore("Contrast", ConfigVideoContrast = Contrast);
+    VideoSetContrast(ConfigVideoContrast);
+    SetupStore("Saturation", ConfigVideoSaturation = Saturation);
+    VideoSetSaturation(ConfigVideoSaturation);
+    SetupStore("Hue", ConfigVideoHue = Hue);
+    VideoSetHue(ConfigVideoHue);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -1118,6 +1151,7 @@ eOSState cSoftHdControl::ProcessKey(eKeys key)
     if (SuspendMode == SUSPEND_NORMAL && (!ISMODELESSKEY(key)
 	    || key == kMenu || key == kBack || key == kStop)) {
 	delete Player;
+
 	Player = NULL;
 	Resume();
 	SuspendMode = NOT_SUSPENDED;
@@ -1140,6 +1174,7 @@ cSoftHdControl::cSoftHdControl(void)
 cSoftHdControl::~cSoftHdControl()
 {
     delete Player;
+
     Player = NULL;
     // loose control resume
     if (SuspendMode == SUSPEND_NORMAL) {
@@ -2115,6 +2150,22 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "BlackPicture")) {
 	VideoSetBlackPicture(ConfigVideoBlackPicture = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "Brightness")) {
+	VideoSetBrightness(ConfigVideoBrightness = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "Contrast")) {
+	VideoSetContrast(ConfigVideoContrast = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "Saturation")) {
+	VideoSetSaturation(ConfigVideoSaturation = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "Hue")) {
+	VideoSetHue(ConfigVideoHue = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {

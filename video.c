@@ -9350,6 +9350,10 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 void VideoRenderFrame(VideoHwDecoder * hw_decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
+    if (0) {
+	fprintf(stderr, "video: render frame pts %s closing %d\n",
+	    Timestamp2String(frame->pkt_pts), hw_decoder->Vdpau.Closing);
+    }
     if (frame->repeat_pict && !VideoIgnoreRepeatPict) {
 	Warning(_("video: repeated pict %d found, but not handled\n"),
 	    frame->repeat_pict);
@@ -10009,6 +10013,70 @@ void VideoSetSoftStartSync(int onoff)
 void VideoSetBlackPicture(int onoff)
 {
     VideoShowBlackPicture = onoff;
+}
+
+///
+///	Set brightness adjustment.
+///
+///	@param brightness	between -1000 and 1000.
+///				0 represents no modification
+///
+void VideoSetBrightness(int brightness)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	VdpauDecoders[0]->Procamp.brightness = brightness / 1000;
+    }
+#endif
+    // FIXME: VA-API support
+}
+
+///
+///	Set contrast adjustment.
+///
+///	@param contrast		between 0 and 10000.
+///				1000 represents no modification
+///
+void VideoSetContrast(int contrast)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	VdpauDecoders[0]->Procamp.contrast = contrast / 1000;
+    }
+#endif
+    // FIXME: VA-API support
+}
+
+///
+///	Set saturation adjustment.
+///
+///	@param saturation	between 0 and 10000.
+///				1000 represents no modification
+///
+void VideoSetSaturation(int saturation)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	VdpauDecoders[0]->Procamp.saturation = saturation / 1000;
+    }
+#endif
+    // FIXME: VA-API support
+}
+
+///
+///	Set hue adjustment.
+///
+///	@param hue	between -PI*1000 and PI*1000.
+///			0 represents no modification
+///
+void VideoSetHue(int hue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	VdpauDecoders[0]->Procamp.hue = hue / 1000;
+    }
+#endif
+    // FIXME: VA-API support
 }
 
 ///
