@@ -9350,10 +9350,10 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
 void VideoRenderFrame(VideoHwDecoder * hw_decoder,
     const AVCodecContext * video_ctx, const AVFrame * frame)
 {
-    if (0) {
-	fprintf(stderr, "video: render frame pts %s closing %d\n",
-	    Timestamp2String(frame->pkt_pts), hw_decoder->Vdpau.Closing);
-    }
+#if 0
+    fprintf(stderr, "video: render frame pts %s closing %d\n",
+	Timestamp2String(frame->pkt_pts), hw_decoder->Vdpau.Closing);
+#endif
     if (frame->repeat_pict && !VideoIgnoreRepeatPict) {
 	Warning(_("video: repeated pict %d found, but not handled\n"),
 	    frame->repeat_pict);
