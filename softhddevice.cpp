@@ -748,7 +748,7 @@ void cMenuSetupSoft::Create(void)
 		0, 10000, tr("min"), tr("max")));
 	Add(new cMenuEditIntItem(tr("Saturation (0..10000) (vdpau)"),
 		&Saturation, 0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Brightness,
+	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Hue,
 		-3141, 3141, tr("min"), tr("max")));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
