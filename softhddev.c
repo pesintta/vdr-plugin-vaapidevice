@@ -1232,6 +1232,10 @@ void SetVolumeDevice(int volume)
 #ifdef DEBUG
 uint32_t VideoSwitch;			///< debug video switch ticks
 #endif
+//#define STILL_DEBUG 1
+#ifdef STILL_DEBUG
+static char InStillPicture;		///< flag still picture
+#endif
 static volatile char NewVideoStream;	///< flag new video stream
 static volatile char ClosingVideoStream;	///< flag closing video stream
 static VideoHwDecoder *MyHwDecoder;	///< video hw decoder
@@ -1414,7 +1418,18 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
     *tmp = *avpkt;
 
     first = 1;
-    while (n > 4) {
+#if STILL_DEBUG>1
+    if (InStillPicture) {
+	fprintf(stderr, "fix:");
+    }
+#endif
+
+    while (n > 3) {
+#if STILL_DEBUG>1
+	if (InStillPicture && !p[0] && !p[1] && p[2] == 0x01) {
+	    fprintf(stderr, " %02x", p[3]);
+	}
+#endif
 	// scan for picture header 0x00000100
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
 	    if (first) {
@@ -1425,6 +1440,12 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 	    }
 	    // packet has already an picture header
 	    tmp->size = p - tmp->data;
+#if STILL_DEBUG>1
+	    if (InStillPicture) {
+		fprintf(stderr, "\nfix:%9d,%02x %02x %02x %02x\n", tmp->size,
+		    tmp->data[0], tmp->data[1], tmp->data[2], tmp->data[3]);
+	    }
+#endif
 	    CodecVideoDecode(MyVideoDecoder, tmp);
 	    // time-stamp only valid for first packet
 	    tmp->pts = AV_NOPTS_VALUE;
@@ -1436,6 +1457,12 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 	++p;
     }
 
+#if STILL_DEBUG>1
+    if (InStillPicture) {
+	fprintf(stderr, "\nfix:%9d.%02x %02x %02x %02x\n", tmp->size,
+	    tmp->data[0], tmp->data[1], tmp->data[2], tmp->data[3]);
+    }
+#endif
     CodecVideoDecode(MyVideoDecoder, tmp);
 }
 
@@ -2084,6 +2111,11 @@ void StillPicture(const uint8_t * data, int size)
 	Error(_("[softhddev] invalid still video packet\n"));
 	return;
     }
+#ifdef STILL_DEBUG
+    InStillPicture = 1;
+#endif
+    VideoSetTrickSpeed(MyHwDecoder, 1);
+    VideoResetPacket();
 
     if (VideoCodecID == CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
@@ -2091,7 +2123,10 @@ void StillPicture(const uint8_t * data, int size)
     }
     // FIXME: can check video backend, if a frame was produced.
     // output for max reference frames
-    for (i = 0; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 3 : 17); ++i) {
+#ifdef STILL_DEBUG
+    fprintf(stderr, "still-picture\n");
+#endif
+    for (i = 0; i < (VideoCodecID == CODEC_ID_MPEG2VIDEO ? 4 : 4); ++i) {
 	const uint8_t *split;
 	int n;
 
@@ -2112,14 +2147,14 @@ void StillPicture(const uint8_t * data, int size)
 
 		len = (split[4] << 8) + split[5];
 		if (!len || len + 6 > n) {
-		    // video only
-		    if ((data[3] & 0xF0) == 0xE0) {
+		    if ((split[3] & 0xF0) == 0xE0) {
+			// video only
 			while (!PlayVideo(split, n)) {	// feed remaining bytes
 			}
 		    }
 		    break;
 		}
-		if ((data[3] & 0xF0) == 0xE0) {
+		if ((split[3] & 0xF0) == 0xE0) {
 		    // video only
 		    while (!PlayVideo(split, len + 6)) {	// feed it
 		    }
@@ -2136,10 +2171,12 @@ void StillPicture(const uint8_t * data, int size)
 	    } else {
 		VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg,
 		    sizeof(seq_end_mpeg));
+		//VideoNextPacket(VideoCodecID);	// terminate last packet
+		//VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg,
+		//    sizeof(seq_end_mpeg));
 	    }
 	    VideoNextPacket(VideoCodecID);	// terminate last packet
 	} else {			// ES packet
-
 	    if (VideoCodecID != CODEC_ID_MPEG2VIDEO) {
 		VideoNextPacket(CODEC_ID_NONE);	// close last stream
 		VideoCodecID = CODEC_ID_MPEG2VIDEO;
@@ -2154,7 +2191,12 @@ void StillPicture(const uint8_t * data, int size)
     for (i = 0; VideoGetBuffers() && i < 30; ++i) {
 	usleep(10 * 1000);
     }
-    Debug(3, "[softhddev]%s: buffers %d\n", __FUNCTION__, VideoGetBuffers());
+    Debug(3, "[softhddev]%s: buffers %d %dms\n", __FUNCTION__,
+	VideoGetBuffers(), i * 10);
+#ifdef STILL_DEBUG
+    InStillPicture = 0;
+#endif
+    VideoSetTrickSpeed(MyHwDecoder, 0);
 }
 
 /**
@@ -2437,6 +2479,8 @@ static void StartXServer(void)
     const char *args[XSERVER_MAX_ARGS];
     int argn;
     char *buf;
+    int maxfd;
+    int fd;
 
     //	X server
     if (X11Server) {
@@ -2494,6 +2538,13 @@ static void StartXServer(void)
     // child
     signal(SIGUSR1, SIG_IGN);		// ignore to force answer
     //setpgid(0,getpid());
+
+    // close all open file-handles
+    maxfd = sysconf(_SC_OPEN_MAX);
+    for (fd = 3; fd < maxfd; fd++) {	// keep stdin, stdout, stderr
+	close(fd);			// vdr should open with O_CLOEXEC
+    }
+
     //	start the X server
     execvp(args[0], (char *const *)args);
 
