@@ -1997,8 +1997,9 @@ bool cPluginSoftHdDevice::Start(void)
 
     switch (::Start()) {
 	case 1:
-	    cControl::Launch(new cSoftHdControl);
-	    cControl::Attach();
+	    //cControl::Launch(new cSoftHdControl);
+	    //cControl::Attach();
+	    // FIXME: VDR overwrites the control
 	    SuspendMode = SUSPEND_NORMAL;
 	    break;
 	case -1:
