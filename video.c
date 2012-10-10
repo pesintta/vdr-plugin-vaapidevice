@@ -9698,6 +9698,46 @@ void VideoGetStats(VideoHwDecoder * hw_decoder, int *missed, int *duped,
 #endif
 }
 
+///
+///	Get decoder video stream size.
+///
+///	@param hw_decoder	video hardware decoder
+///	@param[out] width	video stream width
+///	@param[out] height	video stream height
+///	@param[out] aspect_num	video stream aspect numerator
+///	@param[out] aspect_den	video stream aspect denominator
+///
+void VideoGetVideoSize(VideoHwDecoder * hw_decoder, int *width, int *height,
+    int *aspect_num, int *aspect_den)
+{
+    *width = 1920;
+    *height = 1080;
+    *aspect_num = 16;
+    *aspect_den = 9;
+    // FIXME: test to check if working, than make module function
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*width = hw_decoder->Vdpau.InputWidth;
+	*height = hw_decoder->Vdpau.InputHeight;
+	av_reduce(aspect_num, aspect_den,
+	    hw_decoder->Vdpau.InputWidth * hw_decoder->Vdpau.InputAspect.num,
+	    hw_decoder->Vdpau.InputHeight * hw_decoder->Vdpau.InputAspect.den,
+	    1024 * 1024);
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*width = hw_decoder->Vaapi.InputWidth;
+	*height = hw_decoder->Vaapi.InputHeight;
+	av_reduce(aspect_num, aspect_den,
+	    hw_decoder->Vaapi.InputWidth * hw_decoder->Vaapi.InputAspect.num,
+	    hw_decoder->Vaapi.InputHeight * hw_decoder->Vaapi.InputAspect.den,
+	    1024 * 1024);
+    }
+#endif
+
+}
+
 #ifdef USE_SCREENSAVER
 
 //----------------------------------------------------------------------------

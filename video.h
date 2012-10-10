@@ -193,6 +193,9 @@ extern uint8_t *VideoGrabService(int *, int *, int *);
     /// Get decoder statistics.
 extern void VideoGetStats(VideoHwDecoder *, int *, int *, int *, int *);
 
+    /// Get video stream size
+extern void VideoGetVideoSize(VideoHwDecoder *, int *, int *, int *, int *);
+
 extern void VideoOsdInit(void);		///< Setup osd.
 extern void VideoOsdExit(void);		///< Cleanup osd.
 

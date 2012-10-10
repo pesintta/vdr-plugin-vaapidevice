@@ -2020,6 +2020,42 @@ int64_t GetSTC(void)
 }
 
 /**
+**	Get video stream size and aspect.
+**
+**	@param width[OUT]	width of video stream
+**	@param height[OUT]	height of video stream
+**	@param aspect[OUT]	aspect ratio (4/3, 16/9, ...) of video stream
+*/
+void GetVideoSize(int *width, int *height, double *aspect)
+{
+#ifdef DEBUG
+    static int done_width;
+    static int done_height;
+#endif
+    int aspect_num;
+    int aspect_den;
+
+    if (MyHwDecoder) {
+	VideoGetVideoSize(MyHwDecoder, width, height, &aspect_num,
+	    &aspect_den);
+	*aspect = (double)aspect_num / (double)aspect_den;
+    } else {
+	*width = 0;
+	*height = 0;
+	*aspect = 1.0;			// like default cDevice::GetVideoSize
+    }
+
+#ifdef DEBUG
+    if (done_width != *width || done_height != *height) {
+	Debug(3, "[softhddev]%s: %dx%d %g\n", __FUNCTION__, *width, *height,
+	    *aspect);
+	done_width = *width;
+	done_height = *height;
+    }
+#endif
+}
+
+/**
 **	Set trick play speed.
 **
 **	Every single frame shall then be displayed the given number of

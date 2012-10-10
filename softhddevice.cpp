@@ -1741,11 +1741,11 @@ void cSoftHdDevice::SetVideoFormat(bool video_format16_9)
 **	Returns the width, height and video_aspect ratio of the currently
 **	displayed video material.
 **
-**	@note the size is used to scale the subtitle.
+**	@note the video_aspect is used to scale the subtitle.
 */
 void cSoftHdDevice::GetVideoSize(int &width, int &height, double &video_aspect)
 {
-    ::GetOsdSize(&width, &height, &video_aspect);
+    ::GetVideoSize(&width, &height, &video_aspect);
 }
 
 /**
