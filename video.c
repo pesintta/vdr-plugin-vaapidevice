@@ -10554,7 +10554,9 @@ void VideoExit(void)
     if (!XlibDisplay) {			// no init or failed
 	return;
     }
-    // reenable x11 screensaver
+    //
+    //	Reenable screensaver / DPMS.
+    //
     X11DPMSReenable(Connection);
     X11SuspendScreenSaver(Connection, 0);
 
@@ -10571,12 +10573,6 @@ void VideoExit(void)
 	GlxExit();
     }
 #endif
-
-    //
-    //	Reenable screensaver / DPMS.
-    //
-    //X11SuspendScreenSaver(XlibDisplay, False);
-    //X11DPMSEnable(XlibDisplay);
 
     //
     //	FIXME: cleanup.
