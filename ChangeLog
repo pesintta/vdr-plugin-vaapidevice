@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: with some streams endless loop in pes audio parser.
     Report correct video size in cSoftHdDevice::GetVideoSize.
     Add picture adjustment support for vdpau.
     Revert "mpeg_vdpau" back to "mpegvideo_vdpau".

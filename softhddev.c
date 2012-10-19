@@ -718,13 +718,16 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 
 		// have header upto size bits
 		if (pesdx->HeaderIndex == PES_HEADER_SIZE) {
-		    if ((pesdx->Header[6] & 0xC0) == 0x80) {
-			pesdx->HeaderSize += pesdx->Header[8];
-		    } else {
+		    if ((pesdx->Header[6] & 0xC0) != 0x80) {
 			Error(_("pesdemux: mpeg1 pes packet unsupported\n"));
 			pesdx->State = PES_SKIP;
 			return;
 		    }
+		    // have pes extension
+		    if (!pesdx->Header[8]) {
+			goto empty_header;
+		    }
+		    pesdx->HeaderSize += pesdx->Header[8];
 		    // have complete header
 		} else if (pesdx->HeaderIndex == pesdx->HeaderSize) {
 		    int64_t pts;
@@ -753,6 +756,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			    pts, dts);
 		    }
 
+		  empty_header:
 		    pesdx->State = PES_INIT;
 		    if (pesdx->StartCode == PES_PRIVATE_STREAM1) {
 			// only private stream 1, has sub streams
