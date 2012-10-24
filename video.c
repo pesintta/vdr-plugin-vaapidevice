@@ -261,7 +261,7 @@ typedef struct _video_module_
 
 #define CODEC_SURFACES_MAX	31	///< maximal of surfaces
 
-#define CODEC_SURFACES_DEFAULT	(21+4)	///< default of surfaces
+#define CODEC_SURFACES_DEFAULT	21	///< default of surfaces
 // FIXME: video-xvba only supports 14
 #define xCODEC_SURFACES_DEFAULT	14	///< default of surfaces
 
@@ -6677,11 +6677,11 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     // check profile
     switch (video_ctx->codec_id) {
 	case CODEC_ID_MPEG1VIDEO:
-	    max_refs = 2;
+	    max_refs = CODEC_SURFACES_MPEG2;
 	    profile = VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG1);
 	    break;
 	case CODEC_ID_MPEG2VIDEO:
-	    max_refs = 2;
+	    max_refs = CODEC_SURFACES_MPEG2;
 	    profile =
 		VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG2_MAIN);
 	    break;

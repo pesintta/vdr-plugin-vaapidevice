@@ -1236,7 +1236,7 @@ void SetVolumeDevice(int volume)
 #ifdef DEBUG
 uint32_t VideoSwitch;			///< debug video switch ticks
 #endif
-//#define STILL_DEBUG 1
+//#define STILL_DEBUG 2
 #ifdef STILL_DEBUG
 static char InStillPicture;		///< flag still picture
 #endif
@@ -1406,7 +1406,7 @@ static void VideoNextPacket(int codec_id)
 /**
 **	Fix packet for FFMpeg.
 **
-**	Some tv-stations sends mulitple pictures in a singe PES packet.
+**	Some tv-stations sends mulitple pictures in a single PES packet.
 **	Current ffmpeg 0.10 and libav-0.8 has problems with this.
 **	Split the packet into single picture packets.
 */

@@ -385,6 +385,17 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	Fatal(_("codec: can't open video codec!\n"));
     }
 #else
+    if (video_codec->capabilities & (CODEC_CAP_HWACCEL_VDPAU |
+	    CODEC_CAP_HWACCEL)) {
+	Debug(3, "codec: video mpeg hack active\n");
+	// HACK around badly placed checks in mpeg_mc_decode_init
+	// taken from mplayer vd_ffmpeg.c
+	decoder->VideoCtx->slice_flags =
+	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
+	decoder->VideoCtx->thread_count = 1;
+	decoder->VideoCtx->active_thread_type = 0;
+    }
+
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal(_("codec: can't open video codec!\n"));
@@ -402,7 +413,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     }
     if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets\n");
-	// we do not send complete frames
+	// we send incomplete frames, for old PES recordings
 	decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
     // FIXME: own memory management for video frames.
@@ -538,6 +549,11 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
     Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, pkt->data, pkt->size, used,
 	got_frame);
 
+    if (used < 0) {
+	Debug(3, "codec: bad video frame\n");
+	return;
+    }
+
     if (got_frame) {			// frame completed
 	//DisplayPts(video_ctx, frame);
 	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
@@ -548,6 +564,9 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used\n",
 	    video_ctx->frame_number, used);
     }
+
+#if 1
+    // old code to support truncated or multi frame packets
     if (used != pkt->size) {
 	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
 	if (used == 0 && pkt->size == 5 && pkt->data[4] == 0x0A) {
@@ -561,10 +580,11 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 		used, pkt->size);
 	    pkt->size -= used;
 	    pkt->data += used;
+	    // FIXME: align problem?
 	    goto next_part;
 	}
-	Debug(3, "codec: bad frame %d\n", used);
     }
+#endif
 }
 
 /**
