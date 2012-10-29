@@ -10598,11 +10598,13 @@ void VideoExit(void)
 	xcb_free_pixmap(Connection, VideoCursorPixmap);
 	VideoCursorPixmap = XCB_NONE;
     }
+    xcb_flush(Connection);
     if (XlibDisplay) {
 	if (XCloseDisplay(XlibDisplay)) {
 	    Error(_("video: error closing display\n"));
 	}
 	XlibDisplay = NULL;
+	Connection = 0;
     }
 }
 
