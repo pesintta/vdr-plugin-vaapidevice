@@ -68,6 +68,7 @@ extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
 static char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigStartX11Server;	///< flag start the x11 server
+static char ConfigStillDecoder;		///< hw/sw decoder for still picture
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
@@ -2087,9 +2088,6 @@ void Clear(void)
     int i;
 
     VideoResetPacket();			// terminate work
-    //closing not reset:
-    //VideoSetClosing(MyHwDecoder);
-    VideoResetStart(MyHwDecoder);
     VideoClearBuffers = 1;
     AudioFlushBuffers();
     //NewAudioStream = 1;
@@ -2141,10 +2139,11 @@ void Mute(void)
 */
 void StillPicture(const uint8_t * data, int size)
 {
-    int i;
     static uint8_t seq_end_mpeg[] = { 0x00, 0x00, 0x01, 0xB7 };
     // H264 NAL End of Sequence
     static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
+    int i;
+    int old_video_hardware_decoder;
 
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
@@ -2156,6 +2155,10 @@ void StillPicture(const uint8_t * data, int size)
 #endif
     VideoSetTrickSpeed(MyHwDecoder, 1);
     VideoResetPacket();
+    old_video_hardware_decoder = VideoHardwareDecoder;
+    // enable/disable hardware decoder for still picture
+    VideoHardwareDecoder = ConfigStillDecoder;
+    VideoNextPacket(CODEC_ID_NONE);	// close last stream
 
     if (VideoCodecID == CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
@@ -2204,27 +2207,19 @@ void StillPicture(const uint8_t * data, int size)
 	    } while (n > 6);
 
 	    VideoNextPacket(VideoCodecID);	// terminate last packet
-
-	    if (VideoCodecID == CODEC_ID_H264) {
-		VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264,
-		    sizeof(seq_end_h264));
-	    } else {
-		VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg,
-		    sizeof(seq_end_mpeg));
-		//VideoNextPacket(VideoCodecID);	// terminate last packet
-		//VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg,
-		//    sizeof(seq_end_mpeg));
-	    }
-	    VideoNextPacket(VideoCodecID);	// terminate last packet
 	} else {			// ES packet
 	    if (VideoCodecID != CODEC_ID_MPEG2VIDEO) {
 		VideoNextPacket(CODEC_ID_NONE);	// close last stream
 		VideoCodecID = CODEC_ID_MPEG2VIDEO;
 	    }
 	    VideoEnqueue(AV_NOPTS_VALUE, data, size);
-	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg, sizeof(seq_end_mpeg));
-	    VideoNextPacket(VideoCodecID);	// terminate last packet
 	}
+	if (VideoCodecID == CODEC_ID_H264) {
+	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264, sizeof(seq_end_h264));
+	} else {
+	    VideoEnqueue(AV_NOPTS_VALUE, seq_end_mpeg, sizeof(seq_end_mpeg));
+	}
+	VideoNextPacket(VideoCodecID);	// terminate last packet
     }
 
     // wait for empty buffers
@@ -2236,7 +2231,9 @@ void StillPicture(const uint8_t * data, int size)
 #ifdef STILL_DEBUG
     InStillPicture = 0;
 #endif
+    VideoNextPacket(CODEC_ID_NONE);	// close last stream
     VideoSetTrickSpeed(MyHwDecoder, 0);
+    VideoHardwareDecoder = old_video_hardware_decoder;
 }
 
 /**
@@ -2382,6 +2379,7 @@ const char *CommandLineHelp(void)
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
+	"\tstill-hw-decoder\tenable hardware decoder for still-pictures\n"
 	"\talsa-driver-broken\tdisable broken alsa driver message\n"
 	"\tignore-repeat-pict\tdisable repeat pict message\n"
 	"  -D\t\tstart in detached mode\n";
@@ -2447,6 +2445,11 @@ int ProcessArgs(int argc, char *const argv[])
 		    VideoHardwareDecoder = 0;
 		} else if (!strcasecmp("no-mpeg-hw-decoder", optarg)) {
 		    VideoHardwareDecoder = 1;
+		    if (ConfigStillDecoder) {
+			ConfigStillDecoder = 1;
+		    }
+		} else if (!strcasecmp("still-hw-decoder", optarg)) {
+		    ConfigStillDecoder = -1;
 		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
