@@ -7804,9 +7804,11 @@ static void VdpauDisplayFrame(void)
 	// need 1 frame for progressive, 3 frames for interlaced
 	if (filled < 1 + 2 * decoder->Interlaced) {
 	    // FIXME: rewrite MixVideo to support less surfaces
-	    if (VideoShowBlackPicture || decoder->Closing < -300) {
+	    if ((VideoShowBlackPicture && !decoder->TrickSpeed)
+		|| decoder->Closing < -300) {
 		VdpauBlackSurface(decoder);
 		VdpauMessage(3, "video/vdpau: black surface displayed\n");
+		fprintf(stderr, "video/vdpau: black surface displayed\n");
 	    }
 	    continue;
 	}
