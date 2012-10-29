@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Pre Release Version 0.5.2
+    Add Feature #1103: change audio devices without vdr restart.
     Fix bug #1089: Vdpau decoder used wrong number of mpeg reference frames.
     Fix bug: with some streams endless loop in pes audio parser.
     Report correct video size in cSoftHdDevice::GetVideoSize.

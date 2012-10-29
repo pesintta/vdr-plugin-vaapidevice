@@ -134,6 +134,10 @@ static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 int ConfigAudioBufferTime;		///< config size ms of audio buffer
 
+static char * ConfigX11Display;		///< config x11 display
+static char * ConfigAudioDevice;	///< config audio stereo device
+static char * ConfigAC3Device;		///< config audio passthrough device
+
 static volatile int DoMakePrimary;	///< switch primary device to this
 
 #define SUSPEND_EXTERNAL	-1	///< play external suspend mode
@@ -748,8 +752,8 @@ void cMenuSetupSoft::Create(void)
 		0, 10000, tr("min"), tr("max")));
 	Add(new cMenuEditIntItem(tr("Saturation (0..10000) (vdpau)"),
 		&Saturation, 0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Hue,
-		-3141, 3141, tr("min"), tr("max")));
+	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Hue, -3141,
+		3141, tr("min"), tr("max")));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
@@ -1932,6 +1936,8 @@ cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     ::SoftHdDeviceExit();
+
+    // keep ConfigX11Display ...
 }
 
 /**
@@ -2365,9 +2371,11 @@ static const char *SVDRPHelpText[] = {
     "DETA\n" "\040   Detach plugin.\n\n"
 	"    The plugin will be detached from the audio, video and DVB\n"
 	"    devices.  Other programs or plugins can use them now.\n",
-    "ATTA <-d display>\n" "    Attach plugin.\n\n"
-	"    Attach the plugin to audio, video and DVB devices.\n"
-	"    Use -d display (f.e. -d :0.0) to use another X11 display.\n",
+    "ATTA <-d display> <-a audio> <-p pass>\n" "    Attach plugin.\n\n"
+	"    Attach the plugin to audio, video and DVB devices. Use:\n"
+	"    -d display\tdisplay of x11 server (fe. :0.0)\n"
+        "    -a audio\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
+	"    -p pass\t\taudio device for pass-through (hw:0,1 or /dev/dsp1)\n",
     "PRIM <n>\n" "    Make <n> the primary device.\n\n"
 	"    <n> is the number of device. Without number softhddevice becomes\n"
 	"    the primary device. If becoming primary, the plugin is attached\n"
@@ -2474,16 +2482,64 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	return "SoftHdDevice is detached";
     }
     if (!strcasecmp(command, "ATTA")) {
+	char *tmp;
+	char *t;
+	char *s;
+	char *o;
+
 	if (SuspendMode != SUSPEND_DETACHED) {
 	    return "can't attach SoftHdDevice not detached";
 	}
-	if (!strncmp(option, "-d ", 3)) {
-	    // FIXME: loose memory here
-	    X11DisplayName = strdup(option + 3);
-	} else if (!strncmp(option, "-d", 2)) {
-	    // FIXME: loose memory here
-	    X11DisplayName = strdup(option + 2);
+	if (!(tmp = strdup(option))) {
+	    return "out of memory";
 	}
+	t = tmp;
+	while ((s = strsep(&t, " \t\n\r"))) {
+	    if (!strcmp(s, "-d")) {
+		if (!(o = strsep(&t, " \t\n\r"))) {
+		    free(tmp);
+		    return "missing option argument";
+		}
+		free(ConfigX11Display);
+		ConfigX11Display = strdup(o);
+		X11DisplayName = ConfigX11Display;
+	    } else if (!strncmp(s, "-d", 2)) {
+		free(ConfigX11Display);
+		ConfigX11Display = strdup(s + 2);
+		X11DisplayName = ConfigX11Display;
+
+	    } else if (!strcmp(s, "-a")) {
+		if (!(o = strsep(&t, " \t\n\r"))) {
+		    free(tmp);
+		    return "missing option argument";
+		}
+		free(ConfigAudioDevice);
+		ConfigAudioDevice = strdup(o);
+		AudioSetDevice(ConfigAudioDevice);
+	    } else if (!strncmp(s, "-a", 2)) {
+		free(ConfigAudioDevice);
+		ConfigAudioDevice = strdup(s + 2);
+		AudioSetDevice(ConfigAudioDevice);
+
+	    } else if (!strcmp(s, "-p")) {
+		if (!(o = strsep(&t, " \t\n\r"))) {
+		    free(tmp);
+		    return "missing option argument";
+		}
+		free(ConfigAC3Device);
+		ConfigAC3Device = strdup(o);
+		AudioSetDeviceAC3(ConfigAC3Device);
+	    } else if (!strncmp(s, "-p", 2)) {
+		free(ConfigAC3Device);
+		ConfigAC3Device = strdup(s + 2);
+		AudioSetDeviceAC3(ConfigAC3Device);
+
+	    } else {
+		free(tmp);
+		return "unsupported option";
+	    }
+	}
+	free(tmp);
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    ShutdownHandler.SetUserInactiveTimeout();
 	}
