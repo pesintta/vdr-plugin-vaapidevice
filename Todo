@@ -41,7 +41,9 @@ video:
     crash with ffmpeg without vaapi and vdpau.
 
 vdpau:
-    software decoder path not working
+    software deinterlace path not working.
+    OSD looses transparency, during channel switch.
+    OSD looses transparency, while moving cut marks.
 
 libva:
     yaepghd (VaapiSetOutputPosition) support
@@ -51,6 +53,7 @@ libva:
     still many: (workaround export NO_MPEG_HW=1)
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
     [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
+    missing OSD support for 3d SBS / Top-Bottom streams, like VPDAU.
 
 libva: branch vaapi-ext / staging
     add support for vaapi-ext / staging
