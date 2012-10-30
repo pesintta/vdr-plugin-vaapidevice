@@ -374,6 +374,7 @@ static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 static int OsdConfigWidth;		///< osd configured width
 static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
+static char Osd3DMode;			///< 3D OSD mode
 static int OsdWidth;			///< osd width
 static int OsdHeight;			///< osd height
 static int OsdDirtyX;			///< osd dirty area x
@@ -7439,6 +7440,7 @@ static void VdpauMixOsd(void)
     VdpOutputSurfaceRenderBlendState blend_state;
     VdpRect source_rect;
     VdpRect output_rect;
+    VdpRect output_double_rect;
     VdpStatus status;
 
     //uint32_t start;
@@ -7486,6 +7488,21 @@ static void VdpauMixOsd(void)
 	output_rect.y1 = VideoWindowHeight;
     }
 
+    output_double_rect = output_rect;
+
+    switch (Osd3DMode) {
+	case 1:
+	    output_rect.x1 = output_rect.x1 / 2;
+	    output_double_rect.x0 = output_rect.x1;
+	    break;
+	case 2:
+	    output_rect.y1 = output_rect.y1 / 2;
+	    output_double_rect.y0 = output_rect.y1;
+	    break;
+	default:
+	    break;
+    }
+
     //start = GetMsTicks();
 
     // FIXME: double buffered osd disabled
@@ -7501,6 +7518,19 @@ static void VdpauMixOsd(void)
 	Error(_("video/vdpau: can't render bitmap surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
+
+    if (Osd3DMode > 0) {
+	status =
+	    VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
+	    [VdpauSurfaceIndex], &output_double_rect,
+	    VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
+	    VideoTransparentOsd ? &blend_state : NULL,
+	    VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't render output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
+    }
 #else
     status =
 	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
@@ -7511,6 +7541,19 @@ static void VdpauMixOsd(void)
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't render output surface: %s\n"),
 	    VdpauGetErrorString(status));
+    }
+
+    if (Osd3DMode > 0) {
+	status =
+	    VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
+	    [VdpauSurfaceIndex], &output_double_rect,
+	    VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
+	    VideoTransparentOsd ? &blend_state : NULL,
+	    VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't render output surface: %s\n"),
+		VdpauGetErrorString(status));
+	}
     }
 #endif
     //end = GetMsTicks();
@@ -8833,6 +8876,16 @@ void VideoSetOsdSize(int width, int height)
 	OsdConfigHeight = height;
 	VideoOsdInit();
     }
+}
+
+///
+///	Set the 3d OSD mode.
+///
+///	@pram mode	OSD mode (0=off, 1=SBS, 2=Top Bottom)
+///
+void VideoSetOsd3DMode(int mode)
+{
+    Osd3DMode = mode;
 }
 
 ///

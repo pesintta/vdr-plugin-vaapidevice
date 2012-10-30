@@ -2,6 +2,15 @@ User johns
 Date:
 
     Pre Release Version 0.5.2
+
+User  maverick-me
+Date: Tue Oct 30 16:50:25 CET 2012
+
+    Add support to change the OSD for 3d SBS/TB streams.
+
+User johns
+Date: Tue Oct 30 12:11:25 CEST 2012
+
     Use software decoder for still-pictures.
     Add Feature #1103: change audio devices without vdr restart.
     Fix bug #1089: Vdpau decoder used wrong number of mpeg reference frames.

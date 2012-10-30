@@ -134,9 +134,9 @@ static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 int ConfigAudioBufferTime;		///< config size ms of audio buffer
 
-static char * ConfigX11Display;		///< config x11 display
-static char * ConfigAudioDevice;	///< config audio stereo device
-static char * ConfigAC3Device;		///< config audio passthrough device
+static char *ConfigX11Display;		///< config x11 display
+static char *ConfigAudioDevice;		///< config audio stereo device
+static char *ConfigAC3Device;		///< config audio passthrough device
 
 static volatile int DoMakePrimary;	///< switch primary device to this
 
@@ -2311,6 +2311,14 @@ bool cPluginSoftHdDevice::Service(const char *id, void *data)
 {
     //dsyslog("[softhddev]%s: id %s\n", __FUNCTION__, id);
 
+    if (strcmp(id, OSD_3DMODE_SERVICE) == 0) {
+	SoftHDDevice_Osd3DModeService_v1_0_t *r;
+
+	r = (SoftHDDevice_Osd3DModeService_v1_0_t *) data;
+	VideoSetOsd3DMode(r->Mode);
+	return true;
+    }
+
     if (strcmp(id, ATMO_GRAB_SERVICE) == 0) {
 	int width;
 	int height;
@@ -2374,7 +2382,7 @@ static const char *SVDRPHelpText[] = {
     "ATTA <-d display> <-a audio> <-p pass>\n" "    Attach plugin.\n\n"
 	"    Attach the plugin to audio, video and DVB devices. Use:\n"
 	"    -d display\tdisplay of x11 server (fe. :0.0)\n"
-        "    -a audio\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
+	"    -a audio\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
 	"    -p pass\t\taudio device for pass-through (hw:0,1 or /dev/dsp1)\n",
     "PRIM <n>\n" "    Make <n> the primary device.\n\n"
 	"    <n> is the number of device. Without number softhddevice becomes\n"
@@ -2401,6 +2409,9 @@ static const char *SVDRPHelpText[] = {
 	"    NOT_SUSPENDED    ==  0  (910)\n"
 	"    SUSPEND_NORMAL   ==  1  (911)\n"
 	"    SUSPEND_DETACHED ==  2  (912)\n",
+    "3DOF\n" "\040   3D OSD off.\n",
+    "3DTB\n" "\040   3D OSD Top and Bottom.\n",
+    "3DSB\n" "\040   3D OSD Side by Side.\n",
     NULL
 };
 
@@ -2568,6 +2579,19 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	DoMakePrimary = primary;
 	return "switching primary device requested";
     }
+    if (!strcasecmp(command, "3DOF")) {
+	VideoSetOsd3DMode(0);
+	return "3d off";
+    }
+    if (!strcasecmp(command, "3DSB")) {
+	VideoSetOsd3DMode(1);
+	return "3d sbs";
+    }
+    if (!strcasecmp(command, "3DTB")) {
+	VideoSetOsd3DMode(2);
+	return "3d tb";
+    }
+
     return NULL;
 }
 
