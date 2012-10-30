@@ -7808,7 +7808,6 @@ static void VdpauDisplayFrame(void)
 		|| decoder->Closing < -300) {
 		VdpauBlackSurface(decoder);
 		VdpauMessage(3, "video/vdpau: black surface displayed\n");
-		fprintf(stderr, "video/vdpau: black surface displayed\n");
 	    }
 	    continue;
 	}
