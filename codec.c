@@ -429,6 +429,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     }
 #endif
     //decoder->VideoCtx->debug = FF_DEBUG_STARTCODE;
+    //decoder->VideoCtx->err_recognition |= AV_EF_EXPLODE;
 
     if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
 	// FIXME: get_format never called.
