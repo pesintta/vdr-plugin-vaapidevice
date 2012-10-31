@@ -50,7 +50,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.5.2"
+static const char *const VERSION = "0.5.2rc1"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -2545,7 +2545,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 		ConfigAC3Device = strdup(s + 2);
 		AudioSetDeviceAC3(ConfigAC3Device);
 
-	    } else {
+	    } else if ( *s ) {
 		free(tmp);
 		return "unsupported option";
 	    }
