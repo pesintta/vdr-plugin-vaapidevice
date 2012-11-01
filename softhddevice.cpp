@@ -366,6 +366,9 @@ void cSoftOsd::Flush(void)
     if (OsdLevel >= OSD_LEVEL_SUBTITLES) {
 	VideoOsdClear();
 	cSoftOsd::Dirty = 1;
+#ifdef OSD_DEBUG
+	dsyslog("[softhddev]%s: subtitle clear\n", __FUNCTION__);
+#endif
     }
 
     if (!IsTrueColor()) {
