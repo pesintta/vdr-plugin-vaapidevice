@@ -7492,11 +7492,13 @@ static void VdpauMixOsd(void)
 
     switch (Osd3DMode) {
 	case 1:
+	    output_rect.x0 = output_rect.x0 / 2;
 	    output_rect.x1 = output_rect.x1 / 2;
 	    output_double_rect.x0 = output_rect.x0 + (VideoWindowWidth / 2);
 	    output_double_rect.x1 = output_rect.x1 + (VideoWindowWidth / 2);
 	    break;
 	case 2:
+	    output_rect.y0 = output_rect.y0 / 2;
 	    output_rect.y1 = output_rect.y1 / 2;
 	    output_double_rect.y0 = output_rect.y0 + (VideoWindowHeight / 2);
 	    output_double_rect.y1 = output_rect.y1 + (VideoWindowHeight / 2);
