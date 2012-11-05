@@ -7493,11 +7493,13 @@ static void VdpauMixOsd(void)
     switch (Osd3DMode) {
 	case 1:
 	    output_rect.x1 = output_rect.x1 / 2;
-	    output_double_rect.x0 = output_rect.x1;
+	    output_double_rect.x0 = output_rect.x0 + (VideoWindowWidth / 2);
+	    output_double_rect.x1 = output_rect.x1 + (VideoWindowWidth / 2);
 	    break;
 	case 2:
 	    output_rect.y1 = output_rect.y1 / 2;
-	    output_double_rect.y0 = output_rect.y1;
+	    output_double_rect.y0 = output_rect.y0 + (VideoWindowHeight / 2);
+	    output_double_rect.y1 = output_rect.y1 + (VideoWindowHeight / 2);
 	    break;
 	default:
 	    break;
@@ -8339,7 +8341,7 @@ static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
 //	VDPAU OSD
 //----------------------------------------------------------------------------
 
-static const uint8_t OsdZeros[1920 * 1080 * 4];	///< 0 for clear osd
+static const uint8_t OsdZeros[1920 * 1200 * 4];	///< 0 for clear osd
 
 ///
 ///	Clear subpicture image.
@@ -8367,7 +8369,7 @@ static void VdpauOsdClear(void)
     }
 #endif
 
-    if (OsdWidth * OsdHeight > 1920 * 1080) {
+    if (OsdWidth * OsdHeight > 1920 * 1200) {
 	Error(_("video/vdpau: osd too big: unsupported\n"));
 	return;
     }
