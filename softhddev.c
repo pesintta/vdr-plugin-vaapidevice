@@ -2690,7 +2690,7 @@ int Start(void)
 #endif
     Info(_("[softhddev] ready%s\n"),
 	ConfigStartSuspended ? ConfigStartSuspended ==
-	-1 ? "detached" : " suspended" : "");
+	-1 ? " detached" : " suspended" : "");
 
     return ConfigStartSuspended;
 }
