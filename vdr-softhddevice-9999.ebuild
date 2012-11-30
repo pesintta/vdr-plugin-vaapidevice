@@ -2,9 +2,9 @@
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
-EAPI="3"
+EAPI="4"
 
-inherit eutils vdr-plugin
+inherit eutils vdr-plugin-2
 
 if [[ ${PV} == "9999" ]] ; then
 		inherit git-2
@@ -43,7 +43,7 @@ DEPEND=">=x11-libs/libxcb-1.8
 "
 
 src_prepare() {
-		vdr-plugin_src_prepare
+		vdr-plugin-2_src_prepare
 }
 
 src_compile() {
@@ -56,19 +56,19 @@ src_compile() {
 		use oss && myconf="${myconf} -DUSE_OSS"
 		use debug && myconf="${myconf} -DDEBUG"
 
-		emake all CC="$(tc-getCC)" CFLAGS="${CFLAGS}" \
-			LDFLAGS="${LDFLAGS}" CONFIG="${myconf}" LIBDIR="." || die
+		#vdr-plugin-2_src_compile
+		cd "${S}"
+
+		BUILD_TARGETS=${BUILD_TARGETS:-${VDRPLUGIN_MAKE_TARGET:-all}}
+
+		emake ${BUILD_PARAMS} CONFIG="${myconf}" \
+				${BUILD_TARGETS} \
+				LOCALEDIR="${TMP_LOCALE_DIR}" \
+				LIBDIR="${S}" \
+				TMPDIR="${T}" \
+		|| die "emake failed"
 }
 
 src_install() {
-		vdr-plugin_src_install
-
-		dodoc README.txt
-
-		#dodir /etc/vdr/plugins || die
-		#insinto /etc/vdr/plugins
-		#fowners -R vdr:vdr /etc/vdr || die
-
-		#insinto /etc/conf.d
-		#doins vdr.softhddevice
+		vdr-plugin-2_src_install
 }
