@@ -428,8 +428,6 @@ static int AdtsCheck(const uint8_t * data, int size)
     return 0;
 }
 
-#ifndef NO_TS_AUDIO
-
 //////////////////////////////////////////////////////////////////////////////
 //	PES Demux
 //////////////////////////////////////////////////////////////////////////////
@@ -454,6 +452,8 @@ enum
     PES_TYPE_E_STREAM = 0xF8,		///< ITU-T rec. h.222.1 type E stream
     PES_PROG_STREAM_DIR = 0xFF,
 };
+
+#ifndef NO_TS_AUDIO
 
 ///
 ///	PES parser state.
