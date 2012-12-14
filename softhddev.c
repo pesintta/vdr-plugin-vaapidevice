@@ -68,6 +68,7 @@ extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
 static char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
 static char ConfigStartX11Server;	///< flag start the x11 server
+static const char *X11ServerArguments;	///< default command arguments
 static char ConfigStillDecoder;		///< hw/sw decoder for still picture
 
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
@@ -2376,6 +2377,7 @@ const char *CommandLineHelp(void)
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
 	"  -v device\tvideo device (va-api, vdpau, noop)\n"
 	"  -s\t\tstart in suspended mode\n" "  -x\t\tstart x11 server\n"
+	"  -X args\tX11 server arguments (f.e. -nocursor)\n"
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
@@ -2404,7 +2406,7 @@ int ProcessArgs(int argc, char *const argv[])
 #endif
 
     for (;;) {
-	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:xD")) {
+	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:xDX:")) {
 	    case 'a':			// audio device for pcm
 		AudioSetDevice(optarg);
 		continue;
@@ -2433,6 +2435,9 @@ int ProcessArgs(int argc, char *const argv[])
 		continue;
 	    case 'x':			// x11 server
 		ConfigStartX11Server = 1;
+		continue;
+	    case 'X':			// x11 server arguments
+		X11ServerArguments = optarg;
 		continue;
 	    case 's':			// start in suspend mode
 		ConfigStartSuspended = 1;
@@ -2496,7 +2501,6 @@ static const char *X11Server = "/usr/bin/X";	///< default x11 server
 #else
 static const char *X11Server = LOCALBASE "/bin/X";	///< default x11 server
 #endif
-static const char *X11ServerArguments;	///< default command arguments
 static pid_t X11ServerPid;		///< x11 server pid
 
 /**
