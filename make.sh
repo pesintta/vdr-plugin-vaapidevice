@@ -1,2 +1,2 @@
 #!/bin/sh
-exec make VDRDIR=/usr/include/vdr LIBDIR=. "$@"
+exec make VDRDIR=/usr/include/vdr LIBDIR=. LOCALEDIR=. "$@"
