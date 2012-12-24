@@ -452,9 +452,10 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 ///	@param input_aspect_ratio	video stream aspect
 ///
 static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
-    int input_height, VideoResolutions resolution, int *output_x,
-    int *output_y, int *output_width, int *output_height, int *crop_x,
-    int *crop_y, int *crop_width, int *crop_height)
+    int input_height, VideoResolutions resolution, int video_x, int video_y,
+    int video_width, int video_height, int *output_x, int *output_y,
+    int *output_width, int *output_height, int *crop_x, int *crop_y,
+    int *crop_width, int *crop_height)
 {
     AVRational display_aspect_ratio;
     AVRational tmp_ratio;
@@ -493,6 +494,11 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
+    /*
+       fprintf(stderr, "ratio: %d:%d %d:%d\n", input_aspect_ratio.num,
+       input_aspect_ratio.den, display_aspect_ratio.num,
+       display_aspect_ratio.den);
+     */
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	switch (Video4to3ZoomMode) {
 	    case VideoNormal:
@@ -509,55 +515,55 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     // FIXME: this overwrites user choosen output position
 
   normal:
-    *output_x = 0;
-    *output_y = 0;
-    *output_width = (VideoWindowHeight * display_aspect_ratio.num)
+    *output_x = video_x;
+    *output_y = video_y;
+    *output_width = (video_height * display_aspect_ratio.num)
 	/ display_aspect_ratio.den;
-    *output_height = (VideoWindowWidth * display_aspect_ratio.den)
+    *output_height = (video_width * display_aspect_ratio.den)
 	/ display_aspect_ratio.num;
-    if ((unsigned)*output_width > VideoWindowWidth) {
-	*output_width = VideoWindowWidth;
-	*output_y = (VideoWindowHeight - *output_height) / 2;
-    } else if ((unsigned)*output_height > VideoWindowHeight) {
-	*output_height = VideoWindowHeight;
-	*output_x = (VideoWindowWidth - *output_width) / 2;
+    if (*output_width > video_width) {
+	*output_width = video_width;
+	*output_y += (video_height - *output_height) / 2;
+    } else if (*output_height > video_height) {
+	*output_height = video_height;
+	*output_x += (video_width - *output_width) / 2;
     }
     Debug(3, "video: aspect output %dx%d+%d+%d\n", *output_width,
 	*output_height, *output_x, *output_y);
     return;
 
   stretch:
-    *output_x = 0;
-    *output_y = 0;
-    *output_width = VideoWindowWidth;
-    *output_height = VideoWindowHeight;
+    *output_x = video_x;
+    *output_y = video_y;
+    *output_width = video_width;
+    *output_height = video_height;
     return;
 
   center_cut_out:
-    *output_x = 0;
-    *output_y = 0;
-    *output_height = VideoWindowHeight;
-    *output_width = VideoWindowWidth;
+    *output_x = video_x;
+    *output_y = video_y;
+    *output_height = video_height;
+    *output_width = video_width;
 
-    *crop_width = (VideoWindowHeight * display_aspect_ratio.num)
+    *crop_width = (video_height * display_aspect_ratio.num)
 	/ display_aspect_ratio.den;
-    *crop_height = (VideoWindowWidth * display_aspect_ratio.den)
+    *crop_height = (video_width * display_aspect_ratio.den)
 	/ display_aspect_ratio.num;
 
     // look which side must be cut
-    if ((unsigned)*crop_width > VideoWindowWidth) {
+    if (*crop_width > video_width) {
 	*crop_height = input_height;
 
 	// adjust scaling
-	*crop_x = ((*crop_width - (signed)VideoWindowWidth) * input_width)
-	    / (2 * VideoWindowWidth);
+	*crop_x = ((*crop_width - video_width) * input_width)
+	    / (2 * video_width);
 	*crop_width = input_width - *crop_x * 2;
-    } else if ((unsigned)*crop_height > VideoWindowHeight) {
+    } else if (*crop_height > video_height) {
 	*crop_width = input_width;
 
 	// adjust scaling
-	*crop_y = ((*crop_height - (signed)VideoWindowHeight) * input_height)
-	    / (2 * VideoWindowHeight);
+	*crop_y = ((*crop_height - video_height) * input_height)
+	    / (2 * video_height);
 	*crop_height = input_height - *crop_y * 2;
     } else {
 	*crop_width = input_width;
@@ -565,7 +571,6 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     }
     Debug(3, "video: aspect crop %dx%d+%d+%d\n", *crop_width, *crop_height,
 	*crop_x, *crop_y);
-    return;
 }
 
 //----------------------------------------------------------------------------
@@ -1297,10 +1302,16 @@ struct _vaapi_decoder_
     VADisplay *VaDisplay;		///< VA-API display
 
     xcb_window_t Window;		///< output window
-    int OutputX;			///< output window x
-    int OutputY;			///< output window y
-    int OutputWidth;			///< output window width
-    int OutputHeight;			///< output window height
+
+    int VideoX;				///< video base x coordinate
+    int VideoY;				///< video base y coordinate
+    int VideoWidth;			///< video base width
+    int VideoHeight;			///< video base height
+
+    int OutputX;			///< real video output x coordinate
+    int OutputY;			///< real video output y coordinate
+    int OutputWidth;			///< real video output width
+    int OutputHeight;			///< real video output height
 
     /// flags for put surface for different resolutions groups
     unsigned SurfaceFlagsTable[VideoResolutionMax];
@@ -1752,6 +1763,10 @@ static VaapiDecoder *VaapiNewHwDecoder(void)
     }
     decoder->VaDisplay = VaDisplay;
     decoder->Window = VideoWindow;
+    decoder->VideoX = 0;
+    decoder->VideoY = 0;
+    decoder->VideoWidth = VideoWindowWidth;
+    decoder->VideoHeight = VideoWindowHeight;
 
     VaapiInitSurfaceFlags(decoder);
 
@@ -2205,10 +2220,11 @@ static void VaapiExit(void)
 static void VaapiUpdateOutput(VaapiDecoder * decoder)
 {
     VideoUpdateOutput(decoder->InputAspect, decoder->InputWidth,
-	decoder->InputHeight, decoder->Resolution, &decoder->OutputX,
-	&decoder->OutputY, &decoder->OutputWidth, &decoder->OutputHeight,
-	&decoder->CropX, &decoder->CropY, &decoder->CropWidth,
-	&decoder->CropHeight);
+	decoder->InputHeight, decoder->Resolution, decoder->VideoX,
+	decoder->VideoY, decoder->VideoWidth, decoder->VideoHeight,
+	&decoder->OutputX, &decoder->OutputY, &decoder->OutputWidth,
+	&decoder->OutputHeight, &decoder->CropX, &decoder->CropY,
+	&decoder->CropWidth, &decoder->CropHeight);
 #ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
     decoder->AutoCrop->Count = AutoCropDelay;
@@ -2961,16 +2977,18 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	// FIXME: this overwrites user choosen output position
 	// FIXME: resize kills the auto crop values
 	// FIXME: support other 4:3 zoom modes
-	decoder->OutputX = 0;
-	decoder->OutputY = 0;
-	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
-	decoder->OutputHeight = (VideoWindowWidth * 9) / next_state;
-	if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
-	    decoder->OutputWidth = VideoWindowWidth;
-	    decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
-	} else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
-	    decoder->OutputHeight = VideoWindowHeight;
-	    decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
+	decoder->OutputX = decoder->VideoX;
+	decoder->OutputY = decoder->VideoY;
+	decoder->OutputWidth = (decoder->VideoHeight * next_state) / 9;
+	decoder->OutputHeight = (decoder->VideoWidth * 9) / next_state;
+	if (decoder->OutputWidth > decoder->VideoWidth) {
+	    decoder->OutputWidth = decoder->VideoWidth;
+	    decoder->OutputY =
+		(decoder->VideoHeight - decoder->OutputHeight) / 2;
+	} else if (decoder->OutputHeight > decoder->VideoHeight) {
+	    decoder->OutputHeight = decoder->VideoHeight;
+	    decoder->OutputX =
+		(decoder->VideoWidth - decoder->OutputWidth) / 2;
 	}
 	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
@@ -5117,10 +5135,16 @@ typedef struct _vdpau_decoder_
     VdpDevice Device;			///< VDPAU device
 
     xcb_window_t Window;		///< output window
-    int OutputX;			///< output window x
-    int OutputY;			///< output window y
-    int OutputWidth;			///< output window width
-    int OutputHeight;			///< output window height
+
+    int VideoX;				///< video base x coordinate
+    int VideoY;				///< video base y coordinate
+    int VideoWidth;			///< video base width
+    int VideoHeight;			///< video base height
+
+    int OutputX;			///< real video output x coordinate
+    int OutputY;			///< real video output y coordinate
+    int OutputWidth;			///< real video output width
+    int OutputHeight;			///< real video output height
 
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
@@ -5802,6 +5826,10 @@ static VdpauDecoder *VdpauNewHwDecoder(void)
     }
     decoder->Device = VdpauDevice;
     decoder->Window = VideoWindow;
+    decoder->VideoX = 0;
+    decoder->VideoY = 0;
+    decoder->VideoWidth = VideoWindowWidth;
+    decoder->VideoHeight = VideoWindowHeight;
 
     decoder->Profile = VDP_INVALID_HANDLE;
     decoder->VideoDecoder = VDP_INVALID_HANDLE;
@@ -6539,10 +6567,11 @@ static void VdpauExit(void)
 static void VdpauUpdateOutput(VdpauDecoder * decoder)
 {
     VideoUpdateOutput(decoder->InputAspect, decoder->InputWidth,
-	decoder->InputHeight, decoder->Resolution, &decoder->OutputX,
-	&decoder->OutputY, &decoder->OutputWidth, &decoder->OutputHeight,
-	&decoder->CropX, &decoder->CropY, &decoder->CropWidth,
-	&decoder->CropHeight);
+	decoder->InputHeight, decoder->Resolution, decoder->VideoX,
+	decoder->VideoY, decoder->VideoWidth, decoder->VideoHeight,
+	&decoder->OutputX, &decoder->OutputY, &decoder->OutputWidth,
+	&decoder->OutputHeight, &decoder->CropX, &decoder->CropY,
+	&decoder->CropWidth, &decoder->CropHeight);
 #ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
     decoder->AutoCrop->Count = AutoCropDelay;
@@ -6695,6 +6724,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	    goto slow_path;
 	case CODEC_ID_H264:
 	    // FIXME: can calculate level 4.1 limits
+	    // vdpau supports only 16 references
 	    max_refs = 16;
 	    // try more simple formats, fallback to better
 	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
@@ -7144,16 +7174,18 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	// FIXME: this overwrites user choosen output position
 	// FIXME: resize kills the auto crop values
 	// FIXME: support other 4:3 zoom modes
-	decoder->OutputX = 0;
-	decoder->OutputY = 0;
-	decoder->OutputWidth = (VideoWindowHeight * next_state) / 9;
-	decoder->OutputHeight = (VideoWindowWidth * 9) / next_state;
-	if ((unsigned)decoder->OutputWidth > VideoWindowWidth) {
-	    decoder->OutputWidth = VideoWindowWidth;
-	    decoder->OutputY = (VideoWindowHeight - decoder->OutputHeight) / 2;
-	} else if ((unsigned)decoder->OutputHeight > VideoWindowHeight) {
-	    decoder->OutputHeight = VideoWindowHeight;
-	    decoder->OutputX = (VideoWindowWidth - decoder->OutputWidth) / 2;
+	decoder->OutputX = decoder->VideoX;
+	decoder->OutputY = decoder->VideoY;
+	decoder->OutputWidth = (decoder->VideoHeight * next_state) / 9;
+	decoder->OutputHeight = (decoder->VideoWidth * 9) / next_state;
+	if (decoder->OutputWidth > decoder->VideoWidth) {
+	    decoder->OutputWidth = decoder->VideoWidth;
+	    decoder->OutputY =
+		(decoder->VideoHeight - decoder->OutputHeight) / 2;
+	} else if (decoder->OutputHeight > decoder->VideoHeight) {
+	    decoder->OutputHeight = decoder->VideoHeight;
+	    decoder->OutputX =
+		(decoder->VideoWidth - decoder->OutputWidth) / 2;
 	}
 	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
@@ -7741,10 +7773,10 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 	output_rect.x1 = decoder->OutputX + decoder->OutputWidth;
 	output_rect.y1 = decoder->OutputY + decoder->OutputHeight;
     } else {
-	output_rect.x0 = 0;
-	output_rect.y0 = 0;
-	output_rect.x1 = VideoWindowWidth;
-	output_rect.y1 = VideoWindowHeight;
+	output_rect.x0 = decoder->VideoX;
+	output_rect.y0 = decoder->VideoY;
+	output_rect.x1 = decoder->VideoWidth;
+	output_rect.y1 = decoder->VideoHeight;
     }
 
     status =
@@ -8331,10 +8363,10 @@ static void VdpauDisplayHandlerThread(void)
 static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
     int width, int height)
 {
-    decoder->OutputX = x;
-    decoder->OutputY = y;
-    decoder->OutputWidth = width;
-    decoder->OutputHeight = height;
+    decoder->VideoX = x;
+    decoder->VideoY = y;
+    decoder->VideoWidth = width;
+    decoder->VideoHeight = height;
 
     // next video pictures are automatic rendered to correct position
 }
@@ -8885,7 +8917,7 @@ void VideoSetOsdSize(int width, int height)
 ///
 ///	Set the 3d OSD mode.
 ///
-///	@pram mode	OSD mode (0=off, 1=SBS, 2=Top Bottom)
+///	@param mode	OSD mode (0=off, 1=SBS, 2=Top Bottom)
 ///
 void VideoSetOsd3DMode(int mode)
 {
@@ -10189,19 +10221,46 @@ void VideoSetHue(int hue)
 ///
 void VideoSetOutputPosition(int x, int y, int width, int height)
 {
-    // FIXME: high level, currently works osd relative
+    static int last_x;			///< last video output window x coordinate
+    static int last_y;			///< last video output window y coordinate
+    static unsigned last_width;		///< last video output window width
+    static unsigned last_height;	///< last video output window height
+
     if (!OsdWidth || !OsdHeight) {
 	return;
     }
-    x = (x * VideoWindowWidth) / OsdWidth;
-    y = (y * VideoWindowHeight) / OsdHeight;
-    width = (width * VideoWindowWidth) / OsdWidth;
-    height = (height * VideoWindowHeight) / OsdHeight;
+    if (!width || !height) {
+	if (x == last_x && y == last_y && VideoWindowWidth == last_width
+	    && VideoWindowHeight == last_height) {
+	    // not necessary...
+	    return;
+	}
+	// restore full size & remember values to be able to avoid
+	// interfering with the video thread if possible
+	last_width = VideoWindowWidth;
+	last_height = VideoWindowHeight;
+    } else {
+	if (x == last_x && y == last_y && (unsigned)width == last_width
+	    && (unsigned)height == last_height) {
+	    // not necessary...
+	    return;
+	}
+	// scale & remember values to be able to avoid
+	// interfering with the video thread if possible
+	last_width = width;
+	last_height = height;
+    }
+    // remember position to be able to avoid
+    // interfering with the video thread if possible
+    last_x = x;
+    last_y = y;
     VideoThreadLock();
     // FIXME: what stream?
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauSetOutputPosition(VdpauDecoders[0], x, y, width, height);
+	VdpauSetOutputPosition(VdpauDecoders[0], last_x, last_y, last_width,
+	    last_height);
+	VdpauSetVideoMode();
     }
 #endif
 #ifdef USE_VAAPI
