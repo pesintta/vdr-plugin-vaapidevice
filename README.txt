@@ -160,7 +160,7 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.AudioDownmix = 0
 	0 = none, 1 = downmix
-	downmix AC-3 to stero.
+	Use ffmpeg/libav downmix AC-3 to stereo.
 
 	softhddevice.AudioSoftvol = 0
 	0 = off, use hardware volume control
