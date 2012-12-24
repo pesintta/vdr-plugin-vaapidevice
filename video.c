@@ -6777,7 +6777,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	profile, video_ctx->width, video_ctx->height, max_refs);
 
     decoder->Profile = profile;
-    decoder->SurfacesNeeded = max_refs + VIDEO_SURFACES_MAX;
+    decoder->SurfacesNeeded = max_refs + VIDEO_SURFACES_MAX + 1;
     status =
 	VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
 	video_ctx->height, max_refs, &decoder->VideoDecoder);
@@ -9491,7 +9491,7 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 	    status =
 		VdpauDecoderCreate(VdpauDevice, decoder->Profile,
 		decoder->InputWidth, decoder->InputHeight,
-		decoder->SurfacesNeeded - VIDEO_SURFACES_MAX,
+		decoder->SurfacesNeeded - VIDEO_SURFACES_MAX - 1,
 		&decoder->VideoDecoder);
 	    if (status != VDP_STATUS_OK) {
 		Error(_("video/vdpau: can't create decoder: %s\n"),
