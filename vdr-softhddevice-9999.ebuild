@@ -49,7 +49,7 @@ src_prepare() {
 src_compile() {
 		local myconf
 
-		myconf="-DHAVE_PTHREAD_NAME"
+		myconf="-DHAVE_PTHREAD_NAME -DAV_INFO -DAV_INFO_TIME=15000"
 		use vdpau && myconf="${myconf} -DUSE_VDPAU"
 		use vaapi && myconf="${myconf} -DUSE_VAAPI"
 		use alsa && myconf="${myconf} -DUSE_ALSA"
