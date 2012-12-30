@@ -8275,6 +8275,11 @@ static void VdpauSetVideoMode(void)
 
     VdpauInitOutputQueue();
     for (i = 0; i < VdpauDecoderN; ++i) {
+	// reset video window, upper level needs to fix the positions
+	VdpauDecoders[i]->VideoX = 0;
+	VdpauDecoders[i]->VideoY = 0;
+	VdpauDecoders[i]->VideoWidth = VideoWindowWidth;
+	VdpauDecoders[i]->VideoHeight = VideoWindowHeight;
 	VdpauUpdateOutput(VdpauDecoders[i]);
     }
 }
@@ -10260,7 +10265,7 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     if (VideoUsedModule == &VdpauModule) {
 	VdpauSetOutputPosition(VdpauDecoders[0], last_x, last_y, last_width,
 	    last_height);
-	VdpauSetVideoMode();
+	VdpauUpdateOutput(VdpauDecoders[0]);
     }
 #endif
 #ifdef USE_VAAPI
