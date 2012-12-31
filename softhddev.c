@@ -1411,6 +1411,9 @@ static void VideoNextPacket(int codec_id)
 **	Some tv-stations sends mulitple pictures in a single PES packet.
 **	Current ffmpeg 0.10 and libav-0.8 has problems with this.
 **	Split the packet into single picture packets.
+**
+**	FIXME: there are stations which have multiple pictures and
+**	the last picture incomplete in the PES packet.
 */
 void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
 {
@@ -1426,7 +1429,7 @@ void FixPacketForFFMpeg(VideoDecoder * MyVideoDecoder, AVPacket * avpkt)
     first = 1;
 #if STILL_DEBUG>1
     if (InStillPicture) {
-	fprintf(stderr, "fix:");
+	fprintf(stderr, "fix(%d): ", n);
     }
 #endif
 
@@ -1822,11 +1825,15 @@ int PlayVideo(const uint8_t * data, int size)
     if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
 	&& check[1] == 0x09) {
 	if (VideoCodecID == CODEC_ID_H264) {
+#if 0
+	    // this should improve ffwd+frew, but produce crash in ffmpeg
+	    // with some streams
 	    if (CurrentTrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
 		// H264 NAL End of Sequence
 		static uint8_t seq_end_h264[] =
 		    { 0x00, 0x00, 0x00, 0x01, 0x0A };
 
+		// 1-5=SLICE 6=SEI 7=SPS 8=PPS
 		// NAL SPS sequence parameter set
 		if ((check[7] & 0x1F) == 0x07) {
 		    VideoNextPacket(CODEC_ID_H264);
@@ -1834,6 +1841,7 @@ int PlayVideo(const uint8_t * data, int size)
 			sizeof(seq_end_h264));
 		}
 	    }
+#endif
 	    VideoNextPacket(CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
@@ -1845,6 +1853,7 @@ int PlayVideo(const uint8_t * data, int size)
     }
     // PES start code 0x00 0x00 0x01
     if (z > 1 && check[0] == 0x01) {
+	// FIXME: old PES HDTV recording
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	} else {
