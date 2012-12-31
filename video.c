@@ -429,7 +429,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
 		if (-delta > VideoDeltaPTS) {
 		    VideoDeltaPTS = -delta;
 		    Debug(4,
-			"video: %#012" PRIx64 "->%#012" PRIx64 " delta+%4"
+			"video: %#012" PRIx64 "->%#012" PRIx64 " delta%+4"
 			PRId64 " pts\n", *pts_p, pts, pts - *pts_p);
 		}
 		return;
@@ -528,7 +528,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 	*output_height = video_height;
 	*output_x += (video_width - *output_width) / 2;
     }
-    Debug(3, "video: aspect output %dx%d+%d+%d\n", *output_width,
+    Debug(3, "video: aspect output %dx%d%+d%+d\n", *output_width,
 	*output_height, *output_x, *output_y);
     return;
 
@@ -569,7 +569,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 	*crop_width = input_width;
 	*crop_height = input_height;
     }
-    Debug(3, "video: aspect crop %dx%d+%d+%d\n", *crop_width, *crop_height,
+    Debug(3, "video: aspect crop %dx%d%+d%+d\n", *crop_width, *crop_height,
 	*crop_x, *crop_y);
 }
 
@@ -2944,7 +2944,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	return;
     }
 
-    Debug(3, "video: crop aspect %d:%d %d/%d %d+%d\n",
+    Debug(3, "video: crop aspect %d:%d %d/%d %+d%+d\n",
 	decoder->InputAspect.num, decoder->InputAspect.den, crop14, crop16,
 	decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
 
@@ -2990,7 +2990,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	    decoder->OutputX =
 		(decoder->VideoWidth - decoder->OutputWidth) / 2;
 	}
-	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
+	Debug(3, "video: aspect output %dx%d %dx%d%+d%+d\n",
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
@@ -4684,7 +4684,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	if (!err) {
 	    VaapiMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d+%d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
@@ -4955,7 +4955,7 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
 #ifdef DEBUG
     end = GetMsTicks();
 
-    Debug(3, "video/vaapi: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
+    Debug(3, "video/vaapi: osd upload %dx%d%+d%+d %dms %d\n", width, height, x,
 	y, end - start, width * height * 4);
 #endif
 }
@@ -7141,7 +7141,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	return;
     }
 
-    Debug(3, "video: crop aspect %d:%d %d/%d %d+%d\n",
+    Debug(3, "video: crop aspect %d:%d %d/%d %d%+d\n",
 	decoder->InputAspect.num, decoder->InputAspect.den, crop14, crop16,
 	decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
 
@@ -7187,7 +7187,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	    decoder->OutputX =
 		(decoder->VideoWidth - decoder->OutputWidth) / 2;
 	}
-	Debug(3, "video: aspect output %dx%d %dx%d+%d+%d\n",
+	Debug(3, "video: aspect output %dx%d %dx%d%+d%+d\n",
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
@@ -8092,7 +8092,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	if (!err) {
 	    VdpauMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d+%d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
@@ -8414,7 +8414,7 @@ static void VdpauOsdClear(void)
     }
     // have dirty area.
     if (OsdDirtyWidth && OsdDirtyHeight) {
-	Debug(3, "video/vdpau: osd clear dirty %dx%d+%d+%d\n", OsdDirtyWidth,
+	Debug(3, "video/vdpau: osd clear dirty %dx%d%+d%+d\n", OsdDirtyWidth,
 	    OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
 	dst_rect.x0 = OsdDirtyX;
 	dst_rect.y0 = OsdDirtyY;
@@ -8518,7 +8518,7 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
 #ifdef DEBUG
     end = GetMsTicks();
 
-    Debug(3, "video/vdpau: osd upload %dx%d+%d+%d %dms %d\n", width, height, x,
+    Debug(3, "video/vdpau: osd upload %dx%d%+d%+d %dms %d\n", width, height, x,
 	y, end - start, width * height * 4);
 #endif
 }
@@ -8871,7 +8871,7 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
     if (y + height > OsdDirtyY + OsdDirtyHeight) {
 	OsdDirtyHeight = y + height - OsdDirtyY;
     }
-    Debug(4, "video: osd dirty %dx%d+%d+%d -> %dx%d+%d+%d\n", width, height, x,
+    Debug(4, "video: osd dirty %dx%d%+d%+d -> %dx%d%+d%+d\n", width, height, x,
 	y, OsdDirtyWidth, OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
 
 #ifdef USE_GLX
