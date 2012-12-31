@@ -10217,8 +10217,8 @@ void VideoSetHue(int hue)
 ///
 ///	Set video output position.
 ///
-///	@param x	video output x coordinate inside the window
-///	@param y	video output y coordinate inside the window
+///	@param x	video output x coordinate OSD relative
+///	@param y	video output y coordinate OSD relative
 ///	@param width	video output width
 ///	@param height	video output height
 ///
@@ -10226,8 +10226,8 @@ void VideoSetHue(int hue)
 ///
 void VideoSetOutputPosition(int x, int y, int width, int height)
 {
-    static int last_x;			///< last video output window x coordinate
-    static int last_y;			///< last video output window y coordinate
+    static int last_x;			///< last video output window x
+    static int last_y;			///< last video output window y
     static unsigned last_width;		///< last video output window width
     static unsigned last_height;	///< last video output window height
 
@@ -10235,32 +10235,33 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
 	return;
     }
     if (!width || !height) {
-	if (x == last_x && y == last_y && VideoWindowWidth == last_width
-	    && VideoWindowHeight == last_height) {
-	    // not necessary...
-	    return;
-	}
 	// restore full size & remember values to be able to avoid
 	// interfering with the video thread if possible
-	last_width = VideoWindowWidth;
-	last_height = VideoWindowHeight;
+	width = VideoWindowWidth;
+	height = VideoWindowHeight;
     } else {
-	if (x == last_x && y == last_y && (unsigned)width == last_width
-	    && (unsigned)height == last_height) {
-	    // not necessary...
-	    return;
-	}
-	// scale & remember values to be able to avoid
-	// interfering with the video thread if possible
-	last_width = width;
-	last_height = height;
+	// convert OSD coordinates to window coordinates
+	x = (x * VideoWindowWidth) / OsdWidth;
+	width = (width * VideoWindowWidth) / OsdWidth;
+	y = (y * VideoWindowHeight) / OsdHeight;
+	height = (height * VideoWindowHeight) / OsdHeight;
     }
-    // remember position to be able to avoid
+
+    if (x == last_x && y == last_y && (unsigned)width == last_width
+	&& (unsigned)height == last_height) {
+	// not necessary...
+	return;
+    }
+    // scale & remember values to be able to avoid
     // interfering with the video thread if possible
     last_x = x;
     last_y = y;
+    last_width = width;
+    last_height = height;
+
     VideoThreadLock();
     // FIXME: what stream?
+    // FIXME: add function to module class
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauSetOutputPosition(VdpauDecoders[0], last_x, last_y, last_width,
