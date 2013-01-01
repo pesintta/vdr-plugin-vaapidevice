@@ -2409,6 +2409,27 @@ bool cPluginSoftHdDevice::Service(const char *id, void *data)
 	r->height = height;
 	return true;
     }
+
+    if (strcmp(id, ATMO1_GRAB_SERVICE) == 0) {
+	SoftHDDevice_AtmoGrabService_v1_1_t *r;
+
+	if (!data) {
+	    return true;
+	}
+
+	if (SuspendMode != NOT_SUSPENDED) {
+	    return false;
+	}
+
+	r = (SoftHDDevice_AtmoGrabService_v1_1_t *) data;
+	r->img = VideoGrabService(&r->size, &r->width, &r->height);
+	if (!r->img) {
+	    return false;
+	}
+
+	return true;
+    }
+
     return false;
 }
 

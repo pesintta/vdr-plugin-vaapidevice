@@ -1,5 +1,10 @@
-User johns
+User horchi
 Date:
+
+    Adds VDR SeduAtmo Plugin support.
+
+User johns
+Date: Tue Jan  1 15:21:28 CET 2013
 
     Support multiple streams with ScaleVideo.
     Makes 4:3 and 16:9 display format configurable.

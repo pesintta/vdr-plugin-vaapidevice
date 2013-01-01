@@ -23,6 +23,7 @@
 #pragma once
 
 #define ATMO_GRAB_SERVICE	"SoftHDDevice-AtmoGrabService-v1.0"
+#define ATMO1_GRAB_SERVICE	"SoftHDDevice-AtmoGrabService-v1.1"
 #define OSD_3DMODE_SERVICE	"SoftHDDevice-Osd3DModeService-v1.0"
 
 enum
@@ -48,3 +49,17 @@ typedef struct
 {
     int Mode;
 } SoftHDDevice_Osd3DModeService_v1_0_t;
+
+typedef struct
+{
+    // request/reply data
+
+    int width;
+    int height;
+
+    // reply data
+
+    int size;
+
+    void *img;
+} SoftHDDevice_AtmoGrabService_v1_1_t;
