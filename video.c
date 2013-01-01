@@ -1,7 +1,7 @@
 ///
 ///	@file video.c	@brief Video module
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -345,8 +345,11 @@ static VideoScalingModes VideoScaling[VideoResolutionMax];
     /// Default audio/video delay
 int VideoAudioDelay;
 
-    /// Default zoom mode
+    /// Default zoom mode for 4:3
 static VideoZoomModes Video4to3ZoomMode;
+
+    /// Default zoom mode for 16:9 and others
+static VideoZoomModes VideoOtherZoomMode;
 
 static char Video60HzMode;		///< handle 60hz displays
 static char VideoSoftStartSync;		///< soft start sync audio/video
@@ -494,11 +497,9 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
-    /*
-       fprintf(stderr, "ratio: %d:%d %d:%d\n", input_aspect_ratio.num,
-       input_aspect_ratio.den, display_aspect_ratio.num,
-       display_aspect_ratio.den);
-     */
+    fprintf(stderr, "ratio: %d:%d %d:%d\n", input_aspect_ratio.num,
+	input_aspect_ratio.den, display_aspect_ratio.num,
+	display_aspect_ratio.den);
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	switch (Video4to3ZoomMode) {
 	    case VideoNormal:
@@ -512,7 +513,17 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 		goto stretch;
 	}
     }
-    // FIXME: this overwrites user choosen output position
+    switch (VideoOtherZoomMode) {
+	case VideoNormal:
+	    goto normal;
+	case VideoStretch:
+	    goto stretch;
+	case VideoCenterCutOut:
+	    goto center_cut_out;
+	case VideoAnamorphic:
+	    // FIXME: rest should be done by hardware
+	    goto stretch;
+    }
 
   normal:
     *output_x = video_x;
@@ -537,6 +548,8 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     *output_y = video_y;
     *output_width = video_width;
     *output_height = video_height;
+    Debug(3, "video: stretch output %dx%d%+d%+d\n", *output_width,
+	*output_height, *output_x, *output_y);
     return;
 
   center_cut_out:
@@ -10309,34 +10322,80 @@ void VideoSetVideoMode( __attribute__ ((unused))
 }
 
 ///
-///	Set video display format.
+///	Set 4:3 video display format.
 ///
 ///	@param format	video format (stretch, normal, center cut-out)
 ///
-void VideoSetDisplayFormat(int format)
+void VideoSet4to3DisplayFormat(int format)
 {
+    // convert api to internal format
+    switch (format) {
+	case -1:			// rotate settings
+	    format = (Video4to3ZoomMode + 1) % (VideoCenterCutOut + 1);
+	    break;
+	case 0:			// pan&scan (we have no pan&scan)
+	    format = VideoStretch;
+	    break;
+	case 1:			// letter box
+	    format = VideoNormal;
+	    break;
+	case 2:			// center cut-out
+	    format = VideoCenterCutOut;
+	    break;
+    }
+
+    if ((unsigned)format == Video4to3ZoomMode) {
+	return;				// no change, no need to lock
+    }
+
     VideoOsdExit();
     // FIXME: must tell VDR that the OsdSize has been changed!
 
     VideoThreadLock();
+    Video4to3ZoomMode = format;
+    // FIXME: need only VideoUsedModule->UpdateOutput();
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
 
+    VideoOsdInit();
+}
+
+///
+///	Set other video display format.
+///
+///	@param format	video format (stretch, normal, center cut-out)
+///
+void VideoSetOtherDisplayFormat(int format)
+{
+    // convert api to internal format
     switch (format) {
 	case -1:			// rotate settings
-	    Video4to3ZoomMode = (Video4to3ZoomMode + 1) % VideoCenterCutOut;
+	    format = (VideoOtherZoomMode + 1) % (VideoCenterCutOut + 1);
 	    break;
 	case 0:			// pan&scan (we have no pan&scan)
-	    Video4to3ZoomMode = VideoStretch;
+	    format = VideoStretch;
 	    break;
 	case 1:			// letter box
-	    Video4to3ZoomMode = VideoNormal;
+	    format = VideoNormal;
 	    break;
 	case 2:			// center cut-out
-	    Video4to3ZoomMode = VideoCenterCutOut;
+	    format = VideoCenterCutOut;
 	    break;
     }
 
+    if ((unsigned)format == VideoOtherZoomMode) {
+	return;				// no change, no need to lock
+    }
+
+    VideoOsdExit();
+    // FIXME: must tell VDR that the OsdSize has been changed!
+
+    VideoThreadLock();
+    VideoOtherZoomMode = format;
+    // FIXME: need only VideoUsedModule->UpdateOutput();
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
+
     VideoOsdInit();
 }
 

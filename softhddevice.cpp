@@ -80,6 +80,8 @@ static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 static char ConfigSuspendClose;		///< suspend should close devices
 static char ConfigSuspendX11;		///< suspend should stop x11
 
+static char Config4to3DisplayFormat = 1;	///< config 4:3 display format
+static char ConfigOtherDisplayFormat = 1;	///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
 static int ConfigOsdWidth;		///< config OSD width
 static int ConfigOsdHeight;		///< config OSD height
@@ -563,8 +565,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int SuspendX11;
 
     int Video;
-    int VideoFormat;
-    int VideoDisplayFormat;
+    int Video4to3DisplayFormat;
+    int VideoOtherDisplayFormat;
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int StudioLevels;
@@ -656,14 +658,12 @@ void cMenuSetupSoft::Create(void)
     static const char *const osd_size[] = {
 	"auto", "1920x1080", "1280x720", "custom",
     };
-#if 0
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
     };
     static const char *const video_display_formats_16_9[] = {
 	"pan&scan", "pillarbox", "center cut-out",
     };
-#endif
     static const char *const deinterlace[] = {
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
 	"Software Spatial",
@@ -724,17 +724,10 @@ void cMenuSetupSoft::Create(void)
     //
     Add(CollapsedItem(tr("Video"), Video));
     if (Video) {
-#if 0					// disabled, not working as expected
-	Add(new cMenuEditBoolItem(trVDR("Setup.DVB$Video format"),
-		&VideoFormat, "4:3", "16:9"));
-	if (VideoFormat) {
-	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
-		    &VideoDisplayFormat, 3, video_display_formats_16_9));
-	} else {
-	    Add(new cMenuEditStraItem(trVDR("Setup.DVB$Video display format"),
-		    &VideoDisplayFormat, 3, video_display_formats_4_3));
-	}
-#endif
+	Add(new cMenuEditStraItem(trVDR("4:3 video display format"),
+		&Video4to3DisplayFormat, 3, video_display_formats_4_3));
+	Add(new cMenuEditStraItem(trVDR("16:9 + other video display format"),
+		&VideoOtherDisplayFormat, 3, video_display_formats_16_9));
 
 	// FIXME: switch config gray/color configuration
 	Add(new cMenuEditIntItem(tr("Video background color (RGB)"),
@@ -845,7 +838,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_video;
     int old_audio;
     int old_osd_size;
-    int old_video_format;
     int old_resolution_shown[RESOLUTIONS];
     int i;
 
@@ -853,7 +845,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_video = Video;
     old_audio = Audio;
     old_osd_size = OsdSize;
-    old_video_format = VideoFormat;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     state = cMenuSetupPage::ProcessKey(key);
 
@@ -861,7 +852,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
 	if (old_general != General || old_video != Video || old_audio != Audio
-	    || old_osd_size != OsdSize || old_video_format != VideoFormat) {
+	    || old_osd_size != OsdSize) {
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
@@ -915,8 +906,8 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     //	video
     //
     Video = 0;
-    VideoFormat = Setup.VideoFormat;
-    VideoDisplayFormat = Setup.VideoDisplayFormat;
+    Video4to3DisplayFormat = Config4to3DisplayFormat;
+    VideoOtherDisplayFormat = ConfigOtherDisplayFormat;
     // no unsigned int menu item supported, split background color/alpha
     Background = ConfigVideoBackground >> 8;
     BackgroundAlpha = ConfigVideoBackground & 0xFF;
@@ -1003,19 +994,13 @@ void cMenuSetupSoft::Store(void)
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
-    // FIXME: this is also in VDR-DVB setup
-    if (Setup.VideoFormat != VideoFormat) {
-	Setup.VideoFormat = VideoFormat;
-	cDevice::PrimaryDevice()->SetVideoFormat(Setup.VideoFormat);
-    }
-    //SetupStore("VideoFormat", Setup.VideoFormat);
-    if (Setup.VideoDisplayFormat != VideoDisplayFormat) {
-	Setup.VideoDisplayFormat = VideoDisplayFormat;
-	cDevice::PrimaryDevice()->
-	    SetVideoDisplayFormat(eVideoDisplayFormat(Setup.
-		VideoDisplayFormat));
-    }
-    //SetupStore("VideoDisplayFormat", Setup.VideoDisplayFormat);
+
+    SetupStore("Video4to3DisplayFormat", Config4to3DisplayFormat =
+	Video4to3DisplayFormat);
+    VideoSet4to3DisplayFormat(Config4to3DisplayFormat);
+    SetupStore("VideoOtherDisplayFormat", ConfigOtherDisplayFormat =
+	VideoOtherDisplayFormat);
+    VideoSetOtherDisplayFormat(ConfigOtherDisplayFormat);
 
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
@@ -1335,13 +1320,21 @@ static void HandleHotkey(int code)
 		    tr("auto-crop disabled and freezed"));
 	    }
 	    break;
-	case 30:			// change 4:3 -> 16:9 mode
+	case 30:			// change 4:3 -> window mode
 	case 31:
 	case 32:
-	    VideoSetDisplayFormat(code - 30);
+	    VideoSet4to3DisplayFormat(code - 30);
 	    break;
-	case 39:			// rortate 4:3 -> 16:9 mode
-	    VideoSetDisplayFormat(-1);
+	case 39:			// rotate 4:3 -> window mode
+	    VideoSet4to3DisplayFormat(-1);
+	    break;
+	case 40:			// change 16:9 -> window mode
+	case 41:
+	case 42:
+	    VideoSetOtherDisplayFormat(code - 40);
+	    break;
+	case 49:			// rotate 16:9 -> window mode
+	    VideoSetOtherDisplayFormat(-1);
 	    break;
 	default:
 	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
@@ -1717,11 +1710,11 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 void cSoftHdDevice::
 SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
-    static int last = -1;
-
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
 
     cDevice::SetVideoDisplayFormat(video_display_format);
+#if 0
+    static int last = -1;
 
     // called on every channel switch, no need to kill osd...
     if (last != video_display_format) {
@@ -1730,6 +1723,7 @@ SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 	::VideoSetDisplayFormat(video_display_format);
 	cSoftOsd::Dirty = 1;
     }
+#endif
 }
 
 /**
@@ -1916,9 +1910,8 @@ cRect cSoftHdDevice::CanScaleVideo(const cRect & rect,
 void cSoftHdDevice::ScaleVideo(const cRect & rect)
 {
 #ifdef OSD_DEBUG
-    dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__,
-	VidWinRect.Width(), VidWinRect.Height(), VidWinRect.X(),
-	VidWinRect.Y());
+    dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, VidWinRect.Width(),
+	VidWinRect.Height(), VidWinRect.X(), VidWinRect.Y());
 #endif
     VideoSetOutputPosition(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
@@ -2194,6 +2187,16 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
 
+    if (!strcasecmp(name, "Video4to3DisplayFormat")) {
+	Config4to3DisplayFormat = atoi(value);
+	VideoSet4to3DisplayFormat(Config4to3DisplayFormat);
+	return true;
+    }
+    if (!strcasecmp(name, "VideoOtherDisplayFormat")) {
+	ConfigOtherDisplayFormat = atoi(value);
+	VideoSetOtherDisplayFormat(ConfigOtherDisplayFormat);
+	return true;
+    }
     if (!strcasecmp(name, "Background")) {
 	VideoSetBackground(ConfigVideoBackground = strtoul(value, NULL, 0));
 	return true;
@@ -2455,9 +2458,13 @@ static const char *SVDRPHelpText[] = {
 	"    22: toggle fullscreen\n"
 	"    23: disable auto-crop\n\040   24: enable auto-crop\n"
 	"    25: toggle auto-crop\n"
-	"    30: stretch 4:3 to 16:9\n\040   31: pillar box 4:3 in 16:9\n"
-	"    32: center cut-out 4:3 to 16:9\n"
-	"    39: rotate 4:3 to 16:9 zoom mode\n",
+	"    30: stretch 4:3 to display\n\040	31: pillar box 4:3 in display\n"
+	"    32: center cut-out 4:3 to display\n"
+	"    39: rotate 4:3 to display zoom mode\n"
+	"    40: stretch other aspect ratios to display\n"
+	"    41: letter box other aspect ratios in display\n"
+	"    42: center cut-out other aspect ratios to display\n"
+	"    49: rotate other aspect ratios to display zoom mode\n",
     "STAT\n" "\040   Display SuspendMode of the plugin.\n\n"
 	"    reply code is 910 + SuspendMode\n"
 	"    SUSPEND_EXTERNAL == -1  (909)\n"

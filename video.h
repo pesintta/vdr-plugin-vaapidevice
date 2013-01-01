@@ -1,7 +1,7 @@
 ///
 ///	@file video.h	@brief Video module header file
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -115,8 +115,11 @@ extern void VideoSetOutputPosition(int, int, int, int);
     /// Set video mode.
 extern void VideoSetVideoMode(int, int, int, int);
 
-    /// Set display format.
-extern void VideoSetDisplayFormat(int);
+    /// Set 4:3 display format.
+extern void VideoSet4to3DisplayFormat(int);
+
+    /// Set other display format.
+extern void VideoSetOtherDisplayFormat(int);
 
     /// Set video fullscreen mode.
 extern void VideoSetFullscreen(int);
