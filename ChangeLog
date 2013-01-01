@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Support multiple streams with ScaleVideo.
     Makes 4:3 and 16:9 display format configurable.
     Don't use DVB display format.
 

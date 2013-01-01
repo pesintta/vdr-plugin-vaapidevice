@@ -324,7 +324,7 @@ cSoftOsd::~cSoftOsd(void)
 
 	::GetOsdSize(&width, &height, &video_aspect);
 	// works osd relative
-	VideoSetOutputPosition(0, 0, width, height);
+	::ScaleVideo(0, 0, width, height);
     }
 #endif
 }
@@ -358,8 +358,8 @@ void cSoftOsd::Flush(void)
 	// FIXME: vidWin is OSD relative not video window.
 	// FIXME: doesn't work if fixed OSD width != real window width
 	// FIXME: solved in VideoSetOutputPosition
-	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
-	    vidWin.Width(), vidWin.Height());
+	::ScaleVideo(Left() + vidWin.x1, Top() + vidWin.y1, vidWin.Width(),
+	    vidWin.Height());
     }
 #endif
 
@@ -1913,7 +1913,7 @@ void cSoftHdDevice::ScaleVideo(const cRect & rect)
     dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, VidWinRect.Width(),
 	VidWinRect.Height(), VidWinRect.X(), VidWinRect.Y());
 #endif
-    VideoSetOutputPosition(rect.X(), rect.Y(), rect.Width(), rect.Height());
+    ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
 
 #endif

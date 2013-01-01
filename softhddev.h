@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.h	@brief software HD device plugin header file.
 ///
-///	Copyright (c) 2011 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -95,6 +95,8 @@ extern "C"
 
     /// Get decoder statistics
     extern void GetStats(int *, int *, int *, int *);
+    /// C plugin scale video
+    extern void ScaleVideo(int, int, int, int);
 #ifdef __cplusplus
 }
 #endif

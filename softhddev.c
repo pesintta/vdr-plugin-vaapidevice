@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.c	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011, 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -2834,5 +2834,20 @@ void GetStats(int *missed, int *duped, int *dropped, int *counter)
     *counter = 0;
     if (MyHwDecoder) {
 	VideoGetStats(MyHwDecoder, missed, duped, dropped, counter);
+    }
+}
+
+/**
+**	Scale the currently shown video.
+**
+**	@param x	video window x coordinate OSD relative
+**	@param y	video window y coordinate OSD relative
+**	@param width	video window width OSD relative
+**	@param height	video window height OSD relative
+*/
+void ScaleVideo(int x, int y, int width, int height)
+{
+    if (MyHwDecoder) {
+	VideoSetOutputPosition(MyHwDecoder, x, y, width, height);
     }
 }

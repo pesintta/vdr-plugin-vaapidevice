@@ -110,7 +110,7 @@ extern void VideoSetSaturation(int);
 extern void VideoSetHue(int);
 
     /// Set video output position.
-extern void VideoSetOutputPosition(int, int, int, int);
+extern void VideoSetOutputPosition(VideoHwDecoder *, int, int, int, int);
 
     /// Set video mode.
 extern void VideoSetVideoMode(int, int, int, int);

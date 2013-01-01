@@ -10230,14 +10230,14 @@ void VideoSetHue(int hue)
 ///
 ///	Set video output position.
 ///
-///	@param x	video output x coordinate OSD relative
-///	@param y	video output y coordinate OSD relative
-///	@param width	video output width
-///	@param height	video output height
+///	@param hw_decoder	video hardware decoder
+///	@param x		video output x coordinate OSD relative
+///	@param y		video output y coordinate OSD relative
+///	@param width		video output width
+///	@param height		video output height
 ///
-///	@note FIXME: need to know which stream.
-///
-void VideoSetOutputPosition(int x, int y, int width, int height)
+void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y,
+    int width, int height)
 {
     static int last_x;			///< last video output window x
     static int last_y;			///< last video output window y
@@ -10277,9 +10277,9 @@ void VideoSetOutputPosition(int x, int y, int width, int height)
     // FIXME: add function to module class
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauSetOutputPosition(VdpauDecoders[0], last_x, last_y, last_width,
+	VdpauSetOutputPosition(&hw_decoder->Vdpau, last_x, last_y, last_width,
 	    last_height);
-	VdpauUpdateOutput(VdpauDecoders[0]);
+	VdpauUpdateOutput(&hw_decoder->Vdpau);
     }
 #endif
 #ifdef USE_VAAPI
