@@ -1,7 +1,7 @@
 ///
 ///	@file softhddevice.cpp	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -1833,12 +1833,12 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 
 #ifdef USE_TS_VIDEO
 
-///
-///	Play a TS video packet.
-///
-///	@param data	ts data buffer
-///	@param length	ts packet length (188)
-///
+/**
+**	Play a TS video packet.
+**
+**	@param data	ts data buffer
+**	@param length	ts packet length (188)
+*/
 int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
 }
@@ -1847,12 +1847,12 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 
 #if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
 
-///
-///	Play a TS audio packet.
-///
-///	@param data	ts data buffer
-///	@param length	ts packet length (188)
-///
+/**
+**	Play a TS audio packet.
+**
+**	@param data	ts data buffer
+**	@param length	ts packet length (188)
+*/
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
 #ifndef NO_TS_AUDIO
@@ -1933,9 +1933,11 @@ cPluginSoftHdDevice::cPluginSoftHdDevice(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
+/**
+**	Clean up after yourself!
+*/
 cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
 {
-    // Clean up after yourself!
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     ::SoftHdDeviceExit();
@@ -1953,6 +1955,11 @@ const char *cPluginSoftHdDevice::Version(void)
     return VERSION;
 }
 
+/**
+**	Return plugin short description.
+**
+**	@returns short description as constant string.
+*/
 const char *cPluginSoftHdDevice::Description(void)
 {
     return tr(DESCRIPTION);
@@ -1960,6 +1967,8 @@ const char *cPluginSoftHdDevice::Description(void)
 
 /**
 **	Return a string that describes all known command line options.
+**
+**	@returns command line help as constant string.
 */
 const char *cPluginSoftHdDevice::CommandLineHelp(void)
 {
@@ -1976,9 +1985,15 @@ bool cPluginSoftHdDevice::ProcessArgs(int argc, char *argv[])
     return::ProcessArgs(argc, argv);
 }
 
+/**
+**	Initializes the DVB devices.
+**
+**	Must be called before accessing any DVB functions.
+**
+**	@returns true if any devices are available.
+*/
 bool cPluginSoftHdDevice::Initialize(void)
 {
-    // Start any background activities the plugin shall perform.
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     MyDevice = new cSoftHdDevice();
@@ -2548,7 +2563,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 		ConfigAC3Device = strdup(s + 2);
 		AudioSetDeviceAC3(ConfigAC3Device);
 
-	    } else if ( *s ) {
+	    } else if (*s) {
 		free(tmp);
 		return "unsupported option";
 	    }
