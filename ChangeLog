@@ -1,5 +1,10 @@
+User Zoolook
+Date: Tue Jan  1 12:49:19 CET 2013
+
+    Add support for new vdr ScaleVideo API.
+
 User johns
-Date:
+Date: Tue Jan  1 12:40:12 CET 2013
 
     Add support for old PES HDTV recording.
     Disable trickspeed hack, to prevent ffmpeg crash.

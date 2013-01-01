@@ -291,7 +291,7 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 #ifdef OSD_DEBUG
     /* FIXME: OsdWidth/OsdHeight not correct!
      */
-    dsyslog("[softhddev]%s: %dx%d+%d+%d, %d\n", __FUNCTION__, OsdWidth(),
+    dsyslog("[softhddev]%s: %dx%d%+d%+d, %d\n", __FUNCTION__, OsdWidth(),
 	OsdHeight(), left, top, level);
 #endif
 
@@ -350,11 +350,12 @@ void cSoftOsd::Flush(void)
     // support yaepghd, video window
     if (vidWin.bpp) {
 #ifdef OSD_DEBUG
-	dsyslog("[softhddev]%s: %dx%d+%d+%d\n", __FUNCTION__, vidWin.Width(),
+	dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, vidWin.Width(),
 	    vidWin.Height(), vidWin.x1, vidWin.y2);
 #endif
-
 	// FIXME: vidWin is OSD relative not video window.
+	// FIXME: doesn't work if fixed OSD width != real window width
+	// FIXME: solved in VideoSetOutputPosition
 	VideoSetOutputPosition(Left() + vidWin.x1, Top() + vidWin.y1,
 	    vidWin.Width(), vidWin.Height());
     }
@@ -437,7 +438,7 @@ void cSoftOsd::Flush(void)
 		}
 	    }
 #ifdef OSD_DEBUG
-	    dsyslog("[softhddev]%s: draw %dx%d+%d+%d bm\n", __FUNCTION__, w, h,
+	    dsyslog("[softhddev]%s: draw %dx%d%+d%+d bm\n", __FUNCTION__, w, h,
 		Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1);
 #endif
 	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
@@ -464,7 +465,7 @@ void cSoftOsd::Flush(void)
 	h = pm->ViewPort().Height();
 
 #ifdef OSD_DEBUG
-	dsyslog("[softhddev]%s: draw %dx%d+%d+%d %p\n", __FUNCTION__, w, h, x,
+	dsyslog("[softhddev]%s: draw %dx%d%+d%+d %p\n", __FUNCTION__, w, h, x,
 	    y, pm->Data());
 #endif
 	OsdDrawARGB(x, y, w, h, pm->Data());
@@ -1443,6 +1444,10 @@ class cSoftHdDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
+#if APIVERSNUM >= 10733
+    virtual cRect CanScaleVideo(const cRect &, int = taCenter);
+    virtual void ScaleVideo(const cRect & = cRect::Null);
+#endif
     virtual void SetVideoDisplayFormat(eVideoDisplayFormat);
     virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
@@ -1887,6 +1892,38 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
 
     return::GrabImage(&size, jpeg, quality, width, height);
 }
+
+#if APIVERSNUM >= 10733
+
+/**
+**	Ask the output, if it can scale video.
+**
+**	@param rect	requested video window rectangle
+**
+**	@returns the real rectangle or cRect:Null if invalid.
+*/
+cRect cSoftHdDevice::CanScaleVideo(const cRect & rect,
+    __attribute__ ((unused)) int alignment)
+{
+    return rect;
+}
+
+/**
+**	Scale the currently shown video.
+**
+**	@param rect	video window rectangle
+*/
+void cSoftHdDevice::ScaleVideo(const cRect & rect)
+{
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__,
+	VidWinRect.Width(), VidWinRect.Height(), VidWinRect.X(),
+	VidWinRect.Y());
+#endif
+    VideoSetOutputPosition(rect.X(), rect.Y(), rect.Width(), rect.Height());
+}
+
+#endif
 
 /**
 **	Call rgb to jpeg for C Plugin.
