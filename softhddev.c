@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.c	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011, 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -1821,9 +1821,10 @@ int PlayVideo(const uint8_t * data, int size)
 	++z;
     }
 
-    // H264 NAL AUD Access Unit Delimiter 0x00 0x00 0x00 0x01 0x09
-    if ((data[6] & 0xC0) == 0x80 && z > 2 && check[0] == 0x01
+    // H264 NAL AUD Access Unit Delimiter (0x00) 0x00 0x00 0x01 0x09
+    if ((data[6] & 0xC0) == 0x80 && z >= 2 && check[0] == 0x01
 	&& check[1] == 0x09) {
+	// old PES HDTV recording z == 2
 	if (VideoCodecID == CODEC_ID_H264) {
 #if 0
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
@@ -1847,13 +1848,12 @@ int PlayVideo(const uint8_t * data, int size)
 	    Debug(3, "video: h264 detected\n");
 	    VideoCodecID = CODEC_ID_H264;
 	}
-	// SKIP PES header
-	VideoEnqueue(pts, check - 3, l + 3);
+	// SKIP PES header (ffmpeg supports short start code)
+	VideoEnqueue(pts, check - 2, l + 2);
 	return size;
     }
     // PES start code 0x00 0x00 0x01
     if (z > 1 && check[0] == 0x01) {
-	// FIXME: old PES HDTV recording
 	if (VideoCodecID == CODEC_ID_MPEG2VIDEO) {
 	    VideoNextPacket(CODEC_ID_MPEG2VIDEO);
 	} else {
