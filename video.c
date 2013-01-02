@@ -4810,6 +4810,11 @@ static void VaapiSetVideoMode(void)
     int i;
 
     for (i = 0; i < VaapiDecoderN; ++i) {
+	// reset video window, upper level needs to fix the positions
+	VaapiDecoders[i]->VideoX = 0;
+	VaapiDecoders[i]->VideoY = 0;
+	VaapiDecoders[i]->VideoWidth = VideoWindowWidth;
+	VaapiDecoders[i]->VideoHeight = VideoWindowHeight;
 	VaapiUpdateOutput(VaapiDecoders[i]);
     }
 }
