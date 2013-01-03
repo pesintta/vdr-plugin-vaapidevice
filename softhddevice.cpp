@@ -50,7 +50,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.5.3"
+static const char *const VERSION = "0.6.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -1179,6 +1179,201 @@ cSoftHdControl::~cSoftHdControl()
 }
 
 //////////////////////////////////////////////////////////////////////////////
+//	PIP
+//////////////////////////////////////////////////////////////////////////////
+
+#ifdef USE_PIP
+
+static int OsdPipTest;			///< OSD pip test flag
+
+//////////////////////////////////////////////////////////////////////////////
+//	cReceiver
+//////////////////////////////////////////////////////////////////////////////
+
+#include <vdr/receiver.h>
+
+/**
+**	Receiver class for PIP mode.
+*/
+class cSoftReceiver:public cReceiver
+{
+  protected:
+    virtual void Activate(bool);
+    virtual void Receive(uchar *, int);
+  public:
+     cSoftReceiver(const cChannel *);	///< receiver constructor
+     virtual ~ cSoftReceiver();		///< receiver destructor
+};
+
+/**
+**	Receiver constructor.
+**
+**	@param channel	channel to receive.
+*/
+cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel)
+{
+    fprintf(stderr, "pip: v-pid: %04x\n", channel->Vpid());
+    SetPids(NULL);			// clear all pids, we want video only
+    AddPid(channel->Vpid());
+}
+
+/**
+**	Receiver destructor.
+*/
+cSoftReceiver::~cSoftReceiver()
+{
+}
+
+/**
+**	Called before the receiver gets attached or detached.
+**
+**	@param on	flag attached, detached
+*/
+void cSoftReceiver::Activate(bool on)
+{
+    fprintf(stderr, "pip: activate %d\n", on);
+
+    OsdPipTest = on;
+}
+
+///
+///	Parse packetized elementary stream.
+///
+///	@param data	payload data of transport stream
+///	@param size	number of payload data bytes
+///	@param is_start flag, start of pes packet
+///
+static void PipPesParse(const uint8_t * data, int size, int is_start)
+{
+    static uint8_t *pes_buf;
+    static int pes_size;
+    static int pes_index;
+
+    // FIXME: quick&dirty
+
+    if (!pes_buf) {
+	pes_size = 500 * 1024 * 1024;
+	pes_buf = (uint8_t *) malloc(pes_size);
+	pes_index = 0;
+    }
+    if (is_start) {			// start of pes packet
+	if (pes_index) {
+	    fprintf(stderr, "pip: pes packet %8d %02x%02x\n", pes_index,
+		pes_buf[2], pes_buf[3]);
+	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
+		fprintf(stderr, "pip: invalid pes packet %d\n", pes_index);
+	    } else {
+		PlayVideo2(pes_buf, pes_index);
+		// FIXME: buffer full: pes packet is dropped
+	    }
+	    pes_index = 0;
+	}
+    }
+
+    if (pes_index + size > pes_size) {
+	fprintf(stderr, "pip: pes buffer too small\n");
+	// FIXME: error state
+	return;
+    }
+    memcpy(pes_buf + pes_index, data, size);
+    pes_index += size;
+}
+
+    /// Transport stream packet size
+#define TS_PACKET_SIZE	188
+    /// Transport stream packet sync byte
+#define TS_PACKET_SYNC	0x47
+
+/**
+**	Receive TS packet from device.
+**
+**	@param data	ts packet
+**	@param size	size (#TS_PACKET_SIZE=188) of tes packet
+*/
+void cSoftReceiver::Receive(uchar * data, int size)
+{
+    static int x;
+    const uint8_t *p;
+
+    if (!x) {
+	fprintf(stderr, "pip: receive %p(%d)\n", data, size);
+	x++;
+    }
+
+    p = data;
+    while (size >= TS_PACKET_SIZE) {
+	int payload;
+
+	if (p[0] != TS_PACKET_SYNC) {
+	    esyslog(tr("tsdemux: transport stream out of sync\n"));
+	    // FIXME: kill all buffers
+	    return;
+	}
+	if (p[1] & 0x80) {		// error indicatord
+	    dsyslog("tsdemux: transport error\n");
+	    // FIXME: kill all buffers
+	    goto next_packet;
+	}
+	if (0) {
+	    int pid;
+
+	    pid = (p[1] & 0x1F) << 8 | p[2];
+	    fprintf(stderr, "tsdemux: PID: %#04x%s%s\n", pid,
+		p[1] & 0x40 ? " start" : "", p[3] & 0x10 ? " payload" : "");
+	}
+	// skip adaptation field
+	switch (p[3] & 0x30) {		// adaption field
+	    case 0x00:			// reserved
+	    case 0x20:			// adaptation field only
+	    default:
+		goto next_packet;
+	    case 0x10:			// only payload
+		payload = 4;
+		break;
+	    case 0x30:			// skip adapation field
+		payload = 5 + p[4];
+		// illegal length, ignore packet
+		if (payload >= TS_PACKET_SIZE) {
+		    dsyslog("tsdemux: illegal adaption field length\n");
+		    goto next_packet;
+		}
+		break;
+	}
+
+	PipPesParse(p + payload, TS_PACKET_SIZE - payload, p[1] & 0x40);
+
+      next_packet:
+	p += TS_PACKET_SIZE;
+	size -= TS_PACKET_SIZE;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Prepare new PIP.
+*/
+static void NewPip(void)
+{
+    int channel_nr;
+    const cChannel *channel;
+    cDevice *device;
+    cSoftReceiver *receiver;
+
+    if ((channel_nr = cDevice::CurrentChannel())
+	&& (channel = Channels.GetByNumber(cDevice::CurrentChannel()))
+	&& (device = cDevice::GetDevice(channel, 1, false))) {
+	fprintf(stderr, "pip: %d %p %p\n", channel_nr, channel, device);
+	device->SwitchChannel(channel, false);
+	receiver = new cSoftReceiver(channel);
+	device->AttachReceiver(receiver);
+	fprintf(stderr, "pip: attached\n");
+    }
+}
+
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
 //	cOsdMenu
 //////////////////////////////////////////////////////////////////////////////
 
@@ -1192,8 +1387,8 @@ class cSoftHdMenu:public cOsdMenu
     int HotkeyCode;			///< current hot-key code
     void Create(void);			///< create plugin main menu
   public:
-     cSoftHdMenu(const char *, int = 0, int = 0, int = 0, int = 0, int = 0);
-     virtual ~ cSoftHdMenu();
+    cSoftHdMenu(const char *, int = 0, int = 0, int = 0, int = 0, int = 0);
+    virtual ~ cSoftHdMenu();
     virtual eOSState ProcessKey(eKeys);
 };
 
@@ -1213,12 +1408,16 @@ void cSoftHdMenu::Create(void)
 
     SetHasHotkeys();
     Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+#ifdef USE_PIP
+    Add(new cOsdItem(hk(tr("PIP")), osUser2));
+#endif
     Add(new cOsdItem(NULL, osUnknown, false));
     Add(new cOsdItem(NULL, osUnknown, false));
     GetStats(&missed, &duped, &dropped, &counter);
-    Add(new cOsdItem(cString::
-	    sprintf(tr(" Frames missed(%d) duped(%d) dropped(%d) total(%d)"),
-		missed, duped, dropped, counter), osUnknown, false));
+    Add(new
+	cOsdItem(cString::sprintf(tr
+		(" Frames missed(%d) duped(%d) dropped(%d) total(%d)"), missed,
+		duped, dropped, counter), osUnknown, false));
 
     SetCurrent(Get(current));		// restore selected menu entry
     Display();				// display build menu
@@ -1408,6 +1607,11 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		}
 	    }
 	    return osEnd;
+#ifdef USE_PIP
+	case osUser2:
+	    NewPip();
+	    return osEnd;
+#endif
 	default:
 	    Create();
 	    break;
@@ -1707,8 +1911,8 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice::
-SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
+void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
+    video_display_format)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
 
@@ -1826,6 +2030,11 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {
     //dsyslog("[softhddev]%s: %p %d\n", __FUNCTION__, data, length);
+#ifdef USE_PIP
+    if (OsdPipTest) {
+	return length;
+    }
+#endif
 
     return::PlayVideo(data, length);
 }

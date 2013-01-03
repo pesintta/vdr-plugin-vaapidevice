@@ -30,6 +30,9 @@
     /// Video hardware decoder typedef
 typedef struct _video_hw_decoder_ VideoHwDecoder;
 
+    /// Video output stream typedef
+typedef struct __video_stream__ VideoStream;
+
 //----------------------------------------------------------------------------
 //	Variables
 //----------------------------------------------------------------------------
@@ -43,7 +46,7 @@ extern int VideoAudioDelay;		///< audio/video delay
 //----------------------------------------------------------------------------
 
     /// Allocate new video hardware decoder.
-extern VideoHwDecoder *VideoNewHwDecoder(void);
+extern VideoHwDecoder *VideoNewHwDecoder(VideoStream *);
 
     /// Deallocate video hardware decoder.
 extern void VideoDelHwDecoder(VideoHwDecoder *);
@@ -208,8 +211,13 @@ extern void VideoOsdExit(void);		///< Cleanup osd.
 extern void VideoInit(const char *);	///< Setup video module.
 extern void VideoExit(void);		///< Cleanup and exit video module.
 
-extern int VideoPollInput(void);	///< Poll video input buffers.
-extern int VideoDecodeInput(void);	///< Decode video input buffers.
-extern int VideoGetBuffers(void);	///< Get number of input buffers.
+    /// Poll video input buffers.
+extern int VideoPollInput(VideoStream *);
+
+    /// Decode video input buffers.
+extern int VideoDecodeInput(VideoStream *);
+
+    /// Get number of input buffers.
+extern int VideoGetBuffers(const VideoStream *);
 
 /// @}

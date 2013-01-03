@@ -44,6 +44,8 @@ extern "C"
 
     /// C plugin play video packet
     extern int PlayVideo(const uint8_t *, int);
+    /// C plugin play video packet (next version)
+    extern int PlayVideo2(const uint8_t *, int);
     /// C plugin play TS video packet
     extern void PlayTsVideo(const uint8_t *, int);
     /// C plugin grab an image

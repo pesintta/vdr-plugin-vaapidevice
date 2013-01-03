@@ -1,7 +1,7 @@
 ///
 ///	@file audio.c		@brief Audio module
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -163,7 +163,6 @@ static int AudioStereoDescent;		///< volume descent for stereo
 static int AudioVolume;			///< current volume (0 .. 1000)
 
 extern int VideoAudioDelay;		///< import audio/video delay
-extern int VideoGetBuffers(void);	///< Get number of input buffers.
 
     /// default ring buffer size ~2s 8ch 16bit (3 * 5 * 7 * 8)
 static const unsigned AudioRingBufferSize = 3 * 5 * 7 * 8 * 2 * 1000;

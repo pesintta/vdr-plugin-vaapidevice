@@ -226,7 +226,7 @@ typedef struct _video_module_
     char Enabled;			///< flag output module enabled
 
     /// allocate new video hw decoder
-    VideoHwDecoder *(*const NewHwDecoder)(void);
+    VideoHwDecoder *(*const NewHwDecoder)(VideoStream *);
     void (*const DelHwDecoder) (VideoHwDecoder *);
     unsigned (*const GetSurface) (VideoHwDecoder *);
     void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
@@ -279,7 +279,7 @@ typedef struct _video_module_
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
-static const char *VideoDevice;		///< video output device
+static const char *VideoDriverName;	///< video output device
 static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
@@ -1380,6 +1380,7 @@ struct _vaapi_decoder_
     int TrickSpeed;			///< current trick speed
     int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
+    VideoStream *Stream;		///< video stream
     int Closing;			///< flag about closing current stream
     int64_t PTS;			///< video PTS clock
 
@@ -1762,7 +1763,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 ///
 ///	@returns a new prepared VA-API hardware decoder.
 ///
-static VaapiDecoder *VaapiNewHwDecoder(void)
+static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 {
     VaapiDecoder *decoder;
     int i;
@@ -1826,6 +1827,7 @@ static VaapiDecoder *VaapiNewHwDecoder(void)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    decoder->Stream = stream;
     decoder->Closing = -300 - 1;
 
     decoder->PTS = AV_NOPTS_VALUE;
@@ -4394,7 +4396,7 @@ static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 	    // FIXME: don't warn after stream start, don't warn during pause
 	    Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		decoder->FramesDuped, decoder->FrameCounter,
-		VideoGetBuffers());
+		VideoGetBuffers(decoder->Stream));
 	    return;
 	}
 	// wait for rendering finished
@@ -4681,7 +4683,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		VaapiMessage(1,
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
-		decoder->FrameCounter, VideoGetBuffers());
+		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
 	    if (decoder->Closing < -300) {
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
@@ -4701,7 +4703,8 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(),
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
+	    VideoGetBuffers(decoder->Stream),
 	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
 	    - decoder->SurfaceField);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
@@ -4844,10 +4847,10 @@ static void VaapiDisplayHandlerThread(void)
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
-	err = VideoDecodeInput();
+	err = VideoDecodeInput(decoder->Stream);
 	pthread_mutex_unlock(&VideoLockMutex);
     } else {
-	err = VideoPollInput();
+	err = VideoPollInput(decoder->Stream);
     }
     if (err) {
 	// FIXME: sleep on wakeup
@@ -5111,7 +5114,8 @@ static void VaapiOsdExit(void)
 static const VideoModule VaapiModule = {
     .Name = "va-api",
     .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VaapiNewHwDecoder,
+    .NewHwDecoder =
+	(VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
     .GetSurface = (unsigned (*const) (VideoHwDecoder *))VaapiGetSurface,
     .ReleaseSurface =
@@ -5211,6 +5215,7 @@ typedef struct _vdpau_decoder_
     int TrickSpeed;			///< current trick speed
     int TrickCounter;			///< current trick speed counter
     struct timespec FrameTime;		///< time of last display
+    VideoStream *Stream;		///< video stream
     int Closing;			///< flag about closing current stream
     int64_t PTS;			///< video PTS clock
 
@@ -5826,9 +5831,11 @@ static void VdpauMixerCreate(VdpauDecoder * decoder)
 ///
 ///	Allocate new VDPAU decoder.
 ///
+///	@param stream	video stream
+///
 ///	@returns a new prepared vdpau hardware decoder.
 ///
-static VdpauDecoder *VdpauNewHwDecoder(void)
+static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
 {
     VdpauDecoder *decoder;
     int i;
@@ -5884,6 +5891,7 @@ static VdpauDecoder *VdpauNewHwDecoder(void)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    decoder->Stream = stream;
     decoder->Closing = -300 - 1;
 
     decoder->PTS = AV_NOPTS_VALUE;
@@ -7830,7 +7838,7 @@ static void VdpauAdvanceDecoderFrame(VdpauDecoder * decoder)
 	    // FIXME: don't warn after stream start, don't warn during pause
 	    Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		decoder->FramesDuped, decoder->FrameCounter,
-		VideoGetBuffers());
+		VideoGetBuffers(decoder->Stream));
 	    return;
 	}
 	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
@@ -8094,7 +8102,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		VdpauMessage(1,
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
-		decoder->FrameCounter, VideoGetBuffers());
+		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
 	    if (decoder->Closing < -300) {
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
@@ -8114,7 +8122,8 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(),
+	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
+	    VideoGetBuffers(decoder->Stream),
 	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
 	    - decoder->SurfaceField);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
@@ -8335,10 +8344,10 @@ static void VdpauDisplayHandlerThread(void)
 	// FIXME: hot polling
 	pthread_mutex_lock(&VideoLockMutex);
 	// fetch+decode or reopen
-	err = VideoDecodeInput();
+	err = VideoDecodeInput(decoder->Stream);
 	pthread_mutex_unlock(&VideoLockMutex);
     } else {
-	err = VideoPollInput();
+	err = VideoPollInput(decoder->Stream);
     }
     if (err) {
 	// FIXME: sleep on wakeup
@@ -8638,7 +8647,8 @@ static void VdpauOsdExit(void)
 static const VideoModule VdpauModule = {
     .Name = "vdpau",
     .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(void))VdpauNewHwDecoder,
+    .NewHwDecoder =
+	(VideoHwDecoder * (*const)(VideoStream *)) VdpauNewHwDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelHwDecoder,
     .GetSurface = (unsigned (*const) (VideoHwDecoder *))VdpauGetSurface,
     .ReleaseSurface =
@@ -8673,9 +8683,12 @@ static const VideoModule VdpauModule = {
 ///
 ///	Allocate new noop decoder.
 ///
+///	@param stream	video stream
+///
 ///	@returns always NULL.
 ///
-static VideoHwDecoder *NoopNewHwDecoder(void)
+static VideoHwDecoder *NoopNewHwDecoder(
+    __attribute__ ((unused)) VideoStream * stream)
 {
     return NULL;
 }
@@ -9384,11 +9397,13 @@ struct _video_hw_decoder_
 ///
 ///	Allocate new video hw decoder.
 ///
+///	@param stream	video stream
+///
 ///	@returns a new initialized video hardware decoder.
 ///
-VideoHwDecoder *VideoNewHwDecoder(void)
+VideoHwDecoder *VideoNewHwDecoder(VideoStream * stream)
 {
-    return VideoUsedModule->NewHwDecoder();
+    return VideoUsedModule->NewHwDecoder(stream);
 }
 
 ///
@@ -10107,7 +10122,7 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 ///
 void VideoSetDevice(const char *device)
 {
-    VideoDevice = device;
+    VideoDriverName = device;
 }
 
 ///
@@ -10696,15 +10711,16 @@ void VideoInit(const char *display_name)
     for (i = 0; i < (int)(sizeof(VideoModules) / sizeof(*VideoModules)); ++i) {
 	// FIXME: support list of drivers and include display name
 	// use user device or first working enabled device driver
-	if ((VideoDevice && !strcasecmp(VideoDevice, VideoModules[i]->Name))
-	    || (!VideoDevice && VideoModules[i]->Enabled)) {
+	if ((VideoDriverName
+		&& !strcasecmp(VideoDriverName, VideoModules[i]->Name))
+	    || (!VideoDriverName && VideoModules[i]->Enabled)) {
 	    if (VideoModules[i]->Init(display_name)) {
 		VideoUsedModule = VideoModules[i];
 		goto found;
 	    }
 	}
     }
-    Error(_("video: '%s' output module isn't supported\n"), VideoDevice);
+    Error(_("video: '%s' output module isn't supported\n"), VideoDriverName);
     VideoUsedModule = &NoopModule;
 
   found:
@@ -10822,7 +10838,7 @@ void FeedKeyPress( __attribute__ ((unused))
 {
 }
 
-int VideoDecodeInput(void)
+int VideoDecodeInput( __attribute__ ((unused)) VideoStream * stream)
 {
     return -1;
 }
@@ -10923,7 +10939,7 @@ int main(int argc, char *const argv[])
     //
     VideoInit(NULL);
     VideoOsdInit();
-    video_hw_decoder = VideoNewHwDecoder();
+    video_hw_decoder = VideoNewHwDecoder(NULL);
     start_tick = GetMsTicks();
     n = 0;
     for (;;) {
