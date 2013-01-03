@@ -305,11 +305,16 @@ Warning:
 
 Known Bugs:
 -----------
-	VA-API doesn't v-sync 1080i streams
+	VA-API doesn't v-sync h264 interlaced streams
 	vdr-image not working
 
 Requires:
 ---------
+	media-video/vdr (version >=1.7.xx)
+		Video Disk Recorder - turns a pc into a powerful set top box
+		for DVB.
+		http://www.tvdr.de/
+
 	media-video/ffmpeg (version >=0.7)
 		Complete solution to record, convert and stream audio and
 		video. Includes libavcodec.
