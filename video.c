@@ -51,6 +51,7 @@
 #endif
 
 #define USE_VIDEO_THREAD		///< run decoder in an own thread
+//#define USE_VIDEO_THREAD2		///< run decoder+display in own threads
 
 #include <sys/time.h>
 #include <sys/shm.h>
@@ -374,6 +375,15 @@ static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 
 #endif
 
+#ifdef USE_VIDEO_THREAD2
+
+static pthread_t VideoDisplayThread;	///< video decode thread
+static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
+static pthread_mutex_t VideoDisplayMutex;	///< video condition mutex
+static pthread_mutex_t VideoDisplayLockMutex;	///< video lock mutex
+
+#endif
+
 static int OsdConfigWidth;		///< osd configured width
 static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
@@ -528,10 +538,12 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
   normal:
     *output_x = video_x;
     *output_y = video_y;
-    *output_width = (video_height * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
-    *output_height = (video_width * display_aspect_ratio.den)
-	/ display_aspect_ratio.num;
+    *output_width =
+	(video_height * display_aspect_ratio.num + display_aspect_ratio.den -
+	1) / display_aspect_ratio.den;
+    *output_height =
+	(video_width * display_aspect_ratio.den + display_aspect_ratio.num -
+	1) / display_aspect_ratio.num;
     if (*output_width > video_width) {
 	*output_width = video_width;
 	*output_y += (video_height - *output_height) / 2;
@@ -558,10 +570,12 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     *output_height = video_height;
     *output_width = video_width;
 
-    *crop_width = (video_height * display_aspect_ratio.num)
-	/ display_aspect_ratio.den;
-    *crop_height = (video_width * display_aspect_ratio.den)
-	/ display_aspect_ratio.num;
+    *crop_width =
+	(video_height * display_aspect_ratio.num + display_aspect_ratio.den -
+	1) / display_aspect_ratio.den;
+    *crop_height =
+	(video_width * display_aspect_ratio.den + display_aspect_ratio.num -
+	1) / display_aspect_ratio.num;
 
     // look which side must be cut
     if (*crop_width > video_width) {
@@ -571,6 +585,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 	*crop_x = ((*crop_width - video_width) * input_width)
 	    / (2 * video_width);
 	*crop_width = input_width - *crop_x * 2;
+	// FIXME: round failure?
     } else if (*crop_height > video_height) {
 	*crop_width = input_width;
 
@@ -578,6 +593,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 	*crop_y = ((*crop_height - video_height) * input_height)
 	    / (2 * video_height);
 	*crop_height = input_height - *crop_y * 2;
+	// FIXME: round failure?
     } else {
 	*crop_width = input_width;
 	*crop_height = input_height;
@@ -4435,10 +4451,10 @@ static void VaapiDisplayFrame(void)
     VaapiDecoder *decoder;
 
     if (VideoSurfaceModesChanged) {	// handle changed modes
+	VideoSurfaceModesChanged = 0;
 	for (i = 0; i < VaapiDecoderN; ++i) {
 	    VaapiInitSurfaceFlags(VaapiDecoders[i]);
 	}
-	VideoSurfaceModesChanged = 0;
     }
     // look if any stream have a new surface available
     for (i = 0; i < VaapiDecoderN; ++i) {
@@ -5230,7 +5246,7 @@ typedef struct _vdpau_decoder_
 
 static volatile char VdpauPreemption;	///< flag preemption happened.
 
-static VdpauDecoder *VdpauDecoders[1];	///< open decoder streams
+static VdpauDecoder *VdpauDecoders[2];	///< open decoder streams
 static int VdpauDecoderN;		///< number of decoder streams
 
 static VdpDevice VdpauDevice;		///< VDPAU device
@@ -5254,6 +5270,7 @@ static VdpChromaType VdpauChromaType;	///< best video surface chroma format
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
 static int VdpauSurfaceIndex;		///< current display surface
+static struct timespec VdpauFrameTime;	///< time of last display
 
 #ifdef USE_BITMAP
     /// bitmap surfaces for osd
@@ -5840,7 +5857,8 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     VdpauDecoder *decoder;
     int i;
 
-    if (VdpauDecoderN == 1) {
+    if ((unsigned)VdpauDecoderN >=
+	sizeof(VdpauDecoders) / sizeof(*VdpauDecoders)) {
 	Error(_("video/vdpau: out of decoders\n"));
 	return NULL;
     }
@@ -5896,9 +5914,7 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
 
     decoder->PTS = AV_NOPTS_VALUE;
 
-    // FIXME: hack
-    VdpauDecoderN = 1;
-    VdpauDecoders[0] = decoder;
+    VdpauDecoders[VdpauDecoderN++] = decoder;
 
     return decoder;
 }
@@ -7645,10 +7661,10 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     VdpauCheckAutoCrop(decoder);
 #endif
 
-    dst_rect.x0 = 0;			// window output (clip)
-    dst_rect.y0 = 0;
-    dst_rect.x1 = VideoWindowWidth;
-    dst_rect.y1 = VideoWindowHeight;
+    dst_rect.x0 = decoder->VideoX;	// window output (clip)
+    dst_rect.y0 = decoder->VideoY;
+    dst_rect.x1 = decoder->VideoX + decoder->VideoWidth;
+    dst_rect.y1 = decoder->VideoY + decoder->VideoHeight;
 
     video_src_rect.x0 = decoder->CropX;	// video source (crop)
     video_src_rect.y0 = decoder->CropY;
@@ -7936,10 +7952,11 @@ static void VdpauDisplayFrame(void)
 	Error(_("video/vdpau: can't queue display: %s\n"),
 	    VdpauGetErrorString(status));
     }
-
+    // FIXME: CLOCK_MONOTONIC_RAW
+    clock_gettime(CLOCK_REALTIME, &VdpauFrameTime);
     for (i = 0; i < VdpauDecoderN; ++i) {
 	// remember time of last shown surface
-	clock_gettime(CLOCK_REALTIME, &VdpauDecoders[i]->FrameTime);
+	VdpauDecoders[i]->FrameTime = VdpauFrameTime;
     }
 
     VdpauSurfaceIndex = (VdpauSurfaceIndex + 1) % OUTPUT_SURFACES_MAX;
@@ -8311,6 +8328,10 @@ static void VdpauSetVideoMode(void)
     }
 }
 
+#ifdef USE_VIDEO_THREAD2
+
+#else
+
 #ifdef USE_VIDEO_THREAD
 
 ///
@@ -8320,15 +8341,11 @@ static void VdpauSetVideoMode(void)
 ///
 static void VdpauDisplayHandlerThread(void)
 {
+    int i;
     int err;
-    int filled;
+    int decoded;
     struct timespec nowtime;
     VdpauDecoder *decoder;
-
-    if (!(decoder = VdpauDecoders[0])) {	// no stream available
-	usleep(15 * 1000);
-	return;
-    }
 
     if (VdpauPreemption) {		// display preempted
 	if (VdpauPreemptionRecover()) {
@@ -8336,37 +8353,49 @@ static void VdpauDisplayHandlerThread(void)
 	    return;
 	}
     }
-    //
-    // fill frame output ring buffer
-    //
-    filled = atomic_read(&decoder->SurfacesFilled);
-    if (filled < VIDEO_SURFACES_MAX) {
-	// FIXME: hot polling
-	pthread_mutex_lock(&VideoLockMutex);
-	// fetch+decode or reopen
-	err = VideoDecodeInput(decoder->Stream);
-	pthread_mutex_unlock(&VideoLockMutex);
-    } else {
-	err = VideoPollInput(decoder->Stream);
-    }
-    if (err) {
-	// FIXME: sleep on wakeup
-	usleep(5 * 1000);		// nothing buffered
-	if (err == -1 && decoder->Closing) {
-	    decoder->Closing--;
-	    if (!decoder->Closing) {
-		Debug(3, "video/vdpau: closing eof\n");
-		decoder->Closing = -1;
-	    }
+
+    decoded = 0;
+    for (i = 0; i < VdpauDecoderN; ++i) {
+	int filled;
+
+	decoder = VdpauDecoders[i];
+
+	//
+	// fill frame output ring buffer
+	//
+	filled = atomic_read(&decoder->SurfacesFilled);
+	if (filled < VIDEO_SURFACES_MAX) {
+	    // FIXME: hot polling
+	    pthread_mutex_lock(&VideoLockMutex);
+	    // fetch+decode or reopen
+	    err = VideoDecodeInput(decoder->Stream);
+	    pthread_mutex_unlock(&VideoLockMutex);
+	} else {
+	    err = VideoPollInput(decoder->Stream);
 	}
+	if (err) {
+	    // nothing buffered?
+	    if (err == -1 && decoder->Closing) {
+		decoder->Closing--;
+		if (!decoder->Closing) {
+		    Debug(3, "video/vdpau: closing eof\n");
+		    decoder->Closing = -1;
+		}
+	    }
+	    continue;
+	}
+	decoded = 1;
+    }
+
+    if (!decoded) {			// nothing decoded, sleep
+	// FIXME: sleep on wakeup
+	usleep(5 * 1000);
     }
 
     clock_gettime(CLOCK_REALTIME, &nowtime);
     // time for one frame over?
-    if (				//filled<VIDEO_SURFACES_MAX &&
-	(nowtime.tv_sec - decoder->FrameTime.tv_sec)
-	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
-	15 * 1000 * 1000) {
+    if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
+	(nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
 	return;
     }
 
@@ -8378,6 +8407,8 @@ static void VdpauDisplayHandlerThread(void)
 #else
 
 #define VdpauDisplayHandlerThread	NULL
+
+#endif
 
 #endif
 
@@ -8395,6 +8426,8 @@ static void VdpauDisplayHandlerThread(void)
 static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
     int width, int height)
 {
+    Debug(3, "video/vdapu: output %dx%d%+d%+d\n", width, height, x, y);
+
     decoder->VideoX = x;
     decoder->VideoY = y;
     decoder->VideoWidth = width;
@@ -10259,17 +10292,11 @@ void VideoSetHue(int hue)
 void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y,
     int width, int height)
 {
-    static int last_x;			///< last video output window x
-    static int last_y;			///< last video output window y
-    static unsigned last_width;		///< last video output window width
-    static unsigned last_height;	///< last video output window height
-
     if (!OsdWidth || !OsdHeight) {
 	return;
     }
     if (!width || !height) {
-	// restore full size & remember values to be able to avoid
-	// interfering with the video thread if possible
+	// restore full size
 	width = VideoWindowWidth;
 	height = VideoWindowHeight;
     } else {
@@ -10280,33 +10307,28 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y,
 	height = (height * VideoWindowHeight) / OsdHeight;
     }
 
-    if (x == last_x && y == last_y && (unsigned)width == last_width
-	&& (unsigned)height == last_height) {
-	// not necessary...
-	return;
-    }
-    // scale & remember values to be able to avoid
-    // interfering with the video thread if possible
-    last_x = x;
-    last_y = y;
-    last_width = width;
-    last_height = height;
-
-    VideoThreadLock();
-    // FIXME: what stream?
     // FIXME: add function to module class
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauSetOutputPosition(&hw_decoder->Vdpau, last_x, last_y, last_width,
-	    last_height);
+	// check values to be able to avoid
+	// interfering with the video thread if possible
+
+	if (x == hw_decoder->Vdpau.VideoX && y == hw_decoder->Vdpau.VideoY
+	    && width == hw_decoder->Vdpau.VideoWidth
+	    && height == hw_decoder->Vdpau.VideoHeight) {
+	    // not necessary...
+	    return;
+	}
+	VideoThreadLock();
+	VdpauSetOutputPosition(&hw_decoder->Vdpau, x, y, width, height);
 	VdpauUpdateOutput(&hw_decoder->Vdpau);
+	VideoThreadUnlock();
     }
 #endif
 #ifdef USE_VAAPI
     // FIXME: not supported by vaapi without unscaled OSD,
     // FIXME: if used to position video inside osd
 #endif
-    VideoThreadUnlock();
 }
 
 ///
