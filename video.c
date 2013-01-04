@@ -1398,6 +1398,7 @@ struct _vaapi_decoder_
     struct timespec FrameTime;		///< time of last display
     VideoStream *Stream;		///< video stream
     int Closing;			///< flag about closing current stream
+    int SyncOnAudio;			///< flag sync to audio
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
@@ -5233,6 +5234,7 @@ typedef struct _vdpau_decoder_
     struct timespec FrameTime;		///< time of last display
     VideoStream *Stream;		///< video stream
     int Closing;			///< flag about closing current stream
+    int SyncOnAudio;			///< flag sync to audio
     int64_t PTS;			///< video PTS clock
 
     int SyncCounter;			///< counter to sync frames
@@ -5910,6 +5912,9 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     decoder->OutputHeight = VideoWindowHeight;
 
     decoder->Stream = stream;
+    if (!VdpauDecoderN) {		// FIXME: hack sync on audio
+	decoder->SyncOnAudio = 1;
+    }
     decoder->Closing = -300 - 1;
 
     decoder->PTS = AV_NOPTS_VALUE;
@@ -8041,9 +8046,15 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
     int64_t video_clock;
 
     err = 0;
-    audio_clock = AudioGetClock();
     video_clock = VdpauGetClock(decoder);
     filled = atomic_read(&decoder->SurfacesFilled);
+
+    if (!decoder->SyncOnAudio) {
+	audio_clock = AV_NOPTS_VALUE;
+	// FIXME: 60Hz Mode
+	goto skip_sync;
+    }
+    audio_clock = AudioGetClock();
 
     // 60Hz: repeat every 5th field
     if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
