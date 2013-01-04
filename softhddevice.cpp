@@ -1476,6 +1476,8 @@ void cSoftReceiver::Receive(uchar * data, int size)
 
 //////////////////////////////////////////////////////////////////////////////
 
+static cSoftReceiver * PipReceiver;	///< PIP receiver
+
 /**
 **	Prepare new PIP.
 */
@@ -1490,11 +1492,26 @@ static void NewPip(void)
 	&& (channel = Channels.GetByNumber(cDevice::CurrentChannel()))
 	&& (device = cDevice::GetDevice(channel, 1, false))) {
 	fprintf(stderr, "pip: %d %p %p\n", channel_nr, channel, device);
+
+	delete PipReceiver;
+	PipReceiver = NULL;
+
 	device->SwitchChannel(channel, false);
 	receiver = new cSoftReceiver(channel);
 	device->AttachReceiver(receiver);
 	fprintf(stderr, "pip: attached\n");
+	PipReceiver = receiver;
     }
+}
+
+/**
+**	Stop PIP.
+*/
+static void DelPip(void)
+{
+    fprintf(stderr, "pip: stopped\n");
+    delete PipReceiver;
+    PipReceiver = NULL;
 }
 
 #endif
@@ -1742,6 +1759,9 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 #ifdef USE_PIP
 	case osUser2:
 	    NewPip();
+	    return osEnd;
+	case osUser8:
+	    DelPip();
 	    return osEnd;
 #endif
 	default:
