@@ -141,22 +141,22 @@ static char *ConfigAudioDevice;		///< config audio stereo device
 static char *ConfigAC3Device;		///< config audio passthrough device
 
 #ifdef USE_PIP
-static int ConfigPipX;			///< config pip pip x in %
-static int ConfigPipY;			///< config pip pip y in %
-static int ConfigPipWidth;		///< config pip pip width in %
-static int ConfigPipHeight;		///< config pip pip height in %
+static int ConfigPipX = 100 - 3 - 18;	///< config pip pip x in %
+static int ConfigPipY = 100 - 4 - 18;	///< config pip pip y in %
+static int ConfigPipWidth = 18;		///< config pip pip width in %
+static int ConfigPipHeight = 18;	///< config pip pip height in %
 static int ConfigPipVideoX;		///< config pip video x in %
 static int ConfigPipVideoY;		///< config pip video y in %
 static int ConfigPipVideoWidth;		///< config pip video width in %
 static int ConfigPipVideoHeight;	///< config pip video height in %
 static int ConfigPipAltX;		///< config pip alt. pip x in %
-static int ConfigPipAltY;		///< config pip alt. pip y in %
+static int ConfigPipAltY = 50;		///< config pip alt. pip y in %
 static int ConfigPipAltWidth;		///< config pip alt. pip width in %
-static int ConfigPipAltHeight;		///< config pip alt. pip height in %
+static int ConfigPipAltHeight = 50;	///< config pip alt. pip height in %
 static int ConfigPipAltVideoX;		///< config pip alt. video x in %
 static int ConfigPipAltVideoY;		///< config pip alt. video y in %
 static int ConfigPipAltVideoWidth;	///< config pip alt. video width in %
-static int ConfigPipAltVideoHeight;	///< config pip alt. video height in %
+static int ConfigPipAltVideoHeight = 50;	///< config pip alt. video height in %
 #endif
 
 static volatile int DoMakePrimary;	///< switch primary device to this
@@ -1309,6 +1309,8 @@ cSoftHdControl::~cSoftHdControl()
 
 #ifdef USE_PIP
 
+static int PipAltPosition;		///< flag alternative position
+
 //////////////////////////////////////////////////////////////////////////////
 //	cReceiver
 //////////////////////////////////////////////////////////////////////////////
@@ -1359,7 +1361,33 @@ void cSoftReceiver::Activate(bool on)
     fprintf(stderr, "pip: activate %d\n", on);
 
     if (on) {
-	PipStart(0, 0, 0, 0, 50, 50, 355, 200);
+	int width;
+	int height;
+	double video_aspect;
+
+	GetOsdSize(&width, &height, &video_aspect);
+	if (PipAltPosition) {
+	    PipStart((ConfigPipAltVideoX * width) / 100,
+		(ConfigPipAltVideoY * height) / 100,
+		ConfigPipAltVideoWidth ? (ConfigPipAltVideoWidth * width) /
+		100 : width,
+		ConfigPipAltVideoHeight ? (ConfigPipAltVideoHeight * height) /
+		100 : height, (ConfigPipAltX * width) / 100,
+		(ConfigPipAltY * height) / 100,
+		ConfigPipAltWidth ? (ConfigPipAltWidth * width) / 100 : width,
+		ConfigPipAltHeight ? (ConfigPipAltHeight * height) /
+		100 : height);
+	} else {
+	    PipStart((ConfigPipVideoX * width) / 100,
+		(ConfigPipVideoY * height) / 100,
+		ConfigPipVideoWidth ? (ConfigPipVideoWidth * width) /
+		100 : width,
+		ConfigPipVideoHeight ? (ConfigPipVideoHeight * height) /
+		100 : height, (ConfigPipX * width) / 100,
+		(ConfigPipY * height) / 100,
+		ConfigPipWidth ? (ConfigPipWidth * width) / 100 : width,
+		ConfigPipHeight ? (ConfigPipHeight * height) / 100 : height);
+	}
     } else {
 	PipStop();
     }
@@ -1476,7 +1504,7 @@ void cSoftReceiver::Receive(uchar * data, int size)
 
 //////////////////////////////////////////////////////////////////////////////
 
-static cSoftReceiver * PipReceiver;	///< PIP receiver
+static cSoftReceiver *PipReceiver;	///< PIP receiver
 
 /**
 **	Prepare new PIP.
@@ -1494,6 +1522,7 @@ static void NewPip(void)
 	fprintf(stderr, "pip: %d %p %p\n", channel_nr, channel, device);
 
 	delete PipReceiver;
+
 	PipReceiver = NULL;
 
 	device->SwitchChannel(channel, false);
@@ -1511,7 +1540,42 @@ static void DelPip(void)
 {
     fprintf(stderr, "pip: stopped\n");
     delete PipReceiver;
+
     PipReceiver = NULL;
+}
+
+/**
+**	Swap PIP position.
+*/
+static void SwapPipPosition(void)
+{
+    int width;
+    int height;
+    double video_aspect;
+
+    GetOsdSize(&width, &height, &video_aspect);
+
+    PipAltPosition ^= 1;
+    if (PipAltPosition) {
+	PipSetPosition((ConfigPipAltVideoX * width) / 100,
+	    (ConfigPipAltVideoY * height) / 100,
+	    ConfigPipAltVideoWidth ? (ConfigPipAltVideoWidth * width) /
+	    100 : width,
+	    ConfigPipAltVideoHeight ? (ConfigPipAltVideoHeight * height) /
+	    100 : height, (ConfigPipAltX * width) / 100,
+	    (ConfigPipAltY * height) / 100,
+	    ConfigPipAltWidth ? (ConfigPipAltWidth * width) / 100 : width,
+	    ConfigPipAltHeight ? (ConfigPipAltHeight * height) / 100 : height);
+    } else {
+	PipSetPosition((ConfigPipVideoX * width) / 100,
+	    (ConfigPipVideoY * height) / 100,
+	    ConfigPipVideoWidth ? (ConfigPipVideoWidth * width) / 100 : width,
+	    ConfigPipVideoHeight ? (ConfigPipVideoHeight * height) /
+	    100 : height, (ConfigPipX * width) / 100,
+	    (ConfigPipY * height) / 100,
+	    ConfigPipWidth ? (ConfigPipWidth * width) / 100 : width,
+	    ConfigPipHeight ? (ConfigPipHeight * height) / 100 : height);
+    }
 }
 
 #endif
@@ -1759,6 +1823,9 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 #ifdef USE_PIP
 	case osUser2:
 	    NewPip();
+	    return osEnd;
+	case osUser7:
+	    SwapPipPosition();
 	    return osEnd;
 	case osUser8:
 	    DelPip();
@@ -2709,7 +2776,72 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	ConfigAudioBufferTime = atoi(value);
 	return true;
     }
-
+#ifdef USE_PIP
+    if (!strcasecmp(name, "pip.X")) {
+	ConfigPipX = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Y")) {
+	ConfigPipY = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Width")) {
+	ConfigPipWidth = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Height")) {
+	ConfigPipHeight = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.VideoX")) {
+	ConfigPipVideoX = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.VideoY")) {
+	ConfigPipVideoY = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.VideoWidth")) {
+	ConfigPipVideoWidth = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.VideoHeight")) {
+	ConfigPipVideoHeight = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.X")) {
+	ConfigPipAltX = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.Y")) {
+	ConfigPipAltY = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.Width")) {
+	ConfigPipAltWidth = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.Height")) {
+	ConfigPipAltHeight = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.VideoX")) {
+	ConfigPipAltVideoX = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.VideoY")) {
+	ConfigPipAltVideoY = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.VideoWidth")) {
+	ConfigPipAltVideoWidth = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "pip.Alt.VideoHeight")) {
+	ConfigPipAltVideoHeight = atoi(value);
+	return true;
+    }
+#endif
     return false;
 }
 

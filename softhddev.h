@@ -98,6 +98,8 @@ extern "C"
     /// C plugin scale video
     extern void ScaleVideo(int, int, int, int);
 
+    /// Set Pip position
+    extern void PipSetPosition(int, int, int, int, int, int, int, int);
     /// Pip start
     extern void PipStart(int, int, int, int, int, int, int, int);
     /// Pip stop

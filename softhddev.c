@@ -2917,6 +2917,33 @@ void ScaleVideo(int x, int y, int width, int height)
 #ifdef USE_PIP
 
 /**
+**	Set PIP position.
+**
+**	@param x		video window x coordinate OSD relative
+**	@param y		video window y coordinate OSD relative
+**	@param width		video window width OSD relative
+**	@param height		video window height OSD relative
+**	@param pip_x		pip window x coordinate OSD relative
+**	@param pip_y		pip window y coordinate OSD relative
+**	@param pip_width	pip window width OSD relative
+**	@param pip_height	pip window height OSD relative
+*/
+void PipSetPosition(int x, int y, int width, int height, int pip_x, int pip_y,
+    int pip_width, int pip_height)
+{
+    if (!MyVideoStream->HwDecoder) {	// video not running
+	return;
+    }
+    ScaleVideo(x, y, width, height);
+
+    if (!PipVideoStream->HwDecoder) {	// pip not running
+	return;
+    }
+    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y,
+	pip_width, pip_height);
+}
+
+/**
 **	Start PIP stream.
 **
 **	@param x		video window x coordinate OSD relative
@@ -2935,8 +2962,6 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 	return;
     }
 
-    ScaleVideo(x, y, width, height);
-
     if (!PipVideoStream->Decoder) {
 	PipVideoStream->SkipStream = 1;
 	if ((PipVideoStream->HwDecoder = VideoNewHwDecoder(PipVideoStream))) {
@@ -2948,10 +2973,9 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 	    PipVideoStream->LastCodecID = CODEC_ID_NONE;
 
 	    VideoPacketInit(PipVideoStream);
-	    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y,
-		pip_width, pip_height);
 	}
     }
+    PipSetPosition(x, y, width, height, pip_x, pip_y, pip_width, pip_height);
 }
 
 /**
