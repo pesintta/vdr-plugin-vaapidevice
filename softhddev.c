@@ -1269,6 +1269,10 @@ struct __video_stream__
 
 static VideoStream MyVideoStream[1];	///< normal video stream
 
+#ifdef USE_PIP
+static VideoStream PipVideoStream[1];	///< pip video stream
+#endif
+
 #ifdef DEBUG
 uint32_t VideoSwitch;			///< debug video switch ticks
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -1676,6 +1680,7 @@ static void StartVideo(void)
 	}
 	MyVideoStream->CodecID = CODEC_ID_NONE;
 	MyVideoStream->LastCodecID = CODEC_ID_NONE;
+
     }
     VideoPacketInit(MyVideoStream);
 }
@@ -1895,7 +1900,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	    Debug(3, "video: mpeg2 detected ID %02x\n", check[3]);
 	    stream->CodecID = CODEC_ID_MPEG2VIDEO;
 	}
-#ifdef DEBUG
+#ifdef noDEBUG				// pip pes packet has no lenght
 	if (ValidateMpeg(data, size)) {
 	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
 	}
@@ -1922,26 +1927,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     }
 
     return size;
-}
-
-/**
-**	Play video packet.
-**
-**	@param data	data of exactly one complete PES packet
-**	@param size	size of PES packet
-**
-**	@return number of bytes used, 0 if internal buffer are full.
-**
-*/
-int PlayVideo2(const uint8_t * data, int size)
-{
-    static VideoStream *stream;
-
-    if (!stream) {			// test hack v1
-	stream = MyVideoStream;
-    }
-
-    return PlayVideo3(stream, data, size);
 }
 
 /**
@@ -2924,3 +2909,82 @@ void ScaleVideo(int x, int y, int width, int height)
 	VideoSetOutputPosition(MyVideoStream->HwDecoder, x, y, width, height);
     }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+//	PIP
+//////////////////////////////////////////////////////////////////////////////
+
+#ifdef USE_PIP
+
+/**
+**	Start PIP stream.
+**
+**	@param x		video window x coordinate OSD relative
+**	@param y		video window y coordinate OSD relative
+**	@param width		video window width OSD relative
+**	@param height		video window height OSD relative
+**	@param pip_x		pip window x coordinate OSD relative
+**	@param pip_y		pip window y coordinate OSD relative
+**	@param pip_width	pip window width OSD relative
+**	@param pip_height	pip window height OSD relative
+*/
+void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
+    int pip_width, int pip_height)
+{
+    if (!MyVideoStream->HwDecoder) {	// video not running
+	return;
+    }
+
+    ScaleVideo(x, y, width, height);
+
+    if (!PipVideoStream->Decoder) {
+	PipVideoStream->SkipStream = 1;
+	if ((PipVideoStream->HwDecoder = VideoNewHwDecoder(PipVideoStream))) {
+	    PipVideoStream->Decoder =
+		CodecVideoNewDecoder(PipVideoStream->HwDecoder);
+	    PipVideoStream->SkipStream = 0;
+
+	    PipVideoStream->CodecID = CODEC_ID_NONE;
+	    PipVideoStream->LastCodecID = CODEC_ID_NONE;
+
+	    VideoPacketInit(PipVideoStream);
+	    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y,
+		pip_width, pip_height);
+	}
+    }
+}
+
+/**
+**	Stop PIP.
+*/
+void PipStop(void)
+{
+    if (PipVideoStream->Decoder) {
+	PipVideoStream->SkipStream = 1;
+	CodecVideoClose(PipVideoStream->Decoder);
+	CodecVideoDelDecoder(PipVideoStream->Decoder);
+	PipVideoStream->Decoder = NULL;
+    }
+    if (PipVideoStream->HwDecoder) {
+	VideoDelHwDecoder(PipVideoStream->HwDecoder);
+	PipVideoStream->HwDecoder = NULL;
+    }
+    VideoPacketExit(PipVideoStream);
+
+    PipVideoStream->NewStream = 1;
+}
+
+/**
+**	PIP play video packet.
+**
+**	@param data	data of exactly one complete PES packet
+**	@param size	size of PES packet
+**
+**	@return number of bytes used, 0 if internal buffer are full.
+*/
+int PipPlayVideo(const uint8_t * data, int size)
+{
+    return PlayVideo3(PipVideoStream, data, size);
+}
+
+#endif

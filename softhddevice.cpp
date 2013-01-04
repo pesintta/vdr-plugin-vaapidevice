@@ -140,6 +140,25 @@ static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
 static char *ConfigAC3Device;		///< config audio passthrough device
 
+#ifdef USE_PIP
+static int ConfigPipX;			///< config pip pip x in %
+static int ConfigPipY;			///< config pip pip y in %
+static int ConfigPipWidth;		///< config pip pip width in %
+static int ConfigPipHeight;		///< config pip pip height in %
+static int ConfigPipVideoX;		///< config pip video x in %
+static int ConfigPipVideoY;		///< config pip video y in %
+static int ConfigPipVideoWidth;		///< config pip video width in %
+static int ConfigPipVideoHeight;	///< config pip video height in %
+static int ConfigPipAltX;		///< config pip alt. pip x in %
+static int ConfigPipAltY;		///< config pip alt. pip y in %
+static int ConfigPipAltWidth;		///< config pip alt. pip width in %
+static int ConfigPipAltHeight;		///< config pip alt. pip height in %
+static int ConfigPipAltVideoX;		///< config pip alt. video x in %
+static int ConfigPipAltVideoY;		///< config pip alt. video y in %
+static int ConfigPipAltVideoWidth;	///< config pip alt. video width in %
+static int ConfigPipAltVideoHeight;	///< config pip alt. video height in %
+#endif
+
 static volatile int DoMakePrimary;	///< switch primary device to this
 
 #define SUSPEND_EXTERNAL	-1	///< play external suspend mode
@@ -605,6 +624,27 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioMaxCompression;
     int AudioStereoDescent;
     int AudioBufferTime;
+
+#ifdef USE_PIP
+    int Pip;
+    int PipX;
+    int PipY;
+    int PipWidth;
+    int PipHeight;
+    int PipVideoX;
+    int PipVideoY;
+    int PipVideoWidth;
+    int PipVideoHeight;
+    int PipAltX;
+    int PipAltY;
+    int PipAltWidth;
+    int PipAltHeight;
+    int PipAltVideoX;
+    int PipAltVideoY;
+    int PipAltVideoWidth;
+    int PipAltVideoHeight;
+#endif
+
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
@@ -823,6 +863,41 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"),
 		&AudioBufferTime, 0, 1000));
     }
+#ifdef USE_PIP
+    //
+    //	PIP
+    //
+    Add(CollapsedItem(tr("Picture-In-Picture"), Pip));
+    if (Pip) {
+	// FIXME: predefined modes/custom mode
+	Add(new cMenuEditIntItem(tr("Pip X (%)"), &PipX, 0, 100));
+	Add(new cMenuEditIntItem(tr("Pip Y (%)"), &PipY, 0, 100));
+	Add(new cMenuEditIntItem(tr("Pip Width (%)"), &PipWidth, 0, 100));
+	Add(new cMenuEditIntItem(tr("Pip Height (%)"), &PipHeight, 0, 100));
+	Add(new cMenuEditIntItem(tr("Video X (%)"), &PipVideoX, 0, 100));
+	Add(new cMenuEditIntItem(tr("Video Y (%)"), &PipVideoY, 0, 100));
+	Add(new cMenuEditIntItem(tr("Video Width (%)"), &PipVideoWidth, 0,
+		100));
+	Add(new cMenuEditIntItem(tr("Video Height (%)"), &PipVideoHeight, 0,
+		100));
+	Add(new cMenuEditIntItem(tr("Alternative Pip X (%)"), &PipAltX, 0,
+		100));
+	Add(new cMenuEditIntItem(tr("Alternative Pip Y (%)"), &PipAltY, 0,
+		100));
+	Add(new cMenuEditIntItem(tr("Alternative Pip Width (%)"), &PipAltWidth,
+		0, 100));
+	Add(new cMenuEditIntItem(tr("Alternative Pip Height (%)"),
+		&PipAltHeight, 0, 100));
+	Add(new cMenuEditIntItem(tr("Alternative Video X (%)"), &PipAltVideoX,
+		0, 100));
+	Add(new cMenuEditIntItem(tr("Alternative Video Y (%)"), &PipAltVideoY,
+		0, 100));
+	Add(new cMenuEditIntItem(tr("Alternative Video Width (%)"),
+		&PipAltVideoWidth, 0, 100));
+	Add(new cMenuEditIntItem(tr("Alternative Video Height (%)"),
+		&PipAltVideoHeight, 0, 100));
+    }
+#endif
 
     SetCurrent(Get(current));		// restore selected menu entry
     Display();				// display build menu
@@ -837,6 +912,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_general;
     int old_video;
     int old_audio;
+    int old_pip;
     int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
     int i;
@@ -844,6 +920,9 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_general = General;
     old_video = Video;
     old_audio = Audio;
+#ifdef USE_PIP
+    old_pip = Pip;
+#endif
     old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     state = cMenuSetupPage::ProcessKey(key);
@@ -852,6 +931,9 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
 	if (old_general != General || old_video != Video || old_audio != Audio
+#ifdef USE_PIP
+	    || old_pip != Pip
+#endif
 	    || old_osd_size != OsdSize) {
 	    Create();			// update menu
 	} else {
@@ -956,6 +1038,28 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioStereoDescent = ConfigAudioStereoDescent;
     AudioBufferTime = ConfigAudioBufferTime;
 
+#ifdef USE_PIP
+    //
+    //	PIP
+    //
+    Pip = 0;
+    PipX = ConfigPipX;
+    PipY = ConfigPipY;
+    PipWidth = ConfigPipWidth;
+    PipHeight = ConfigPipHeight;
+    PipVideoX = ConfigPipVideoX;
+    PipVideoY = ConfigPipVideoY;
+    PipVideoWidth = ConfigPipVideoWidth;
+    PipVideoHeight = ConfigPipVideoHeight;
+    PipAltX = ConfigPipAltX;
+    PipAltY = ConfigPipAltY;
+    PipAltWidth = ConfigPipAltWidth;
+    PipAltHeight = ConfigPipAltHeight;
+    PipAltVideoX = ConfigPipAltVideoX;
+    PipAltVideoY = ConfigPipAltVideoY;
+    PipAltVideoWidth = ConfigPipAltVideoWidth;
+    PipAltVideoHeight = ConfigPipAltVideoHeight;
+#endif
     Create();
 }
 
@@ -1085,6 +1189,27 @@ void cMenuSetupSoft::Store(void)
 	AudioStereoDescent);
     AudioSetStereoDescent(ConfigAudioStereoDescent);
     SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime);
+
+#ifdef USE_PIP
+    SetupStore("pip.X", ConfigPipX = PipX);
+    SetupStore("pip.Y", ConfigPipY = PipY);
+    SetupStore("pip.Width", ConfigPipWidth = PipWidth);
+    SetupStore("pip.Height", ConfigPipHeight = PipHeight);
+    SetupStore("pip.VideoX", ConfigPipVideoX = PipVideoX);
+    SetupStore("pip.VideoY", ConfigPipVideoY = PipVideoY);
+    SetupStore("pip.VideoWidth", ConfigPipVideoWidth = PipVideoWidth);
+    SetupStore("pip.VideoHeight", ConfigPipVideoHeight = PipVideoHeight);
+    SetupStore("pip.Alt.X", ConfigPipAltX = PipAltX);
+    SetupStore("pip.Alt.Y", ConfigPipAltY = PipAltY);
+    SetupStore("pip.Alt.Width", ConfigPipAltWidth = PipAltWidth);
+    SetupStore("pip.Alt.Height", ConfigPipAltHeight = PipAltHeight);
+    SetupStore("pip.Alt.VideoX", ConfigPipAltVideoX = PipAltVideoX);
+    SetupStore("pip.Alt.VideoY", ConfigPipAltVideoY = PipAltVideoY);
+    SetupStore("pip.Alt.VideoWidth", ConfigPipAltVideoWidth =
+	PipAltVideoWidth);
+    SetupStore("pip.Alt.VideoHeight", ConfigPipAltVideoHeight =
+	PipAltVideoHeight);
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1184,8 +1309,6 @@ cSoftHdControl::~cSoftHdControl()
 
 #ifdef USE_PIP
 
-static int OsdPipTest;			///< OSD pip test flag
-
 //////////////////////////////////////////////////////////////////////////////
 //	cReceiver
 //////////////////////////////////////////////////////////////////////////////
@@ -1210,7 +1333,8 @@ class cSoftReceiver:public cReceiver
 **
 **	@param channel	channel to receive.
 */
-cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel)
+cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel,
+    LIVEPRIORITY)
 {
     fprintf(stderr, "pip: v-pid: %04x\n", channel->Vpid());
     SetPids(NULL);			// clear all pids, we want video only
@@ -1222,6 +1346,7 @@ cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel)
 */
 cSoftReceiver::~cSoftReceiver()
 {
+    Detach();
 }
 
 /**
@@ -1233,7 +1358,11 @@ void cSoftReceiver::Activate(bool on)
 {
     fprintf(stderr, "pip: activate %d\n", on);
 
-    OsdPipTest = on;
+    if (on) {
+	PipStart(0, 0, 0, 0, 50, 50, 355, 200);
+    } else {
+	PipStop();
+    }
 }
 
 ///
@@ -1258,12 +1387,15 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     }
     if (is_start) {			// start of pes packet
 	if (pes_index) {
-	    fprintf(stderr, "pip: pes packet %8d %02x%02x\n", pes_index,
-		pes_buf[2], pes_buf[3]);
+	    if (0) {
+		fprintf(stderr, "pip: pes packet %8d %02x%02x\n", pes_index,
+		    pes_buf[2], pes_buf[3]);
+	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
-		fprintf(stderr, "pip: invalid pes packet %d\n", pes_index);
+		// FIXME: first should always fail
+		esyslog(tr("pip: invalid pes packet %d\n"), pes_index);
 	    } else {
-		PlayVideo2(pes_buf, pes_index);
+		PipPlayVideo(pes_buf, pes_index);
 		// FIXME: buffer full: pes packet is dropped
 	    }
 	    pes_index = 0;
@@ -1292,13 +1424,7 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 */
 void cSoftReceiver::Receive(uchar * data, int size)
 {
-    static int x;
     const uint8_t *p;
-
-    if (!x) {
-	fprintf(stderr, "pip: receive %p(%d)\n", data, size);
-	x++;
-    }
 
     p = data;
     while (size >= TS_PACKET_SIZE) {
@@ -1409,7 +1535,13 @@ void cSoftHdMenu::Create(void)
     SetHasHotkeys();
     Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
 #ifdef USE_PIP
-    Add(new cOsdItem(hk(tr("PIP")), osUser2));
+    Add(new cOsdItem(hk(tr("PIP start")), osUser2));
+    Add(new cOsdItem(hk(tr("PIP zapmode")), osUser3));
+    Add(new cOsdItem(hk(tr("PIP channel +")), osUser4));
+    Add(new cOsdItem(hk(tr("PIP channel -")), osUser5));
+    Add(new cOsdItem(hk(tr("PIP swap channels")), osUser6));
+    Add(new cOsdItem(hk(tr("PIP swap position")), osUser7));
+    Add(new cOsdItem(hk(tr("PIP close")), osUser8));
 #endif
     Add(new cOsdItem(NULL, osUnknown, false));
     Add(new cOsdItem(NULL, osUnknown, false));
@@ -2030,12 +2162,6 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 {
     //dsyslog("[softhddev]%s: %p %d\n", __FUNCTION__, data, length);
-#ifdef USE_PIP
-    if (OsdPipTest) {
-	return length;
-    }
-#endif
-
     return::PlayVideo(data, length);
 }
 

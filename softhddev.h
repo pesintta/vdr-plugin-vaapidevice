@@ -44,8 +44,6 @@ extern "C"
 
     /// C plugin play video packet
     extern int PlayVideo(const uint8_t *, int);
-    /// C plugin play video packet (next version)
-    extern int PlayVideo2(const uint8_t *, int);
     /// C plugin play TS video packet
     extern void PlayTsVideo(const uint8_t *, int);
     /// C plugin grab an image
@@ -99,6 +97,13 @@ extern "C"
     extern void GetStats(int *, int *, int *, int *);
     /// C plugin scale video
     extern void ScaleVideo(int, int, int, int);
+
+    /// Pip start
+    extern void PipStart(int, int, int, int, int, int, int, int);
+    /// Pip stop
+    extern void PipStop(void);
+    /// Pip play video packet
+    extern int PipPlayVideo(const uint8_t *, int);
 #ifdef __cplusplus
 }
 #endif
