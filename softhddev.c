@@ -2939,8 +2939,8 @@ void PipSetPosition(int x, int y, int width, int height, int pip_x, int pip_y,
     if (!PipVideoStream->HwDecoder) {	// pip not running
 	return;
     }
-    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y,
-	pip_width, pip_height);
+    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y, pip_width,
+	pip_height);
 }
 
 /**
@@ -2983,6 +2983,10 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 */
 void PipStop(void)
 {
+    if (!MyVideoStream->HwDecoder) {	// video not running
+	return;
+    }
+
     if (PipVideoStream->Decoder) {
 	PipVideoStream->SkipStream = 1;
 	CodecVideoClose(PipVideoStream->Decoder);
@@ -2996,6 +3000,8 @@ void PipStop(void)
     VideoPacketExit(PipVideoStream);
 
     PipVideoStream->NewStream = 1;
+
+    ScaleVideo(0, 0, 0, 0);
 }
 
 /**
