@@ -20,7 +20,7 @@ GIT_REV = $(shell git describe --always 2>/dev/null)
 
 CONFIG := #-DDEBUG #-DOSD_DEBUG
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# debug a/v sync
-#CONFIG += -DUSE_PIP			# too experimental PIP support
+CONFIG += -DUSE_PIP			# too experimental PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
@@ -35,8 +35,8 @@ CC	 ?= gcc
 CXX	 ?= g++
 CFLAGS	 ?=	-g -O2 -W -Wall -Wextra -Winit-self \
 		-Wdeclaration-after-statement \
-		-ftree-vectorize -msse3 -flax-vector-conversions #-fPIC
-CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Werror=overloaded-virtual #-fPIC
+		-ftree-vectorize -msse3 -flax-vector-conversions -fPIC
+CXXFLAGS ?= -g -O2 -W -Wall -Wextra -Werror=overloaded-virtual -fPIC
 
 ### The directory environment:
 
@@ -172,8 +172,10 @@ install:	libvdr-$(PLUGIN).so
 HDRS=	$(wildcard *.h)
 
 indent:
-	for i in $(wildcard $(OBJS:.o=.c)) $(HDRS); do \
-		indent $$i; unexpand -a $$i > $$i.up; mv $$i.up $$i; \
+	for i in $(SRCS) $(HDRS); do \
+		indent $$i; \
+		unexpand -a $$i | sed -e s/constconst/const/ > $$i.up; \
+		mv $$i.up $$i; \
 	done
 
 video_test: video.c Makefile
