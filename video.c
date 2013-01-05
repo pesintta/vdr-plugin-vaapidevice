@@ -8231,6 +8231,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
+	fprintf(stderr, "video/vdpau: must be removed\n");
 	pthread_mutex_unlock(&VideoLockMutex);
 
 	abstime = decoder->FrameTime;
@@ -8378,6 +8379,7 @@ static void VdpauDisplayHandlerThread(void)
     }
 
     decoded = 0;
+    pthread_mutex_lock(&VideoLockMutex);
     for (i = 0; i < VdpauDecoderN; ++i) {
 	int filled;
 
@@ -8389,10 +8391,8 @@ static void VdpauDisplayHandlerThread(void)
 	filled = atomic_read(&decoder->SurfacesFilled);
 	if (filled < VIDEO_SURFACES_MAX) {
 	    // FIXME: hot polling
-	    pthread_mutex_lock(&VideoLockMutex);
 	    // fetch+decode or reopen
 	    err = VideoDecodeInput(decoder->Stream);
-	    pthread_mutex_unlock(&VideoLockMutex);
 	} else {
 	    err = VideoPollInput(decoder->Stream);
 	}
@@ -8409,6 +8409,7 @@ static void VdpauDisplayHandlerThread(void)
 	}
 	decoded = 1;
     }
+    pthread_mutex_unlock(&VideoLockMutex);
 
     if (!decoded) {			// nothing decoded, sleep
 	// FIXME: sleep on wakeup
@@ -9459,7 +9460,13 @@ struct _video_hw_decoder_
 ///
 VideoHwDecoder *VideoNewHwDecoder(VideoStream * stream)
 {
-    return VideoUsedModule->NewHwDecoder(stream);
+    VideoHwDecoder *hw;
+
+    VideoThreadLock();
+    hw = VideoUsedModule->NewHwDecoder(stream);
+    VideoThreadUnlock();
+
+    return hw;
 }
 
 ///
@@ -9470,7 +9477,9 @@ VideoHwDecoder *VideoNewHwDecoder(VideoStream * stream)
 void VideoDelHwDecoder(VideoHwDecoder * hw_decoder)
 {
     if (hw_decoder) {
+	VideoThreadLock();
 	VideoUsedModule->DelHwDecoder(hw_decoder);
+	VideoThreadUnlock();
     }
 }
 

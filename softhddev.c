@@ -1518,6 +1518,11 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 */
 int VideoPollInput(VideoStream * stream)
 {
+    if (!stream->Decoder) {		// closing
+	fprintf(stderr, "no decoder\n");
+	return -1;
+    }
+
     if (stream->ClearBuffers) {
 	atomic_set(&stream->PacketsFilled, 0);
 	stream->PacketRead = stream->PacketWrite;
@@ -1548,6 +1553,11 @@ int VideoDecodeInput(VideoStream * stream)
     int filled;
     AVPacket *avpkt;
     int saved_size;
+
+    if (!stream->Decoder) {		// closing
+	fprintf(stderr, "no decoder\n");
+	return -1;
+    }
 
     if (stream->ClearBuffers) {		// clear buffer request
 	atomic_set(&stream->PacketsFilled, 0);
@@ -2987,15 +2997,16 @@ void PipStop(void)
 	return;
     }
 
+    if (PipVideoStream->HwDecoder) {
+	VideoDelHwDecoder(PipVideoStream->HwDecoder);
+	PipVideoStream->HwDecoder = NULL;
+	// FIXME: does CodecVideoClose call hw decoder?
+    }
     if (PipVideoStream->Decoder) {
 	PipVideoStream->SkipStream = 1;
 	CodecVideoClose(PipVideoStream->Decoder);
 	CodecVideoDelDecoder(PipVideoStream->Decoder);
 	PipVideoStream->Decoder = NULL;
-    }
-    if (PipVideoStream->HwDecoder) {
-	VideoDelHwDecoder(PipVideoStream->HwDecoder);
-	PipVideoStream->HwDecoder = NULL;
     }
     VideoPacketExit(PipVideoStream);
 
