@@ -1505,6 +1505,7 @@ void cSoftReceiver::Receive(uchar * data, int size)
 //////////////////////////////////////////////////////////////////////////////
 
 static cSoftReceiver *PipReceiver;	///< PIP receiver
+static const cChannel *PipChannel;	///< current PIP channel
 
 /**
 **	Prepare new PIP.
@@ -1530,6 +1531,7 @@ static void NewPip(void)
 	device->AttachReceiver(receiver);
 	fprintf(stderr, "pip: attached\n");
 	PipReceiver = receiver;
+	PipChannel = channel;
     }
 }
 
@@ -1539,9 +1541,72 @@ static void NewPip(void)
 static void DelPip(void)
 {
     fprintf(stderr, "pip: stopped\n");
+
     delete PipReceiver;
 
     PipReceiver = NULL;
+    PipChannel = NULL;
+}
+
+/**
+**	Switch PIP to next available channel.
+**
+**	@param direction	direction of channel switch
+*/
+static void PipNextAvailableChannel(int direction)
+{
+    const cChannel *channel;
+
+    channel = PipChannel;
+    while (channel) {
+	channel = direction > 0 ? Channels.Next(channel)
+	    : Channels.Prev(channel);
+	if (!channel && Setup.ChannelsWrap) {
+	    channel = direction > 0 ? Channels.First() : Channels.Last();
+	}
+	if (channel && !channel->GroupSep()
+	    && cDevice::GetDevice(channel, 1, false, true)) {
+	    cDevice *device;
+	    cSoftReceiver *receiver;
+
+	    DelPip();
+
+	    if ((device = cDevice::GetDevice(channel, 1, false))) {
+		fprintf(stderr, "pip: %p %p\n", channel, device);
+
+		delete PipReceiver;
+
+		PipReceiver = NULL;
+
+		device->SwitchChannel(channel, false);
+		receiver = new cSoftReceiver(channel);
+		device->AttachReceiver(receiver);
+		fprintf(stderr, "pip: attached\n");
+		PipReceiver = receiver;
+		PipChannel = channel;
+	    }
+	    return;
+	}
+    }
+}
+
+/**
+**	Swap PIP channels.
+*/
+static void SwapPipChannels(void)
+{
+    const cChannel *channel;
+
+    fprintf(stderr, "pip: switch channel\n");
+
+    channel = PipChannel;
+
+    DelPip();
+    NewPip();
+
+    if (channel) {
+	Channels.SwitchTo(channel->Number());
+    }
 }
 
 /**
@@ -1823,6 +1888,15 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 #ifdef USE_PIP
 	case osUser2:
 	    NewPip();
+	    return osEnd;
+	case osUser4:
+	    PipNextAvailableChannel(-1);
+	    return osEnd;
+	case osUser5:
+	    PipNextAvailableChannel(1);
+	    return osEnd;
+	case osUser6:
+	    SwapPipChannels();
 	    return osEnd;
 	case osUser7:
 	    SwapPipPosition();
