@@ -5990,16 +5990,19 @@ static void VdpauDelHwDecoder(VdpauDecoder * decoder)
     for (i = 0; i < VdpauDecoderN; ++i) {
 	if (VdpauDecoders[i] == decoder) {
 	    VdpauDecoders[i] = NULL;
-	    VdpauDecoderN--;
-	    // FIXME: must copy last slot into empty slot and --
-	    break;
+	    // copy last slot into empty slot
+	    if (i < --VdpauDecoderN) {
+		VdpauDecoders[i] = VdpauDecoders[VdpauDecoderN];
+	    }
+
+	    VdpauCleanup(decoder);
+	    VdpauPrintFrames(decoder);
+	    free(decoder);
+
+	    return;
 	}
     }
-
-    VdpauCleanup(decoder);
-    VdpauPrintFrames(decoder);
-
-    free(decoder);
+    Error(_("video/vdpau: decoder not in decoder list.\n"));
 }
 
 ///
@@ -7652,8 +7655,9 @@ static void VdpauMixOsd(void)
 ///	Render video surface to output surface.
 ///
 ///	@param decoder	VDPAU hw decoder
+///	@param level	video surface level 0 = bottom
 ///
-static void VdpauMixVideo(VdpauDecoder * decoder)
+static void VdpauMixVideo(VdpauDecoder * decoder, int level)
 {
     VdpVideoSurface current;
     VdpRect video_src_rect;
@@ -7666,10 +7670,17 @@ static void VdpauMixVideo(VdpauDecoder * decoder)
     VdpauCheckAutoCrop(decoder);
 #endif
 
-    dst_rect.x0 = decoder->VideoX;	// window output (clip)
-    dst_rect.y0 = decoder->VideoY;
-    dst_rect.x1 = decoder->VideoX + decoder->VideoWidth;
-    dst_rect.y1 = decoder->VideoY + decoder->VideoHeight;
+    if (level) {
+	dst_rect.x0 = decoder->VideoX;	// video window output (clip)
+	dst_rect.y0 = decoder->VideoY;
+	dst_rect.x1 = decoder->VideoX + decoder->VideoWidth;
+	dst_rect.y1 = decoder->VideoY + decoder->VideoHeight;
+    } else {
+	dst_rect.x0 = 0;		// complete window (clip)
+	dst_rect.y0 = 0;
+	dst_rect.x1 = VideoWindowWidth;
+	dst_rect.y1 = VideoWindowHeight;
+    }
 
     video_src_rect.x0 = decoder->CropX;	// video source (crop)
     video_src_rect.y0 = decoder->CropY;
@@ -7813,6 +7824,7 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
     source_rect.x1 = 0;
     source_rect.y1 = 0;
 
+    // FIXME: what happens with PIP?
     if (0) {
 	// FIXME: wrong for radio channels
 	output_rect.x0 = decoder->OutputX;	// video output (scale)
@@ -7938,7 +7950,7 @@ static void VdpauDisplayFrame(void)
 	    continue;
 	}
 
-	VdpauMixVideo(decoder);
+	VdpauMixVideo(decoder, i);
     }
 
     //
