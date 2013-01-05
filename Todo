@@ -54,6 +54,7 @@ libva:
     [drm:i915_hangcheck_elapsed] *ERROR* Hangcheck timer elapsed... GPU hung
     [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
     missing OSD support for 3d SBS / Top-Bottom streams, like VPDAU.
+    PIP support
 
 libva: branch vaapi-ext / staging
     add support for vaapi-ext / staging
@@ -110,8 +111,6 @@ plugins:
 setup:
     Setup of decoder type.
     Setup of output type.
-    Setup of display type.
-    Setup 4:3 zoom type
     Some setup parameters are not used until restart.
 	Can a notice be added to the setup menu?
 
@@ -126,7 +125,6 @@ future features (not planed for 1.0 - 1.5)
     video out with xvba
     software decoder for xv / opengl
     multistream handling
-    pip support
     save and use auto-crop with channel zapping
 
     upmix stereo to AC-3 (supported by alsa plugin)

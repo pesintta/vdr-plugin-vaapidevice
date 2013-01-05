@@ -27,13 +27,14 @@ A software and GPU emulated HD output device plugin for VDR.
     o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
     o Software volume, compression, normalize and channel resample
-    o YaepgHD support
+    o YaepgHD support / new >1.7.33 VDR ScaleVideo API support
     o Software deinterlacer Bob (VA-API only)
     o Autocrop
     o Grab image (VDPAU only)
-    o Suspend
+    o Suspend / Dettach
     o Letterbox, Stretch and Center cut-out video display modes
     o atmo light support with plugin http://github.com/durchflieger/DFAtmo
+    o PIP (Picture-in-Picture) (VDPAU only)
 
     o planned: Video decoder VA-API Branch: vaapi-ext/staging
     o planned: Video output XvBA / Opengl / Xv
@@ -228,10 +229,40 @@ Setup: /etc/vdr/setup.conf
 	0 disable black picture during channel switch
 	1 enable black picture during channel switch
 
-	VideoDisplayFormat = ?
+	softhddevice.Video4to3DisplayFormat = 1
 	0 pan and scan
 	1 letter box
 	2 center cut-out
+
+	softhddevice.VideoOtherDisplayFormat = 1
+	0 pan and scan
+	1 pillar box
+	2 center cut-out
+
+	softhddevice.pip.X = 79
+	softhddevice.pip.Y = 78
+	softhddevice.pip.Width = 18
+	softhddevice.pip.Height = 18
+	PIP pip window position and size in percent.
+
+	softhddevice.pip.VideoX = 0
+	softhddevice.pip.VideoY = 0
+	softhddevice.pip.VideoWidth = 0
+	softhddevice.pip.VideoHeight = 0
+	PIP video window position and size in percent.
+
+	softhddevice.pip.Alt.X = 0
+	softhddevice.pip.Alt.Y = 50
+	softhddevice.pip.Alt.Width = 0
+	softhddevice.pip.Alt.Height = 50
+	PIP alternative pip window position and size in percent.
+
+	softhddevice.pip.Alt.VideoX = 0
+	softhddevice.pip.Alt.VideoY = 0
+	softhddevice.pip.Alt.VideoWidth = 0
+	softhddevice.pip.Alt.VideoHeight = 50
+	PIP alternative video window position and size in percent.
+
 
 Setup: /etc/vdr/remote.conf
 ------
