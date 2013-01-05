@@ -1542,7 +1542,7 @@ static void NewPip(int channel_nr)
 /**
 **	Stop PIP.
 */
-static void DelPip(void)
+extern "C" void DelPip(void)
 {
     fprintf(stderr, "pip: stopped\n");
 

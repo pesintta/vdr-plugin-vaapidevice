@@ -2810,6 +2810,9 @@ void MainThreadHook(void)
 //	Suspend/Resume
 //////////////////////////////////////////////////////////////////////////////
 
+    /// call VDR support function
+extern void DelPip(void);
+
 /**
 **	Suspend plugin.
 **
@@ -2826,6 +2829,8 @@ void Suspend(int video, int audio, int dox11)
     }
 
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+
+    DelPip();				// must stop PIP
 
     MyVideoStream->SkipStream = 1;
     SkipAudio = 1;

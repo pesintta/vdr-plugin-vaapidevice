@@ -6594,6 +6594,7 @@ static void VdpauExit(void)
 	    VdpauDecoders[i] = NULL;
 	}
     }
+    VdpauDecoderN = 0;
 
     if (VdpauDevice) {
 	VdpauExitOutputQueue();
