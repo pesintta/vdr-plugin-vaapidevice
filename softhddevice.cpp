@@ -1505,22 +1505,25 @@ void cSoftReceiver::Receive(uchar * data, int size)
 //////////////////////////////////////////////////////////////////////////////
 
 static cSoftReceiver *PipReceiver;	///< PIP receiver
+static int PipChannelNr;		///< last PIP channel number
 static const cChannel *PipChannel;	///< current PIP channel
 
 /**
 **	Prepare new PIP.
+**
+**	@param channel_nr	channel number
 */
-static void NewPip(void)
+static void NewPip(int channel_nr)
 {
-    int channel_nr;
     const cChannel *channel;
     cDevice *device;
     cSoftReceiver *receiver;
 
-    if ((channel_nr = cDevice::CurrentChannel())
-	&& (channel = Channels.GetByNumber(cDevice::CurrentChannel()))
+    if (!channel_nr) {
+	channel_nr = cDevice::CurrentChannel();
+    }
+    if (channel_nr && (channel = Channels.GetByNumber(channel_nr))
 	&& (device = cDevice::GetDevice(channel, 1, false))) {
-	fprintf(stderr, "pip: %d %p %p\n", channel_nr, channel, device);
 
 	delete PipReceiver;
 
@@ -1532,6 +1535,7 @@ static void NewPip(void)
 	fprintf(stderr, "pip: attached\n");
 	PipReceiver = receiver;
 	PipChannel = channel;
+	PipChannelNr = channel_nr;
     }
 }
 
@@ -1546,6 +1550,18 @@ static void DelPip(void)
 
     PipReceiver = NULL;
     PipChannel = NULL;
+}
+
+/**
+**	Toggle PIP on/off.
+*/
+static void TogglePip(void)
+{
+    if (PipReceiver) {
+	DelPip();
+    } else {
+	NewPip(PipChannelNr);
+    }
 }
 
 /**
@@ -1566,25 +1582,9 @@ static void PipNextAvailableChannel(int direction)
 	}
 	if (channel && !channel->GroupSep()
 	    && cDevice::GetDevice(channel, 1, false, true)) {
-	    cDevice *device;
-	    cSoftReceiver *receiver;
 
 	    DelPip();
-
-	    if ((device = cDevice::GetDevice(channel, 1, false))) {
-		fprintf(stderr, "pip: %p %p\n", channel, device);
-
-		delete PipReceiver;
-
-		PipReceiver = NULL;
-
-		device->SwitchChannel(channel, false);
-		receiver = new cSoftReceiver(channel);
-		device->AttachReceiver(receiver);
-		fprintf(stderr, "pip: attached\n");
-		PipReceiver = receiver;
-		PipChannel = channel;
-	    }
+	    NewPip(channel->Number());
 	    return;
 	}
     }
@@ -1602,7 +1602,7 @@ static void SwapPipChannels(void)
     channel = PipChannel;
 
     DelPip();
-    NewPip();
+    NewPip(0);
 
     if (channel) {
 	Channels.SwitchTo(channel->Number());
@@ -1681,12 +1681,24 @@ void cSoftHdMenu::Create(void)
     SetHasHotkeys();
     Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
 #ifdef USE_PIP
-    Add(new cOsdItem(hk(tr("PIP start")), osUser2));
-    Add(new cOsdItem(hk(tr("PIP zapmode")), osUser3));
+    if (PipReceiver) {
+	Add(new cOsdItem(hk(tr("PIP toggle on/off: off")), osUser2));
+    } else {
+	Add(new cOsdItem(hk(tr("PIP toggle on/off: on")), osUser2));
+    }
+    Add(new cOsdItem(hk(tr("PIP zapmode (not working)")), osUser3));
     Add(new cOsdItem(hk(tr("PIP channel +")), osUser4));
     Add(new cOsdItem(hk(tr("PIP channel -")), osUser5));
-    Add(new cOsdItem(hk(tr("PIP swap channels")), osUser6));
-    Add(new cOsdItem(hk(tr("PIP swap position")), osUser7));
+    if (PipReceiver) {
+	Add(new cOsdItem(hk(tr("PIP on/swap channels: swap")), osUser6));
+    } else {
+	Add(new cOsdItem(hk(tr("PIP on/swap channels: on")), osUser6));
+    }
+    if (PipAltPosition) {
+	Add(new cOsdItem(hk(tr("PIP swap position: normal")), osUser7));
+    } else {
+	Add(new cOsdItem(hk(tr("PIP swap position: alternative")), osUser7));
+    }
     Add(new cOsdItem(hk(tr("PIP close")), osUser8));
 #endif
     Add(new cOsdItem(NULL, osUnknown, false));
@@ -1887,13 +1899,13 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 	    return osEnd;
 #ifdef USE_PIP
 	case osUser2:
-	    NewPip();
+	    TogglePip();
 	    return osEnd;
 	case osUser4:
-	    PipNextAvailableChannel(-1);
+	    PipNextAvailableChannel(1);
 	    return osEnd;
 	case osUser5:
-	    PipNextAvailableChannel(1);
+	    PipNextAvailableChannel(-1);
 	    return osEnd;
 	case osUser6:
 	    SwapPipChannels();
