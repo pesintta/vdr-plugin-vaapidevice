@@ -766,7 +766,7 @@ void cMenuSetupSoft::Create(void)
     if (Video) {
 	Add(new cMenuEditStraItem(trVDR("4:3 video display format"),
 		&Video4to3DisplayFormat, 3, video_display_formats_4_3));
-	Add(new cMenuEditStraItem(trVDR("16:9 + other video display format"),
+	Add(new cMenuEditStraItem(trVDR("16:9+other video display format"),
 		&VideoOtherDisplayFormat, 3, video_display_formats_16_9));
 
 	// FIXME: switch config gray/color configuration
@@ -912,7 +912,9 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_general;
     int old_video;
     int old_audio;
+#ifdef USE_PIP
     int old_pip;
+#endif
     int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
     int i;
@@ -1338,7 +1340,6 @@ class cSoftReceiver:public cReceiver
 cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel,
     LIVEPRIORITY)
 {
-    fprintf(stderr, "pip: v-pid: %04x\n", channel->Vpid());
     SetPids(NULL);			// clear all pids, we want video only
     AddPid(channel->Vpid());
 }
@@ -1358,8 +1359,6 @@ cSoftReceiver::~cSoftReceiver()
 */
 void cSoftReceiver::Activate(bool on)
 {
-    fprintf(stderr, "pip: activate %d\n", on);
-
     if (on) {
 	int width;
 	int height;
@@ -1411,6 +1410,9 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     if (!pes_buf) {
 	pes_size = 500 * 1024 * 1024;
 	pes_buf = (uint8_t *) malloc(pes_size);
+	if (!pes_buf) {			// out of memory, should never happen
+	    return;
+	}
 	pes_index = 0;
     }
     if (is_start) {			// start of pes packet
@@ -1421,7 +1423,7 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
 		// FIXME: first should always fail
-		esyslog(tr("pip: invalid pes packet %d\n"), pes_index);
+		esyslog(tr("[softhddev]pip: invalid pes packet %d\n"), pes_index);
 	    } else {
 		PipPlayVideo(pes_buf, pes_index);
 		// FIXME: buffer full: pes packet is dropped
@@ -1431,9 +1433,15 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     }
 
     if (pes_index + size > pes_size) {
-	fprintf(stderr, "pip: pes buffer too small\n");
-	// FIXME: error state
-	return;
+	esyslog(tr("[softhddev]pip: pes buffer too small\n"));
+	pes_size *= 2;
+	if (pes_index + size > pes_size) {
+	    pes_size = (pes_index + size) * 2;
+	}
+	pes_buf = (uint8_t*)realloc(pes_buf, pes_size);
+	if (!pes_buf) {			// out of memory, should never happen
+	    return;
+	}
     }
     memcpy(pes_buf + pes_index, data, size);
     pes_index += size;
@@ -1459,12 +1467,12 @@ void cSoftReceiver::Receive(uchar * data, int size)
 	int payload;
 
 	if (p[0] != TS_PACKET_SYNC) {
-	    esyslog(tr("tsdemux: transport stream out of sync\n"));
+	    esyslog(tr("[softhddev]tsdemux: transport stream out of sync\n"));
 	    // FIXME: kill all buffers
 	    return;
 	}
 	if (p[1] & 0x80) {		// error indicatord
-	    dsyslog("tsdemux: transport error\n");
+	    dsyslog("[softhddev]tsdemux: transport error\n");
 	    // FIXME: kill all buffers
 	    goto next_packet;
 	}
@@ -1488,7 +1496,7 @@ void cSoftReceiver::Receive(uchar * data, int size)
 		payload = 5 + p[4];
 		// illegal length, ignore packet
 		if (payload >= TS_PACKET_SIZE) {
-		    dsyslog("tsdemux: illegal adaption field length\n");
+		    dsyslog("[softhddev]tsdemux: illegal adaption field length\n");
 		    goto next_packet;
 		}
 		break;
@@ -1532,7 +1540,6 @@ static void NewPip(int channel_nr)
 	device->SwitchChannel(channel, false);
 	receiver = new cSoftReceiver(channel);
 	device->AttachReceiver(receiver);
-	fprintf(stderr, "pip: attached\n");
 	PipReceiver = receiver;
 	PipChannel = channel;
 	PipChannelNr = channel_nr;
@@ -1544,8 +1551,6 @@ static void NewPip(int channel_nr)
 */
 extern "C" void DelPip(void)
 {
-    fprintf(stderr, "pip: stopped\n");
-
     delete PipReceiver;
 
     PipReceiver = NULL;
@@ -1596,8 +1601,6 @@ static void PipNextAvailableChannel(int direction)
 static void SwapPipChannels(void)
 {
     const cChannel *channel;
-
-    fprintf(stderr, "pip: switch channel\n");
 
     channel = PipChannel;
 
