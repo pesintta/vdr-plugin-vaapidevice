@@ -2830,7 +2830,9 @@ void Suspend(int video, int audio, int dox11)
 
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
+#ifdef USE_PIP
     DelPip();				// must stop PIP
+#endif
 
     MyVideoStream->SkipStream = 1;
     SkipAudio = 1;
