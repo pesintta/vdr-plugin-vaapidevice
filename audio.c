@@ -2851,13 +2851,16 @@ void AudioInit(void)
 */
 void AudioExit(void)
 {
+     const AudioModule * module;
+
 #ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
 	AudioExitThread();
     }
 #endif
-    AudioUsedModule->Exit();
+    module = AudioUsedModule;
     AudioUsedModule = &NoopModule;
+    module->Exit();
     AudioRingExit();
     AudioRunning = 0;
     AudioPaused = 0;
