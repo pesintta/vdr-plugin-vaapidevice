@@ -507,9 +507,11 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
+#ifdef DEBUG
     fprintf(stderr, "ratio: %d:%d %d:%d\n", input_aspect_ratio.num,
 	input_aspect_ratio.den, display_aspect_ratio.num,
 	display_aspect_ratio.den);
+#endif
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	switch (Video4to3ZoomMode) {
 	    case VideoNormal:
@@ -8232,7 +8234,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
+#ifdef DEBUG
 	fprintf(stderr, "video/vdpau: must be removed\n");
+#endif
 	pthread_mutex_unlock(&VideoLockMutex);
 
 	abstime = decoder->FrameTime;
