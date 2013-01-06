@@ -912,6 +912,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_general;
     int old_video;
     int old_audio;
+
 #ifdef USE_PIP
     int old_pip;
 #endif
@@ -1311,6 +1312,7 @@ cSoftHdControl::~cSoftHdControl()
 
 #ifdef USE_PIP
 
+extern "C" void DelPip(void);		///< remove PIP
 static int PipAltPosition;		///< flag alternative position
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1337,10 +1339,10 @@ class cSoftReceiver:public cReceiver
 **
 **	@param channel	channel to receive.
 */
-cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(channel,
-    LIVEPRIORITY)
+cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(NULL,
+    MINPRIORITY)
 {
-    SetPids(NULL);			// clear all pids, we want video only
+    // clear all pids done above, we want video only
     AddPid(channel->Vpid());
 }
 
@@ -1423,7 +1425,8 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
 		// FIXME: first should always fail
-		esyslog(tr("[softhddev]pip: invalid pes packet %d\n"), pes_index);
+		esyslog(tr("[softhddev]pip: invalid pes packet %d\n"),
+		    pes_index);
 	    } else {
 		PipPlayVideo(pes_buf, pes_index);
 		// FIXME: buffer full: pes packet is dropped
@@ -1438,7 +1441,7 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 	if (pes_index + size > pes_size) {
 	    pes_size = (pes_index + size) * 2;
 	}
-	pes_buf = (uint8_t*)realloc(pes_buf, pes_size);
+	pes_buf = (uint8_t *) realloc(pes_buf, pes_size);
 	if (!pes_buf) {			// out of memory, should never happen
 	    return;
 	}
@@ -1496,7 +1499,8 @@ void cSoftReceiver::Receive(uchar * data, int size)
 		payload = 5 + p[4];
 		// illegal length, ignore packet
 		if (payload >= TS_PACKET_SIZE) {
-		    dsyslog("[softhddev]tsdemux: illegal adaption field length\n");
+		    dsyslog
+			("[softhddev]tsdemux: illegal adaption field length\n");
 		    goto next_packet;
 		}
 		break;
@@ -1531,11 +1535,9 @@ static void NewPip(int channel_nr)
 	channel_nr = cDevice::CurrentChannel();
     }
     if (channel_nr && (channel = Channels.GetByNumber(channel_nr))
-	&& (device = cDevice::GetDevice(channel, 1, false))) {
+	&& (device = cDevice::GetDevice(channel, 0, false, false))) {
 
-	delete PipReceiver;
-
-	PipReceiver = NULL;
+	DelPip();
 
 	device->SwitchChannel(channel, false);
 	receiver = new cSoftReceiver(channel);
@@ -1563,10 +1565,15 @@ extern "C" void DelPip(void)
 static void TogglePip(void)
 {
     if (PipReceiver) {
+	int attached;
+
+	attached = PipReceiver->IsAttached();
 	DelPip();
-    } else {
-	NewPip(PipChannelNr);
+	if (attached) {			// turn off only if last PIP was on
+	    return;
+	}
     }
+    NewPip(PipChannelNr);
 }
 
 /**
@@ -1577,20 +1584,30 @@ static void TogglePip(void)
 static void PipNextAvailableChannel(int direction)
 {
     const cChannel *channel;
+    const cChannel *first;
 
     channel = PipChannel;
+    first = channel;
     while (channel) {
+	bool ndr;
+	cDevice *device;
+
 	channel = direction > 0 ? Channels.Next(channel)
 	    : Channels.Prev(channel);
 	if (!channel && Setup.ChannelsWrap) {
 	    channel = direction > 0 ? Channels.First() : Channels.Last();
 	}
 	if (channel && !channel->GroupSep()
-	    && cDevice::GetDevice(channel, 1, false, true)) {
+	    && (device = cDevice::GetDevice(channel, 0, false, true))
+	    && device->ProvidesChannel(channel, 0, &ndr) && !ndr) {
 
 	    DelPip();
 	    NewPip(channel->Number());
 	    return;
+	}
+	if (channel == first) {
+	    Skins.Message(mtError, tr("Channel not available!"));
+	    break;
 	}
     }
 }
