@@ -1640,9 +1640,12 @@ static void SwapPipPosition(void)
     int height;
     double video_aspect;
 
-    GetOsdSize(&width, &height, &video_aspect);
-
     PipAltPosition ^= 1;
+    if (!PipReceiver) {			// no PIP visible, no update needed
+	return;
+    }
+
+    GetOsdSize(&width, &height, &video_aspect);
     if (PipAltPosition) {
 	PipSetPosition((ConfigPipAltVideoX * width) / 100,
 	    (ConfigPipAltVideoY * height) / 100,
