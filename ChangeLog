@@ -1,5 +1,11 @@
-User horchi
+User johns
 Date:
+
+    Adds PIP (Picture-in-Picture) support.
+    Split mpeg packets in receiver thread.
+
+User horchi
+Date: Tue Jan  1 17:58:54 CET 2013
 
     Adds VDR SeduAtmo Plugin support.
 

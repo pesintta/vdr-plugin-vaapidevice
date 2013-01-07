@@ -8231,12 +8231,15 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     // if video output buffer is full, wait and display surface.
     // loop for interlace
     // FIXME: wrong for multiple streams
+#ifdef DEBUG
+    if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	Debug(3, "video/vdpau: this code part shouldn't be used\n");
+    }
+#endif
+
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
-#ifdef DEBUG
-	fprintf(stderr, "video/vdpau: must be removed\n");
-#endif
 	pthread_mutex_unlock(&VideoLockMutex);
 
 	abstime = decoder->FrameTime;

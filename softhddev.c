@@ -52,6 +52,7 @@
 
 #ifdef DEBUG
 static int H264Dump(const uint8_t * data, int size);
+static void DumpMpeg(const uint8_t * data, int size);
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1261,7 +1262,9 @@ struct __video_stream__
     volatile char ClearBuffers;		///< clear video buffers
     volatile char ClearClose;		///< clear video buffers for close
 
-    AVPacket PacketRb[VIDEO_PACKET_MAX];	///< video PES packet ring buffer
+    AVPacket PacketRb[VIDEO_PACKET_MAX];	///< PES packet ring buffer
+    int StartCodeState;			///< last three bytes start code state
+
     int PacketWrite;			///< ring buffer write pointer
     int PacketRead;			///< ring buffer read pointer
     atomic_t PacketsFilled;		///< how many of the ring buffer is used
@@ -1284,6 +1287,8 @@ static char InStillPicture;		///< flag still picture
 
 const char *X11DisplayName;		///< x11 display name
 static volatile char Usr1Signal;	///< true got usr1 signal
+
+//////////////////////////////////////////////////////////////////////////////
 
 /**
 **	Initialize video packet ringbuffer.
@@ -1330,7 +1335,7 @@ static void VideoPacketExit(VideoStream * stream)
 **	@param stream	video stream
 **	@param pts	presentation timestamp of pes packet
 **	@param data	data of pes packet
-**	@param data	size of pes packet
+**	@param size	size of pes packet
 */
 static void VideoEnqueue(VideoStream * stream, int64_t pts, const void *data,
     int size)
@@ -1381,6 +1386,8 @@ static void VideoResetPacket(VideoStream * stream)
 {
     AVPacket *avpkt;
 
+    stream->StartCodeState = 0;		// reset start code state
+
     avpkt = &stream->PacketRb[stream->PacketWrite];
     avpkt->stream_index = 0;
     avpkt->priv = NULL;
@@ -1429,6 +1436,140 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
 
     // intialize next package to use
     VideoResetPacket(stream);
+}
+
+/**
+**	Place mpeg video data in packet ringbuffer.
+**
+**	Some tv-stations sends mulitple pictures in a single PES packet.
+**	Split the packet into single picture packets.
+**	Nick/CC, Viva, MediaShop, Deutsches Music Fernsehen
+**
+**	FIXME: this code can be written much faster
+**
+**	@param stream	video stream
+**	@param pts	presentation timestamp of pes packet
+**	@param data	data of pes packet
+**	@param size	size of pes packet
+*/
+static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
+    const uint8_t * data, int size)
+{
+    static const char startcode[3] = { 0x00, 0x00, 0x01 };
+    const uint8_t *p;
+    int n;
+    int first;
+
+    // first scan
+    first = !stream->PacketRb[stream->PacketWrite].stream_index;
+    p = data;
+    n = size;
+
+#ifdef DEBUG
+    if (n < 4) {
+	// is a problem with the pes start code detection
+	Error(_("[softhddev] too short PES video packet\n"));
+	fprintf(stderr, "[softhddev] too short PES video packet\n");
+    }
+#endif
+
+    switch (stream->StartCodeState) {	// prefix starting in last packet
+	case 3:			// 0x00 0x00 0x01 seen
+	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
+	    if (!p[0]) {
+		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+		stream->PacketRb[stream->PacketWrite].stream_index -= 3;
+		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 3);
+		p++;
+		n--;
+	    }
+	    break;
+	case 2:			// 0x00 0x00 seen
+	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
+	    if (p[0] == 0x01 && !p[1]) {
+		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+		stream->PacketRb[stream->PacketWrite].stream_index -= 2;
+		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 2);
+		p += 2;
+		n -= 2;
+	    }
+	    break;
+	case 1:			// 0x00 seen
+	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
+	    if (!p[0] && p[1] == 0x01 && !p[2]) {
+		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+		stream->PacketRb[stream->PacketWrite].stream_index -= 1;
+		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 1);
+		p += 3;
+		n -= 3;
+	    }
+	case 0:
+	    break;
+    }
+
+    //fprintf(stderr, "fix(%d): ", n);
+
+    // b3 b4 b8 00 b5 ... 00 b5 ...
+
+    while (n > 3) {
+	if (0 && !p[0] && !p[1] && p[2] == 0x01) {
+	    fprintf(stderr, " %02x", p[3]);
+	}
+	// scan for picture header 0x00000100
+	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
+	    if (first) {
+		first = 0;
+		n -= 4;
+		p += 4;
+		continue;
+	    }
+	    // packet has already an picture header
+	    /*
+	       fprintf(stderr, "\nfix:%9d,%02x%02x%02x %02x ", n,
+	       p[0], p[1], p[2], p[3]);
+	     */
+	    // first packet goes only upto picture header
+	    VideoEnqueue(stream, pts, data, p - data);
+	    VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+	    fprintf(stderr, "fix\r");
+	    data = p;
+	    size = n;
+
+	    // time-stamp only valid for first packet
+	    pts = AV_NOPTS_VALUE;
+	    n -= 4;
+	    p += 4;
+	    continue;
+	}
+	--n;
+	++p;
+    }
+
+    //fprintf(stderr, ".\n");
+    stream->StartCodeState = 0;
+    switch (n) {			// handle packet border start code
+	case 3:
+	    if (!p[0] && !p[1] && p[2] == 0x01) {
+		stream->StartCodeState = 3;
+	    }
+	    break;
+	case 2:
+	    if (!p[0] && !p[1]) {
+		stream->StartCodeState = 2;
+	    }
+	    break;
+	case 1:
+	    if (!p[0]) {
+		stream->StartCodeState = 1;
+	    }
+	    break;
+	case 0:
+	    break;
+    }
+    VideoEnqueue(stream, pts, data, size);
 }
 
 /**
@@ -1638,11 +1779,19 @@ int VideoDecodeInput(VideoStream * stream)
     avpkt->size = avpkt->stream_index;
     avpkt->stream_index = 0;
 
+#ifdef USE_PIP
+    //fprintf(stderr, "[");
+    //DumpMpeg(avpkt->data, avpkt->size);
+    CodecVideoDecode(stream->Decoder, avpkt);
+    //fprintf(stderr, "]\n");
+#else
+    // old version
     if (stream->LastCodecID == CODEC_ID_MPEG2VIDEO) {
 	FixPacketForFFMpeg(stream->Decoder, avpkt);
     } else {
 	CodecVideoDecode(stream->Decoder, avpkt);
     }
+#endif
 
     avpkt->size = saved_size;
 
@@ -1720,6 +1869,30 @@ static void StopVideo(void)
 }
 
 #ifdef DEBUG
+
+/**
+**	Dump mpeg video packet.
+**
+**	Function to dump a mpeg packet, not needed.
+*/
+static void DumpMpeg(const uint8_t * data, int size)
+{
+    fprintf(stderr, "%8d: ", size);
+
+    // b3 b4 b8 00 b5 ... 00 b5 ...
+
+    while (size > 3) {
+	if (!data[0] && !data[1] && data[2] == 0x01) {
+	    fprintf(stderr, " %02x", data[3]);
+	    size -= 4;
+	    data += 4;
+	    continue;
+	}
+	--size;
+	++data;
+    }
+    fprintf(stderr, "\n");
+}
 
 /**
 **	Dump h264 video packet.
@@ -1916,7 +2089,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	}
 #endif
 	// SKIP PES header, begin of start code
-	VideoEnqueue(stream, pts, check - z, l + z);
+	VideoMpegEnqueue(stream, pts, check - z, l + z);
 	return size;
     }
     // this happens when vdr sends incomplete packets
@@ -1924,6 +2097,20 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	Debug(3, "video: not detected\n");
 	return size;
     }
+#ifdef USE_PIP
+    if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
+	// SKIP PES header
+	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
+    } else {
+	// SKIP PES header
+	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
+    }
+    if (size < 65526) {
+	// mpeg codec supports incomplete packets
+	// waiting for a full complete packages, increases needed delays
+	VideoNextPacket(stream, stream->CodecID);
+    }
+#else
     // SKIP PES header
     VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
 
@@ -1935,6 +2122,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	// waiting for a full complete packages, increases needed delays
 	VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
     }
+#endif
 
     return size;
 }
@@ -3004,13 +3192,13 @@ void PipStop(void)
 	return;
     }
 
+    PipVideoStream->SkipStream = 1;
     if (PipVideoStream->HwDecoder) {
 	VideoDelHwDecoder(PipVideoStream->HwDecoder);
 	PipVideoStream->HwDecoder = NULL;
 	// FIXME: does CodecVideoClose call hw decoder?
     }
     if (PipVideoStream->Decoder) {
-	PipVideoStream->SkipStream = 1;
 	CodecVideoClose(PipVideoStream->Decoder);
 	CodecVideoDelDecoder(PipVideoStream->Decoder);
 	PipVideoStream->Decoder = NULL;
