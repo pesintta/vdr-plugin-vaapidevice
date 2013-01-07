@@ -1588,6 +1588,9 @@ static void PipNextAvailableChannel(int direction)
 
     channel = PipChannel;
     first = channel;
+
+    DelPip();				// disable PIP to free the device
+
     while (channel) {
 	bool ndr;
 	cDevice *device;
@@ -1601,7 +1604,6 @@ static void PipNextAvailableChannel(int direction)
 	    && (device = cDevice::GetDevice(channel, 0, false, true))
 	    && device->ProvidesChannel(channel, 0, &ndr) && !ndr) {
 
-	    DelPip();
 	    NewPip(channel->Number());
 	    return;
 	}
