@@ -2937,7 +2937,9 @@ void SoftHdDeviceExit(void)
     }
 
     pthread_mutex_destroy(&SuspendLockMutex);
+#ifdef USE_PIP
     pthread_mutex_destroy(&PipVideoStream->DecoderLockMutex);
+#endif
     pthread_mutex_destroy(&MyVideoStream->DecoderLockMutex);
 }
 
@@ -2956,7 +2958,9 @@ int Start(void)
     CodecInit();
 
     pthread_mutex_init(&MyVideoStream->DecoderLockMutex, NULL);
+#ifdef USE_PIP
     pthread_mutex_init(&PipVideoStream->DecoderLockMutex, NULL);
+#endif
     pthread_mutex_init(&SuspendLockMutex, NULL);
 
     if (!ConfigStartSuspended) {
