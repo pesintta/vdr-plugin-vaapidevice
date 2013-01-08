@@ -1249,6 +1249,7 @@ struct __video_stream__
 {
     VideoHwDecoder *HwDecoder;		///< video hardware decoder
     VideoDecoder *Decoder;		///< video decoder
+    pthread_mutex_t DecoderLockMutex;	///< video decoder lock mutex
 
     enum CodecID CodecID;		///< current codec id
     enum CodecID LastCodecID;		///< last codec id
@@ -1572,6 +1573,8 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
     VideoEnqueue(stream, pts, data, size);
 }
 
+#ifndef USE_PIP
+
 /**
 **	Fix packet for FFMpeg.
 **
@@ -1647,6 +1650,8 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
     CodecVideoDecode(vdecoder, tmp);
 }
 
+#endif
+
 /**
 **	Poll PES packet ringbuffer.
 **
@@ -1660,11 +1665,13 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 int VideoPollInput(VideoStream * stream)
 {
     if (!stream->Decoder) {		// closing
+#ifdef DEBUG
 	fprintf(stderr, "no decoder\n");
+#endif
 	return -1;
     }
 
-    if (stream->ClearBuffers) {
+    if (stream->ClearBuffers) {		// clear buffer request
 	atomic_set(&stream->PacketsFilled, 0);
 	stream->PacketRead = stream->PacketWrite;
 	if (stream->Decoder) {
@@ -1696,7 +1703,9 @@ int VideoDecodeInput(VideoStream * stream)
     int saved_size;
 
     if (!stream->Decoder) {		// closing
+#ifdef DEBUG
 	fprintf(stderr, "no decoder\n");
+#endif
 	return -1;
     }
 
@@ -1782,7 +1791,10 @@ int VideoDecodeInput(VideoStream * stream)
 #ifdef USE_PIP
     //fprintf(stderr, "[");
     //DumpMpeg(avpkt->data, avpkt->size);
+    // lock decoder against close
+    pthread_mutex_lock(&stream->DecoderLockMutex);
     CodecVideoDecode(stream->Decoder, avpkt);
+    pthread_mutex_unlock(&stream->DecoderLockMutex);
     //fprintf(stderr, "]\n");
 #else
     // old version
@@ -1831,17 +1843,18 @@ static void StartVideo(void)
     }
     VideoOsdInit();
     if (!MyVideoStream->Decoder) {
-	if ((MyVideoStream->HwDecoder = VideoNewHwDecoder(MyVideoStream))) {
-	    MyVideoStream->Decoder =
-		CodecVideoNewDecoder(MyVideoStream->HwDecoder);
-	    MyVideoStream->SkipStream = 0;
-	    AudioSyncStream = MyVideoStream;
-	}
+	MyVideoStream->SkipStream = 1;
 	MyVideoStream->CodecID = CODEC_ID_NONE;
 	MyVideoStream->LastCodecID = CODEC_ID_NONE;
 
+	if ((MyVideoStream->HwDecoder = VideoNewHwDecoder(MyVideoStream))) {
+	    MyVideoStream->Decoder =
+		CodecVideoNewDecoder(MyVideoStream->HwDecoder);
+	    VideoPacketInit(MyVideoStream);
+	    AudioSyncStream = MyVideoStream;
+	    MyVideoStream->SkipStream = 0;
+	}
     }
-    VideoPacketInit(MyVideoStream);
 }
 
 /**
@@ -1851,13 +1864,18 @@ static void StopVideo(void)
 {
     VideoOsdExit();
     VideoExit();
+    AudioSyncStream = NULL;
+    MyVideoStream->SkipStream = 1;
     if (MyVideoStream->Decoder) {
-	MyVideoStream->SkipStream = 1;
+	VideoDecoder *decoder;
+
+	decoder = MyVideoStream->Decoder;
+	pthread_mutex_lock(&MyVideoStream->DecoderLockMutex);
+	MyVideoStream->Decoder = NULL;	// lock read thread
+	pthread_mutex_unlock(&MyVideoStream->DecoderLockMutex);
 	// FIXME: this can crash, hw decoder released by video exit
-	CodecVideoClose(MyVideoStream->Decoder);
-	CodecVideoDelDecoder(MyVideoStream->Decoder);
-	MyVideoStream->Decoder = NULL;
-	AudioSyncStream = NULL;
+	CodecVideoClose(decoder);
+	CodecVideoDelDecoder(decoder);
     }
     if (MyVideoStream->HwDecoder) {
 	// done by exit: VideoDelHwDecoder(MyVideoStream->HwDecoder);
@@ -2917,6 +2935,8 @@ void SoftHdDeviceExit(void)
     }
 
     pthread_mutex_destroy(&SuspendLockMutex);
+    pthread_mutex_destroy(&PipVideoStream->DecoderLockMutex);
+    pthread_mutex_destroy(&MyVideoStream->DecoderLockMutex);
 }
 
 /**
@@ -2932,6 +2952,10 @@ int Start(void)
 	StartXServer();
     }
     CodecInit();
+
+    pthread_mutex_init(&MyVideoStream->DecoderLockMutex, NULL);
+    pthread_mutex_init(&PipVideoStream->DecoderLockMutex, NULL);
+    pthread_mutex_init(&SuspendLockMutex, NULL);
 
     if (!ConfigStartSuspended) {
 	// FIXME: AudioInit for HDMI after X11 startup
@@ -2949,7 +2973,6 @@ int Start(void)
 	MyVideoStream->SkipStream = 1;
 	SkipAudio = 1;
     }
-    pthread_mutex_init(&SuspendLockMutex, NULL);
 
 #ifndef NO_TS_AUDIO
     PesInit(PesDemuxAudio);
@@ -3169,15 +3192,14 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 
     if (!PipVideoStream->Decoder) {
 	PipVideoStream->SkipStream = 1;
+	PipVideoStream->CodecID = CODEC_ID_NONE;
+	PipVideoStream->LastCodecID = CODEC_ID_NONE;
+
 	if ((PipVideoStream->HwDecoder = VideoNewHwDecoder(PipVideoStream))) {
 	    PipVideoStream->Decoder =
 		CodecVideoNewDecoder(PipVideoStream->HwDecoder);
-	    PipVideoStream->SkipStream = 0;
-
-	    PipVideoStream->CodecID = CODEC_ID_NONE;
-	    PipVideoStream->LastCodecID = CODEC_ID_NONE;
-
 	    VideoPacketInit(PipVideoStream);
+	    PipVideoStream->SkipStream = 0;
 	}
     }
     PipSetPosition(x, y, width, height, pip_x, pip_y, pip_width, pip_height);
@@ -3192,16 +3214,21 @@ void PipStop(void)
 	return;
     }
 
-    PipVideoStream->SkipStream = 1;
+    PipVideoStream->SkipStream = 1;	// lock write thread
+    if (PipVideoStream->Decoder) {
+	VideoDecoder *decoder;
+
+	decoder = PipVideoStream->Decoder;
+	pthread_mutex_lock(&PipVideoStream->DecoderLockMutex);
+	PipVideoStream->Decoder = NULL;	// lock read thread
+	pthread_mutex_unlock(&PipVideoStream->DecoderLockMutex);
+	CodecVideoClose(decoder);
+	CodecVideoDelDecoder(decoder);
+    }
     if (PipVideoStream->HwDecoder) {
 	VideoDelHwDecoder(PipVideoStream->HwDecoder);
 	PipVideoStream->HwDecoder = NULL;
-	// FIXME: does CodecVideoClose call hw decoder?
-    }
-    if (PipVideoStream->Decoder) {
-	CodecVideoClose(PipVideoStream->Decoder);
-	CodecVideoDelDecoder(PipVideoStream->Decoder);
-	PipVideoStream->Decoder = NULL;
+	// FIXME: CodecVideoClose calls/uses hw decoder
     }
     VideoPacketExit(PipVideoStream);
 

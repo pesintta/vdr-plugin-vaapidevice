@@ -10692,7 +10692,7 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-    // XInitThreads();
+    XInitThreads();
     // Register error handler
     XSetIOErrorHandler(VideoIOErrorHandler);
 
