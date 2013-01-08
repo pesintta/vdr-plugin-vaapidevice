@@ -1793,7 +1793,9 @@ int VideoDecodeInput(VideoStream * stream)
     //DumpMpeg(avpkt->data, avpkt->size);
     // lock decoder against close
     pthread_mutex_lock(&stream->DecoderLockMutex);
-    CodecVideoDecode(stream->Decoder, avpkt);
+    if (stream->Decoder) {
+	CodecVideoDecode(stream->Decoder, avpkt);
+    }
     pthread_mutex_unlock(&stream->DecoderLockMutex);
     //fprintf(stderr, "]\n");
 #else
