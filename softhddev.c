@@ -2121,14 +2121,14 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
 	// SKIP PES header
 	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
+	if (size < 65526) {
+	    // mpeg codec supports incomplete packets
+	    // waiting for a full complete packages, increases needed delays
+	    VideoNextPacket(stream, stream->CodecID);
+	}
     } else {
 	// SKIP PES header
 	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
-    }
-    if (size < 65526) {
-	// mpeg codec supports incomplete packets
-	// waiting for a full complete packages, increases needed delays
-	VideoNextPacket(stream, stream->CodecID);
     }
 #else
     // SKIP PES header
@@ -2282,6 +2282,7 @@ int SetPlayMode(int play_mode)
 	}
     }
     switch (play_mode) {
+	case 0:			// nothing
 	case 1:			// audio/video from player
 	    break;
 	case 2:			// audio only
