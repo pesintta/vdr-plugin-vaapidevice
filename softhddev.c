@@ -1439,6 +1439,8 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
     VideoResetPacket(stream);
 }
 
+#ifdef USE_PIP
+
 /**
 **	Place mpeg video data in packet ringbuffer.
 **
@@ -1476,42 +1478,58 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 
     switch (stream->StartCodeState) {	// prefix starting in last packet
 	case 3:			// 0x00 0x00 0x01 seen
+#ifdef DEBUG
 	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-	    if (!p[0]) {
+#endif
+	    if (!p[0] || p[0] == 0xb3) {
+#ifdef DEBUG
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+#endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 3;
 		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 3);
+		first = p[0] == 0xb3;
 		p++;
 		n--;
+		pts = AV_NOPTS_VALUE;
 	    }
 	    break;
 	case 2:			// 0x00 0x00 seen
+#ifdef DEBUG
 	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-	    if (p[0] == 0x01 && !p[1]) {
+#endif
+	    if (p[0] == 0x01 && (!p[1] || p[1] == 0xb3)) {
+#ifdef DEBUG
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+#endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 2;
 		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 2);
+		first = p[1] == 0xb3;
 		p += 2;
 		n -= 2;
+		pts = AV_NOPTS_VALUE;
 	    }
 	    break;
 	case 1:			// 0x00 seen
+#ifdef DEBUG
 	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-	    if (!p[0] && p[1] == 0x01 && !p[2]) {
+#endif
+	    if (!p[0] && p[1] == 0x01 && (!p[2] || p[2] == 0xb3)) {
+#ifdef DEBUG
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
+#endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 1;
 		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 1);
+		first = p[2] == 0xb3;
 		p += 3;
 		n -= 3;
+		pts = AV_NOPTS_VALUE;
 	    }
 	case 0:
 	    break;
     }
-
-    //fprintf(stderr, "fix(%d): ", n);
 
     // b3 b4 b8 00 b5 ... 00 b5 ...
 
@@ -1520,6 +1538,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 	    fprintf(stderr, " %02x", p[3]);
 	}
 	// scan for picture header 0x00000100
+	// FIXME: not perfect, must split at 0xb3 also
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
 	    if (first) {
 		first = 0;
@@ -1535,7 +1554,9 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 	    // first packet goes only upto picture header
 	    VideoEnqueue(stream, pts, data, p - data);
 	    VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+#ifdef DEBUG
 	    fprintf(stderr, "fix\r");
+#endif
 	    data = p;
 	    size = n;
 
@@ -1549,7 +1570,6 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 	++p;
     }
 
-    //fprintf(stderr, ".\n");
     stream->StartCodeState = 0;
     switch (n) {			// handle packet border start code
 	case 3:
@@ -1573,7 +1593,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
     VideoEnqueue(stream, pts, data, size);
 }
 
-#ifndef USE_PIP
+#else
 
 /**
 **	Fix packet for FFMpeg.
@@ -2065,9 +2085,10 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     }
 
     // H264 NAL AUD Access Unit Delimiter (0x00) 0x00 0x00 0x01 0x09
+    // and next start code
     if ((data[6] & 0xC0) == 0x80 && z >= 2 && check[0] == 0x01
-	&& check[1] == 0x09) {
-	// old PES HDTV recording z == 2
+	&& check[1] == 0x09 && !check[3] && !check[4]) {
+	// old PES HDTV recording z == 2 -> stronger check!
 	if (stream->CodecID == CODEC_ID_H264) {
 #if 0
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
@@ -2095,8 +2116,8 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	VideoEnqueue(stream, pts, check - 2, l + 2);
 	return size;
     }
-    // PES start code 0x00 0x00 0x01
-    if (z > 1 && check[0] == 0x01) {
+    // PES start code 0x00 0x00 0x01 0x00|0xb3
+    if (z > 1 && check[0] == 0x01 && (!check[1] || check[1] == 0xb3)) {
 	if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
 	    VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
 	} else {
@@ -2109,7 +2130,11 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	}
 #endif
 	// SKIP PES header, begin of start code
-	VideoMpegEnqueue(stream, pts, check - z, l + z);
+#ifdef USE_PIP
+	VideoMpegEnqueue(stream, pts, check - 2, l + 2);
+#else
+	VideoEnqueue(stream, pts, check - 2, l + 2);
+#endif
 	return size;
     }
     // this happens when vdr sends incomplete packets
