@@ -6839,13 +6839,6 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	    VdpauGetErrorString(status));
 	goto slow_path;
     }
-    // FIXME: combine this with VdpauSetupOutput and software decoder part
-    decoder->CropX = VideoCutLeftRight[decoder->Resolution];
-    decoder->CropY = VideoCutTopBottom[decoder->Resolution];
-    decoder->CropWidth =
-	video_ctx->width - VideoCutLeftRight[decoder->Resolution] * 2;
-    decoder->CropHeight =
-	video_ctx->height - VideoCutTopBottom[decoder->Resolution] * 2;
 
     decoder->PixFmt = *fmt_idx;
     decoder->InputWidth = video_ctx->width;
@@ -7244,13 +7237,6 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	    decoder->InputWidth, decoder->InputHeight, decoder->OutputWidth,
 	    decoder->OutputHeight, decoder->OutputX, decoder->OutputY);
     } else {
-	decoder->CropX = VideoCutLeftRight[decoder->Resolution];
-	decoder->CropY = VideoCutTopBottom[decoder->Resolution];
-	decoder->CropWidth =
-	    decoder->InputWidth - VideoCutLeftRight[decoder->Resolution] * 2;
-	decoder->CropHeight =
-	    decoder->InputHeight - VideoCutTopBottom[decoder->Resolution] * 2;
-
 	// sets AutoCrop->Count
 	VdpauUpdateOutput(decoder);
     }
@@ -7460,13 +7446,6 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	if (decoder->PixFmt != video_ctx->pix_fmt
 	    || video_ctx->width != decoder->InputWidth
 	    || video_ctx->height != decoder->InputHeight) {
-
-	    decoder->CropX = VideoCutLeftRight[decoder->Resolution];
-	    decoder->CropY = VideoCutTopBottom[decoder->Resolution];
-	    decoder->CropWidth =
-		video_ctx->width - VideoCutLeftRight[decoder->Resolution] * 2;
-	    decoder->CropHeight =
-		video_ctx->height - VideoCutTopBottom[decoder->Resolution] * 2;
 
 	    decoder->PixFmt = video_ctx->pix_fmt;
 	    decoder->InputWidth = video_ctx->width;
@@ -8133,6 +8112,13 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    VdpauAdvanceDecoderFrame(decoder);
 	    decoder->SyncCounter = 1;
 	}
+#if defined(DEBUG) || defined(AV_INFO)
+	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
+	    Debug(3, "video/vdpau: synced after %d frames\n",
+		decoder->StartCounter);
+	    decoder->StartCounter += 1000;
+	}
+#endif
     }
 
   skip_sync:
@@ -10599,6 +10585,7 @@ void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
     VideoCutTopBottom[1] = pixels[1];
     VideoCutTopBottom[2] = pixels[2];
     VideoCutTopBottom[3] = pixels[3];
+    // FIXME: update output
 }
 
 ///
@@ -10612,6 +10599,7 @@ void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
     VideoCutLeftRight[1] = pixels[1];
     VideoCutLeftRight[2] = pixels[2];
     VideoCutLeftRight[3] = pixels[3];
+    // FIXME: update output
 }
 
 ///
