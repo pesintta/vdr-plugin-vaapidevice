@@ -51,7 +51,7 @@
 #include "codec.h"
 
 #ifdef DEBUG
-static int H264Dump(const uint8_t * data, int size);
+static int DumpH264(const uint8_t * data, int size);
 static void DumpMpeg(const uint8_t * data, int size);
 #endif
 
@@ -989,8 +989,8 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	return 0;
     }
     // soft limit buffer full
-    if (AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE && (!AudioSyncStream
-	    || VideoGetBuffers(AudioSyncStream) > 3)) {
+    if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
     // PES header 0x00 0x00 0x01 ID
@@ -1213,8 +1213,8 @@ int PlayTsAudio(const uint8_t * data, int size)
 	return 0;
     }
     // soft limit buffer full
-    if (AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE && (!AudioSyncStream
-	    || VideoGetBuffers(AudioSyncStream) > 3)) {
+    if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
 
@@ -1427,7 +1427,7 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
     memset(avpkt->data + avpkt->stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
     avpkt->priv = (void *)(size_t) codec_id;
-    //H264Dump(avpkt->data, avpkt->stream_index);
+    //DumpH264(avpkt->data, avpkt->stream_index);
 
     // advance packet write
     stream->PacketWrite = (stream->PacketWrite + 1) % VIDEO_PACKET_MAX;
@@ -1939,7 +1939,7 @@ static void DumpMpeg(const uint8_t * data, int size)
 **
 **	Function to Dump a h264 packet, not needed.
 */
-static int H264Dump(const uint8_t * data, int size)
+static int DumpH264(const uint8_t * data, int size)
 {
     printf("H264:");
     do {
@@ -2057,9 +2057,8 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	return 0;
     }
     // soft limit buffer full
-    if (atomic_read(&stream->PacketsFilled) > 3
+    if (AudioSyncStream == stream && atomic_read(&stream->PacketsFilled) > 3
 	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
-	// FIXME: audio only for main video stream
 	return 0;
     }
     // get pts/dts
@@ -2580,6 +2579,7 @@ int Poll(int timeout)
 	int filled;
 
 	used = AudioUsedBytes();
+	// FIXME: no video!
 	filled = atomic_read(&MyVideoStream->PacketsFilled);
 	// soft limit + hard limit
 	full = (used > AUDIO_MIN_BUFFER_FREE && filled > 3)
