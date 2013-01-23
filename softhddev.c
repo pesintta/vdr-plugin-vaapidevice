@@ -2033,6 +2033,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	stream->NewStream = 0;
     }
     // must be a PES start code
+    // FIXME: Valgrind-3.8.1 has a problem with this code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
 	Error(_("[softhddev] invalid PES video packet\n"));
 	return size;

@@ -35,6 +35,8 @@
 ///	- OpenGL rendering with GLX texture-from-pixmap
 ///	- Xrender rendering
 ///
+///	@todo FIXME: use vaErrorStr for all VA-API errors.
+///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
 #define USE_SCREENSAVER			///< support disable screensaver
@@ -229,7 +231,7 @@ typedef struct _video_module_
     /// allocate new video hw decoder
     VideoHwDecoder *(*const NewHwDecoder)(VideoStream *);
     void (*const DelHwDecoder) (VideoHwDecoder *);
-    unsigned (*const GetSurface) (VideoHwDecoder *);
+    unsigned (*const GetSurface) (VideoHwDecoder *, const AVCodecContext *);
     void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
     enum PixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *,
 	const enum PixelFormat *);
@@ -1357,6 +1359,8 @@ struct _vaapi_decoder_
     int GetPutImage;			///< flag get/put image can be used
     VAImage Image[1];			///< image buffer to update surface
 
+    VAProfile Profile;			///< VA-API profile
+    VAEntrypoint Entrypoint;		///< VA-API entrypoint
     struct vaapi_context VaapiContext[1];	///< ffmpeg VA-API context
 
     int SurfacesNeeded;			///< number of surface to request
@@ -1626,7 +1630,7 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 ///
 ///	@returns the oldest free surface
 ///
-static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder)
+static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
 {
     VASurfaceID surface;
     VASurfaceStatus status;
@@ -1831,6 +1835,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     //
     //	Setup ffmpeg vaapi context
     //
+    decoder->Profile = VA_INVALID_ID;
+    decoder->Entrypoint = VA_INVALID_ID;
     decoder->VaapiContext->display = VaDisplay;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->VaapiContext->context_id = VA_INVALID_ID;
@@ -1888,9 +1894,12 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	}
     }
 
+#ifdef DEBUG
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
 	abort();
     }
+#endif
+
     // clear ring buffer
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
@@ -2266,6 +2275,190 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 }
 
 ///
+///	Find VA-API image format.
+///
+///	@param decoder	VA-API decoder
+///	@param pix_fmt		ffmpeg pixel format
+///	@param[out] format	image format
+///
+///	FIXME: can fallback from I420 to YV12, if not supported
+///	FIXME: must check if put/get with this format is supported (see intel)
+///
+static int VaapiFindImageFormat(VaapiDecoder * decoder,
+    enum PixelFormat pix_fmt, VAImageFormat * format)
+{
+    VAImageFormat *imgfrmts;
+    int imgfrmt_n;
+    int i;
+    unsigned fourcc;
+
+    switch (pix_fmt) {			// convert ffmpeg to VA-API
+	    // NV12, YV12, I420, BGRA
+	    // intel: I420 is native format for MPEG-2 decoded surfaces
+	    // intel: NV12 is native format for H.264 decoded surfaces
+	case PIX_FMT_YUV420P:
+	    // fourcc = VA_FOURCC_YV12; // YVU
+	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
+	    break;
+	case PIX_FMT_NV12:
+	    fourcc = VA_FOURCC_NV12;
+	    break;
+	default:
+	    Fatal(_("video/vaapi: unsupported pixel format %d\n"), pix_fmt);
+    }
+
+    imgfrmt_n = vaMaxNumImageFormats(decoder->VaDisplay);
+    imgfrmts = alloca(imgfrmt_n * sizeof(*imgfrmts));
+
+    if (vaQueryImageFormats(decoder->VaDisplay, imgfrmts, &imgfrmt_n)
+	!= VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaQueryImageFormats failed\n"));
+	return 0;
+    }
+    Debug(3, "video/vaapi: search format %c%c%c%c in %d image formats\n",
+	fourcc, fourcc >> 8, fourcc >> 16, fourcc >> 24, imgfrmt_n);
+    Debug(3, "video/vaapi: supported image formats:\n");
+    for (i = 0; i < imgfrmt_n; ++i) {
+	Debug(3, "video/vaapi:\t%c%c%c%c\t%d\n", imgfrmts[i].fourcc,
+	    imgfrmts[i].fourcc >> 8, imgfrmts[i].fourcc >> 16,
+	    imgfrmts[i].fourcc >> 24, imgfrmts[i].depth);
+    }
+    //
+    //	search image format
+    //
+    for (i = 0; i < imgfrmt_n; ++i) {
+	if (imgfrmts[i].fourcc == fourcc) {
+	    *format = imgfrmts[i];
+	    Debug(3, "video/vaapi: use\t%c%c%c%c\t%d\n", imgfrmts[i].fourcc,
+		imgfrmts[i].fourcc >> 8, imgfrmts[i].fourcc >> 16,
+		imgfrmts[i].fourcc >> 24, imgfrmts[i].depth);
+	    return 1;
+	}
+    }
+
+    Fatal("video/vaapi: pixel format %d unsupported by VA-API\n", pix_fmt);
+    // FIXME: no fatal error!
+
+    return 0;
+}
+
+///
+///	Configure VA-API for new video format.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiSetup(VaapiDecoder * decoder,
+    const AVCodecContext * video_ctx)
+{
+    int width;
+    int height;
+    VAImageFormat format[1];
+
+    // create initial black surface and display
+    VaapiBlackSurface(decoder);
+    // cleanup last context
+    VaapiCleanup(decoder);
+
+    width = video_ctx->width;
+    height = video_ctx->height;
+#ifdef DEBUG
+    // FIXME: remove this if
+    if (decoder->Image->image_id != VA_INVALID_ID) {
+	abort();			// should be done by VaapiCleanup()
+    }
+#endif
+    // FIXME: PixFmt not set!
+    //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
+    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+
+    // FIXME: this image is only needed for software decoder and auto-crop
+    if (decoder->GetPutImage
+	&& vaCreateImage(VaDisplay, format, width, height,
+	    decoder->Image) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't create image!\n"));
+    }
+    Debug(3,
+	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
+	width, height, decoder->Image->image_id, decoder->Image->buf);
+
+    // FIXME: interlaced not valid here?
+    decoder->Resolution =
+	VideoResolutionGroup(width, height, decoder->Interlaced);
+    VaapiCreateSurfaces(decoder, width, height);
+
+#ifdef USE_GLX
+    if (GlxEnabled) {
+	// FIXME: destroy old context
+
+	GlxSetupDecoder(decoder);
+	// FIXME: try two textures
+	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
+		decoder->GlTexture[0], &decoder->GlxSurface[0])
+	    != VA_STATUS_SUCCESS) {
+	    Fatal(_("video/glx: can't create glx surfaces\n"));
+	}
+	/*
+	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
+	   decoder->GlTexture[1], &decoder->GlxSurface[1])
+	   != VA_STATUS_SUCCESS) {
+	   Fatal(_("video/glx: can't create glx surfaces\n"));
+	   }
+	 */
+    }
+#endif
+    VaapiUpdateOutput(decoder);
+
+    //
+    //	update OSD associate
+    //
+    VaapiAssociate(decoder);
+}
+
+///
+///	Get a free surface.  Called from ffmpeg.
+///
+///	@param decoder		VA-API decoder
+///	@param video_ctx	ffmpeg video codec context
+///
+///	@returns the oldest free surface
+///
+static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
+    const AVCodecContext * video_ctx)
+{
+    // get_format not called with valid informations.
+    if (video_ctx->width != decoder->InputWidth
+	|| video_ctx->height != decoder->InputHeight) {
+	VAStatus status;
+
+	decoder->InputWidth = video_ctx->width;
+	decoder->InputHeight = video_ctx->height;
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+
+	VaapiSetup(decoder, video_ctx);
+
+	// create a configuration for the decode pipeline
+	if ((status =
+		vaCreateConfig(decoder->VaDisplay, decoder->Profile,
+		    decoder->Entrypoint, NULL, 0,
+		    &decoder->VaapiContext->config_id))) {
+	    Error(_("video/vaapi: can't create config '%s'\n"),
+		vaErrorStr(status));
+	    // bind surfaces to context
+	} else if ((status =
+		vaCreateContext(decoder->VaDisplay,
+		    decoder->VaapiContext->config_id, video_ctx->width,
+		    video_ctx->height, VA_PROGRESSIVE, decoder->SurfacesFree,
+		    decoder->SurfaceFreeN,
+		    &decoder->VaapiContext->context_id))) {
+	    Error(_("video/vaapi: can't create context '%s'\n"),
+		vaErrorStr(status));
+	}
+	// FIXME: too late to switch to software rending on failures
+    }
+    return VaapiGetSurface0(decoder);
+}
+
+///
 ///	Find VA-API profile.
 ///
 ///	Check if the requested profile is supported by VA-API.
@@ -2335,11 +2528,6 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     VAConfigAttrib attrib;
 
     Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
-
-    // create initial black surface and display
-    VaapiBlackSurface(decoder);
-    // cleanup last context
-    VaapiCleanup(decoder);
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
@@ -2440,7 +2628,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	goto slow_path;
     }
     //
-    //	prepare decoder
+    //	prepare decoder config
     //
     memset(&attrib, 0, sizeof(attrib));
     attrib.type = VAConfigAttribRTFormat;
@@ -2462,56 +2650,41 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	Warning(_("codec: YUV 420 not supported\n"));
 	goto slow_path;
     }
-    // create a configuration for the decode pipeline
-    if (vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1,
-	    &decoder->VaapiContext->config_id)) {
-	Error(_("codec: can't create config"));
-	goto slow_path;
-    }
-    // FIXME: interlaced not valid here?
-    decoder->Resolution =
-	VideoResolutionGroup(video_ctx->width, video_ctx->height,
-	decoder->Interlaced);
-    // FIXME: need only to create and destroy surfaces for size changes
-    //		or when number of needed surfaces changed!
-    VaapiCreateSurfaces(decoder, video_ctx->width, video_ctx->height);
 
-    // bind surfaces to context
-    if (vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id,
-	    video_ctx->width, video_ctx->height, VA_PROGRESSIVE,
-	    decoder->SurfacesFree, decoder->SurfaceFreeN,
-	    &decoder->VaapiContext->context_id)) {
-	Error(_("codec: can't create context"));
-	goto slow_path;
-    }
-
+    decoder->Profile = p;
+    decoder->Entrypoint = e;
     decoder->PixFmt = *fmt_idx;
-    decoder->InputWidth = video_ctx->width;
-    decoder->InputHeight = video_ctx->height;
-    decoder->InputAspect = video_ctx->sample_aspect_ratio;
-    VaapiUpdateOutput(decoder);
+    decoder->InputWidth = 0;
+    decoder->InputHeight = 0;
 
-    //
-    //	update OSD associate
-    //
-    VaapiAssociate(decoder);
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GlxSetupDecoder(decoder);
-	// FIXME: try two textures, but vdpau-backend supports only 1 surface
-	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-		decoder->GlTexture[0], &decoder->GlxSurface[0])
-	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces\n"));
+#if 0
+    if (video_ctx->width && video_ctx->height) {
+	VAStatus status;
+
+	decoder->InputWidth = video_ctx->width;
+	decoder->InputHeight = video_ctx->height;
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+
+	VaapiSetup(decoder, video_ctx);
+
+	// FIXME: move the following into VaapiSetup
+	// create a configuration for the decode pipeline
+	if ((status =
+		vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1,
+		    &decoder->VaapiContext->config_id))) {
+	    Error(_("codec: can't create config '%s'\n"), vaErrorStr(status));
+	    goto slow_path;
 	}
-	// FIXME: this isn't usable with vdpau-backend
-	/*
-	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-	   decoder->GlTexture[1], &decoder->GlxSurface[1])
-	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video/glx: can't create glx surfaces\n"));
-	   }
-	 */
+	// bind surfaces to context
+	if ((status =
+		vaCreateContext(decoder->VaDisplay,
+		    decoder->VaapiContext->config_id, video_ctx->width,
+		    video_ctx->height, VA_PROGRESSIVE, decoder->SurfacesFree,
+		    decoder->SurfaceFreeN,
+		    &decoder->VaapiContext->context_id))) {
+	    Error(_("codec: can't create context '%s'\n"), vaErrorStr(status));
+	    goto slow_path;
+	}
     }
 #endif
 
@@ -2520,10 +2693,16 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 
   slow_path:
     // no accelerated format found
+    decoder->Profile = VA_INVALID_ID;
+    decoder->Entrypoint = VA_INVALID_ID;
+    decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
+    decoder->PixFmt = PIX_FMT_NONE;
+
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
     video_ctx->hwaccel_context = NULL;
+
     return avcodec_default_get_format(video_ctx, fmt);
 }
 
@@ -2721,145 +2900,6 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
 }
 
 #endif
-
-///
-///	Find VA-API image format.
-///
-///	@param decoder	VA-API decoder
-///	@param pix_fmt		ffmpeg pixel format
-///	@param[out] format	image format
-///
-///	FIXME: can fallback from I420 to YV12, if not supported
-///	FIXME: must check if put/get with this format is supported (see intel)
-///
-static int VaapiFindImageFormat(VaapiDecoder * decoder,
-    enum PixelFormat pix_fmt, VAImageFormat * format)
-{
-    VAImageFormat *imgfrmts;
-    int imgfrmt_n;
-    int i;
-    unsigned fourcc;
-
-    switch (pix_fmt) {			// convert ffmpeg to VA-API
-	    // NV12, YV12, I420, BGRA
-	    // intel: I420 is native format for MPEG-2 decoded surfaces
-	    // intel: NV12 is native format for H.264 decoded surfaces
-	case PIX_FMT_YUV420P:
-	    // fourcc = VA_FOURCC_YV12; // YVU
-	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
-	    break;
-	case PIX_FMT_NV12:
-	    fourcc = VA_FOURCC_NV12;
-	    break;
-	default:
-	    Fatal(_("video/vaapi: unsupported pixel format %d\n"), pix_fmt);
-    }
-
-    imgfrmt_n = vaMaxNumImageFormats(decoder->VaDisplay);
-    imgfrmts = alloca(imgfrmt_n * sizeof(*imgfrmts));
-
-    if (vaQueryImageFormats(decoder->VaDisplay, imgfrmts, &imgfrmt_n)
-	!= VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: vaQueryImageFormats failed\n"));
-	return 0;
-    }
-    Debug(3, "video/vaapi: search format %c%c%c%c in %d image formats\n",
-	fourcc, fourcc >> 8, fourcc >> 16, fourcc >> 24, imgfrmt_n);
-    Debug(3, "video/vaapi: supported image formats:\n");
-    for (i = 0; i < imgfrmt_n; ++i) {
-	Debug(3, "video/vaapi:\t%c%c%c%c\t%d\n", imgfrmts[i].fourcc,
-	    imgfrmts[i].fourcc >> 8, imgfrmts[i].fourcc >> 16,
-	    imgfrmts[i].fourcc >> 24, imgfrmts[i].depth);
-    }
-    //
-    //	search image format
-    //
-    for (i = 0; i < imgfrmt_n; ++i) {
-	if (imgfrmts[i].fourcc == fourcc) {
-	    *format = imgfrmts[i];
-	    Debug(3, "video/vaapi: use\t%c%c%c%c\t%d\n", imgfrmts[i].fourcc,
-		imgfrmts[i].fourcc >> 8, imgfrmts[i].fourcc >> 16,
-		imgfrmts[i].fourcc >> 24, imgfrmts[i].depth);
-	    return 1;
-	}
-    }
-
-    Fatal("video/vaapi: pixel format %d unsupported by VA-API\n", pix_fmt);
-    // FIXME: no fatal error!
-
-    return 0;
-}
-
-///
-///	Configure VA-API for new video format.
-///
-///	@param decoder	VA-API decoder
-///
-///	@note called only for software decoder.
-///	@note FIXME: combine with hardware decoder setup.
-///
-static void VaapiSetup(VaapiDecoder * decoder,
-    const AVCodecContext * video_ctx)
-{
-    int width;
-    int height;
-    VAImageFormat format[1];
-
-    // create initial black surface and display
-    VaapiBlackSurface(decoder);
-    // cleanup last context
-    VaapiCleanup(decoder);
-
-    width = video_ctx->width;
-    height = video_ctx->height;
-    // FIXME: remove this if
-    if (decoder->Image->image_id != VA_INVALID_ID) {
-	abort();			// should be done by VaapiCleanup()
-    }
-    VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
-
-    // FIXME: this image is only needed for software decoder and auto-crop
-    if (decoder->GetPutImage
-	&& vaCreateImage(VaDisplay, format, width, height,
-	    decoder->Image) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't create image!\n"));
-    }
-    Debug(3,
-	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
-	width, height, decoder->Image->image_id, decoder->Image->buf);
-
-    // FIXME: interlaced not valid here?
-    decoder->Resolution =
-	VideoResolutionGroup(width, height, decoder->Interlaced);
-    VaapiCreateSurfaces(decoder, width, height);
-
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	// FIXME: destroy old context
-
-	GlxSetupDecoder(decoder);
-	// FIXME: try two textures
-	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-		decoder->GlTexture[0], &decoder->GlxSurface[0])
-	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces\n"));
-	}
-	/*
-	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-	   decoder->GlTexture[1], &decoder->GlxSurface[1])
-	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video/glx: can't create glx surfaces\n"));
-	   }
-	 */
-    }
-#endif
-    VaapiUpdateOutput(decoder);
-
-    //
-    //	update OSD associate
-    //
-    VaapiAssociate(decoder);
-}
 
 #ifdef USE_AUTOCROP
 
@@ -3976,7 +4016,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 	image->num_planes);
 
     // get a free surfaces
-    out1 = VaapiGetSurface(decoder);
+    out1 = VaapiGetSurface0(decoder);
     if (out1 == VA_INVALID_ID) {
 	abort();
     }
@@ -3988,7 +4028,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
 #ifdef DEBUG
     tick3 = GetMsTicks();
 #endif
-    out2 = VaapiGetSurface(decoder);
+    out2 = VaapiGetSurface0(decoder);
     if (out2 == VA_INVALID_ID) {
 	abort();
     }
@@ -4106,7 +4146,7 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 #endif
 
     // get a free surface and upload the image
-    out = VaapiGetSurface(decoder);
+    out = VaapiGetSurface0(decoder);
     if (out == VA_INVALID_ID) {
 	abort();
     }
@@ -4129,7 +4169,7 @@ static void VaapiCpuPut(VaapiDecoder * decoder, VASurfaceID surface)
 #endif
 
     // get a free surface and upload the image
-    out = VaapiGetSurface(decoder);
+    out = VaapiGetSurface0(decoder);
     if (out == VA_INVALID_ID) {
 	abort();
     }
@@ -4290,7 +4330,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	// FIXME: can/must insert auto-crop here (is done after upload)
 
 	// get a free surface and upload the image
-	surface = VaapiGetSurface(decoder);
+	surface = VaapiGetSurface0(decoder);
 	Debug(4, "video/vaapi: video surface %#010x displayed\n", surface);
 
 	if (!decoder->GetPutImage
@@ -4301,7 +4341,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    Error(_("video/vaapi: vaDeriveImage failed\n"));
 
 	    decoder->GetPutImage = 1;
-	    VaapiFindImageFormat(decoder, video_ctx->pix_fmt, format);
+	    VaapiFindImageFormat(decoder, decoder->PixFmt, format);
 	    if (vaCreateImage(VaDisplay, format, width, height,
 		    decoder->Image) != VA_STATUS_SUCCESS) {
 		Error(_("video/vaapi: can't create image!\n"));
@@ -4329,7 +4369,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	    }
 	    // copy UV
 	    for (i = 0; i < height / 2; ++i) {
-		for (x = 0; x < frame->linesize[1]; ++x) {
+		for (x = 0; x < width / 2; ++x) {
 		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
 			+ decoder->Image->pitches[1] * i + x * 2 + 0]
 			= frame->data[1][i * frame->linesize[1] + x];
@@ -4690,6 +4730,13 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    VaapiAdvanceDecoderFrame(decoder);
 	    decoder->SyncCounter = 1;
 	}
+#if defined(DEBUG) || defined(AV_INFO)
+	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
+	    Debug(3, "video/vaapi: synced after %d frames\n",
+		decoder->StartCounter);
+	    decoder->StartCounter += 1000;
+	}
+#endif
     }
 
   skip_sync:
@@ -5136,7 +5183,8 @@ static const VideoModule VaapiModule = {
     .NewHwDecoder =
 	(VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *))VaapiGetSurface,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
+	    const AVCodecContext *))VaapiGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
     .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
@@ -5498,7 +5546,7 @@ static void VdpauDestroySurfaces(VdpauDecoder * decoder)
 ///
 ///	@returns the oldest free surface
 ///
-static unsigned VdpauGetSurface(VdpauDecoder * decoder)
+static unsigned VdpauGetSurface0(VdpauDecoder * decoder)
 {
     VdpVideoSurface surface;
     int i;
@@ -5944,7 +5992,7 @@ static void VdpauCleanup(VdpauDecoder * decoder)
 		VdpauGetErrorString(status));
 	}
 	decoder->VideoDecoder = VDP_INVALID_HANDLE;
-	decoder->Profile = VDP_INVALID_HANDLE;
+	// don't overwrite: decoder->Profile = VDP_INVALID_HANDLE;
     }
 
     if (decoder->VideoMixer != VDP_INVALID_HANDLE) {
@@ -6676,6 +6724,43 @@ static void VdpauSetupOutput(VdpauDecoder * decoder)
 }
 
 ///
+///	Get a free surface.  Called from ffmpeg.
+///
+///	@param decoder		VDPAU hw decoder
+///	@param video_ctx	ffmpeg video codec context
+///
+///	@returns the oldest free surface
+///
+static unsigned VdpauGetSurface(VdpauDecoder * decoder,
+    const AVCodecContext * video_ctx)
+{
+    // get_format not called with valid informations.
+    if (video_ctx->width != decoder->InputWidth
+	|| video_ctx->height != decoder->InputHeight) {
+	VdpStatus status;
+
+	VdpauCleanup(decoder);
+
+	status =
+	    VdpauDecoderCreate(VdpauDevice, decoder->Profile, video_ctx->width,
+	    video_ctx->height,
+	    decoder->SurfacesNeeded - VIDEO_SURFACES_MAX - 1,
+	    &decoder->VideoDecoder);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't create decoder: %s\n"),
+		VdpauGetErrorString(status));
+	}
+
+	decoder->InputWidth = video_ctx->width;
+	decoder->InputHeight = video_ctx->height;
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+
+	VdpauSetupOutput(decoder);
+    }
+    return VdpauGetSurface0(decoder);
+}
+
+///
 ///	Check profile supported.
 ///
 ///	@param decoder		VDPAU hw decoder
@@ -6718,11 +6803,9 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 {
     const enum PixelFormat *fmt_idx;
     VdpDecoderProfile profile;
-    VdpStatus status;
     int max_refs;
 
     Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
-    VdpauCleanup(decoder);
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
@@ -6831,31 +6914,46 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 
     decoder->Profile = profile;
     decoder->SurfacesNeeded = max_refs + VIDEO_SURFACES_MAX + 1;
-    status =
-	VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
-	video_ctx->height, max_refs, &decoder->VideoDecoder);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't create decoder: %s\n"),
-	    VdpauGetErrorString(status));
-	goto slow_path;
-    }
-
     decoder->PixFmt = *fmt_idx;
-    decoder->InputWidth = video_ctx->width;
-    decoder->InputHeight = video_ctx->height;
-    decoder->InputAspect = video_ctx->sample_aspect_ratio;
+    decoder->InputWidth = 0;
+    decoder->InputHeight = 0;
 
-    VdpauSetupOutput(decoder);
+#if 0
+    if (video_ctx->width && video_ctx->height) {
+	VdpStatus status;
+
+	VdpauCleanup(decoder);
+
+	status =
+	    VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
+	    video_ctx->height, max_refs, &decoder->VideoDecoder);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't create decoder: %s\n"),
+		VdpauGetErrorString(status));
+	    goto slow_path;
+	}
+
+	decoder->InputWidth = video_ctx->width;
+	decoder->InputHeight = video_ctx->height;
+	decoder->InputAspect = video_ctx->sample_aspect_ratio;
+
+	VdpauSetupOutput(decoder);
+    }
+#endif
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
     return *fmt_idx;
 
   slow_path:
     // no accelerated format found
+    decoder->Profile = VDP_INVALID_HANDLE;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
+    decoder->PixFmt = PIX_FMT_NONE;
+
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
     video_ctx->hwaccel_context = NULL;
+
     return avcodec_default_get_format(video_ctx, fmt);
 }
 
@@ -7477,7 +7575,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	pitches[1] = frame->linesize[2];
 	pitches[2] = frame->linesize[1];
 
-	surface = VdpauGetSurface(decoder);
+	surface = VdpauGetSurface0(decoder);
 	status =
 	    VdpauVideoSurfacePutBitsYCbCr(surface, VDP_YCBCR_FORMAT_YV12, data,
 	    pitches);
@@ -8701,7 +8799,8 @@ static const VideoModule VdpauModule = {
     .NewHwDecoder =
 	(VideoHwDecoder * (*const)(VideoStream *)) VdpauNewHwDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VdpauDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *))VdpauGetSurface,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
+	    const AVCodecContext *))VdpauGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VdpauReleaseSurface,
     .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
@@ -8854,7 +8953,8 @@ static const VideoModule NoopModule = {
 #if 0
     // can't be called:
     .DelHwDecoder = NoopDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *))NoopGetSurface,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
+	    const AVCodecContext *))NoopGetSurface,
 #endif
     .ReleaseSurface = NoopReleaseSurface,
 #if 0
@@ -9481,12 +9581,14 @@ void VideoDelHwDecoder(VideoHwDecoder * hw_decoder)
 ///	Get a free hardware decoder surface.
 ///
 ///	@param hw_decoder	video hardware decoder
+///	@param video_ctx	ffmpeg video codec context
 ///
 ///	@returns the oldest free surface or invalid surface
 ///
-unsigned VideoGetSurface(VideoHwDecoder * hw_decoder)
+unsigned VideoGetSurface(VideoHwDecoder * hw_decoder,
+    const AVCodecContext * video_ctx)
 {
-    return VideoUsedModule->GetSurface(hw_decoder);
+    return VideoUsedModule->GetSurface(hw_decoder, video_ctx);
 }
 
 ///
@@ -9505,6 +9607,7 @@ void VideoReleaseSurface(VideoHwDecoder * hw_decoder, unsigned surface)
 ///	Callback to negotiate the PixelFormat.
 ///
 ///	@param hw_decoder	video hardware decoder
+///	@param video_ctx	ffmpeg video codec context
 ///	@param fmt		is the list of formats which are supported by
 ///				the codec, it is terminated by -1 as 0 is a
 ///				valid format, the formats are ordered by
@@ -9584,6 +9687,7 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 
 	decoder = &hw_decoder->Vdpau;
 	if (decoder->VideoDecoder == VDP_INVALID_HANDLE) {
+	    // must be hardware decoder!
 	    Debug(3, "video/vdpau: recover preemption\n");
 	    status =
 		VdpauDecoderCreate(VdpauDevice, decoder->Profile,

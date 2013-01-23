@@ -51,13 +51,13 @@ extern VideoHwDecoder *VideoNewHwDecoder(VideoStream *);
     /// Deallocate video hardware decoder.
 extern void VideoDelHwDecoder(VideoHwDecoder *);
 
+#ifdef LIBAVCODEC_VERSION
     /// Get and allocate a video hardware surface.
-extern unsigned VideoGetSurface(VideoHwDecoder *);
+extern unsigned VideoGetSurface(VideoHwDecoder *, const AVCodecContext *);
 
     /// Release a video hardware surface
 extern void VideoReleaseSurface(VideoHwDecoder *, unsigned);
 
-#ifdef LIBAVCODEC_VERSION
     /// Callback to negotiate the PixelFormat.
 extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
     const enum PixelFormat *);

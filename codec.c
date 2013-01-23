@@ -115,17 +115,22 @@ struct _video_decoder_
 /**
 **	Callback to negotiate the PixelFormat.
 **
-**	@param fmt	is the list of formats which are supported by the codec,
-**			it is terminated by -1 as 0 is a valid format, the
-**			formats are ordered by quality.
+**	@param video_ctx	codec context
+**	@param fmt		is the list of formats which are supported by
+**				the codec, it is terminated by -1 as 0 is a
+**				valid format, the formats are ordered by
+**				quality.
 */
 static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
     const enum PixelFormat *fmt)
 {
     VideoDecoder *decoder;
 
+    if (!video_ctx->width || !video_ctx->height) {
+	Error("codec/video: ffmpeg/libav buggy\n");
+    }
+
     decoder = video_ctx->opaque;
-    //Debug(3, "codec: %s: %18p\n", __FUNCTION__, decoder);
     decoder->GetFormatDone = 1;
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
@@ -143,11 +148,15 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     VideoDecoder *decoder;
 
     decoder = video_ctx->opaque;
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(54,86,100)
+    // ffmpeg has this already fixed
+    // libav 0.8.5 53.35.0 still needs this
+#endif
     if (!decoder->GetFormatDone) {	// get_format missing
 	enum PixelFormat fmts[2];
 
-	fprintf(stderr, "codec: buggy ffmpeg/libav\n");
-	Warning(_("codec: buggy ffmpeg/libav\n"));
+	fprintf(stderr, "codec: buggy libav, use ffmpeg\n");
+	Warning(_("codec: buggy libav, use ffmpeg\n"));
 	fmts[0] = video_ctx->pix_fmt;
 	fmts[1] = PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
@@ -160,16 +169,13 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	unsigned surface;
 	struct vdpau_render_state *vrs;
 
-	surface = VideoGetSurface(decoder->HwDecoder);
+	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
 	vrs = av_mallocz(sizeof(struct vdpau_render_state));
 	vrs->surface = surface;
 
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
-	frame->age = 256 * 256 * 256 * 64;
-#endif
 	// render
 	frame->data[0] = (void *)vrs;
 	frame->data[1] = NULL;
@@ -189,14 +195,11 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     if (video_ctx->hwaccel_context) {
 	unsigned surface;
 
-	surface = VideoGetSurface(decoder->HwDecoder);
+	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
 
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
-	frame->age = 256 * 256 * 256 * 64;
-#endif
 	// vaapi needs both fields set
 	frame->data[0] = (void *)(size_t) surface;
 	frame->data[3] = (void *)(size_t) surface;
