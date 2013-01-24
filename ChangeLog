@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add compatibility with >=ffmpeg 1.1.
     Adds PIP (Picture-in-Picture) support.
     Split mpeg packets in receiver thread.
 

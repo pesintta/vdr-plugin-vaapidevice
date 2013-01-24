@@ -36,6 +36,8 @@
 #define USE_AUDIO_DRIFT_CORRECTION
     /// compile AC3 audio drift correction support (experimental)
 #define USE_AC3_DRIFT_CORRECTION
+    /// use ffmpeg libswresample API
+#define noUSE_SWRESAMPLE
 
 #include <stdio.h>
 #include <unistd.h>
@@ -57,6 +59,9 @@
 #include <libavcodec/vaapi.h>
 #ifdef USE_VDPAU
 #include <libavcodec/vdpau.h>
+#endif
+#ifdef USE_SWRESAMPLE
+#include <libswresample/swresample.h>
 #endif
 
 #ifndef __USE_GNU
@@ -629,7 +634,16 @@ struct _audio_decoder_
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
 
+#ifndef USE_SWRESAMPLE
     ReSampleContext *ReSample;		///< audio resampling context
+#endif
+#ifdef USE_SWRESAMPLE
+#if LIBSWRESAMPLE_VERSION_INT < AV_VERSION_INT(0, 15, 100)
+    struct SwrContext *Resample;	///< audio software resample context
+#else
+    SwrContext *Resample;		///< audio software resample context
+#endif
+#endif
 
     int64_t LastDelay;			///< last delay
     struct timespec LastTime;		///< last time
@@ -639,6 +653,7 @@ struct _audio_decoder_
     int DriftCorr;			///< audio drift correction value
     int DriftFrac;			///< audio drift fraction for ac3
 
+#ifndef USE_SWRESAMPLE
     struct AVResampleContext *AvResample;	///< second audio resample context
 #define MAX_CHANNELS 8			///< max number of channels supported
     int16_t *Buffer[MAX_CHANNELS];	///< deinterleave sample buffers
@@ -646,9 +661,12 @@ struct _audio_decoder_
     int16_t *Remain[MAX_CHANNELS];	///< filter remaining samples
     int RemainSize;			///< size of remain buffer
     int RemainCount;			///< number of remaining samples
+#endif
 };
 
 #ifdef USE_AUDIO_DRIFT_CORRECTION
+#define CORRECT_PCM	1		///< do PCM audio-drift correction
+#define CORRECT_AC3	2		///< do AC3§ audio-drift correction
 static char CodecAudioDrift;		///< flag: enable audio-drift correction
 #else
 static const int CodecAudioDrift = 0;
@@ -718,10 +736,16 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 
     if (CodecDownmix) {
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100)
 	audio_decoder->AudioCtx->request_channels = 2;
+#endif
 	audio_decoder->AudioCtx->request_channel_layout =
 	    AV_CH_LAYOUT_STEREO_DOWNMIX;
     }
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,61,100)
+    // this has no effect
+    // audio_decoder->AudioCtx->request_sample_fmt = AV_SAMPLE_FMT_S16;
+#endif
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
@@ -768,6 +792,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 void CodecAudioClose(AudioDecoder * audio_decoder)
 {
     // FIXME: output any buffered data
+#ifndef USE_SWRESAMPLE
     if (audio_decoder->AvResample) {
 	int ch;
 
@@ -787,6 +812,12 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 	audio_resample_close(audio_decoder->ReSample);
 	audio_decoder->ReSample = NULL;
     }
+#endif
+#ifdef USE_SWRESAMPLE
+    if (audio_decoder->Resample) {
+	swr_free(&audio_decoder->Resample);
+    }
+#endif
     if (audio_decoder->AudioCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(audio_decoder->AudioCtx);
@@ -895,6 +926,8 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
     }
 }
 
+#ifndef USE_SWRESAMPLE
+
 /**
 **	Set/update audio pts clock.
 **
@@ -916,14 +949,15 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     if (!delay) {
 	return;
     }
-    clock_gettime(CLOCK_REALTIME, &nowtime);
+    clock_gettime(CLOCK_MONOTONIC, &nowtime);
     if (!audio_decoder->LastDelay) {
 	audio_decoder->LastTime = nowtime;
 	audio_decoder->LastPTS = pts;
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital delay %" PRId64 "ms\n", delay / 90);
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n",
+	    delay / 90);
 	return;
     }
     // collect over some time
@@ -1205,14 +1239,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	}
 	Error(_("codec: error more than one frame data\n"));
     }
-#ifdef notyetFF_API_OLD_DECODE_AUDIO
-    // FIXME: ffmpeg git comeing
-    int got_frame;
-
-    avcodec_decode_audio4(audio_ctx, frame, &got_frame, avpkt);
-#else
-#endif
-
     // update audio clock
     if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
@@ -1351,6 +1377,297 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	}
     }
 }
+
+#endif
+
+#ifdef USE_SWRESAMPLE
+
+/**
+**	Set/update audio pts clock.
+**
+**	@param audio_decoder	audio decoder data
+**	@param pts		presentation timestamp
+*/
+static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
+{
+    struct timespec nowtime;
+    int64_t delay;
+    int64_t tim_diff;
+    int64_t pts_diff;
+    int drift;
+    int corr;
+
+    AudioSetClock(pts);
+
+    delay = AudioGetDelay();
+    if (!delay) {
+	return;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &nowtime);
+    if (!audio_decoder->LastDelay) {
+	audio_decoder->LastTime = nowtime;
+	audio_decoder->LastPTS = pts;
+	audio_decoder->LastDelay = delay;
+	audio_decoder->Drift = 0;
+	audio_decoder->DriftFrac = 0;
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n",
+	    delay / 90);
+	return;
+    }
+    // collect over some time
+    pts_diff = pts - audio_decoder->LastPTS;
+    if (pts_diff < 10 * 1000 * 90) {
+	return;
+    }
+
+    tim_diff = (nowtime.tv_sec - audio_decoder->LastTime.tv_sec)
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
+	audio_decoder->LastTime.tv_nsec);
+
+    drift =
+	(tim_diff * 90) / (1000 * 1000) - pts_diff + delay -
+	audio_decoder->LastDelay;
+
+    // adjust rounding error
+    nowtime.tv_nsec -= nowtime.tv_nsec % (1000 * 1000 / 90);
+    audio_decoder->LastTime = nowtime;
+    audio_decoder->LastPTS = pts;
+    audio_decoder->LastDelay = delay;
+
+    if (0) {
+	Debug(3,
+	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
+	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
+	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
+    }
+    // underruns and av_resample have the same time :(((
+    if (abs(drift) > 10 * 90) {
+	// drift too big, pts changed?
+	Debug(3, "codec/audio: drift(%6d) %3dms reset\n",
+	    audio_decoder->DriftCorr, drift / 90);
+	audio_decoder->LastDelay = 0;
+#ifdef DEBUG
+	corr = 0;			// keep gcc happy
+#endif
+    } else {
+
+	drift += audio_decoder->Drift;
+	audio_decoder->Drift = drift;
+	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
+	// SPDIF/HDMI passthrough
+	if ((CodecAudioDrift & 2) && (!CodecPassthroughAC3
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)) {
+	    audio_decoder->DriftCorr = -corr;
+	}
+
+	if (audio_decoder->DriftCorr < -20000) {	// limit correction
+	    audio_decoder->DriftCorr = -20000;
+	} else if (audio_decoder->DriftCorr > 20000) {
+	    audio_decoder->DriftCorr = 20000;
+	}
+    }
+
+    if (audio_decoder->Resample && audio_decoder->DriftCorr) {
+	int distance;
+
+	// try workaround for buggy ffmpeg 0.10
+	if (abs(audio_decoder->DriftCorr) < 2000) {
+	    distance = (pts_diff * audio_decoder->HwSampleRate) / (900 * 1000);
+	} else {
+	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
+	}
+	if (swr_set_compensation(audio_decoder->Resample,
+		audio_decoder->DriftCorr / 10, distance)) {
+	    Debug(3, "codec/audio: swr_set_compensation failed\n");
+	}
+    }
+    if (1) {
+	static int c;
+
+	if (!(c++ % 10)) {
+	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
+		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+	}
+    }
+}
+
+/**
+**	Handle audio format changes.
+**
+**	@param audio_decoder	audio decoder data
+*/
+static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
+{
+    const AVCodecContext *audio_ctx;
+    int err;
+    int isAC3;
+
+    audio_ctx = audio_decoder->AudioCtx;
+    Debug(3, "codec/audio: format change %s %dHz *%d channels %s\n",
+	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
+	audio_ctx->channels, CodecPassthroughAC3 ? "pass-through" : "");
+
+    audio_decoder->SampleRate = audio_ctx->sample_rate;
+    audio_decoder->HwSampleRate = audio_ctx->sample_rate;
+    audio_decoder->Channels = audio_ctx->channels;
+    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
+
+    // SPDIF/HDMI passthrough
+    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+	audio_decoder->HwChannels = 2;
+	isAC3 = 1;
+    } else {
+	audio_decoder->HwChannels = audio_ctx->channels;
+	isAC3 = 0;
+    }
+
+    // channels not support?
+    if ((err =
+	    AudioSetup(&audio_decoder->HwSampleRate,
+		&audio_decoder->HwChannels, isAC3))) {
+
+	Debug(3, "codec/audio: audio setup error\n");
+	// FIXME: handle errors
+	audio_decoder->HwChannels = 0;
+	audio_decoder->HwSampleRate = 0;
+	return;
+    }
+
+    if (isAC3) {			// no AC3 conversion allowed
+	return;
+    }
+
+    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n",
+	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
+	audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
+	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
+
+    audio_decoder->Resample =
+	swr_alloc_set_opts(audio_decoder->Resample, audio_ctx->channel_layout,
+	AV_SAMPLE_FMT_S16, audio_decoder->HwSampleRate,
+	audio_ctx->channel_layout, audio_ctx->sample_fmt,
+	audio_ctx->sample_rate, 0, NULL);
+    if (audio_decoder->Resample) {
+	swr_init(audio_decoder->Resample);
+    } else {
+	Error(_("codec/audio: can't setup resample\n"));
+    }
+}
+
+/**
+**	Decode an audio packet.
+**
+**	PTS must be handled self.
+**
+**	@note the caller has not aligned avpkt and not cleared the end.
+**
+**	@param audio_decoder	audio decoder data
+**	@param avpkt		audio packet
+*/
+void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
+{
+    AVCodecContext *audio_ctx;
+    AVFrame frame;
+    int got_frame;
+    int n;
+
+    audio_ctx = audio_decoder->AudioCtx;
+
+    frame.data[0] = NULL;
+    n = avcodec_decode_audio4(audio_ctx, &frame, &got_frame,
+	(AVPacket *) avpkt);
+    if (n != avpkt->size) {
+	if (n == AVERROR(EAGAIN)) {
+	    Error(_("codec/audio: latm\n"));
+	    return;
+	}
+	if (n < 0) {			// no audio frame could be decompressed
+	    Error(_("codec/audio: bad audio frame\n"));
+	    return;
+	}
+	Error(_("codec/audio: error more than one frame data\n"));
+    }
+    if (!got_frame) {
+	Error(_("codec/audio: no frame\n"));
+	return;
+    }
+    // update audio clock
+    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
+	CodecAudioSetClock(audio_decoder, avpkt->pts);
+    }
+    // format change
+    if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
+	|| audio_decoder->SampleRate != audio_ctx->sample_rate
+	|| audio_decoder->Channels != audio_ctx->channels) {
+	CodecAudioUpdateFormat(audio_decoder);
+
+    }
+
+    if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
+	return;				// unsupported sample format
+    }
+#ifdef USE_PASSTHROUGH
+    // SPDIF/HDMI passthrough
+    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+	int16_t spdif[6144 / 2];
+	int spdif_sz;
+
+	// build SPDIF header and append A52 audio to it
+	// avpkt is the original data
+	spdif_sz = 6144;
+	if (spdif_sz < avpkt->size + 8) {
+	    Error(_("codec/audio: decoded data smaller than encoded\n"));
+	    return;
+	}
+	// copy original data for output
+	spdif[0] = htole16(0xF872);	// iec 61937 sync word
+	spdif[1] = htole16(0x4E1F);
+	spdif[2] = htole16(0x01 | (avpkt->data[5] & 0x07) << 8);
+	spdif[3] = htole16(avpkt->size * 8);
+	// FIXME: not 100% sure, if endian is correct on not intel hardware
+	swab(avpkt->data, spdif + 4, avpkt->size);
+	memset(spdif + 4 + avpkt->size / 2, 0, spdif_sz - 8 - avpkt->size);
+	// don't play with the ac-3 samples
+	AudioEnqueue(spdif, spdif_sz);
+	return;
+    }
+#endif
+    if (0) {
+	char strbuf[32];
+	int data_sz;
+	int plane_sz;
+
+	data_sz =
+	    av_samples_get_buffer_size(&plane_sz, audio_ctx->channels,
+	    frame.nb_samples, audio_ctx->sample_fmt, 1);
+	fprintf(stderr, "codec/audio: sample_fmt %s\n",
+	    av_get_sample_fmt_name(audio_ctx->sample_fmt));
+	av_get_channel_layout_string(strbuf, 32, audio_ctx->channels,
+	    audio_ctx->channel_layout);
+	fprintf(stderr, "codec/audio: layout %s\n", strbuf);
+	fprintf(stderr,
+	    "codec/audio: channels %d samples %d plane %d data %d\n",
+	    audio_ctx->channels, frame.nb_samples, plane_sz, data_sz);
+    }
+
+    if (audio_decoder->Resample) {
+	uint8_t outbuf[8192 * 2 * 8];
+	uint8_t *out[1];
+
+	out[0] = outbuf;
+	n = swr_convert(audio_decoder->Resample, out,
+	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+	    (const uint8_t **)frame.extended_data, frame.nb_samples);
+	if (n > 0) {
+	    CodecReorderAudioFrame((int16_t *) outbuf,
+		n * 2 * audio_decoder->HwChannels, audio_decoder->HwChannels);
+	    AudioEnqueue(outbuf, n * 2 * audio_decoder->HwChannels);
+	}
+	return;
+    }
+}
+
+#endif
 
 /**
 **	Flush the audio decoder.

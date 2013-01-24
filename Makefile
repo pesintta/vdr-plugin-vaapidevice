@@ -24,6 +24,8 @@ CONFIG += -DUSE_PIP			# too experimental PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
+					# use ffmpeg libswresample
+CONFIG += $(shell pkg-config --exists libswresample && echo "-DUSE_SWRESAMPLE")
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
@@ -73,12 +75,12 @@ _CFLAGS = $(DEFINES) $(INCLUDES) \
 	`pkg-config --cflags x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
 		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
 	`pkg-config --cflags gl glu` \
-	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-		    `pkg-config --cflags vdpau`) \
+	$(if $(findstring USE_SWRESAMPLE,$(CONFIG)), \
+		$(shell pkg-config --cflags libswresample)) \
 	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-		    `pkg-config --cflags libva-x11 libva-glx libva`) \
+		`pkg-config --cflags libva-x11 libva-glx libva`) \
 	$(if $(findstring USE_ALSA,$(CONFIG)), \
-		    `pkg-config --cflags alsa`)
+		`pkg-config --cflags alsa`)
 
 #override _CFLAGS  += -Werror
 override CXXFLAGS += $(_CFLAGS)
@@ -89,12 +91,14 @@ LIBS += -lrt \
 	`pkg-config --libs x11 x11-xcb xcb xcb-xv xcb-shm xcb-dpms xcb-atom\
 		xcb-screensaver xcb-randr xcb-glx xcb-icccm xcb-keysyms`\
 	`pkg-config --libs gl glu` \
+	$(if $(findstring USE_SWRESAMPLE,$(CONFIG)), \
+		$(shell pkg-config --libs libswresample)) \
 	$(if $(findstring USE_VDPAU,$(CONFIG)), \
-		    `pkg-config --libs vdpau`) \
+		`pkg-config --libs vdpau`) \
 	$(if $(findstring USE_VAAPI,$(CONFIG)), \
-		    `pkg-config --libs libva-x11 libva-glx libva`) \
+		`pkg-config --libs libva-x11 libva-glx libva`) \
 	$(if $(findstring USE_ALSA,$(CONFIG)), \
-		    `pkg-config --libs alsa`)
+		`pkg-config --libs alsa`)
 
 ### The object files (add further files here):
 
@@ -132,7 +136,7 @@ I18Npot	  = $(PODIR)/$(PLUGIN).pot
 %.mo: %.po
 	msgfmt -c -o $@ $<
 
-$(I18Npot): $(wildcard *.cpp)  $(wildcard *.c)
+$(I18Npot): $(wildcard *.cpp) $(wildcard *.c)
 	xgettext -C -cTRANSLATORS --no-wrap --no-location -k -ktr -ktrNOOP \
 	-k_ -k_N --package-name=VDR --package-version=$(VDRVERSION) \
 	--msgid-bugs-address='<see README>' -o $@ $^

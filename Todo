@@ -117,6 +117,8 @@ setup:
 unsorted:
     stoping vdr while plugin is suspended opens and closes a window.
     svdrp prim: support plugin names for device numbers.
+    hangup PipVideoStream -> Vdpau_get_format -> xcb -> poll
+	+ lock DecoderLockMutex
 
 future features (not planed for 1.0 - 1.5)
 
