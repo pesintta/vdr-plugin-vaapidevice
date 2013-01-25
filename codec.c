@@ -736,7 +736,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 
     if (CodecDownmix) {
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100) || FF_API_REQUEST_CHANNELS
 	audio_decoder->AudioCtx->request_channels = 2;
 #endif
 	audio_decoder->AudioCtx->request_channel_layout =
