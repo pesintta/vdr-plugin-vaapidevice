@@ -9302,7 +9302,8 @@ static void VideoEvent(void)
 {
     XEvent event;
     KeySym keysym;
-    char buf[32];
+    const char *keynam;
+    char buf[64];
     uint32_t values[1];
 
     XNextEvent(XlibDisplay, &event);
@@ -9343,7 +9344,21 @@ static void VideoEvent(void)
 		    event.xkey.keycode);
 		break;
 	    }
-	    FeedKeyPress("XKeySym", XKeysymToString(keysym), 0, 0);
+	    keynam = XKeysymToString(keysym);
+	    // check for key modifiers (Alt/Ctrl)
+	    if (event.xkey.state & (Mod1Mask | ControlMask)) {
+		if (event.xkey.state & Mod1Mask) {
+		    strcpy(buf, "Alt+");
+		} else {
+		    buf[0] = '\0';
+		}
+		if (event.xkey.state & ControlMask) {
+		    strcat(buf, "Ctrl+");
+		}
+		strncat(buf, keynam, sizeof(buf) - 10);
+		keynam = buf;
+	    }
+	    FeedKeyPress("XKeySym", keynam, 0, 0);
 	    break;
 	case KeyRelease:
 	    break;
