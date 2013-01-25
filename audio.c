@@ -546,6 +546,13 @@ static void AudioUpmix(const int16_t * in, int in_chan, int frames,
 /**
 **	Resample ffmpeg sample format to hardware format.
 **
+**	FIXME: use libswresample for this and move it to codec.
+**	FIXME: ffmpeg to alsa conversion is already done in codec.c.
+**
+**	ffmpeg L  R  C	Ls Rs		-> alsa L R  Ls Rs C
+**	ffmpeg L  R  C	LFE Ls Rs	-> alsa L R  Ls Rs C  LFE
+**	ffmpeg L  R  C	LFE Ls Rs Rl Rr	-> alsa L R  Ls Rs C  LFE Rl Rr
+**
 **	@param in	input sample buffer
 **	@param in_chan	nr. of input channels
 **	@param frames	number of frames in sample buffer
@@ -581,6 +588,9 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 	    AudioSurround2Stereo(in, in_chan, frames, out);
 	    break;
 	case 5 * 8 + 6:
+	case 3 * 8 + 8:
+	case 5 * 8 + 8:
+	case 6 * 8 + 8:
 	    AudioUpmix(in, in_chan, frames, out, out_chan);
 	    break;
 
@@ -1956,6 +1966,7 @@ static int AudioNextRing(void)
     int use_ac3;
     int sample_rate;
     int channels;
+    size_t used;
 
     // update audio format
     // not always needed, but check if needed is too complex
@@ -1975,12 +1986,18 @@ static int AudioNextRing(void)
     AudioResetCompressor();
     AudioResetNormalizer();
 
+    Debug(3, "audio: a/v next buf(%d,%4zdms)\n", atomic_read(&AudioRingFilled),
+	(RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer) * 1000)
+	/ (AudioRing[AudioRingWrite].HwSampleRate *
+	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
+
     // stop, if not enough in next buffer
-    if (AudioStartThreshold >=
-	RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)) {
-	return 1;
+    used = RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer);
+    if (AudioStartThreshold * 4 < used || (AudioVideoIsReady
+	    && AudioStartThreshold < used)) {
+	return 0;
     }
-    return 0;
+    return 1;
 }
 
 /**
@@ -2029,10 +2046,13 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    }
 
 	    if (flush) {
+		Debug(3, "audio: flush\n");
 		AudioUsedModule->FlushBuffers();
 		if (AudioNextRing()) {
+		    Debug(3, "audio: break after flush\n");
 		    break;
 		}
+		Debug(3, "audio: continue after flush\n");
 	    }
 	    // try to play some samples
 	    err = AudioUsedModule->Thread();
@@ -2275,11 +2295,12 @@ void AudioVideoReady(int64_t pts)
 	(used * 90 * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
 	AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
 
-    Debug(3, "audio: a/v buf:%4zdms %s|%s = %dms video ready\n",
+    Debug(3, "audio: a/v sync buf(%d,%4zdms) %s|%s = %dms %s\n",
+	atomic_read(&AudioRingFilled),
 	(used * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
 	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
-	Timestamp2String(audio_pts), Timestamp2String(pts),
-	(int)(pts - audio_pts) / 90);
+	Timestamp2String(pts), Timestamp2String(audio_pts),
+	(int)(pts - audio_pts) / 90, AudioRunning ? "running" : "ready");
 
     if (!AudioRunning) {
 	int skip;
@@ -2290,7 +2311,7 @@ void AudioVideoReady(int64_t pts)
 	    pts - 15 * 20 * 90 - AudioBufferTime * 90 - audio_pts +
 	    VideoAudioDelay;
 #ifdef DEBUG
-	printf("%dms %dms %dms\n", (int)(pts - audio_pts) / 90,
+	fprintf(stderr, "%dms %dms %dms\n", (int)(pts - audio_pts) / 90,
 	    VideoAudioDelay / 90, skip / 90);
 #endif
 	// guard against old PTS
@@ -2303,7 +2324,7 @@ void AudioVideoReady(int64_t pts)
 		AudioSkip = skip - used;
 		skip = used;
 	    }
-	    Debug(3, "audio: advance %dms %d/%zd\n",
+	    Debug(3, "audio: sync advance %dms %d/%zd\n",
 		(skip * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
 		    AudioRing[AudioRingWrite].HwChannels *
 		    AudioBytesProSample), skip, used);
