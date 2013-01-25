@@ -8321,6 +8321,8 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
     }
 #endif
 
+#if 1
+    // FIXME: this part code should be no longer be needed with new mpeg fix
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
 
@@ -8353,6 +8355,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	}
 	VdpauSyncDisplayFrame();
     }
+#endif
 
     if (!decoder->Closing) {
 	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
@@ -8463,13 +8466,6 @@ static void VdpauDisplayHandlerThread(void)
     struct timespec nowtime;
     VdpauDecoder *decoder;
 
-    if (VdpauPreemption) {		// display preempted
-	if (VdpauPreemptionRecover()) {
-	    usleep(15 * 1000);
-	    return;
-	}
-    }
-
     decoded = 0;
     pthread_mutex_lock(&VideoLockMutex);
     for (i = 0; i < VdpauDecoderN; ++i) {
@@ -8513,6 +8509,13 @@ static void VdpauDisplayHandlerThread(void)
     if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
 	(nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
 	return;
+    }
+
+    if (VdpauPreemption) {		// display preempted
+	if (VdpauPreemptionRecover()) {
+	    clock_gettime(CLOCK_REALTIME, &VdpauFrameTime);
+	    return;
+	}
     }
 
     pthread_mutex_lock(&VideoLockMutex);
@@ -9699,6 +9702,10 @@ void VideoDrawRenderState(VideoHwDecoder * hw_decoder,
 	uint32_t start;
 	uint32_t end;
 	VdpauDecoder *decoder;
+
+	if (VdpauPreemption) {		// display preempted
+	    return;
+	}
 
 	decoder = &hw_decoder->Vdpau;
 	if (decoder->VideoDecoder == VDP_INVALID_HANDLE) {
