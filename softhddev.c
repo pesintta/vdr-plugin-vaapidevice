@@ -20,6 +20,9 @@
 ///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
+#define noUSE_SOFTLIMIT			///< add soft buffer limits to Play..
+#define noUSE_PIP			///< include PIP support + new API
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #ifdef __FreeBSD__
@@ -654,6 +657,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			avpkt->size = r;
 			avpkt->pts = pesdx->PTS;
 			avpkt->dts = pesdx->DTS;
+			// FIXME: not aligned for ffmpeg
 			CodecAudioDecode(MyAudioDecoder, avpkt);
 			pesdx->PTS = AV_NOPTS_VALUE;
 			pesdx->DTS = AV_NOPTS_VALUE;
@@ -988,11 +992,13 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
+#ifdef USE_SOFTLIMIT
     // soft limit buffer full
     if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
 	return 0;
     }
+#endif
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
@@ -1155,6 +1161,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    avpkt->size = r;
 	    avpkt->pts = AudioAvPkt->pts;
 	    avpkt->dts = AudioAvPkt->dts;
+	    // FIXME: not aligned for ffmpeg
 	    CodecAudioDecode(MyAudioDecoder, avpkt);
 	    AudioAvPkt->pts = AV_NOPTS_VALUE;
 	    AudioAvPkt->dts = AV_NOPTS_VALUE;
@@ -1212,11 +1219,13 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
+#ifdef USE_SOFTLIMIT
     // soft limit buffer full
     if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
 	return 0;
     }
+#endif
 
     return TsDemuxer(tsdx, data, size);
 }
@@ -2054,14 +2063,16 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	return size;
     }
     // hard limit buffer full: needed for replay
-    if (atomic_read(&stream->PacketsFilled) >= VIDEO_PACKET_MAX - 3) {
+    if (atomic_read(&stream->PacketsFilled) >= VIDEO_PACKET_MAX - 10) {
 	return 0;
     }
+#ifdef USE_SOFTLIMIT
     // soft limit buffer full
     if (AudioSyncStream == stream && atomic_read(&stream->PacketsFilled) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE) {
+	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
 	return 0;
     }
+#endif
     // get pts/dts
     pts = AV_NOPTS_VALUE;
     if (data[7] & 0x80) {
@@ -2585,7 +2596,7 @@ int Poll(int timeout)
 	// soft limit + hard limit
 	full = (used > AUDIO_MIN_BUFFER_FREE && filled > 3)
 	    || AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE
-	    || filled >= VIDEO_PACKET_MAX - 3;
+	    || filled >= VIDEO_PACKET_MAX - 10;
 
 	if (!full || !timeout) {
 	    return !full;
