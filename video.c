@@ -39,7 +39,7 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
-#define USE_SCREENSAVER			///< support disable screensaver
+#define noUSE_SCREENSAVER		///< support disable screensaver
 #define USE_AUTOCROP			///< compile auto-crop support
 #define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
@@ -103,7 +103,7 @@
 
 //#include <xcb/xcb_image.h>
 //#include <xcb/xcb_event.h>
-#include <xcb/xcb_atom.h>
+//#include <xcb/xcb_atom.h>
 #include <xcb/xcb_icccm.h>
 #ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 #include <xcb/xcb_ewmh.h>

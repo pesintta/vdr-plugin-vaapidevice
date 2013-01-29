@@ -4,71 +4,76 @@
 
 EAPI="4"
 
-inherit eutils vdr-plugin-2
+inherit flag-o-matic toolchain-funcs vdr-plugin-2 eutils
 
-if [[ ${PV} == "9999" ]] ; then
-		inherit git-2
-		EGIT_REPO_URI="git://projects.vdr-developer.org/vdr-plugin-softhddevice.git"
+if [ "${PV}" = "9999" ]; then
+	inherit git-2
+	EGIT_REPO_URI="git://projects.vdr-developer.org/vdr-plugin-softhddevice.git"
+	KEYWORDS=""
 else
-		SRC_URI="http://projects.vdr-developer.org/attachments/download/838/${P}.tgz"
+	SRC_URI="mirror://vdr-developerorg/889/${P}.tgz"
+	KEYWORDS="~amd64 ~x86"
 fi
 
-
-DESCRIPTION="A software and GPU emulated HD output device plugin for VDR."
+DESCRIPTION="Software and GPU emulated HD output device plugin for VDR"
 HOMEPAGE="http://projects.vdr-developer.org/projects/show/plg-softhddevice"
-SRC_URI=""
 
 LICENSE="AGPL-3"
 SLOT="0"
-KEYWORDS="~x86 ~amd64"
-IUSE="vaapi vdpau alsa oss yaepg opengl debug"
+IUSE="alsa oss vaapi vdpau yaepg xscreensaver debug"
 
-DEPEND=">=x11-libs/libxcb-1.8
-		x11-libs/xcb-util
-		x11-libs/xcb-util-wm
-		x11-libs/xcb-util-keysyms
-		x11-libs/xcb-util-renderutil
-		x11-libs/libX11
-		opengl? ( virtual/opengl )
-		>=virtual/ffmpeg-0.7
-		sys-devel/gettext
-		sys-devel/make
-		dev-util/pkgconfig
-		yaepg? ( >=media-video/vdr-1.7.23[yaepg] )
-		!yaepg? ( >=media-video/vdr-1.7.23 )
-		vdpau? ( x11-libs/libvdpau virtual/ffmpeg[vdpau] )
-		vaapi? ( x11-libs/libva virtual/ffmpeg[vaapi] )
-		alsa? ( media-libs/alsa-lib )
-		oss? ( sys-kernel/linux-headers )
-"
+RDEPEND=">=media-video/vdr-1.7
+	>=virtual/ffmpeg-0.7[vdpau?,vaapi?]
+	x11-libs/libX11
+	>=x11-libs/libxcb-1.8
+	x11-libs/xcb-util-wm
+	alsa? ( media-libs/alsa-lib )
+	vdpau? ( x11-libs/libvdpau )
+	vaapi? ( x11-libs/libva )
+	alsa? ( media-libs/alsa-lib )
+	yaepg? ( >=media-video/vdr-1.7[yaepg] )"
+DEPEND="${RDEPEND}
+	x11-libs/xcb-util
+	sys-devel/gettext
+	virtual/pkgconfig
+	oss? ( sys-kernel/linux-headers )"
 
 src_prepare() {
-		vdr-plugin-2_src_prepare
+	vdr-plugin-2_src_prepare
 }
 
 src_compile() {
-		local myconf
+	local myconf
 
-		myconf="-DHAVE_PTHREAD_NAME -DAV_INFO -DAV_INFO_TIME=15000"
-		use vdpau && myconf="${myconf} -DUSE_VDPAU"
-		use vaapi && myconf="${myconf} -DUSE_VAAPI"
-		use alsa && myconf="${myconf} -DUSE_ALSA"
-		use oss && myconf="${myconf} -DUSE_OSS"
-		use debug && myconf="${myconf} -DDEBUG"
+	myconf+=" ALSA=$(usex alsa 1 0)"
+	myconf+=" OSS=$(usex oss 1 0)"
+	myconf+=" VDPAU=$(usex vdpau 1 0)"
+	myconf+=" VAAPI=$(usex vaapi 1 0)"
+	myconf+=" SCREENSAVER=$(usex xscreensaver 1 0)"
+	# FIXME: need to know, if libav or ffmpeg is used for virtual/ffmpeg
+	myconf+=" SWRESAMPLE=1"
 
-		#vdr-plugin-2_src_compile
-		cd "${S}"
+	append-cflags -DHAVE_PTHREAD_NAME
+	append-cxxflags -DHAVE_PTHREAD_NAME
+	tc-export CC CXX
 
-		BUILD_TARGETS=${BUILD_TARGETS:-${VDRPLUGIN_MAKE_TARGET:-all}}
+	#emake all LIBDIR="." $myconf || die
 
-		emake ${BUILD_PARAMS} CONFIG="${myconf}" \
-				${BUILD_TARGETS} \
-				LOCALEDIR="${TMP_LOCALE_DIR}" \
-				LIBDIR="${S}" \
-				TMPDIR="${T}" \
+	#vdr-plugin-2_src_compile
+	cd "${S}"
+
+	BUILD_TARGETS=${BUILD_TARGETS:-${VDRPLUGIN_MAKE_TARGET:-all}}
+
+	emake ${BUILD_PARAMS} ${myconf} \
+			${BUILD_TARGETS} \
+			LOCALEDIR="${TMP_LOCALE_DIR}" \
+			LIBDIR="${S}" \
+			TMPDIR="${T}" \
 		|| die "emake failed"
 }
 
 src_install() {
-		vdr-plugin-2_src_install
+	vdr-plugin-2_src_install
+
+	dodoc ChangeLog
 }
