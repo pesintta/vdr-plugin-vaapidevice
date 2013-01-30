@@ -104,7 +104,7 @@ SOFILE = libvdr-$(PLUGIN).so
 
 INCLUDES +=
 
-DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"' $(CONFIG) \
+DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"' -D_GNU_SOURCE $(CONFIG) \
 	$(if $(GIT_REV), -DGIT_REV='"$(GIT_REV)"')
 
 ### Make it standard
