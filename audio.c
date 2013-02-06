@@ -40,6 +40,7 @@
 //#define USE_ALSA			///< enable alsa support
 //#define USE_OSS			///< enable OSS support
 #define USE_AUDIO_THREAD		///< use thread for audio playback
+#define USE_AUDIO_MIXER			///< use audio module mixer
 
 #include <stdio.h>
 #include <stdint.h>
@@ -187,7 +188,7 @@ static int AudioRatesInHw[AudioRatesMax];
     /// input to hardware channel matrix
 static int AudioChannelMatrix[AudioRatesMax][9];
 
-    /// rates tables
+    /// rates tables (must be sorted by frequency)
 static const unsigned AudioRatesTable[AudioRatesMax] = {
     44100, 48000,
 };
@@ -400,6 +401,8 @@ static void AudioSoftAmplifier(int16_t * samples, int count)
     }
 }
 
+#ifdef USE_AUDIO_MIXER
+
 /**
 **	Upmix mono to stereo.
 **
@@ -603,6 +606,8 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
     }
 }
 
+#endif
+
 //----------------------------------------------------------------------------
 //	ring buffer
 //----------------------------------------------------------------------------
@@ -633,7 +638,7 @@ static atomic_t AudioRingFilled;	///< how many of the ring is used
 static unsigned AudioStartThreshold;	///< start play, if filled
 
 /**
-**	Add sample-rate, number of channel change to ring.
+**	Add sample-rate, number of channels change to ring.
 **
 **	@param sample_rate	sample-rate frequency
 **	@param channels		number of channels
@@ -641,6 +646,8 @@ static unsigned AudioStartThreshold;	///< start play, if filled
 **
 **	@retval -1	error
 **	@retval 0	okay
+**
+**	@note this function shouldn't fail.  Checks are done during AudoInit.
 */
 static int AudioRingAdd(unsigned sample_rate, int channels, int use_ac3)
 {
@@ -649,13 +656,16 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int use_ac3)
     // search supported sample-rates
     for (u = 0; u < AudioRatesMax; ++u) {
 	if (AudioRatesTable[u] == sample_rate) {
+	    goto found;
+	}
+	if (AudioRatesTable[u] > sample_rate) {
 	    break;
 	}
     }
-    if (u == AudioRatesMax) {		// unsupported sample-rate
-	Error(_("audio: %dHz sample-rate unsupported\n"), sample_rate);
-	return -1;
-    }
+    Error(_("audio: %dHz sample-rate unsupported\n"), sample_rate);
+    return -1;				// unsupported sample-rate
+
+  found:
     if (!AudioChannelMatrix[u][channels]) {
 	Error(_("audio: %d channels unsupported\n"), channels);
 	return -1;			// unsupported nr. of channels
@@ -1712,7 +1722,7 @@ static int64_t OssGetDelay(void)
 /**
 **	Setup OSS audio for requested format.
 **
-**	@param sample_rate		sample rate/frequency
+**	@param sample_rate	sample rate/frequency
 **	@param channels		number of channels
 **	@param use_ac3		use ac3/pass-through device
 **
@@ -2163,7 +2173,6 @@ void AudioEnqueue(const void *samples, int count)
 {
     size_t n;
     int16_t *buffer;
-    int frames;
 
 #ifdef noDEBUG
     static uint32_t last_tick;
@@ -2185,27 +2194,39 @@ void AudioEnqueue(const void *samples, int count)
 	AudioRing[AudioRingWrite].PacketSize = count;
 	Debug(3, "audio: a/v packet size %d bytes\n", count);
     }
-    if (AudioRing[AudioRingWrite].UseAc3) {
-	buffer = (void *)samples;
-    } else {
-	//
-	//	Convert / resample input to hardware format
-	//
+    // audio sample modification allowed and needed?
+    buffer = (void *)samples;
+    if (!AudioRing[AudioRingWrite].UseAc3 && (AudioCompression
+	    || AudioNormalize
+	    || AudioRing[AudioRingWrite].InChannels !=
+	    AudioRing[AudioRingWrite].HwChannels)) {
+	int frames;
+
+	// resample into ring-buffer is too complex in the case of a roundabout
+	// just use a temporary buffer
 	frames =
 	    count / (AudioRing[AudioRingWrite].InChannels *
 	    AudioBytesProSample);
 	buffer =
 	    alloca(frames * AudioRing[AudioRingWrite].HwChannels *
 	    AudioBytesProSample);
+#ifdef USE_AUDIO_MIXER
+	// Convert / resample input to hardware format
 	AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames,
 	    buffer, AudioRing[AudioRingWrite].HwChannels);
-
+#else
+#ifdef DEBUG
+	if (AudioRing[AudioRingWrite].InChannels !=
+	    AudioRing[AudioRingWrite].HwChannels) {
+	    Debug(3, "audio: internal failure channels mismatch\n");
+	    return;
+	}
+#endif
+	memcpy(buffer, samples, count);
+#endif
 	count =
 	    frames * AudioRing[AudioRingWrite].HwChannels *
 	    AudioBytesProSample;
-
-	// resample into ring-buffer is too complex in the case of a roundabout
-	// just use a temporary buffer
 
 	if (AudioCompression) {		// in place operation
 	    AudioCompressor(buffer, count);
@@ -2551,6 +2572,8 @@ void AudioSetVolume(int volume)
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
 **	@retval -1	something gone wrong
+**
+**	@todo add support to report best fitting format.
 */
 int AudioSetup(int *freq, int *channels, int use_ac3)
 {
@@ -2771,7 +2794,12 @@ void AudioInit(void)
     freq = 44100;
     AudioRatesInHw[Audio44100] = 0;
     for (chan = 1; chan < 9; ++chan) {
-	if (AudioUsedModule->Setup(&freq, &chan, 0)) {
+	int tchan;
+	int tfreq;
+
+	tchan = chan;
+	tfreq = freq;
+	if (AudioUsedModule->Setup(&tfreq, &tchan, 0)) {
 	    AudioChannelsInHw[chan] = 0;
 	} else {
 	    AudioChannelsInHw[chan] = chan;
@@ -2781,10 +2809,15 @@ void AudioInit(void)
     freq = 48000;
     AudioRatesInHw[Audio48000] = 0;
     for (chan = 1; chan < 9; ++chan) {
+	int tchan;
+	int tfreq;
+
 	if (!AudioChannelsInHw[chan]) {
 	    continue;
 	}
-	if (AudioUsedModule->Setup(&freq, &chan, 0)) {
+	tchan = chan;
+	tfreq = freq;
+	if (AudioUsedModule->Setup(&tfreq, &tchan, 0)) {
 	    AudioChannelsInHw[chan] = 0;
 	} else {
 	    AudioChannelsInHw[chan] = chan;
