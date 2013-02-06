@@ -1337,12 +1337,13 @@ class cSoftReceiver:public cReceiver
 /**
 **	Receiver constructor.
 **
-**	@param channel	channel to receive.
+**	@param channel	channel to receive
 */
 cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(NULL,
     MINPRIORITY)
 {
-    // clear all pids done above, we want video only
+    // cReceiver::channelID not setup, this can cause trouble
+    // we want video only
     AddPid(channel->Vpid());
 }
 
@@ -1521,6 +1522,17 @@ static int PipChannelNr;		///< last PIP channel number
 static const cChannel *PipChannel;	///< current PIP channel
 
 /**
+**	Stop PIP.
+*/
+extern "C" void DelPip(void)
+{
+    delete PipReceiver;
+
+    PipReceiver = NULL;
+    PipChannel = NULL;
+}
+
+/**
 **	Prepare new PIP.
 **
 **	@param channel_nr	channel number
@@ -1530,6 +1542,14 @@ static void NewPip(int channel_nr)
     const cChannel *channel;
     cDevice *device;
     cSoftReceiver *receiver;
+
+#ifdef DEBUG
+    // is device replaying?
+    if (cDevice::PrimaryDevice()->Replaying() && cControl::Control()) {
+	dsyslog("[softhddev]%s: replay active\n", __FUNCTION__);
+	// FIXME: need to find PID
+    }
+#endif
 
     if (!channel_nr) {
 	channel_nr = cDevice::CurrentChannel();
@@ -1546,17 +1566,6 @@ static void NewPip(int channel_nr)
 	PipChannel = channel;
 	PipChannelNr = channel_nr;
     }
-}
-
-/**
-**	Stop PIP.
-*/
-extern "C" void DelPip(void)
-{
-    delete PipReceiver;
-
-    PipReceiver = NULL;
-    PipChannel = NULL;
 }
 
 /**
@@ -1675,12 +1684,23 @@ static void SwapPipPosition(void)
 //////////////////////////////////////////////////////////////////////////////
 
 /**
+**	Hotkey parsing state machine.
+*/
+typedef enum
+{
+    HksInitial,				///< initial state
+    HksBlue,				///< blue button pressed
+    HksBlue1,				///< blue and 1 number pressed
+    HksRed,				///< red button pressed
+} HkState;
+
+/**
 **	Soft device plugin menu class.
 */
 class cSoftHdMenu:public cOsdMenu
 {
   private:
-    int HotkeyState;			///< current hot-key state
+    HkState HotkeyState;		///< current hot-key state
     int HotkeyCode;			///< current hot-key code
     void Create(void);			///< create plugin main menu
   public:
@@ -1745,7 +1765,7 @@ cSoftHdMenu::cSoftHdMenu(const char *title, int c0, int c1, int c2, int c3,
     int c4)
 :cOsdMenu(title, c0, c1, c2, c3, c4)
 {
-    HotkeyState = 0;
+    HotkeyState = HksInitial;
 
     Create();
 }
@@ -1850,6 +1870,28 @@ static void HandleHotkey(int code)
 	case 49:			// rotate 16:9 -> window mode
 	    VideoSetOtherDisplayFormat(-1);
 	    break;
+
+#ifdef USE_PIP
+	case 102:			// PIP toggle
+	    TogglePip();
+	    break;
+	case 104:
+	    PipNextAvailableChannel(1);
+	    break;
+	case 105:
+	    PipNextAvailableChannel(-1);
+	    break;
+	case 106:
+	    SwapPipChannels();
+	    break;
+	case 107:
+	    SwapPipPosition();
+	    break;
+	case 108:
+	    DelPip();
+	    break;
+#endif
+
 	default:
 	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
@@ -1868,38 +1910,50 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
     //dsyslog("[softhddev]%s: %x\n", __FUNCTION__, key);
 
     switch (HotkeyState) {
-	case 0:			// initial state, waiting for hot key
+	case HksInitial:		// initial state, waiting for hot key
 	    if (key == kBlue) {
-		HotkeyState = 1;
+		HotkeyState = HksBlue;	// blue button
+		return osContinue;
+	    }
+	    if (key == kRed) {
+		HotkeyState = HksRed;	// red button
 		return osContinue;
 	    }
 	    break;
-	case 1:
+	case HksBlue:			// blue and first number
 	    if (k0 <= key && key <= k9) {
 		HotkeyCode = key - k0;
-		HotkeyState = 2;
+		HotkeyState = HksBlue1;
 		return osContinue;
 	    }
-	    HotkeyState = 0;
+	    HotkeyState = HksInitial;
 	    break;
-	case 2:
+	case HksBlue1:			// blue and second number/enter
 	    if (k0 <= key && key <= k9) {
 		HotkeyCode *= 10;
 		HotkeyCode += key - k0;
-		HotkeyState = 0;
+		HotkeyState = HksInitial;
 		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
 		    HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
 	    }
 	    if (key == kOk) {
-		HotkeyState = 0;
+		HotkeyState = HksInitial;
 		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
 		    HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
 	    }
-	    HotkeyState = 0;
+	    HotkeyState = HksInitial;
+	case HksRed:			// red and first number
+	    if (k0 <= key && key <= k9) {
+		HotkeyCode = 100 + key - k0;
+		HotkeyState = HksInitial;
+		HandleHotkey(HotkeyCode);
+		return osEnd;
+	    }
+	    HotkeyState = HksInitial;
 	    break;
     }
 
