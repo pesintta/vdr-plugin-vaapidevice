@@ -2237,7 +2237,6 @@ static void VaapiExit(void)
     int i;
 
     // FIXME: more VA-API cleanups...
-    // FIXME: can hang with vdpau in pthread_rwlock_wrlock
 
     for (i = 0; i < VaapiDecoderN; ++i) {
 	if (VaapiDecoders[i]) {
@@ -8484,6 +8483,7 @@ static void VdpauDisplayHandlerThread(void)
 	} else {
 	    err = VideoPollInput(decoder->Stream);
 	}
+	// decoder can be invalid here
 	if (err) {
 	    // nothing buffered?
 	    if (err == -1 && decoder->Closing) {
@@ -9589,9 +9589,15 @@ VideoHwDecoder *VideoNewHwDecoder(VideoStream * stream)
 void VideoDelHwDecoder(VideoHwDecoder * hw_decoder)
 {
     if (hw_decoder) {
-	VideoThreadLock();
+#ifdef DEBUG
+	if (!pthread_equal(pthread_self(), VideoThread)) {
+	    Debug(3, "video: should only be called from inside the thread\n");
+	}
+#endif
+	// only called from inside the thread
+	//VideoThreadLock();
 	VideoUsedModule->DelHwDecoder(hw_decoder);
-	VideoThreadUnlock();
+	//VideoThreadUnlock();
     }
 }
 
@@ -10806,7 +10812,7 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-    XInitThreads();
+    //XInitThreads();
     // Register error handler
     XSetIOErrorHandler(VideoIOErrorHandler);
 

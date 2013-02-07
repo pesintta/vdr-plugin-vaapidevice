@@ -181,6 +181,9 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
+	frame->age = 256 * 256 * 256 * 64;
+#endif
 	// render
 	frame->data[0] = (void *)vrs;
 	frame->data[1] = NULL;
@@ -205,6 +208,9 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	//Debug(3, "codec: use surface %#010x\n", surface);
 
 	frame->type = FF_BUFFER_TYPE_USER;
+#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
+	frame->age = 256 * 256 * 256 * 64;
+#endif
 	// vaapi needs both fields set
 	frame->data[0] = (void *)(size_t) surface;
 	frame->data[3] = (void *)(size_t) surface;

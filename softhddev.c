@@ -1269,7 +1269,8 @@ struct __video_stream__
     volatile char Freezed;		///< stream freezed
 
     volatile char TrickSpeed;		///< current trick speed
-    volatile char ClearBuffers;		///< clear video buffers
+    volatile char Close;		///< command close video stream
+    volatile char ClearBuffers;		///< command clear video buffers
     volatile char ClearClose;		///< clear video buffers for close
 
     AVPacket PacketRb[VIDEO_PACKET_MAX];	///< PES packet ring buffer
@@ -1682,6 +1683,39 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 #endif
 
 /**
+**	Close video stream.
+**
+**	@param stream	video stream
+**
+**	@note must be called from the video thread, othewise xcb has a
+**	deadlock.
+*/
+static void VideoStreamClose(VideoStream * stream)
+{
+    // FIXME: use this function to close the main video stream!
+    stream->SkipStream = 1;
+    if (stream->Decoder) {
+	VideoDecoder *decoder;
+
+	decoder = stream->Decoder;
+	// FIXME: this lock shouldn't be necessary now
+	pthread_mutex_lock(&stream->DecoderLockMutex);
+	stream->Decoder = NULL;		// lock read thread
+	pthread_mutex_unlock(&stream->DecoderLockMutex);
+	CodecVideoClose(decoder);
+	CodecVideoDelDecoder(decoder);
+    }
+    if (stream->HwDecoder) {
+	VideoDelHwDecoder(stream->HwDecoder);
+	stream->HwDecoder = NULL;
+	// FIXME: CodecVideoClose calls/uses hw decoder
+    }
+    VideoPacketExit(stream);
+
+    stream->NewStream = 1;
+}
+
+/**
 **	Poll PES packet ringbuffer.
 **
 **	Called if video frame buffers are full.
@@ -1700,6 +1734,11 @@ int VideoPollInput(VideoStream * stream)
 	return -1;
     }
 
+    if (stream->Close) {		// close stream request
+	VideoStreamClose(stream);
+	stream->Close = 0;
+	return 1;
+    }
     if (stream->ClearBuffers) {		// clear buffer request
 	atomic_set(&stream->PacketsFilled, 0);
 	stream->PacketRead = stream->PacketWrite;
@@ -1738,6 +1777,11 @@ int VideoDecodeInput(VideoStream * stream)
 	return -1;
     }
 
+    if (stream->Close) {		// close stream request
+	VideoStreamClose(stream);
+	stream->Close = 0;
+	return 1;
+    }
     if (stream->ClearBuffers) {		// clear buffer request
 	atomic_set(&stream->PacketsFilled, 0);
 	stream->PacketRead = stream->PacketWrite;
@@ -3254,10 +3298,15 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 */
 void PipStop(void)
 {
+    int i;
+
     if (!MyVideoStream->HwDecoder) {	// video not running
 	return;
     }
 
+    ScaleVideo(0, 0, 0, 0);
+
+#if 0
     PipVideoStream->SkipStream = 1;	// lock write thread
     if (PipVideoStream->Decoder) {
 	VideoDecoder *decoder;
@@ -3277,8 +3326,13 @@ void PipStop(void)
     VideoPacketExit(PipVideoStream);
 
     PipVideoStream->NewStream = 1;
-
-    ScaleVideo(0, 0, 0, 0);
+#else
+    PipVideoStream->Close = 1;
+    for (i = 0; PipVideoStream->Close && i < 50; ++i) {
+	usleep(1 * 1000);
+    }
+    Info("[softhddev]%s: pip close %dms\n", __FUNCTION__, i);
+#endif
 }
 
 /**
