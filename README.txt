@@ -57,8 +57,8 @@ Install:
 
 	git clone git://projects.vdr-developer.org/vdr-plugin-softhddevice.git
 	cd vdr-plugin-softhddevice
-	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
-	gentoo: make VDRDIR=/usr/include/vdr LIBDIR=.
+	make
+	make install
 
 	2a) tarball
 
@@ -67,10 +67,11 @@ Install:
 
 	tar vxf vdr-softhddevice-*.tar.bz2
 	cd softhddevice-*
-	make VDRDIR=<path-to-your-vdr-files> LIBDIR=.
+	make
+	make install
 
 	You can edit Makefile to enable/disable VDPAU / VA-API / Alsa / OSS
-	support.
+	support.  The default is to autodetect as much as possible.
 
 Setup:	environment
 ------
