@@ -1801,9 +1801,12 @@ int VideoDecodeInput(VideoStream * stream)
     if (!filled) {
 	return -1;
     }
+#if 0
     // clearing for normal channel switch has no advantage
     if (stream->ClearClose /*|| stream->ClosingStream */ ) {
 	int f;
+
+	// FIXME: during replay all packets are always checked
 
 	// flush buffers, if close is in the queue
 	for (f = 0; f < filled; ++f) {
@@ -1822,6 +1825,8 @@ int VideoDecodeInput(VideoStream * stream)
 	}
 	stream->ClosingStream = 0;
     }
+#endif
+
     //
     //	handle queued commands
     //
@@ -2346,6 +2351,10 @@ int SetPlayMode(int play_mode)
 {
     VideoDisplayWakeup();
     if (MyVideoStream->Decoder) {	// tell video parser we have new stream
+	if (MyVideoStream->ClearClose) {	// replay clear buffers on close
+	    Clear();			// flush all buffers
+	    MyVideoStream->ClearClose = 0;
+	}
 	if (MyVideoStream->CodecID != CODEC_ID_NONE) {
 	    MyVideoStream->NewStream = 1;
 	    // tell hw decoder we are closing stream
