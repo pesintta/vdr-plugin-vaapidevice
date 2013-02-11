@@ -129,7 +129,7 @@ static const char *AudioModuleName;	///< which audio module to use
     /// Selected audio module.
 static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< PCM device name
-static const char *AudioAC3Device;	///< AC3 device name
+static const char *AudioPassthroughDevice;	///< Passthrough device name
 static const char *AudioMixerDevice;	///< mixer device name
 static const char *AudioMixerChannel;	///< mixer channel name
 static char AudioDoingInit;		///> flag in init, reduce error
@@ -620,7 +620,7 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 typedef struct _audio_ring_ring_
 {
     char FlushBuffers;			///< flag: flush buffers
-    char UseAc3;			///< flag: use ac3 pass-through
+    char Passthrough;			///< flag: use pass-through (AC3, ...)
     int16_t PacketSize;			///< packet size
     unsigned HwSampleRate;		///< hardware sample rate in Hz
     unsigned HwChannels;		///< hardware number of channels
@@ -642,14 +642,14 @@ static unsigned AudioStartThreshold;	///< start play, if filled
 **
 **	@param sample_rate	sample-rate frequency
 **	@param channels		number of channels
-**	@param use_ac3		use ac3/pass-through device
+**	@param passthrough	use /pass-through (AC3, ...) device
 **
 **	@retval -1	error
 **	@retval 0	okay
 **
 **	@note this function shouldn't fail.  Checks are done during AudoInit.
 */
-static int AudioRingAdd(unsigned sample_rate, int channels, int use_ac3)
+static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
 {
     unsigned u;
 
@@ -680,7 +680,7 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int use_ac3)
 
     // FIXME: don't flush buffers here
     AudioRing[AudioRingWrite].FlushBuffers = 1;
-    AudioRing[AudioRingWrite].UseAc3 = use_ac3;
+    AudioRing[AudioRingWrite].Passthrough = passthrough;
     AudioRing[AudioRingWrite].PacketSize = 0;
     AudioRing[AudioRingWrite].InSampleRate = sample_rate;
     AudioRing[AudioRingWrite].InChannels = channels;
@@ -836,8 +836,9 @@ static int AlsaPlayRingbuffer(void)
 	if (!avail) {			// full or buffer empty
 	    break;
 	}
-	// muting ac3, can produce disturbance
-	if (AudioMute || (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3)) {
+	// muting pass-through ac3, can produce disturbance
+	if (AudioMute || (AudioSoftVolume
+		&& !AudioRing[AudioRingRead].Passthrough)) {
 	    // FIXME: quick&dirty cast
 	    AudioSoftAmplifier((int16_t *) p, avail);
 	    // FIXME: if not all are written, we double amplify them
@@ -984,23 +985,23 @@ static int AlsaThread(void)
 /**
 **	Open alsa pcm device.
 **
-**	@param use_ac3	use ac3/pass-through device
+**	@param passthrough	use pass-through (AC3, ...) device
 */
-static snd_pcm_t *AlsaOpenPCM(int use_ac3)
+static snd_pcm_t *AlsaOpenPCM(int passthrough)
 {
     const char *device;
     snd_pcm_t *handle;
     int err;
 
     // &&|| hell
-    if (!(use_ac3 && ((device = AudioAC3Device)
-		|| (device = getenv("ALSA_AC3_DEVICE"))))
+    if (!(passthrough && ((device = AudioPassthroughDevice)
+		|| (device = getenv("ALSA_PASSTHROUGH_DEVICE"))))
 	&& !(device = AudioPCMDevice) && !(device = getenv("ALSA_DEVICE"))) {
 	device = "default";
     }
     if (!AudioDoingInit) {		// reduce blabla during init
-	Info(_("audio/alsa: using %sdevice '%s'\n"), use_ac3 ? "ac3 " : "",
-	    device);
+	Info(_("audio/alsa: using %sdevice '%s'\n"),
+	    passthrough ? "pass-through " : "", device);
     }
     // open none blocking; if device is already used, we don't want wait
     if ((err =
@@ -1167,7 +1168,7 @@ static int64_t AlsaGetDelay(void)
 **
 **	@param freq		sample frequency
 **	@param channels		number of channels
-**	@param use_ac3		use ac3/pass-through device
+**	@param passthrough	use pass-through (AC3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -1175,7 +1176,7 @@ static int64_t AlsaGetDelay(void)
 **
 **	@todo FIXME: remove pointer for freq + channels
 */
-static int AlsaSetup(int *freq, int *channels, int use_ac3)
+static int AlsaSetup(int *freq, int *channels, int passthrough)
 {
     snd_pcm_uframes_t buffer_size;
     snd_pcm_uframes_t period_size;
@@ -1183,7 +1184,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
     int delay;
 
     if (!AlsaPCMHandle) {		// alsa not running yet
-	// FIXME: if open fails for ac3, we never recover
+	// FIXME: if open fails for fe. pass-through, we never recover
 	return -1;
     }
     if (1) {				// close+open to fix HDMI no sound bug
@@ -1193,7 +1194,7 @@ static int AlsaSetup(int *freq, int *channels, int use_ac3)
 	// FIXME: need lock
 	AlsaPCMHandle = NULL;		// other threads should check handle
 	snd_pcm_close(handle);
-	if (!(handle = AlsaOpenPCM(use_ac3))) {
+	if (!(handle = AlsaOpenPCM(passthrough))) {
 	    return -1;
 	}
 	AlsaPCMHandle = handle;
@@ -1453,7 +1454,7 @@ static int OssPlayRingbuffer(void)
 	    break;			// bi.bytes could become negative!
 	}
 
-	if (AudioSoftVolume && !AudioRing[AudioRingRead].UseAc3) {
+	if (AudioSoftVolume && !AudioRing[AudioRingRead].Passthrough) {
 	    // FIXME: quick&dirty cast
 	    AudioSoftAmplifier((int16_t *) p, bi.bytes);
 	    // FIXME: if not all are written, we double amplify them
@@ -1560,22 +1561,22 @@ static int OssThread(void)
 /**
 **	Open OSS pcm device.
 **
-**	@param use_ac3	use ac3/pass-through device
+**	@param passthrough	use pass-through (AC3, ...) device
 */
-static int OssOpenPCM(int use_ac3)
+static int OssOpenPCM(int passthrough)
 {
     const char *device;
     int fildes;
 
     // &&|| hell
-    if (!(use_ac3 && ((device = AudioAC3Device)
-		|| (device = getenv("OSS_AC3_AUDIODEV"))))
+    if (!(passthrough && ((device = AudioPassthroughDevice)
+		|| (device = getenv("OSS_PASSTHROUGHDEV"))))
 	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
 	device = "/dev/dsp";
     }
     if (!AudioDoingInit) {
-	Info(_("audio/oss: using %sdevice '%s'\n"), use_ac3 ? "ac3 " : "",
-	    device);
+	Info(_("audio/oss: using %sdevice '%s'\n"),
+	    passthrough ? "pass-through " : "", device);
     }
 
     if ((fildes = open(device, O_WRONLY)) < 0) {
@@ -1724,13 +1725,13 @@ static int64_t OssGetDelay(void)
 **
 **	@param sample_rate	sample rate/frequency
 **	@param channels		number of channels
-**	@param use_ac3		use ac3/pass-through device
+**	@param passthrough	use pass-through (AC3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
 **	@retval -1	something gone wrong
 */
-static int OssSetup(int *sample_rate, int *channels, int use_ac3)
+static int OssSetup(int *sample_rate, int *channels, int passthrough)
 {
     int ret;
     int tmp;
@@ -1738,7 +1739,7 @@ static int OssSetup(int *sample_rate, int *channels, int use_ac3)
     audio_buf_info bi;
 
     if (OssPcmFildes == -1) {		// OSS not ready
-	// FIXME: if open fails for ac3, we never recover
+	// FIXME: if open fails for fe. pass-through, we never recover
 	return -1;
     }
 
@@ -1748,7 +1749,7 @@ static int OssSetup(int *sample_rate, int *channels, int use_ac3)
 	fildes = OssPcmFildes;
 	OssPcmFildes = -1;
 	close(fildes);
-	if (!(fildes = OssOpenPCM(use_ac3))) {
+	if (!(fildes = OssOpenPCM(passthrough))) {
 	    return -1;
 	}
 	OssPcmFildes = fildes;
@@ -1929,13 +1930,14 @@ static void NoopSetVolume( __attribute__ ((unused))
 /**
 **	Noop setup.
 **
-**	@param freq	sample frequency
-**	@param channels	number of channels
+**	@param freq		sample frequency
+**	@param channels		number of channels
+**	@param passthrough	use pass-through (AC3, ...) device
 */
 static int NoopSetup( __attribute__ ((unused))
     int *channels, __attribute__ ((unused))
     int *freq, __attribute__ ((unused))
-    int use_ac3)
+    int passthrough)
 {
     return -1;
 }
@@ -1973,17 +1975,17 @@ static const AudioModule NoopModule = {
 */
 static int AudioNextRing(void)
 {
-    int use_ac3;
+    int passthrough;
     int sample_rate;
     int channels;
     size_t used;
 
     // update audio format
     // not always needed, but check if needed is too complex
-    use_ac3 = AudioRing[AudioRingRead].UseAc3;
+    passthrough = AudioRing[AudioRingRead].Passthrough;
     sample_rate = AudioRing[AudioRingRead].HwSampleRate;
     channels = AudioRing[AudioRingRead].HwChannels;
-    if (AudioUsedModule->Setup(&sample_rate, &channels, use_ac3)) {
+    if (AudioUsedModule->Setup(&sample_rate, &channels, passthrough)) {
 	Error(_("audio: can't set channels %d sample-rate %dHz\n"), channels,
 	    sample_rate);
 	// FIXME: handle error
@@ -2068,10 +2070,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    err = AudioUsedModule->Thread();
 	    // underrun, check if new ring buffer is available
 	    if (!err) {
-		int use_ac3;
+		int passthrough;
 		int sample_rate;
 		int channels;
-		int old_use_ac3;
+		int old_passthrough;
 		int old_sample_rate;
 		int old_channels;
 
@@ -2081,20 +2083,21 @@ static void *AudioPlayHandlerThread(void *dummy)
 		}
 
 		Debug(3, "audio: next ring buffer\n");
-		old_use_ac3 = AudioRing[AudioRingRead].UseAc3;
+		old_passthrough = AudioRing[AudioRingRead].Passthrough;
 		old_sample_rate = AudioRing[AudioRingRead].HwSampleRate;
 		old_channels = AudioRing[AudioRingRead].HwChannels;
 
 		atomic_dec(&AudioRingFilled);
 		AudioRingRead = (AudioRingRead + 1) % AUDIO_RING_MAX;
 
-		use_ac3 = AudioRing[AudioRingRead].UseAc3;
+		passthrough = AudioRing[AudioRingRead].Passthrough;
 		sample_rate = AudioRing[AudioRingRead].HwSampleRate;
 		channels = AudioRing[AudioRingRead].HwChannels;
 		Debug(3, "audio: thread channels %d frequency %dHz %s\n",
-		    channels, sample_rate, use_ac3 ? "ac3" : "pcm");
+		    channels, sample_rate, passthrough ? "pass-through" : "");
 		// audio config changed?
-		if (old_use_ac3 != use_ac3 || old_sample_rate != sample_rate
+		if (old_passthrough != passthrough
+		    || old_sample_rate != sample_rate
 		    || old_channels != channels) {
 		    // FIXME: wait for buffer drain
 		    if (AudioNextRing()) {
@@ -2196,7 +2199,7 @@ void AudioEnqueue(const void *samples, int count)
     }
     // audio sample modification allowed and needed?
     buffer = (void *)samples;
-    if (!AudioRing[AudioRingWrite].UseAc3 && (AudioCompression
+    if (!AudioRing[AudioRingWrite].Passthrough && (AudioCompression
 	    || AudioNormalize
 	    || AudioRing[AudioRingWrite].InChannels !=
 	    AudioRing[AudioRingWrite].HwChannels)) {
@@ -2416,7 +2419,7 @@ void AudioFlushBuffers(void)
     old = AudioRingWrite;
     AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
     AudioRing[AudioRingWrite].FlushBuffers = 1;
-    AudioRing[AudioRingWrite].UseAc3 = AudioRing[old].UseAc3;
+    AudioRing[AudioRingWrite].Passthrough = AudioRing[old].Passthrough;
     AudioRing[AudioRingWrite].HwSampleRate = AudioRing[old].HwSampleRate;
     AudioRing[AudioRingWrite].HwChannels = AudioRing[old].HwChannels;
     AudioRing[AudioRingWrite].InSampleRate = AudioRing[old].InSampleRate;
@@ -2528,7 +2531,7 @@ int64_t AudioGetClock(void)
 
 	// delay zero, if no valid time stamp
 	if ((delay = AudioGetDelay())) {
-	    if (AudioRing[AudioRingRead].UseAc3) {
+	    if (AudioRing[AudioRingRead].Passthrough) {
 		return AudioRing[AudioRingRead].PTS + 0 * 90 - delay;
 	    }
 	    return AudioRing[AudioRingRead].PTS + 0 * 90 - delay;
@@ -2548,7 +2551,7 @@ void AudioSetVolume(int volume)
     AudioMute = !volume;
     // reduce loudness for stereo output
     if (AudioStereoDescent && AudioRing[AudioRingRead].InChannels == 2
-	&& !AudioRing[AudioRingRead].UseAc3) {
+	&& !AudioRing[AudioRingRead].Passthrough) {
 	volume -= AudioStereoDescent;
 	if (volume < 0) {
 	    volume = 0;
@@ -2565,9 +2568,9 @@ void AudioSetVolume(int volume)
 /**
 **	Setup audio for requested format.
 **
-**	@param freq	sample frequency
-**	@param channels	number of channels
-**	@param use_ac3	use ac3/pass-through device
+**	@param freq		sample frequency
+**	@param channels		number of channels
+**	@param passthrough	use pass-through (AC3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -2575,10 +2578,10 @@ void AudioSetVolume(int volume)
 **
 **	@todo add support to report best fitting format.
 */
-int AudioSetup(int *freq, int *channels, int use_ac3)
+int AudioSetup(int *freq, int *channels, int passthrough)
 {
     Debug(3, "audio: setup channels %d frequency %dHz %s\n", *channels, *freq,
-	use_ac3 ? "ac3" : "pcm");
+	passthrough ? "pass-through" : "");
 
     // invalid parameter
     if (!freq || !channels || !*freq || !*channels) {
@@ -2586,7 +2589,7 @@ int AudioSetup(int *freq, int *channels, int use_ac3)
 	// FIXME: set flag invalid setup
 	return -1;
     }
-    return AudioRingAdd(*freq, *channels, use_ac3);
+    return AudioRingAdd(*freq, *channels, passthrough);
 }
 
 /**
@@ -2722,7 +2725,7 @@ void AudioSetDevice(const char *device)
 **
 **	@note this is currently usable with alsa only.
 */
-void AudioSetDeviceAC3(const char *device)
+void AudioSetPassthroughDevice(const char *device)
 {
     if (!AudioModuleName) {
 	AudioModuleName = "alsa";	// detect alsa/OSS
@@ -2732,7 +2735,7 @@ void AudioSetDeviceAC3(const char *device)
 	    AudioModuleName = "oss";
 	}
     }
-    AudioAC3Device = device;
+    AudioPassthroughDevice = device;
 }
 
 /**
@@ -2961,7 +2964,7 @@ static void PrintVersion(void)
 #ifdef GIT_REV
 	"(GIT-" GIT_REV ")"
 #endif
-	",\n\t(c) 2009 - 2012 by Johns\n"
+	",\n\t(c) 2009 - 2013 by Johns\n"
 	"\tLicense AGPLv3: GNU Affero General Public License version 3\n");
 }
 

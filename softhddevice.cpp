@@ -20,6 +20,8 @@
 ///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
+#define __STDC_CONSTANT_MACROS		///< needed for ffmpeg UINT64_C
+
 #include <vdr/interface.h>
 #include <vdr/plugin.h>
 #include <vdr/player.h>
@@ -34,15 +36,15 @@
 #include "softhddev.h"
 #include "softhddevice.h"
 #include "softhddevice_service.h"
+
 extern "C"
 {
+#include <stdint.h>
+#include <libavcodec/avcodec.h>
+
 #include "audio.h"
 #include "video.h"
-    extern const char *X11DisplayName;	///< x11 display name
-
-    extern void CodecSetAudioDrift(int);
-    extern void CodecSetAudioPassthrough(int);
-    extern void CodecSetAudioDownmix(int);
+#include "codec.h"
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -126,7 +128,8 @@ static int ConfigAutoCropTolerance;	///< auto crop detection tolerance
 
 static int ConfigVideoAudioDelay;	///< config audio delay
 static char ConfigAudioDrift;		///< config audio drift
-static char ConfigAudioPassthrough;	///< config audio pass-through
+static char ConfigAudioPassthrough;	///< config audio pass-through mask
+static char AudioPassthroughState;	///< flag audio pass-through on/off
 static char ConfigAudioDownmix;		///< config ffmpeg audio downmix
 static char ConfigAudioSoftvol;		///< config use software volume
 static char ConfigAudioNormalize;	///< config use normalize volume
@@ -138,7 +141,7 @@ int ConfigAudioBufferTime;		///< config size ms of audio buffer
 
 static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
-static char *ConfigAC3Device;		///< config audio passthrough device
+static char *ConfigPassthroughDevice;	///< config audio pass-through device
 
 #ifdef USE_PIP
 static int ConfigPipX = 100 - 3 - 18;	///< config pip pip x in %
@@ -615,7 +618,9 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Audio;
     int AudioDelay;
     int AudioDrift;
-    int AudioPassthrough;
+    int AudioPassthroughPCM;
+    int AudioPassthroughAC3;
+    int AudioPassthroughEAC3;
     int AudioDownmix;
     int AudioSoftvol;
     int AudioNormalize;
@@ -719,9 +724,6 @@ void cMenuSetupSoft::Create(void)
     };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
-    };
-    static const char *const passthrough[] = {
-	"None", "AC-3"
     };
     static const char *const resolution[RESOLUTIONS] = {
 	"576i", "720p", "fake 1080i", "1080i"
@@ -844,9 +846,13 @@ void cMenuSetupSoft::Create(void)
 		-1000, 1000));
 	Add(new cMenuEditStraItem(tr("Audio drift correction"), &AudioDrift, 4,
 		audiodrift));
-	Add(new cMenuEditStraItem(tr("Audio pass-through"), &AudioPassthrough,
-		2, passthrough));
-	Add(new cMenuEditBoolItem(tr("Enable AC-3 (decoder) downmix"),
+	Add(new cMenuEditBoolItem(tr("Enable PCM pass-through"),
+		&AudioPassthroughPCM, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Enable AC-3 pass-through"),
+		&AudioPassthroughAC3, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Enable EAC-3 pass-through"),
+		&AudioPassthroughEAC3, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Enable (E)AC-3 (decoder) downmix"),
 		&AudioDownmix, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol,
 		tr("Hardware"), tr("Software")));
@@ -1031,7 +1037,9 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Audio = 0;
     AudioDelay = ConfigVideoAudioDelay;
     AudioDrift = ConfigAudioDrift;
-    AudioPassthrough = ConfigAudioPassthrough;
+    AudioPassthroughPCM = ConfigAudioPassthrough & CodecPCM;
+    AudioPassthroughAC3 = ConfigAudioPassthrough & CodecAC3;
+    AudioPassthroughEAC3 = ConfigAudioPassthrough & CodecEAC3;
     AudioDownmix = ConfigAudioDownmix;
     AudioSoftvol = ConfigAudioSoftvol;
     AudioNormalize = ConfigAudioNormalize;
@@ -1174,8 +1182,12 @@ void cMenuSetupSoft::Store(void)
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioDrift", ConfigAudioDrift = AudioDrift);
     CodecSetAudioDrift(ConfigAudioDrift);
-    SetupStore("AudioPassthrough", ConfigAudioPassthrough = AudioPassthrough);
+    ConfigAudioPassthrough = (AudioPassthroughPCM ? CodecPCM : 0)
+	| (AudioPassthroughAC3 ? CodecAC3 : 0)
+	| (AudioPassthroughEAC3 ? CodecEAC3 : 0);
+    SetupStore("AudioPassthrough", ConfigAudioPassthrough);
     CodecSetAudioPassthrough(ConfigAudioPassthrough);
+    AudioPassthroughState = 1;
     SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
     CodecSetAudioDownmix(ConfigAudioDownmix);
     SetupStore("AudioSoftvol", ConfigAudioSoftvol = AudioSoftvol);
@@ -1786,18 +1798,23 @@ static void HandleHotkey(int code)
 {
     switch (code) {
 	case 10:			// disable pass-through
-	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 0);
+	    AudioPassthroughState = 0;
+	    CodecSetAudioPassthrough(0);
 	    Skins.QueueMessage(mtInfo, tr("pass-through disabled"));
 	    break;
 	case 11:			// enable pass-through
-	    CodecSetAudioPassthrough(ConfigAudioPassthrough = 1);
+	    // note: you can't enable, without configured pass-through
+	    AudioPassthroughState = 1;
+	    CodecSetAudioPassthrough(ConfigAudioPassthrough);
 	    Skins.QueueMessage(mtInfo, tr("pass-through enabled"));
 	    break;
 	case 12:			// toggle pass-through
-	    CodecSetAudioPassthrough(ConfigAudioPassthrough ^= 1);
-	    if (ConfigAudioPassthrough) {
+	    AudioPassthroughState ^= 1;
+	    if (AudioPassthroughState) {
+		CodecSetAudioPassthrough(ConfigAudioPassthrough);
 		Skins.QueueMessage(mtInfo, tr("pass-through enabled"));
 	    } else {
+		CodecSetAudioPassthrough(0);
 		Skins.QueueMessage(mtInfo, tr("pass-through disabled"));
 	    }
 	    break;
@@ -2902,6 +2919,9 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "AudioPassthrough")) {
 	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
+	if (ConfigAudioPassthrough) {
+	    AudioPassthroughState = 1;
+	}
 	return true;
     }
     if (!strcasecmp(name, "AudioDownmix")) {
@@ -3272,13 +3292,13 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 		    free(tmp);
 		    return "missing option argument";
 		}
-		free(ConfigAC3Device);
-		ConfigAC3Device = strdup(o);
-		AudioSetDeviceAC3(ConfigAC3Device);
+		free(ConfigPassthroughDevice);
+		ConfigPassthroughDevice = strdup(o);
+		AudioSetPassthroughDevice(ConfigPassthroughDevice);
 	    } else if (!strncmp(s, "-p", 2)) {
-		free(ConfigAC3Device);
-		ConfigAC3Device = strdup(s + 2);
-		AudioSetDeviceAC3(ConfigAC3Device);
+		free(ConfigPassthroughDevice);
+		ConfigPassthroughDevice = strdup(s + 2);
+		AudioSetPassthroughDevice(ConfigPassthroughDevice);
 
 	    } else if (*s) {
 		free(tmp);

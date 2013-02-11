@@ -1,7 +1,7 @@
 ///
 ///	@file codec.h	@brief Codec module headerfile
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -22,6 +22,16 @@
 
 /// @addtogroup Codec
 /// @{
+
+//----------------------------------------------------------------------------
+//	Defines
+//----------------------------------------------------------------------------
+
+#define CodecPCM 0x01			///< PCM bit mask
+#define CodecMPA 0x02			///< MPA bit mask (planned)
+#define CodecAC3 0x04			///< AC-3 bit mask
+#define CodecEAC3 0x08			///< EAC-3 bit mask
+#define CodecDTS 0x10			///< DTS bit mask (planned)
 
 //----------------------------------------------------------------------------
 //	Typedefs

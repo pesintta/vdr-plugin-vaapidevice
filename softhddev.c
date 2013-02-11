@@ -314,7 +314,7 @@ const uint16_t Ac3FrameSizeTable[38][3] = {
 };
 
 ///
-///	Fast check for AC3 audio.
+///	Fast check for (E)AC3 audio.
 ///
 ///	5 bytes 0x0B77xxxxxx AC3 audio
 ///
@@ -326,17 +326,11 @@ static inline int FastAc3Check(const uint8_t * p)
     if (p[1] != 0x77) {
 	return 0;
     }
-    if ((p[4] & 0xC0) == 0xC0) {	// invalid sample rate
-	return 0;
-    }
-    if ((p[4] & 0x3F) > 37) {		// invalid frame size
-	return 0;
-    }
     return 1;
 }
 
 ///
-///	Check for AC-3 audio.
+///	Check for (E)AC-3 audio.
 ///
 ///	0x0B77xxxxxx already checked.
 ///
@@ -347,20 +341,61 @@ static inline int FastAc3Check(const uint8_t * p)
 ///	@retval 0	no valid AC-3 audio
 ///	@retval >0	valid AC-3 audio
 ///
+///	o AC3 Header
+///	AAAAAAAA AAAAAAAA BBBBBBBB BBBBBBBB CCDDDDDD EEEEEFFF
+///
+///	o a 16x Frame sync, always 0x0B77
+///	o b 16x CRC 16
+///	o c 2x	Samplerate
+///	o d 6x	Framesize code
+///	o e 5x	Bitstream ID
+///	o f 3x	Bitstream mode
+///
+///	o EAC3 Header
+///	AAAAAAAA AAAAAAAA BBCCCDDD DDDDDDDD EEFFGGGH IIIII...
+///
+///	o a 16x Frame sync, always 0x0B77
+///	o b 2x	Frame type
+///	o c 3x	Sub stream ID
+///	o d 10x Framesize - 1 in words
+///	o e 2x	Framesize code
+///	o f 2x	Framesize code 2
+///
 static int Ac3Check(const uint8_t * data, int size)
 {
-    int fscod;
-    int frmsizcod;
     int frame_size;
 
-    // crc1 crc1 fscod|frmsizcod
-    fscod = data[4] >> 6;
-    frmsizcod = data[4] & 0x3F;		// invalid is checked by fast
-    frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
+    if (size < 5) {			// need 5 bytes to see if AC3/EAC3
+	return -5;
+    }
+
+    if (data[5] > (10 << 3)) {		// EAC3
+	if ((data[4] & 0xF0) == 0xF0) {	// invalid fscod fscod2
+	    return 0;
+	}
+	frame_size = ((data[2] & 0x03) << 8) + data[3] + 1;
+	frame_size *= 2;
+    } else {				// AC3
+	int fscod;
+	int frmsizcod;
+
+	// crc1 crc1 fscod|frmsizcod
+	fscod = data[4] >> 6;
+	if (fscod == 0x03) {		// invalid sample rate
+	    return 0;
+	}
+	frmsizcod = data[4] & 0x3F;
+	if (frmsizcod > 37) {		// invalid frame size
+	    return 0;
+	}
+	// invalid is checked above
+	frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
+    }
 
     if (frame_size + 5 > size) {
 	return -frame_size - 5;
     }
+    // FIXME: relaxed checks if codec is already detected
     // check if after this frame a new AC-3 frame starts
     if (FastAc3Check(data + frame_size)) {
 	return frame_size;
@@ -617,6 +652,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 
 		    // 4 bytes 0xFFExxxxx Mpeg audio
 		    // 5 bytes 0x0B77xxxxxx AC3 audio
+		    // 6 bytes 0x0B77xxxxxxxx EAC3 audio
 		    // 3 bytes 0x56Exxx AAC LATM audio
 		    // 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 		    // PCM audio can't be found
@@ -629,6 +665,9 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    if (!r && FastAc3Check(q)) {
 			r = Ac3Check(q, n);
 			codec_id = CODEC_ID_AC3;
+			if (r > 0 && q[5] > (10 << 3)) {
+			    codec_id = CODEC_ID_EAC3;
+			}
 		    }
 		    if (!r && FastLatmCheck(q)) {
 			r = LatmCheck(q, n);
@@ -1119,6 +1158,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	// 4 bytes 0xFFExxxxx Mpeg audio
 	// 3 bytes 0x56Exxx AAC LATM audio
 	// 5 bytes 0x0B77xxxxxx AC3 audio
+	// 6 bytes 0x0B77xxxxxxxx EAC3 audio
 	// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 	// PCM audio can't be found
 	r = 0;
@@ -1134,6 +1174,9 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	if ((id == 0xbd || (id & 0xF0) == 0x80) && !r && FastAc3Check(p)) {
 	    r = Ac3Check(p, n);
 	    codec_id = CODEC_ID_AC3;
+	    if (r > 0 && p[5] > (10 << 3)) {
+		codec_id = CODEC_ID_EAC3;
+	    }
 	    /* faster ac3 detection at end of pes packet (no improvemnts)
 	       if (AudioCodecID == codec_id && -r - 2 == n) {
 	       r = n;
@@ -2787,7 +2830,7 @@ int ProcessArgs(int argc, char *const argv[])
 		AudioSetChannel(optarg);
 		continue;
 	    case 'p':			// pass-through audio device
-		AudioSetDeviceAC3(optarg);
+		AudioSetPassthroughDevice(optarg);
 		continue;
 	    case 'd':			// x11 display name
 		X11DisplayName = optarg;

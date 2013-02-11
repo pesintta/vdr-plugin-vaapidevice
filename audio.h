@@ -1,7 +1,7 @@
 ///
 ///	@file audio.h		@brief Audio module headerfile
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -48,7 +48,9 @@ extern void AudioSetCompression(int, int);	///< set compression parameters
 extern void AudioSetStereoDescent(int);	///< set stereo loudness descent
 
 extern void AudioSetDevice(const char *);	///< set PCM audio device
-extern void AudioSetDeviceAC3(const char *);	///< set pass-through device
+
+    /// set pass-through device
+extern void AudioSetPassthroughDevice(const char *);
 extern void AudioSetChannel(const char *);	///< set mixer channel
 extern void AudioInit(void);		///< setup audio module
 extern void AudioExit(void);		///< cleanup and exit audio module

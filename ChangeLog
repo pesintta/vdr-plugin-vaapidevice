@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Improved pass-through (PCM+EAC3) support.
     Support VDR 1.7.36 new build system.
     Improves VDPAU display preemption handling.
     Add modifiers to X11 remote key names (from Sibbi).

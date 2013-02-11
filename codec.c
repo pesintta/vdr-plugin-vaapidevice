@@ -1,7 +1,7 @@
 ///
 ///	@file codec.c	@brief Codec functions
 ///
-///	Copyright (c) 2009 - 2012 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -30,13 +30,13 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// compile with passthrough support (stable, ac3 only)
+    /// compile with pass-through support (stable, AC-3, E-AC-3 only)
 #define USE_PASSTHROUGH
-    /// compile audio drift correction support (experimental)
+    /// compile audio drift correction support (very experimental)
 #define USE_AUDIO_DRIFT_CORRECTION
-    /// compile AC3 audio drift correction support (experimental)
+    /// compile AC-3 audio drift correction support (very experimental)
 #define USE_AC3_DRIFT_CORRECTION
-    /// use ffmpeg libswresample API
+    /// use ffmpeg libswresample API (autodected, Makefile)
 #define noUSE_SWRESAMPLE
 
 #include <stdio.h>
@@ -633,7 +633,7 @@ struct _audio_decoder_
     AVCodec *AudioCodec;		///< audio codec
     AVCodecContext *AudioCtx;		///< audio codec context
 
-    int PassthroughAC3;			///< current ac-3 pass-through
+    char Passthrough;			///< current pass-through flags
     int SampleRate;			///< current stream sample rate
     int Channels;			///< current stream channels
 
@@ -650,6 +650,10 @@ struct _audio_decoder_
     SwrContext *Resample;		///< audio software resample context
 #endif
 #endif
+
+    uint16_t Spdif[24576 / 2];		///< SPDIF output buffer
+    int SpdifIndex;			///< index into SPDIF output buffer
+    int SpdifCount;			///< SPDIF repeat counter
 
     int64_t LastDelay;			///< last delay
     struct timespec LastTime;		///< last time
@@ -670,24 +674,32 @@ struct _audio_decoder_
 #endif
 };
 
+///
+///	IEC Data type enumeration.
+///
+enum IEC61937
+{
+    IEC61937_AC3 = 0x01,		///< AC-3 data
+    // FIXME: more data types
+    IEC61937_EAC3 = 0x15,		///< E-AC-3 data
+};
+
 #ifdef USE_AUDIO_DRIFT_CORRECTION
 #define CORRECT_PCM	1		///< do PCM audio-drift correction
-#define CORRECT_AC3	2		///< do AC3§ audio-drift correction
+#define CORRECT_AC3	2		///< do AC3 audio-drift correction
 static char CodecAudioDrift;		///< flag: enable audio-drift correction
 #else
 static const int CodecAudioDrift = 0;
 #endif
 #ifdef USE_PASSTHROUGH
-//static char CodecPassthroughPCM;	///< pass pcm through (unsupported)
-static char CodecPassthroughAC3;	///< pass ac3 through
-
-//static char CodecPassthroughDTS;	///< pass dts through (unsupported)
-//static char CodecPassthroughMPA;	///< pass mpa through (unsupported)
+    ///
+    /// Pass-through flags: CodecPCM, CodecAC3, CodecEAC3, ...
+    ///
+static char CodecPassthrough;
 #else
-
-static const int CodecPassthroughAC3 = 0;
+static const int CodecPassthrough = 0;
 #endif
-static char CodecDownmix;		///< enable ac-3 downmix
+static char CodecDownmix;		///< enable AC-3 decoder downmix
 
 /**
 **	Allocate a new audio decoder context.
@@ -840,7 +852,7 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 void CodecSetAudioDrift(int mask)
 {
 #ifdef USE_AUDIO_DRIFT_CORRECTION
-    CodecAudioDrift = mask & 3;
+    CodecAudioDrift = mask & (CORRECT_PCM | CORRECT_AC3);
 #endif
     (void)mask;
 }
@@ -848,12 +860,12 @@ void CodecSetAudioDrift(int mask)
 /**
 **	Set audio pass-through.
 **
-**	@param mask	enable mask (PCM, AC3)
+**	@param mask	enable mask (PCM, AC3, EAC3)
 */
 void CodecSetAudioPassthrough(int mask)
 {
 #ifdef USE_PASSTHROUGH
-    CodecPassthroughAC3 = mask & 1 ? 1 : 0;
+    CodecPassthrough = mask & (CodecPCM | CodecAC3 | CodecEAC3);
 #endif
     (void)mask;
 }
@@ -932,6 +944,178 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
     }
 }
 
+/**
+**	Handle audio format changes helper.
+**
+**	@param audio_decoder	audio decoder data
+**	@param[out] passthrough	pass-through output
+*/
+static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
+    int *passthrough)
+{
+    const AVCodecContext *audio_ctx;
+    int err;
+
+    audio_ctx = audio_decoder->AudioCtx;
+    Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s\n",
+	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
+	audio_ctx->channels, CodecPassthrough & CodecPCM ? " PCM" : "",
+	CodecPassthrough & CodecMPA ? " MPA" : "",
+	CodecPassthrough & CodecAC3 ? " AC3" : "",
+	CodecPassthrough & CodecEAC3 ? " EAC3" : "",
+	CodecPassthrough ? " pass-through" : "");
+
+    *passthrough = 0;
+    audio_decoder->SampleRate = audio_ctx->sample_rate;
+    audio_decoder->HwSampleRate = audio_ctx->sample_rate;
+    audio_decoder->Channels = audio_ctx->channels;
+    audio_decoder->HwChannels = audio_ctx->channels;
+    audio_decoder->Passthrough = CodecPassthrough;
+
+    // SPDIF/HDMI pass-through
+    if ((CodecPassthrough & CodecAC3 && audio_ctx->codec_id == CODEC_ID_AC3)
+	|| (CodecPassthrough & CodecEAC3
+	    && audio_ctx->codec_id == CODEC_ID_EAC3)) {
+	audio_decoder->HwChannels = 2;
+	audio_decoder->SpdifIndex = 0;	// reset buffer
+	audio_decoder->SpdifCount = 0;
+	*passthrough = 1;
+    }
+    // channels not support?
+    if ((err =
+	    AudioSetup(&audio_decoder->HwSampleRate,
+		&audio_decoder->HwChannels, *passthrough))) {
+
+	Debug(3, "codec/audio: audio setup error\n");
+	// FIXME: handle errors
+	audio_decoder->HwChannels = 0;
+	audio_decoder->HwSampleRate = 0;
+	return err;
+    }
+
+    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n",
+	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
+	audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
+	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
+
+    return 0;
+}
+
+/**
+**	Audio pass-through decoder helper.
+**
+**	@param audio_decoder	audio decoder data
+**	@param avpkt		undecoded audio packet
+*/
+static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
+    const AVPacket * avpkt)
+{
+#ifdef USE_PASSTHROUGH
+    const AVCodecContext *audio_ctx;
+
+    audio_ctx = audio_decoder->AudioCtx;
+    // SPDIF/HDMI passthrough
+    if (CodecPassthrough & CodecAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+	uint16_t *spdif;
+	int spdif_sz;
+
+	spdif = audio_decoder->Spdif;
+	spdif_sz = 6144;
+
+#ifdef USE_AC3_DRIFT_CORRECTION
+	// FIXME: this works with some TVs/AVReceivers
+	// FIXME: write burst size drift correction, which should work with all
+	if (CodecAudioDrift & CORRECT_AC3) {
+	    int x;
+
+	    x = (audio_decoder->DriftFrac +
+		(audio_decoder->DriftCorr * spdif_sz)) / (10 *
+		audio_decoder->HwSampleRate * 100);
+	    audio_decoder->DriftFrac =
+		(audio_decoder->DriftFrac +
+		(audio_decoder->DriftCorr * spdif_sz)) % (10 *
+		audio_decoder->HwSampleRate * 100);
+	    // round to word border
+	    x *= audio_decoder->HwChannels * 4;
+	    if (x < -64) {		// limit correction
+		x = -64;
+	    } else if (x > 64) {
+		x = 64;
+	    }
+	    spdif_sz += x;
+	}
+#endif
+
+	// build SPDIF header and append A52 audio to it
+	// avpkt is the original data
+	if (spdif_sz < avpkt->size + 8) {
+	    Error(_("codec/audio: decoded data smaller than encoded\n"));
+	    return -1;
+	}
+	spdif[0] = htole16(0xF872);	// iec 61937 sync word
+	spdif[1] = htole16(0x4E1F);
+	spdif[2] = htole16(IEC61937_AC3 | (avpkt->data[5] & 0x07) << 8);
+	spdif[3] = htole16(avpkt->size * 8);
+	// copy original data for output
+	// FIXME: not 100% sure, if endian is correct on not intel hardware
+	swab(avpkt->data, spdif + 4, avpkt->size);
+	// FIXME: don't need to clear always
+	memset(spdif + 4 + avpkt->size / 2, 0, spdif_sz - 8 - avpkt->size);
+	// don't play with the ac-3 samples
+	AudioEnqueue(spdif, spdif_sz);
+	return 1;
+    }
+    if (CodecPassthrough & CodecEAC3 && audio_ctx->codec_id == CODEC_ID_EAC3) {
+	uint16_t *spdif;
+	int spdif_sz;
+	int repeat;
+
+	// build SPDIF header and append A52 audio to it
+	// avpkt is the original data
+	spdif = audio_decoder->Spdif;
+	spdif_sz = 6144;
+	// 24576 = 4 * 6144
+	if (spdif_sz < audio_decoder->SpdifIndex + avpkt->size + 8) {
+	    Error(_("codec/audio: decoded data smaller than encoded\n"));
+	    return -1;
+	}
+	// check if we must pack multiple packets
+	repeat = 1;
+	if ((avpkt->data[4] & 0xc0) != 0xc0) {	// fscod
+	    static const uint8_t eac3_repeat[4] = { 6, 3, 2, 1 };
+
+	    // fscod2
+	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
+	}
+	//fprintf(stderr, "repeat %d\n", repeat);
+
+	// copy original data for output
+	// pack upto repeat EAC-3 pakets into one IEC 61937 burst
+	// FIXME: not 100% sure, if endian is correct on not intel hardware
+	swab(avpkt->data, spdif + 4 + audio_decoder->SpdifIndex, avpkt->size);
+	audio_decoder->SpdifIndex += avpkt->size;
+	if (++audio_decoder->SpdifCount < repeat) {
+	    return 1;
+	}
+
+	spdif[0] = htole16(0xF872);	// iec 61937 sync word
+	spdif[1] = htole16(0x4E1F);
+	spdif[2] = htole16(IEC61937_EAC3);
+	spdif[3] = htole16(audio_decoder->SpdifIndex * 8);
+	memset(spdif + 4 + audio_decoder->SpdifIndex / 2, 0,
+	    spdif_sz - 8 - audio_decoder->SpdifIndex);
+
+	// don't play with the eac-3 samples
+	AudioEnqueue(spdif, spdif_sz);
+
+	audio_decoder->SpdifIndex = 0;
+	audio_decoder->SpdifCount = 0;
+	return 1;
+    }
+#endif
+    return 0;
+}
+
 #ifndef USE_SWRESAMPLE
 
 /**
@@ -1007,8 +1191,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->Drift = drift;
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
 	// SPDIF/HDMI passthrough
-	if ((CodecAudioDrift & 2) && (!CodecPassthroughAC3
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)) {
+	if ((CodecAudioDrift & CORRECT_AC3) && (!CodecPassthroughAC3
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
+	    && (!CodecPassthroughEAC3
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_EAC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
 
@@ -1045,14 +1231,15 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 **	Handle audio format changes.
 **
 **	@param audio_decoder	audio decoder data
+**
+**	@note this is the old not good supported version
 */
 static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 {
+    int passthrough;
     const AVCodecContext *audio_ctx;
     int err;
-    int isAC3;
 
-    // FIXME: use swr_convert from swresample (only in ffmpeg!)
     if (audio_decoder->ReSample) {
 	audio_resample_close(audio_decoder->ReSample);
 	audio_decoder->ReSample = NULL;
@@ -1064,28 +1251,8 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     }
 
     audio_ctx = audio_decoder->AudioCtx;
-    Debug(3, "codec/audio: format change %dHz %d channels %s\n",
-	audio_ctx->sample_rate, audio_ctx->channels,
-	CodecPassthroughAC3 ? "pass-through" : "");
+    if ((err = CodecAudioUpdateHelper(audio_decoder, &passthrough))) {
 
-    audio_decoder->SampleRate = audio_ctx->sample_rate;
-    audio_decoder->HwSampleRate = audio_ctx->sample_rate;
-    audio_decoder->Channels = audio_ctx->channels;
-    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
-
-    // SPDIF/HDMI passthrough
-    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
-	audio_decoder->HwChannels = 2;
-	isAC3 = 1;
-    } else {
-	audio_decoder->HwChannels = audio_ctx->channels;
-	isAC3 = 0;
-    }
-
-    // channels not support?
-    if ((err =
-	    AudioSetup(&audio_decoder->HwSampleRate,
-		&audio_decoder->HwChannels, isAC3))) {
 	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
 	    audio_ctx->sample_rate, audio_ctx->channels,
 	    audio_decoder->HwSampleRate, audio_decoder->HwChannels);
@@ -1101,19 +1268,21 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 		Error(_("codec/audio: resample setup error\n"));
 		audio_decoder->HwChannels = 0;
 		audio_decoder->HwSampleRate = 0;
-		return;
 	    }
-	} else {
-	    Debug(3, "codec/audio: audio setup error\n");
-	    // FIXME: handle errors
-	    audio_decoder->HwChannels = 0;
-	    audio_decoder->HwSampleRate = 0;
 	    return;
 	}
+	Debug(3, "codec/audio: audio setup error\n");
+	// FIXME: handle errors
+	audio_decoder->HwChannels = 0;
+	audio_decoder->HwSampleRate = 0;
+	return;
+    }
+    if (passthrough) {			// pass-through no conversion allowed
+	return;
     }
     // prepare audio drift resample
 #ifdef USE_AUDIO_DRIFT_CORRECTION
-    if ((CodecAudioDrift & 1) && !isAC3) {
+    if (CodecAudioDrift & CORRECT_PCM) {
 	if (audio_decoder->AvResample) {
 	    Error(_("codec/audio: overwrite resample\n"));
 	}
@@ -1144,7 +1313,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 {
 #ifdef USE_AUDIO_DRIFT_CORRECTION
-    if ((CodecAudioDrift & 1) && audio_decoder->AvResample) {
+    if ((CodecAudioDrift & CORRECT_PCM) && audio_decoder->AvResample) {
 	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
 	    FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
 	int16_t buftmp[MAX_CHANNELS][(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4];
@@ -1205,12 +1374,16 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	n *= 2;
 
 	n *= audio_decoder->HwChannels;
-	CodecReorderAudioFrame(buf, n, audio_decoder->HwChannels);
+	if (!(audio_decoder->Passthrough & CodecPCM)) {
+	    CodecReorderAudioFrame(buf, n, audio_decoder->HwChannels);
+	}
 	AudioEnqueue(buf, n);
 	return;
     }
 #endif
-    CodecReorderAudioFrame(data, count, audio_decoder->HwChannels);
+    if (!(audio_decoder->Passthrough & CodecPCM)) {
+	CodecReorderAudioFrame(data, count, audio_decoder->HwChannels);
+    }
     AudioEnqueue(data, count);
 }
 
@@ -1232,6 +1405,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
     audio_ctx = audio_decoder->AudioCtx;
 
+    // FIXME: don't need to decode pass-through codecs
     buf_sz = sizeof(buf);
     l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *) avpkt);
     if (avpkt->size != l) {
@@ -1250,7 +1424,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
     }
     // FIXME: must first play remainings bytes, than change and play new.
-    if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
+    if (audio_decoder->Passthrough != CodecPassthrough
 	|| audio_decoder->SampleRate != audio_ctx->sample_rate
 	|| audio_decoder->Channels != audio_ctx->channels) {
 	CodecAudioUpdateFormat(audio_decoder);
@@ -1283,48 +1457,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		CodecAudioEnqueue(audio_decoder, outbuf, outlen);
 	    }
 	} else {
-#ifdef USE_PASSTHROUGH
-	    // SPDIF/HDMI passthrough
-	    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
-		// build SPDIF header and append A52 audio to it
-		// avpkt is the original data
-		buf_sz = 6144;
-
-#ifdef USE_AC3_DRIFT_CORRECTION
-		if (CodecAudioDrift & 2) {
-		    int x;
-
-		    x = (audio_decoder->DriftFrac +
-			(audio_decoder->DriftCorr * buf_sz)) / (10 *
-			audio_decoder->HwSampleRate * 100);
-		    audio_decoder->DriftFrac =
-			(audio_decoder->DriftFrac +
-			(audio_decoder->DriftCorr * buf_sz)) % (10 *
-			audio_decoder->HwSampleRate * 100);
-		    x *= audio_decoder->HwChannels * 4;
-		    if (x < -64) {	// limit correction
-			x = -64;
-		    } else if (x > 64) {
-			x = 64;
-		    }
-		    buf_sz += x;
-		}
-#endif
-		if (buf_sz < avpkt->size + 8) {
-		    Error(_
-			("codec/audio: decoded data smaller than encoded\n"));
-		    return;
-		}
-		// copy original data for output
-		// FIXME: not 100% sure, if endian is correct
-		buf[0] = htole16(0xF872);	// iec 61937 sync word
-		buf[1] = htole16(0x4E1F);
-		buf[2] = htole16(0x01 | (avpkt->data[5] & 0x07) << 8);
-		buf[3] = htole16(avpkt->size * 8);
-		swab(avpkt->data, buf + 4, avpkt->size);
-		memset(buf + 4 + avpkt->size / 2, 0, buf_sz - 8 - avpkt->size);
-		// don't play with the ac-3 samples
-		AudioEnqueue(buf, buf_sz);
+	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
 		return;
 	    }
 #if 0
@@ -1377,7 +1510,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    }
 	    // DTS HD?
 	    // True HD?
-#endif
 #endif
 	    CodecAudioEnqueue(audio_decoder, buf, buf_sz);
 	}
@@ -1461,8 +1593,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->Drift = drift;
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
 	// SPDIF/HDMI passthrough
-	if ((CodecAudioDrift & 2) && (!CodecPassthroughAC3
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)) {
+	if ((CodecAudioDrift & CORRECT_AC3) && (!(CodecPassthrough & CodecAC3)
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
+	    && (!(CodecPassthrough & CodecEAC3)
+		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_EAC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
 
@@ -1504,49 +1638,27 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 */
 static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 {
+    int passthrough;
     const AVCodecContext *audio_ctx;
-    int err;
-    int isAC3;
+
+    if (CodecAudioUpdateHelper(audio_decoder, &passthrough)) {
+	// FIXME: handle swresample format conversions.
+	return;
+    }
+    if (passthrough) {			// pass-through no conversion allowed
+	return;
+    }
 
     audio_ctx = audio_decoder->AudioCtx;
-    Debug(3, "codec/audio: format change %s %dHz *%d channels %s\n",
-	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
-	audio_ctx->channels, CodecPassthroughAC3 ? "pass-through" : "");
 
-    audio_decoder->SampleRate = audio_ctx->sample_rate;
-    audio_decoder->HwSampleRate = audio_ctx->sample_rate;
-    audio_decoder->Channels = audio_ctx->channels;
-    audio_decoder->PassthroughAC3 = CodecPassthroughAC3;
-
-    // SPDIF/HDMI passthrough
-    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
-	audio_decoder->HwChannels = 2;
-	isAC3 = 1;
-    } else {
-	audio_decoder->HwChannels = audio_ctx->channels;
-	isAC3 = 0;
+#ifdef DEBUG
+    if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16
+	&& audio_ctx->sample_rate == audio_decoder->HwSampleRate
+	&& !CodecAudioDrift) {
+	// FIXME: use Resample only, when it is needed!
+	fprintf(stderr, "no resample needed\n");
     }
-
-    // channels not support?
-    if ((err =
-	    AudioSetup(&audio_decoder->HwSampleRate,
-		&audio_decoder->HwChannels, isAC3))) {
-
-	Debug(3, "codec/audio: audio setup error\n");
-	// FIXME: handle errors
-	audio_decoder->HwChannels = 0;
-	audio_decoder->HwSampleRate = 0;
-	return;
-    }
-
-    if (isAC3) {			// no AC3 conversion allowed
-	return;
-    }
-
-    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n",
-	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
-	audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
-	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
+#endif
 
     audio_decoder->Resample =
 	swr_alloc_set_opts(audio_decoder->Resample, audio_ctx->channel_layout,
@@ -1579,6 +1691,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
     audio_ctx = audio_decoder->AudioCtx;
 
+    // FIXME: don't need to decode pass-through codecs
     frame.data[0] = NULL;
     n = avcodec_decode_audio4(audio_ctx, &frame, &got_frame,
 	(AVPacket *) avpkt);
@@ -1602,42 +1715,20 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
     }
     // format change
-    if (audio_decoder->PassthroughAC3 != CodecPassthroughAC3
+    if (audio_decoder->Passthrough != CodecPassthrough
 	|| audio_decoder->SampleRate != audio_ctx->sample_rate
 	|| audio_decoder->Channels != audio_ctx->channels) {
 	CodecAudioUpdateFormat(audio_decoder);
-
     }
 
     if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
 	return;				// unsupported sample format
     }
-#ifdef USE_PASSTHROUGH
-    // SPDIF/HDMI passthrough
-    if (CodecPassthroughAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
-	int16_t spdif[6144 / 2];
-	int spdif_sz;
 
-	// build SPDIF header and append A52 audio to it
-	// avpkt is the original data
-	spdif_sz = 6144;
-	if (spdif_sz < avpkt->size + 8) {
-	    Error(_("codec/audio: decoded data smaller than encoded\n"));
-	    return;
-	}
-	// copy original data for output
-	spdif[0] = htole16(0xF872);	// iec 61937 sync word
-	spdif[1] = htole16(0x4E1F);
-	spdif[2] = htole16(0x01 | (avpkt->data[5] & 0x07) << 8);
-	spdif[3] = htole16(avpkt->size * 8);
-	// FIXME: not 100% sure, if endian is correct on not intel hardware
-	swab(avpkt->data, spdif + 4, avpkt->size);
-	memset(spdif + 4 + avpkt->size / 2, 0, spdif_sz - 8 - avpkt->size);
-	// don't play with the ac-3 samples
-	AudioEnqueue(spdif, spdif_sz);
+    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
 	return;
     }
-#endif
+
     if (0) {
 	char strbuf[32];
 	int data_sz;
@@ -1665,12 +1756,19 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
 	    (const uint8_t **)frame.extended_data, frame.nb_samples);
 	if (n > 0) {
-	    CodecReorderAudioFrame((int16_t *) outbuf,
-		n * 2 * audio_decoder->HwChannels, audio_decoder->HwChannels);
+	    if (!(audio_decoder->Passthrough & CodecPCM)) {
+		CodecReorderAudioFrame((int16_t *) outbuf,
+		    n * 2 * audio_decoder->HwChannels,
+		    audio_decoder->HwChannels);
+	    }
 	    AudioEnqueue(outbuf, n * 2 * audio_decoder->HwChannels);
 	}
 	return;
     }
+#ifdef DEBUG
+    // should be never reached
+    fprintf(stderr, "oops\n");
+#endif
 }
 
 #endif

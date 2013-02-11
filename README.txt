@@ -1,6 +1,6 @@
 @file README.txt		@brief A software HD output device for VDR
 
-Copyright (c) 2011, 2012 by Johns.  All Rights Reserved.
+Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
 
 Contributor(s):
 
@@ -89,8 +89,8 @@ Setup:	environment
     only if alsa is configured
 	ALSA_DEVICE=default
 		alsa PCM device name
-	ALSA_AC3_DEVICE=
-		alsa AC3/pass-though device name
+	ALSA_PASSTHROUGH_DEVICE=
+		alsa pass-though (AC3,EAC3,DTS,...) device name
 	ALSA_MIXER=default
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
@@ -99,8 +99,8 @@ Setup:	environment
     only if oss is configured
 	OSS_AUDIODEV=/dev/dsp
 		oss dsp device name
-	OSS_AC3_AUDIODEV=
-		oss AC3/pass-though device name
+	OSS_PASSTHROUGHDEV=
+		oss pass-though (AC3,EAC3,DTS,...) device name
 	OSS_MIXERDEV=/dev/mixer
 		oss mixer device name
 	OSS_MIXER_CHANNEL=pcm
@@ -156,13 +156,16 @@ Setup: /etc/vdr/setup.conf
 	delay audio or delay video
 
 	softhddevice.AudioPassthrough = 0
-	0 = none, 1 = AC-3
+	0 = none, 1 = PCM, 2 = MPA, 4 = AC-3, 8 = EAC-3
 
-	for AC-3 the pass-through device is used.
+	for PCM/AC-3/EAC-3 the pass-through device is used and the audio
+	stream is passed undecoded to the output device.
+	z.b. 12 = AC-3+EAC-3, 13 = PCM+AC-3+EAC-3
+	note: MPA/DTS/TrueHD/... aren't supported yet
 
 	softhddevice.AudioDownmix = 0
 	0 = none, 1 = downmix
-	Use ffmpeg/libav downmix AC-3 to stereo.
+	Use ffmpeg/libav downmix of AC-3/EAC-3 audio to stereo.
 
 	softhddevice.AudioSoftvol = 0
 	0 = off, use hardware volume control

@@ -106,6 +106,8 @@ extern "C"
     extern void PipStop(void);
     /// Pip play video packet
     extern int PipPlayVideo(const uint8_t *, int);
+
+    extern const char *X11DisplayName;	///< x11 display name
 #ifdef __cplusplus
 }
 #endif
