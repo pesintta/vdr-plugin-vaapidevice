@@ -976,21 +976,33 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
     if ((CodecPassthrough & CodecAC3 && audio_ctx->codec_id == CODEC_ID_AC3)
 	|| (CodecPassthrough & CodecEAC3
 	    && audio_ctx->codec_id == CODEC_ID_EAC3)) {
+	if (audio_ctx->codec_id == CODEC_ID_EAC3) {
+	    // EAC3 over HDMI some receivers need HBR
+	    audio_decoder->HwSampleRate *= 4;
+	}
 	audio_decoder->HwChannels = 2;
 	audio_decoder->SpdifIndex = 0;	// reset buffer
 	audio_decoder->SpdifCount = 0;
 	*passthrough = 1;
     }
-    // channels not support?
+    // channels/sample-rate not support?
     if ((err =
 	    AudioSetup(&audio_decoder->HwSampleRate,
 		&audio_decoder->HwChannels, *passthrough))) {
 
-	Debug(3, "codec/audio: audio setup error\n");
-	// FIXME: handle errors
-	audio_decoder->HwChannels = 0;
-	audio_decoder->HwSampleRate = 0;
-	return err;
+	// try EAC3 none HBR
+	audio_decoder->HwSampleRate /= 4;
+	if (audio_ctx->codec_id != CODEC_ID_EAC3
+	    || (err =
+		AudioSetup(&audio_decoder->HwSampleRate,
+		    &audio_decoder->HwChannels, *passthrough))) {
+
+	    Debug(3, "codec/audio: audio setup error\n");
+	    // FIXME: handle errors
+	    audio_decoder->HwChannels = 0;
+	    audio_decoder->HwSampleRate = 0;
+	    return err;
+	}
     }
 
     Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n",
@@ -1073,8 +1085,10 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	// build SPDIF header and append A52 audio to it
 	// avpkt is the original data
 	spdif = audio_decoder->Spdif;
-	spdif_sz = 6144;
-	// 24576 = 4 * 6144
+	spdif_sz = 24576;		// 4 * 6144
+	if (audio_decoder->HwSampleRate == 48000) {
+	    spdif_sz = 6144;
+	}
 	if (spdif_sz < audio_decoder->SpdifIndex + avpkt->size + 8) {
 	    Error(_("codec/audio: decoded data smaller than encoded\n"));
 	    return -1;
@@ -1087,7 +1101,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	    // fscod2
 	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
 	}
-	//fprintf(stderr, "repeat %d\n", repeat);
+	// fprintf(stderr, "repeat %d %d\n", repeat, avpkt->size);
 
 	// copy original data for output
 	// pack upto repeat EAC-3 pakets into one IEC 61937 burst

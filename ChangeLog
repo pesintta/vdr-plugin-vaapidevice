@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Try to use HBR (High Bit-Rate) for EAC3.
     Improved pass-through (PCM+EAC3) support.
     Support VDR 1.7.36 new build system.
     Improves VDPAU display preemption handling.

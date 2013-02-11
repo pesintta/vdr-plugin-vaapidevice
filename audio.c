@@ -178,7 +178,7 @@ enum _audio_rates
     //Audio88200,				///< 88.2Khz
     //Audio96000,				///< 96.0Khz
     //Audio176400,				///< 176.4Khz
-    //Audio192000,				///< 192.0Khz
+    Audio192000,			///< 192.0Khz
     AudioRatesMax			///< max index
 };
 
@@ -190,7 +190,7 @@ static int AudioChannelMatrix[AudioRatesMax][9];
 
     /// rates tables (must be sorted by frequency)
 static const unsigned AudioRatesTable[AudioRatesMax] = {
-    44100, 48000,
+    44100, 48000, 192000
 };
 
 //----------------------------------------------------------------------------
@@ -2794,6 +2794,7 @@ void AudioInit(void)
     //	Check which channels/rates/formats are supported
     //	FIXME: we force 44.1Khz and 48Khz must be supported equal
     //	FIXME: should use bitmap of channels supported in RatesInHw
+    //	FIXME: use loop over sample-rates
     freq = 44100;
     AudioRatesInHw[Audio44100] = 0;
     for (chan = 1; chan < 9; ++chan) {
@@ -2821,10 +2822,28 @@ void AudioInit(void)
 	tchan = chan;
 	tfreq = freq;
 	if (AudioUsedModule->Setup(&tfreq, &tchan, 0)) {
-	    AudioChannelsInHw[chan] = 0;
+	    //AudioChannelsInHw[chan] = 0;
 	} else {
 	    AudioChannelsInHw[chan] = chan;
 	    AudioRatesInHw[Audio48000] |= (1 << chan);
+	}
+    }
+    freq = 192000;
+    AudioRatesInHw[Audio192000] = 0;
+    for (chan = 1; chan < 9; ++chan) {
+	int tchan;
+	int tfreq;
+
+	if (!AudioChannelsInHw[chan]) {
+	    continue;
+	}
+	tchan = chan;
+	tfreq = freq;
+	if (AudioUsedModule->Setup(&tfreq, &tchan, 0)) {
+	    //AudioChannelsInHw[chan] = 0;
+	} else {
+	    AudioChannelsInHw[chan] = chan;
+	    AudioRatesInHw[Audio192000] |= (1 << chan);
 	}
     }
     //	build channel support and conversion table
