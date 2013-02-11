@@ -4731,8 +4731,13 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	}
 #if defined(DEBUG) || defined(AV_INFO)
 	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
+#ifdef DEBUG
+	    Debug(3, "video/vaapi: synced after %d frames %dms\n",
+		decoder->StartCounter, GetMsTicks() - VideoSwitch);
+#else
 	    Debug(3, "video/vaapi: synced after %d frames\n",
 		decoder->StartCounter);
+#endif
 	    decoder->StartCounter += 1000;
 	}
 #endif
@@ -8211,8 +8216,13 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	}
 #if defined(DEBUG) || defined(AV_INFO)
 	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
+#ifdef DEBUG
+	    Debug(3, "video/vdpau: synced after %d frames %dms\n",
+		decoder->StartCounter, GetMsTicks() - VideoSwitch);
+#else
 	    Debug(3, "video/vdpau: synced after %d frames\n",
 		decoder->StartCounter);
+#endif
 	    decoder->StartCounter += 1000;
 	}
 #endif
@@ -11034,7 +11044,7 @@ static void PrintVersion(void)
 #ifdef GIT_REV
 	"(GIT-" GIT_REV ")"
 #endif
-	",\n\t(c) 2009 - 2012 by Johns\n"
+	",\n\t(c) 2009 - 2013 by Johns\n"
 	"\tLicense AGPLv3: GNU Affero General Public License version 3\n");
 }
 
