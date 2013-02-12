@@ -1205,9 +1205,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->Drift = drift;
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
 	// SPDIF/HDMI passthrough
-	if ((CodecAudioDrift & CORRECT_AC3) && (!CodecPassthroughAC3
+	if ((CodecAudioDrift & CORRECT_AC3) && (!(CodecPassthrough & CodecAC3)
 		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
-	    && (!CodecPassthroughEAC3
+	    && (!(CodecPassthrough & CodecEAC3)
 		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_EAC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
