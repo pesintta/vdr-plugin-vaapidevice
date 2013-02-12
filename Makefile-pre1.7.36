@@ -20,12 +20,13 @@ GIT_REV = $(shell git describe --always 2>/dev/null)
 
 CONFIG := #-DDEBUG #-DOSD_DEBUG
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# debug a/v sync
-CONFIG += -DUSE_PIP			# too experimental PIP support
+CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
 					# use ffmpeg libswresample
 CONFIG += $(shell pkg-config --exists libswresample && echo "-DUSE_SWRESAMPLE")
+CONFIG += -DUSE_SCREENSAVER		# use functions to disable screensaver
 CONFIG += $(shell pkg-config --exists vdpau && echo "-DUSE_VDPAU")
 CONFIG += $(shell pkg-config --exists libva && echo "-DUSE_VAAPI")
 CONFIG += $(shell pkg-config --exists alsa && echo "-DUSE_ALSA")
