@@ -52,7 +52,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.6.0"
+static const char *const VERSION = "0.6.0rc2"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -618,6 +618,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Audio;
     int AudioDelay;
     int AudioDrift;
+    int AudioPassthroughDefault;
     int AudioPassthroughPCM;
     int AudioPassthroughAC3;
     int AudioPassthroughEAC3;
@@ -846,11 +847,13 @@ void cMenuSetupSoft::Create(void)
 		-1000, 1000));
 	Add(new cMenuEditStraItem(tr("Audio drift correction"), &AudioDrift, 4,
 		audiodrift));
-	Add(new cMenuEditBoolItem(tr("Enable PCM pass-through"),
+	Add(new cMenuEditBoolItem(tr("Pass-through default"),
+		&AudioPassthroughDefault, trVDR("off"), trVDR("on")));
+	Add(new cMenuEditBoolItem(tr("	PCM pass-through"),
 		&AudioPassthroughPCM, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Enable AC-3 pass-through"),
+	Add(new cMenuEditBoolItem(tr("	AC-3 pass-through"),
 		&AudioPassthroughAC3, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Enable EAC-3 pass-through"),
+	Add(new cMenuEditBoolItem(tr("	EAC-3 pass-through"),
 		&AudioPassthroughEAC3, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Enable (E)AC-3 (decoder) downmix"),
 		&AudioDownmix, trVDR("no"), trVDR("yes")));
@@ -1037,6 +1040,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Audio = 0;
     AudioDelay = ConfigVideoAudioDelay;
     AudioDrift = ConfigAudioDrift;
+    AudioPassthroughDefault = AudioPassthroughState;
     AudioPassthroughPCM = ConfigAudioPassthrough & CodecPCM;
     AudioPassthroughAC3 = ConfigAudioPassthrough & CodecAC3;
     AudioPassthroughEAC3 = ConfigAudioPassthrough & CodecEAC3;
@@ -1185,9 +1189,14 @@ void cMenuSetupSoft::Store(void)
     ConfigAudioPassthrough = (AudioPassthroughPCM ? CodecPCM : 0)
 	| (AudioPassthroughAC3 ? CodecAC3 : 0)
 	| (AudioPassthroughEAC3 ? CodecEAC3 : 0);
-    SetupStore("AudioPassthrough", ConfigAudioPassthrough);
-    CodecSetAudioPassthrough(ConfigAudioPassthrough);
-    AudioPassthroughState = 1;
+    AudioPassthroughState = AudioPassthroughDefault;
+    if (AudioPassthroughState) {
+	SetupStore("AudioPassthrough", ConfigAudioPassthrough);
+	CodecSetAudioPassthrough(ConfigAudioPassthrough);
+    } else {
+	SetupStore("AudioPassthrough", -ConfigAudioPassthrough);
+	CodecSetAudioPassthrough(0);
+    }
     SetupStore("AudioDownmix", ConfigAudioDownmix = AudioDownmix);
     CodecSetAudioDownmix(ConfigAudioDownmix);
     SetupStore("AudioSoftvol", ConfigAudioSoftvol = AudioSoftvol);
@@ -2559,11 +2568,14 @@ class cPluginSoftHdDevice:public cPlugin
     virtual cString SVDRPCommand(const char *, const char *, int &);
 };
 
+/**
+**	Initialize any member variables here.
+**
+**	@note DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
+**	VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
+*/
 cPluginSoftHdDevice::cPluginSoftHdDevice(void)
 {
-    // Initialize any member variables here.
-    // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
-    // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 }
 
@@ -2918,9 +2930,15 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
     if (!strcasecmp(name, "AudioPassthrough")) {
-	CodecSetAudioPassthrough(ConfigAudioPassthrough = atoi(value));
-	if (ConfigAudioPassthrough) {
-	    AudioPassthroughState = 1;
+	int i;
+
+	i = atoi(value);
+	AudioPassthroughState = i > 0;
+	ConfigAudioPassthrough = abs(i);
+	if (AudioPassthroughState) {
+	    CodecSetAudioPassthrough(ConfigAudioPassthrough);
+	} else {
+	    CodecSetAudioPassthrough(0);
 	}
 	return true;
     }
