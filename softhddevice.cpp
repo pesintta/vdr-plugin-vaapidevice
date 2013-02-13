@@ -849,11 +849,11 @@ void cMenuSetupSoft::Create(void)
 		audiodrift));
 	Add(new cMenuEditBoolItem(tr("Pass-through default"),
 		&AudioPassthroughDefault, trVDR("off"), trVDR("on")));
-	Add(new cMenuEditBoolItem(tr("	PCM pass-through"),
+	Add(new cMenuEditBoolItem(tr("\040\040PCM pass-through"),
 		&AudioPassthroughPCM, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("	AC-3 pass-through"),
+	Add(new cMenuEditBoolItem(tr("\040\040AC-3 pass-through"),
 		&AudioPassthroughAC3, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("	EAC-3 pass-through"),
+	Add(new cMenuEditBoolItem(tr("\040\040AC-3 pass-through"),
 		&AudioPassthroughEAC3, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Enable (E)AC-3 (decoder) downmix"),
 		&AudioDownmix, trVDR("no"), trVDR("yes")));
