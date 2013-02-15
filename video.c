@@ -10398,6 +10398,7 @@ void VideoSetBrightness(int brightness)
     }
 #endif
     // FIXME: VA-API support
+    (void)brightness;
 }
 
 ///
@@ -10414,6 +10415,7 @@ void VideoSetContrast(int contrast)
     }
 #endif
     // FIXME: VA-API support
+    (void)contrast;
 }
 
 ///
@@ -10430,6 +10432,7 @@ void VideoSetSaturation(int saturation)
     }
 #endif
     // FIXME: VA-API support
+    (void)saturation;
 }
 
 ///
@@ -10446,6 +10449,7 @@ void VideoSetHue(int hue)
     }
 #endif
     // FIXME: VA-API support
+    (void)hue;
 }
 
 ///
@@ -10497,6 +10501,7 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y,
     // FIXME: not supported by vaapi without unscaled OSD,
     // FIXME: if used to position video inside osd
 #endif
+    (void)hw_decoder;
 }
 
 ///
