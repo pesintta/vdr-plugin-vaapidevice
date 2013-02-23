@@ -1852,7 +1852,12 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    decoder->PixFmt = PIX_FMT_NONE;
+
     decoder->Stream = stream;
+    if (!VaapiDecoderN) {		// FIXME: hack sync on audio
+	decoder->SyncOnAudio = 1;
+    }
     decoder->Closing = -300 - 1;
 
     decoder->PTS = AV_NOPTS_VALUE;
@@ -2525,8 +2530,6 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     int p;
     int e;
     VAConfigAttrib attrib;
-
-    Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
@@ -4710,21 +4713,21 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	// both clocks are known
 
 	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
-	    err = VaapiMessage(3, "video: audio/video difference too big\n");
+	    err = VaapiMessage(2, "video: audio/video difference too big\n");
 	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
-	    err = VaapiMessage(3, "video: slow down video, duping frame\n");
+	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
 	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
-	    err = VaapiMessage(3, "video: slow down video, duping frame\n");
+	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
 	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
 	    && filled > 1 + 2 * decoder->Interlaced) {
-	    err = VaapiMessage(3, "video: speed up video, droping frame\n");
+	    err = VaapiMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
 	    decoder->SyncCounter = 1;
@@ -5965,6 +5968,8 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
+    decoder->PixFmt = PIX_FMT_NONE;
+
     decoder->Stream = stream;
     if (!VdpauDecoderN) {		// FIXME: hack sync on audio
 	decoder->SyncOnAudio = 1;
@@ -6808,8 +6813,6 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     const enum PixelFormat *fmt_idx;
     VdpDecoderProfile profile;
     int max_refs;
-
-    Debug(3, "video: new stream format %dms\n", GetMsTicks() - VideoSwitch);
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
@@ -9657,8 +9660,9 @@ enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
     ms_delay = (1000 * video_ctx->time_base.num * video_ctx->ticks_per_frame)
 	/ video_ctx->time_base.den;
 
-    Debug(3, "video: ready %s %dms/frame\n",
-	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay);
+    Debug(3, "video: ready %s %2dms/frame %dms\n",
+	Timestamp2String(VideoGetClock(hw_decoder)), ms_delay,
+	GetMsTicks() - VideoSwitch);
 #endif
 
     return VideoUsedModule->get_format(hw_decoder, video_ctx, fmt);
