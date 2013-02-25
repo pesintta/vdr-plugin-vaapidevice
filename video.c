@@ -2469,6 +2469,8 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 	}
 	// FIXME: too late to switch to software rending on failures
     }
+#else
+    (void)video_ctx;
 #endif
     return VaapiGetSurface0(decoder);
 }
@@ -6778,6 +6780,8 @@ static unsigned VdpauGetSurface(VdpauDecoder * decoder,
 
 	VdpauSetupOutput(decoder);
     }
+#else
+    (void)video_ctx;
 #endif
     return VdpauGetSurface0(decoder);
 }
