@@ -2,7 +2,7 @@
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
-EAPI="4"
+EAPI="5"
 
 inherit flag-o-matic toolchain-funcs vdr-plugin-2 eutils
 
@@ -38,10 +38,6 @@ DEPEND="${RDEPEND}
 	virtual/pkgconfig
 	oss? ( sys-kernel/linux-headers )"
 
-src_prepare() {
-	vdr-plugin-2_src_prepare
-}
-
 src_compile() {
 	local myconf
 
@@ -50,30 +46,20 @@ src_compile() {
 	myconf+=" VDPAU=$(usex vdpau 1 0)"
 	myconf+=" VAAPI=$(usex vaapi 1 0)"
 	myconf+=" SCREENSAVER=$(usex xscreensaver 1 0)"
-	# FIXME: need to know, if libav or ffmpeg is used for virtual/ffmpeg
-	myconf+=" SWRESAMPLE=1"
+	if has_version ">=media-video/ffmpeg-0.8" ; then
+		myconf+=" SWRESAMPLE=1"
+	fi
 
-	append-cflags -DHAVE_PTHREAD_NAME
-	append-cxxflags -DHAVE_PTHREAD_NAME
+	append-cflags -DHAVE_PTHREAD_NAME -D_GNU_SOURCE
+	append-cxxflags -DHAVE_PTHREAD_NAME -D_GNU_SOURCE
 	tc-export CC CXX
 
-	#emake all LIBDIR="." $myconf || die
-
-	#vdr-plugin-2_src_compile
-	cd "${S}"
-
-	BUILD_TARGETS=${BUILD_TARGETS:-${VDRPLUGIN_MAKE_TARGET:-all}}
-
-	emake ${BUILD_PARAMS} ${myconf} \
-			${BUILD_TARGETS} \
-			LOCALEDIR="${TMP_LOCALE_DIR}" \
-			LIBDIR="${S}" \
-			TMPDIR="${T}" \
-		|| die "emake failed"
+	BUILD_PARAMS="${myconf}"
+	vdr-plugin-2_src_compile
 }
 
 src_install() {
 	vdr-plugin-2_src_install
 
-	dodoc ChangeLog
+	dodoc ChangeLog README.txt
 }
