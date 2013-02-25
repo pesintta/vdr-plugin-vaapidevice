@@ -800,9 +800,10 @@ void cMenuSetupSoft::Create(void)
 
 	    // short hidden informations
 	    msg =
-		cString::sprintf("%s,%s%s...", scaling_short[Scaling[i]],
+		cString::sprintf("%s,%s%s%s%s,...", scaling_short[Scaling[i]],
 		deinterlace_short[Deinterlace[i]],
-		SkipChromaDeinterlace[i] ? ",skip" : "");
+		SkipChromaDeinterlace[i] ? ",skip" : "",
+		InverseTelecine[i] ? ",ITC" : "", Denoise[i] ? ",DN" : "");
 	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
