@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Release Version 0.6.0
+    Try to start or connect to X11 server with -xx.
     Try to use HBR (High Bit-Rate) for EAC3.
     Improved pass-through (PCM+EAC3) support.
     Support VDR 1.7.36 new build system.

@@ -2792,7 +2792,8 @@ const char *CommandLineHelp(void)
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
 	"  -v device\tvideo driver device (va-api, vdpau, noop)\n"
-	"  -s\t\tstart in suspended mode\n" "  -x\t\tstart x11 server\n"
+	"  -s\t\tstart in suspended mode\n"
+	"  -x\t\tstart x11 server, with -xx try to connect, if this fails\n"
 	"  -X args\tX11 server arguments (f.e. -nocursor)\n"
 	"  -w workaround\tenable/disable workarounds\n"
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
@@ -2850,7 +2851,7 @@ int ProcessArgs(int argc, char *const argv[])
 		VideoSetDevice(optarg);
 		continue;
 	    case 'x':			// x11 server
-		ConfigStartX11Server = 1;
+		ConfigStartX11Server++;
 		continue;
 	    case 'X':			// x11 server arguments
 		X11ServerArguments = optarg;
@@ -3001,6 +3002,7 @@ static void StartXServer(void)
     // child
     signal(SIGUSR1, SIG_IGN);		// ignore to force answer
     //setpgid(0,getpid());
+    setpgid(pid, 0);
 
     // close all open file-handles
     maxfd = sysconf(_SC_OPEN_MAX);
@@ -3141,6 +3143,31 @@ void Stop(void)
 */
 void Housekeeping(void)
 {
+    //
+    //	when starting an own X11 server fails, try to connect to a already
+    //	running X11 server.  This can take some time.
+    //
+    if (X11ServerPid) {			// check if X11 server still running
+	pid_t wpid;
+	int status;
+
+	wpid = waitpid(X11ServerPid, &status, WNOHANG);
+	if (wpid) {
+	    if (WIFEXITED(status)) {
+		Debug(3, "x-setup: x11 server exited (%d)\n",
+		    WEXITSTATUS(status));
+	    }
+	    if (WIFSIGNALED(status)) {
+		Debug(3, "x-setup: x11 server killed (%d)\n",
+		    WTERMSIG(status));
+	    }
+	    X11ServerPid = 0;
+	    // video not running
+	    if (ConfigStartX11Server > 1 && !MyVideoStream->HwDecoder) {
+		StartVideo();
+	    }
+	}
+    }
 }
 
 /**
