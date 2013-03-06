@@ -10826,7 +10826,7 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
 ///
 int VideoRaiseWindow(void)
 {
-    const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
+    static const uint32_t values[] = { XCB_STACK_MODE_ABOVE };
 
     xcb_configure_window(Connection, VideoWindow, XCB_CONFIG_WINDOW_STACK_MODE,
 	values);
