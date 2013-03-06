@@ -10822,6 +10822,19 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
 }
 
 ///
+///	Raise video window.
+///
+int VideoRaiseWindow(void)
+{
+    const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
+
+    xcb_configure_window(Connection, VideoWindow, XCB_CONFIG_WINDOW_STACK_MODE,
+	values);
+
+    return 1;
+}
+
+///
 ///	Initialize video output module.
 ///
 ///	@param display_name	X11 display name

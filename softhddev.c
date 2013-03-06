@@ -69,9 +69,9 @@ static char VdpauDecoder = 1;		///< vdpau decoder used
 #endif
 
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
+char ConfigStartX11Server;		///< flag start the x11 server
 static char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
-static char ConfigStartX11Server;	///< flag start the x11 server
 static const char *X11ServerArguments;	///< default command arguments
 static char ConfigStillDecoder;		///< hw/sw decoder for still picture
 

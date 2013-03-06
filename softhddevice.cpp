@@ -3186,6 +3186,9 @@ static const char *SVDRPHelpText[] = {
     "3DOF\n" "\040   3D OSD off.\n",
     "3DTB\n" "\040   3D OSD Top and Bottom.\n",
     "3DSB\n" "\040   3D OSD Side by Side.\n",
+    "RAIS\n" "\040   Raise softhddevice window\n\n"
+	"    If Xserver is not started by softhddevice, the window which\n"
+	"    contains the softhddevice frontend will be raised to the front.\n",
     NULL
 };
 
@@ -3364,6 +3367,15 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     if (!strcasecmp(command, "3DTB")) {
 	VideoSetOsd3DMode(2);
 	return "3d tb";
+    }
+
+    if (!strcasecmp(command, "RAIS")) {
+	if (!ConfigStartX11Server) {
+	    VideoRaiseWindow();
+	} else {
+	    return "Raise not possible";
+	}
+	return "Window raised";
     }
 
     return NULL;

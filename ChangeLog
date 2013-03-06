@@ -2,6 +2,15 @@ User johns
 Date:
 
     Release Version 0.6.0
+
+User cyril
+Date: Wed Mar 6 17:05:10 CET 2013
+
+    Adds raise softhddevice video window support.
+
+User johns
+Date: Wed Mar 6 10:30:27 CET 2013
+
     Adds optional only complete mpeg packets support.
     Fixes text of EAC-3 pass-through setup.
     Try to start or connect to X11 server with -xx.
