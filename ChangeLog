@@ -2,6 +2,7 @@ User johns
 Date:
 
     Release Version 0.6.0
+    Adds optional only complete mpeg packets support.
     Fixes text of EAC-3 pass-through setup.
     Try to start or connect to X11 server with -xx.
     Try to use HBR (High Bit-Rate) for EAC3.

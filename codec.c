@@ -441,8 +441,11 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     }
     if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets\n");
+#ifndef USE_MPEG_COMPLETE
 	// we send incomplete frames, for old PES recordings
+	// this breaks the decoder for some stations
 	decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
+#endif
     }
     // FIXME: own memory management for video frames.
     if (video_codec->capabilities & CODEC_CAP_DR1) {

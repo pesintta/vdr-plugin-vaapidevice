@@ -30,6 +30,7 @@ CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
+#CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
 
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA

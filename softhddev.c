@@ -2249,11 +2249,16 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
 	// SKIP PES header
 	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
+#ifndef USE_MPEG_COMPLETE
 	if (size < 65526) {
 	    // mpeg codec supports incomplete packets
 	    // waiting for a full complete packages, increases needed delays
+	    // PES recordings sends incomplete packets
+	    // incomplete packets  breaks the decoder for some stations
+	    // for the new USE_PIP code, this is only a very little improvement
 	    VideoNextPacket(stream, stream->CodecID);
 	}
+#endif
     } else {
 	// SKIP PES header
 	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
