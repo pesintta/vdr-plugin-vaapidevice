@@ -39,6 +39,7 @@ video:
     some low-bandwidth tv channels have hiccups.
     check start with 24Hz display rate
     crash with ffmpeg without vaapi and vdpau.
+    still-picture of PES recordings should use VideoMpegEnqueue.
 
 vdpau:
     software deinterlace path not working.
@@ -55,6 +56,7 @@ libva:
     [drm:i915_wait_request] *ERROR* i915_wait_request returns -11 ...
     missing OSD support for 3d SBS / Top-Bottom streams, like VPDAU.
     PIP support / multistream handling
+    VA-AP VaapiCleanup crash after channel without video.
 
 libva: branch vaapi-ext / staging
     add support for vaapi-ext / staging

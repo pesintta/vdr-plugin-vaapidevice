@@ -1912,6 +1912,11 @@ int VideoDecodeInput(VideoStream * stream)
 #ifdef USE_PIP
     //fprintf(stderr, "[");
     //DumpMpeg(avpkt->data, avpkt->size);
+#ifdef STILL_DEBUG
+    if (InStillPicture) {
+	DumpMpeg(avpkt->data, avpkt->size);
+    }
+#endif
     // lock decoder against close
     pthread_mutex_lock(&stream->DecoderLockMutex);
     if (stream->Decoder) {
@@ -2586,8 +2591,10 @@ void StillPicture(const uint8_t * data, int size)
     VideoResetPacket(MyVideoStream);
     old_video_hardware_decoder = VideoHardwareDecoder;
     // enable/disable hardware decoder for still picture
-    VideoHardwareDecoder = ConfigStillDecoder;
-    VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+    if (VideoHardwareDecoder != ConfigStillDecoder) {
+	VideoHardwareDecoder = ConfigStillDecoder;
+	VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+    }
 
     if (MyVideoStream->CodecID == CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
@@ -2663,9 +2670,11 @@ void StillPicture(const uint8_t * data, int size)
 #ifdef STILL_DEBUG
     InStillPicture = 0;
 #endif
-    VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+    if (VideoHardwareDecoder != old_video_hardware_decoder) {
+	VideoHardwareDecoder = old_video_hardware_decoder;
+	VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+    }
     VideoSetTrickSpeed(MyVideoStream->HwDecoder, 0);
-    VideoHardwareDecoder = old_video_hardware_decoder;
 }
 
 /**
@@ -2804,6 +2813,7 @@ const char *CommandLineHelp(void)
 	"\tno-hw-decoder\t\tdisable hw decoder, use software decoder only\n"
 	"\tno-mpeg-hw-decoder\tdisable hw decoder for mpeg only\n"
 	"\tstill-hw-decoder\tenable hardware decoder for still-pictures\n"
+	"\tstill-h264-hw-decoder\tenable h264 hw decoder for still-pictures\n"
 	"\talsa-driver-broken\tdisable broken alsa driver message\n"
 	"\tignore-repeat-pict\tdisable repeat pict message\n"
 	"  -D\t\tstart in detached mode\n";
@@ -2877,6 +2887,8 @@ int ProcessArgs(int argc, char *const argv[])
 		    }
 		} else if (!strcasecmp("still-hw-decoder", optarg)) {
 		    ConfigStillDecoder = -1;
+		} else if (!strcasecmp("still-h264-hw-decoder", optarg)) {
+		    ConfigStillDecoder = 1;
 		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
