@@ -24,13 +24,16 @@ SCREENSAVER ?= 1
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
 
-CONFIG := # -DDEBUG #-DOSD_DEBUG
+CONFIG := # -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
+#CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
+
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
 #CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
+#CONFIG += -DUSE_VDR_SPU		# use VDR SPU decoder.
 
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA

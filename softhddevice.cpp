@@ -2078,7 +2078,7 @@ class cSoftHdDevice:public cDevice
 
     virtual uchar *GrabImage(int &, bool, int, int, int);
 
-#if 0
+#ifdef USE_VDR_SPU
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
@@ -2090,18 +2090,27 @@ class cSoftHdDevice:public cDevice
     virtual void MakePrimaryDevice(bool);
 };
 
+/**
+**	Constructor device.
+*/
 cSoftHdDevice::cSoftHdDevice(void)
 {
     //dsyslog("[softhddev]%s\n", __FUNCTION__);
 
-#if 0
+#ifdef USE_VDR_SPU
     spuDecoder = NULL;
 #endif
 }
 
+/**
+**	Destructor device.
+*/
 cSoftHdDevice::~cSoftHdDevice(void)
 {
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
+#ifdef USE_VDR_SPU
+    delete spuDecoder;
+#endif
 }
 
 /**
@@ -2127,13 +2136,19 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     }
 }
 
-#if 0
+#ifdef USE_VDR_SPU
 
+/**
+**	Get the device SPU decoder.
+**
+**	@returns a pointer to the device's SPU decoder (or NULL, if this
+**	device doesn't have an SPU decoder)
+*/
 cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 {
     dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
-    if (IsPrimaryDevice() && !spuDecoder) {
+    if (!spuDecoder && IsPrimaryDevice()) {
 	spuDecoder = new cDvbSpuDecoder();
     }
     return spuDecoder;
