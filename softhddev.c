@@ -2909,7 +2909,7 @@ int ProcessArgs(int argc, char *const argv[])
 		    optopt);
 		return 0;
 	    default:
-		fprintf(stderr, _("Unkown option '%c'\n"), optopt);
+		fprintf(stderr, _("Unknown option '%c'\n"), optopt);
 		return 0;
 	}
 	break;

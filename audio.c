@@ -3040,7 +3040,7 @@ int main(int argc, char *const argv[])
 		return -1;
 	    default:
 		PrintVersion();
-		fprintf(stderr, "Unkown option '%c'\n", optopt);
+		fprintf(stderr, "Unknown option '%c'\n", optopt);
 		return -1;
 	}
 	break;
