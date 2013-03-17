@@ -52,7 +52,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.6.0rc2"
+static const char *const VERSION = "0.6.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif

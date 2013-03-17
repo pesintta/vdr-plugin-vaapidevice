@@ -1,7 +1,14 @@
 User johns
-Date:
+Date: Sun Mar 17 15:52:42 CET 2013
 
     Release Version 0.6.0
+    Adds H264 only hardware decoder for still-pictures.
+    Enable optional VDR-SPU deocder support.
+
+User anbr
+Date: Sun Mar 17 15:49:46 CET 2013
+
+    Update german translation.
 
 User cyril
 Date: Wed Mar 6 17:05:10 CET 2013
