@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix crash, when sillpicture is called in suspend mode.
     Add workaround for zero width+height and ffmpeg >= 1.2.
 
 User johns

@@ -2579,6 +2579,10 @@ void StillPicture(const uint8_t * data, int size)
     int i;
     int old_video_hardware_decoder;
 
+    // might be called in Suspended Mode
+    if (MyVideoStream->SkipStream->Decoder && MyVideoStream->SkipStream) {
+	return;
+    }
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
 	Error(_("[softhddev] invalid still video packet\n"));
