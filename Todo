@@ -45,6 +45,7 @@ vdpau:
     software deinterlace path not working.
     OSD looses transparency, during channel switch.
     OSD looses transparency, while moving cut marks.
+    ffmpeg >=1.2 supports same API like VA-API.
 
 libva:
     yaepghd (VaapiSetOutputPosition) support
