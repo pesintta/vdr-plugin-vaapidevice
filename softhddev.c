@@ -2580,7 +2580,7 @@ void StillPicture(const uint8_t * data, int size)
     int old_video_hardware_decoder;
 
     // might be called in Suspended Mode
-    if (MyVideoStream->SkipStream->Decoder && MyVideoStream->SkipStream) {
+    if (MyVideoStream->Decoder && MyVideoStream->SkipStream) {
 	return;
     }
     // must be a PES start code
