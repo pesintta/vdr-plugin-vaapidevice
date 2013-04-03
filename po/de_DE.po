@@ -627,7 +627,7 @@ msgid "Pip X (%)"
 msgstr "PIP X (%)"
 
 msgid "Pip Y (%)"
-msgstr "PIP X (%)"
+msgstr "PIP Y (%)"
 
 msgid "Pip Width (%)"
 msgstr "PIP Breite (%)"
