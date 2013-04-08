@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug #1302: Unsupported pixel format crash.
     Fix the fix, when sillpicture is called in suspend mode.
     Fix crash, when sillpicture is called in suspend mode.
     Add workaround for zero width+height and ffmpeg >= 1.2.

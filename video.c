@@ -2311,6 +2311,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 	    // intel: I420 is native format for MPEG-2 decoded surfaces
 	    // intel: NV12 is native format for H.264 decoded surfaces
 	case PIX_FMT_YUV420P:
+	case PIX_FMT_YUVJ420P:
 	    // fourcc = VA_FOURCC_YV12; // YVU
 	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
 	    break;
@@ -7583,6 +7584,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	//
 	switch (video_ctx->pix_fmt) {
 	    case PIX_FMT_YUV420P:
+	    case PIX_FMT_YUVJ420P:	// some streams produce this
 		break;
 	    case PIX_FMT_YUV422P:
 	    case PIX_FMT_YUV444P:
