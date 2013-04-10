@@ -515,8 +515,8 @@ void CodecVideoClose(VideoDecoder * video_decoder)
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(video_decoder->VideoCtx);
-	pthread_mutex_unlock(&CodecLockMutex);
 	av_freep(&video_decoder->VideoCtx);
+	pthread_mutex_unlock(&CodecLockMutex);
     }
 }
 
@@ -856,8 +856,8 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
     if (audio_decoder->AudioCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(audio_decoder->AudioCtx);
-	pthread_mutex_unlock(&CodecLockMutex);
 	av_freep(&audio_decoder->AudioCtx);
+	pthread_mutex_unlock(&CodecLockMutex);
     }
 }
 
