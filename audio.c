@@ -678,8 +678,7 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
     }
     AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
 
-    // FIXME: don't flush buffers here
-    AudioRing[AudioRingWrite].FlushBuffers = 1;
+    AudioRing[AudioRingWrite].FlushBuffers = 0;
     AudioRing[AudioRingWrite].Passthrough = passthrough;
     AudioRing[AudioRingWrite].PacketSize = 0;
     AudioRing[AudioRingWrite].InSampleRate = sample_rate;
@@ -688,6 +687,9 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
     AudioRing[AudioRingWrite].HwChannels = AudioChannelMatrix[u][channels];
     AudioRing[AudioRingWrite].PTS = INT64_C(0x8000000000000000);
     RingBufferReset(AudioRing[AudioRingWrite].RingBuffer);
+
+    Debug(3, "audio: %d ring buffer prepared\n",
+	atomic_read(&AudioRingFilled) + 1);
 
     atomic_inc(&AudioRingFilled);
 
@@ -2417,6 +2419,7 @@ void AudioFlushBuffers(void)
     int i;
 
     old = AudioRingWrite;
+    // FIXME: check ring buffer overflow
     AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
     AudioRing[AudioRingWrite].FlushBuffers = 1;
     AudioRing[AudioRingWrite].Passthrough = AudioRing[old].Passthrough;

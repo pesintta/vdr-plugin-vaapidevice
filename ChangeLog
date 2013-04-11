@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Enable seamless audio track change.
     Fix bug #1302: Unsupported pixel format crash.
     Fix the fix, when sillpicture is called in suspend mode.
     Fix crash, when sillpicture is called in suspend mode.
