@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix "broken driver" message if empty ring buffer.
     Enable seamless audio track change.
     Fix bug #1302: Unsupported pixel format crash.
     Fix the fix, when sillpicture is called in suspend mode.

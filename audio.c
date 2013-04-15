@@ -2033,10 +2033,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 	pthread_mutex_unlock(&AudioMutex);
 
 	Debug(3, "audio: ----> %dms start\n", (AudioUsedBytes() * 1000)
-	    / (!AudioRing[AudioRingRead].HwSampleRate +
-		!AudioRing[AudioRingRead].HwChannels +
-		AudioRing[AudioRingRead].HwSampleRate *
-		AudioRing[AudioRingRead].HwChannels * AudioBytesProSample));
+	    / (!AudioRing[AudioRingWrite].HwSampleRate +
+		!AudioRing[AudioRingWrite].HwChannels +
+		AudioRing[AudioRingWrite].HwSampleRate *
+		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
 	do {
 	    int filled;
@@ -2069,7 +2069,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 		Debug(3, "audio: continue after flush\n");
 	    }
 	    // try to play some samples
-	    err = AudioUsedModule->Thread();
+	    err = 0;
+	    if (RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)) {
+		err = AudioUsedModule->Thread();
+	    }
 	    // underrun, check if new ring buffer is available
 	    if (!err) {
 		int passthrough;
