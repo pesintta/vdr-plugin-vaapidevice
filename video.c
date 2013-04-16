@@ -43,7 +43,7 @@
 #define USE_AUTOCROP			///< compile auto-crop support
 #define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
-#define noUSE_DOUBLEBUFFER		///< use GLX double buffers
+#define USE_DOUBLEBUFFER		///< use GLX double buffers
 //#define USE_VAAPI				///< enable vaapi support
 //#define USE_VDPAU				///< enable vdpau support
 #define noUSE_BITMAP			///< use vdpau bitmap surface
@@ -137,7 +137,7 @@ typedef enum
 #include <va/va_glx.h>
 #endif
 #ifndef VA_SURFACE_ATTRIB_SETTABLE
-/// make source compatible with old libva
+/// make source compatible with stable libva
 #define vaCreateSurfaces(d, f, w, h, s, ns, a, na) \
     vaCreateSurfaces(d, w, h, f, ns, s)
 #endif
@@ -622,10 +622,15 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 
 #ifdef USE_GLX
 
-static int GlxEnabled = 1;		///< use GLX
-static int GlxVSyncEnabled = 0;		///< enable/disable v-sync
+static int GlxEnabled;			///< use GLX
+static int GlxVSyncEnabled;		///< enable/disable v-sync
 static GLXContext GlxSharedContext;	///< shared gl context
 static GLXContext GlxContext;		///< our gl context
+
+#ifdef USE_VIDEO_THREAD
+static GLXContext GlxThreadContext;	///< our gl context for the thread
+#endif
+
 static XVisualInfo *GlxVisualInfo;	///< our gl visual
 
 static GLuint OsdGlTextures[2];		///< gl texture for OSD
@@ -681,26 +686,22 @@ static int GlxIsExtensionSupported(const char *ext)
     return 0;
 }
 
-#if 0
 ///
 ///	Setup GLX decoder
 ///
-///	@param decoder	VA-API decoder
+///	@param width		input video textures width
+///	@param height		input video textures height
+///	@param[OUT] textures	created and prepared textures
 ///
-void GlxSetupDecoder(VaapiDecoder * decoder)
+static void GlxSetupDecoder(int width, int height, GLuint * textures)
 {
-    int width;
-    int height;
     int i;
 
-    width = decoder->InputWidth;
-    height = decoder->InputHeight;
-
     glEnable(GL_TEXTURE_2D);		// create 2d texture
-    glGenTextures(2, decoder->GlTexture);
+    glGenTextures(2, textures);
     GlxCheck();
     for (i = 0; i < 2; ++i) {
-	glBindTexture(GL_TEXTURE_2D, decoder->GlTexture[i]);
+	glBindTexture(GL_TEXTURE_2D, textures[i]);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -714,12 +715,15 @@ void GlxSetupDecoder(VaapiDecoder * decoder)
 
     GlxCheck();
 }
-#endif
 
 ///
 ///	Render texture.
 ///
 ///	@param texture	2d texture
+///	@param x	window x
+///	@param y	window y
+///	@param width	window width
+///	@param height	window height
 ///
 static inline void GlxRenderTexture(GLuint texture, int x, int y, int width,
     int height)
@@ -737,16 +741,6 @@ static inline void GlxRenderTexture(GLuint texture, int x, int y, int width,
 	glVertex2i(x, y);
 	glTexCoord2f(1.0f, 0.0f);
 	glVertex2i(x + width, y);
-#if 0
-	glTexCoord2f(0.0f, 0.0f);
-	glVertex2i(x, y);
-	glTexCoord2f(0.0f, 1.0f);
-	glVertex2i(x, y + height);
-	glTexCoord2f(1.0f, 1.0f);
-	glVertex2i(x + width, y + height);
-	glTexCoord2f(1.0f, 0.0f);
-	glVertex2i(x + width, y);
-#endif
     }
     glEnd();
 
@@ -755,15 +749,20 @@ static inline void GlxRenderTexture(GLuint texture, int x, int y, int width,
 }
 
 ///
-///	Upload texture.
+///	Upload OSD texture.
 ///
-static void GlxUploadTexture(int x, int y, int width, int height,
+///	@param x	x coordinate texture
+///	@param y	y coordinate texture
+///	@param width	argb image width
+///	@param height	argb image height
+///	@param argb	argb image
+///
+static void GlxUploadOsdTexture(int x, int y, int width, int height,
     const uint8_t * argb)
 {
     // FIXME: use other / faster uploads
     // ARB_pixelbuffer_object GL_PIXEL_UNPACK_BUFFER glBindBufferARB()
     // glMapBuffer() glUnmapBuffer()
-    // glTexSubImage2D
 
     glEnable(GL_TEXTURE_2D);		// upload 2d texture
 
@@ -776,59 +775,164 @@ static void GlxUploadTexture(int x, int y, int width, int height,
 }
 
 ///
-///	Render to glx texture.
+///	GLX initialize OSD.
 ///
-static void GlxRender(int osd_width, int osd_height)
+///	@param width	osd width
+///	@param height	osd height
+///
+static void GlxOsdInit(int width, int height)
 {
-    static uint8_t *image;
-    static uint8_t cycle;
-    int x;
-    int y;
+    int i;
 
-    if (!OsdGlTextures[0] || !OsdGlTextures[1]) {
+#ifdef DEBUG
+    if (!GlxEnabled) {
+	Debug(3, "video/glx: %s called without glx enabled\n", __FUNCTION__);
 	return;
     }
-    // render each frame kills performance
+#endif
 
-    // osd 1920 * 1080 * 4 (RGBA) * 50 (HZ) = 396 Mb/s
+    Debug(3, "video/glx: osd init context %p <-> %p\n", glXGetCurrentContext(),
+	GlxContext);
 
-    // too big for alloca
-    if (!image) {
-	image = malloc(4 * osd_width * osd_height);
-	memset(image, 0x00, 4 * osd_width * osd_height);
-    }
-    for (y = 0; y < osd_height; ++y) {
-	for (x = 0; x < osd_width; ++x) {
-	    ((uint32_t *) image)[x + y * osd_width] =
-		0x00FFFFFF | (cycle++) << 24;
-	}
-    }
-    cycle++;
-
-    // FIXME: convert is for GLX texture unneeded
-    // convert internal osd to image
-    //GfxConvert(image, 0, 4 * osd_width);
     //
+    //	create a RGBA texture.
+    //
+    glEnable(GL_TEXTURE_2D);		// create 2d texture(s)
 
-    GlxUploadTexture(0, 0, osd_width, osd_height, image);
+    glGenTextures(2, OsdGlTextures);
+    for (i = 0; i < 2; ++i) {
+	glBindTexture(GL_TEXTURE_2D, OsdGlTextures[i]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA,
+	    GL_UNSIGNED_BYTE, NULL);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_TEXTURE_2D);
+}
+
+///
+///	GLX cleanup osd.
+///
+static void GlxOsdExit(void)
+{
+    if (OsdGlTextures[0]) {
+	glDeleteTextures(2, OsdGlTextures);
+	OsdGlTextures[0] = 0;
+	OsdGlTextures[1] = 0;
+    }
+}
+
+///
+///	Upload ARGB image to texture.
+///
+///	@param x	x coordinate of image in osd texture
+///	@param y	y coordinate of image in osd texture
+///	@param width	width of image
+///	@param height	height of image
+///	@param argb	argb image
+///
+///	@note looked by caller
+///
+static void GlxOsdDrawARGB(int x, int y, int width, int height,
+    const uint8_t * argb)
+{
+#ifdef DEBUG
+    uint32_t start;
+    uint32_t end;
+#endif
+
+#ifdef DEBUG
+    if (!GlxEnabled) {
+	Debug(3, "video/glx: %s called without glx enabled\n", __FUNCTION__);
+	return;
+    }
+    start = GetMsTicks();
+    Debug(3, "video/glx: osd context %p <-> %p\n", glXGetCurrentContext(),
+	GlxContext);
+#endif
+
+    // set glx context
+    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
+	Error(_("video/glx: can't make glx context current\n"));
+	return;
+    }
+    GlxUploadOsdTexture(x, y, width, height, argb);
+    glXMakeCurrent(XlibDisplay, None, NULL);
+
+#ifdef DEBUG
+    end = GetMsTicks();
+
+    Debug(3, "video/glx: osd upload %dx%d%+d%+d %dms %d\n", width, height, x,
+	y, end - start, width * height * 4);
+#endif
+}
+
+///
+///	Clear OSD texture.
+///
+///	@note looked by caller
+///
+static void GlxOsdClear(void)
+{
+    void *texbuf;
+
+#ifdef DEBUG
+    if (!GlxEnabled) {
+	Debug(3, "video/glx: %s called without glx enabled\n", __FUNCTION__);
+	return;
+    }
+
+    Debug(3, "video/glx: osd context %p <-> %p\n", glXGetCurrentContext(),
+	GlxContext);
+#endif
+
+    // FIXME: any opengl function to clear an area?
+    // FIXME: if not; use zero buffer
+    // FIXME: if not; use dirty area
+
+    texbuf = calloc(OsdWidth * OsdHeight, 4);
+
+    // set glx context
+    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
+	Error(_("video/glx: can't make glx context current\n"));
+	return;
+    }
+    GlxUploadOsdTexture(0, 0, OsdWidth, OsdHeight, texbuf);
+    glXMakeCurrent(XlibDisplay, None, NULL);
+
+    free(texbuf);
 }
 
 ///
 ///	Setup GLX window.
 ///
-static void GlxSetupWindow(xcb_window_t window, int width, int height)
+///	@param window	xcb window id
+///	@param width	window width
+///	@param height	window height
+///	@param context	GLX context
+///
+static void GlxSetupWindow(xcb_window_t window, int width, int height,
+    GLXContext context)
 {
+#ifdef DEBUG
     uint32_t start;
     uint32_t end;
     int i;
     unsigned count;
+#endif
 
-    Debug(3, "video/glx: %s\n %x %dx%d", __FUNCTION__, window, width, height);
+    Debug(3, "video/glx: %s %x %dx%d context:%p", __FUNCTION__, window, width,
+	height, context);
 
     // set glx context
-    if (!glXMakeCurrent(XlibDisplay, window, GlxContext)) {
-	Fatal(_("video/glx: can't make glx context current\n"));
-	// FIXME: disable glx
+    if (!glXMakeCurrent(XlibDisplay, window, context)) {
+	Error(_("video/glx: can't make glx context current\n"));
+	GlxEnabled = 0;
 	return;
     }
 
@@ -996,7 +1100,8 @@ static void GlxInit(void)
     if (!context) {
 	Error(_("video/glx: can't create glx context\n"));
 	GlxEnabled = 0;
-	// FIXME: destroy GlxSharedContext
+	glXDestroyContext(XlibDisplay, GlxSharedContext);
+	GlxSharedContext = 0;
 	return;
     }
     GlxContext = context;
@@ -1093,12 +1198,10 @@ static void GlxExit(void)
     if (GlxContext) {
 	glXDestroyContext(XlibDisplay, GlxContext);
     }
-#if 0
     if (GlxThreadContext) {
 	glXDestroyContext(XlibDisplay, GlxThreadContext);
     }
     // FIXME: must free GlxVisualInfo
-#endif
 }
 
 #endif
@@ -1394,8 +1497,8 @@ struct _vaapi_decoder_
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
 #endif
 #ifdef USE_GLX
-    GLuint GlTexture[2];		///< gl texture for VA-API
-    void *GlxSurface[2];		///< VA-API/GLX surface
+    GLuint GlTextures[2];		///< gl texture for VA-API
+    void *GlxSurfaces[2];		///< VA-API/GLX surface
 #endif
     VASurfaceID BlackSurface;		///< empty black surface
 
@@ -1852,8 +1955,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->VaapiContext->context_id = VA_INVALID_ID;
 
 #ifdef USE_GLX
-    decoder->GlxSurface[0] = VA_INVALID_ID;
-    decoder->GlxSurface[1] = VA_INVALID_ID;
+    decoder->GlxSurfaces[0] = NULL;
+    decoder->GlxSurfaces[1] = NULL;
     if (GlxEnabled) {
 	// FIXME: create GLX context here
     }
@@ -2009,20 +2112,22 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	}
     }
 #ifdef USE_GLX
-    if (decoder->GlxSurface[0] != VA_INVALID_ID) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurface[0])
+    if (decoder->GlxSurfaces[0]) {
+	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[0])
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy glx surface!\n"));
 	}
+	decoder->GlxSurfaces[0] = NULL;
     }
-    if (decoder->GlxSurface[1] != VA_INVALID_ID) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurface[1])
+    if (decoder->GlxSurfaces[1]) {
+	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[1])
 	    != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't destroy glx surface!\n"));
 	}
+	decoder->GlxSurfaces[0] = NULL;
     }
-    if (decoder->GlTexture[0]) {
-	glDeleteTextures(2, decoder->GlTexture);
+    if (decoder->GlTextures[0]) {
+	glDeleteTextures(2, decoder->GlTextures);
     }
 #endif
 
@@ -2244,6 +2349,33 @@ static int VaapiInit(const char *display_name)
     return 1;
 }
 
+#ifdef USE_GLX
+
+///
+///	VA-API GLX setup.
+///
+///	@param display_name	x11/xcb display name
+///
+///	@returns true if VA-API could be initialized, false otherwise.
+///
+static int VaapiGlxInit(const char *display_name)
+{
+    GlxEnabled = 1;
+
+    GlxInit();
+    if (GlxEnabled) {
+	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight,
+	    GlxContext);
+    }
+    if (!GlxEnabled) {
+	Error(_("video/glx: glx error\n"));
+    }
+
+    return VaapiInit(display_name);
+}
+
+#endif
+
 ///
 ///	VA-API cleanup
 ///
@@ -2251,7 +2383,7 @@ static void VaapiExit(void)
 {
     int i;
 
-    // FIXME: more VA-API cleanups...
+// FIXME: more VA-API cleanups...
 
     for (i = 0; i < VaapiDecoderN; ++i) {
 	if (VaapiDecoders[i]) {
@@ -2405,16 +2537,18 @@ static void VaapiSetup(VaapiDecoder * decoder,
     if (GlxEnabled) {
 	// FIXME: destroy old context
 
-	GlxSetupDecoder(decoder);
+	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight,
+	    decoder->GlTextures);
 	// FIXME: try two textures
 	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-		decoder->GlTexture[0], &decoder->GlxSurface[0])
+		decoder->GlTextures[0], &decoder->GlxSurfaces[0])
 	    != VA_STATUS_SUCCESS) {
 	    Fatal(_("video/glx: can't create glx surfaces\n"));
+	    // FIXME: no fatal here
 	}
 	/*
 	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-	   decoder->GlTexture[1], &decoder->GlxSurface[1])
+	   decoder->GlTextures[1], &decoder->GlxSurfaces[1])
 	   != VA_STATUS_SUCCESS) {
 	   Fatal(_("video/glx: can't create glx surfaces\n"));
 	   }
@@ -2828,44 +2962,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 #ifdef USE_GLX
 
 ///
-///	Render texture.
-///
-///	@param texture	2d texture
-///
-static inline void VideoRenderTexture(GLuint texture, int x, int y, int width,
-    int height)
-{
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);	// no color
-    glBegin(GL_QUADS); {
-	glTexCoord2f(1.0f, 1.0f);
-	glVertex2i(x + width, y + height);
-	glTexCoord2f(0.0f, 1.0f);
-	glVertex2i(x, y + height);
-	glTexCoord2f(0.0f, 0.0f);
-	glVertex2i(x, y);
-	glTexCoord2f(1.0f, 0.0f);
-	glVertex2i(x + width, y);
-#if 0
-	glTexCoord2f(0.0f, 0.0f);
-	glVertex2i(x, y);
-	glTexCoord2f(0.0f, 1.0f);
-	glVertex2i(x, y + height);
-	glTexCoord2f(1.0f, 1.0f);
-	glVertex2i(x + width, y + height);
-	glTexCoord2f(1.0f, 0.0f);
-	glVertex2i(x + width, y);
-#endif
-    }
-    glEnd();
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-}
-
-///
 ///	Draw surface of the VA-API decoder with glx.
 ///
 ///	@param decoder	VA-API decoder
@@ -2878,12 +2974,14 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     int interlaced, int top_field_first, int field)
 {
     unsigned type;
-    uint32_t start;
-    uint32_t copy;
-    uint32_t end;
+
+    //uint32_t start;
+    //uint32_t copy;
+    //uint32_t end;
 
     // deinterlace
     if (interlaced
+	&& VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
 	    if (field) {
@@ -2901,18 +2999,20 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     } else {
 	type = VA_FRAME_PICTURE;
     }
-    start = GetMsTicks();
-    if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurface[0], surface,
+
+    //start = GetMsTicks();
+    if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurfaces[0], surface,
 	    type | decoder->SurfaceFlagsTable[decoder->Resolution]) !=
 	VA_STATUS_SUCCESS) {
 	Error(_("video/glx: vaCopySurfaceGLX failed\n"));
 	return;
     }
-    copy = GetMsTicks();
+    //copy = GetMsTicks();
     // hardware surfaces are always busy
-    VideoRenderTexture(decoder->GlTexture[0], decoder->OutputX,
+    // FIXME: CropX, ...
+    GlxRenderTexture(decoder->GlTextures[0], decoder->OutputX,
 	decoder->OutputY, decoder->OutputWidth, decoder->OutputHeight);
-    end = GetMsTicks();
+    //end = GetMsTicks();
     //Debug(3, "video/vaapi/glx: %d copy %d render\n", copy - start, end - copy);
 }
 
@@ -4577,8 +4677,16 @@ static void VaapiDisplayFrame(void)
 	    put2 = GetMsTicks();
 #endif
 	} else {
-	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-		decoder->TopFieldFirst, decoder->SurfaceField);
+#ifdef USE_GLX
+	    if (GlxEnabled) {
+		VaapiPutSurfaceGLX(decoder, surface, decoder->Interlaced,
+		    decoder->TopFieldFirst, decoder->SurfaceField);
+	    } else
+#endif
+	    {
+		VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
+		    decoder->TopFieldFirst, decoder->SurfaceField);
+	    }
 #ifdef DEBUG
 	    put1 = GetMsTicks();
 	    put2 = put1;
@@ -4611,6 +4719,22 @@ static void VaapiDisplayFrame(void)
 
 	decoder->FrameTime = nowtime;
     }
+
+#ifdef USE_GLX
+    //
+    //	add OSD
+    //
+    if (OsdShown) {
+	GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth,
+	    VideoWindowHeight);
+	// FIXME: toggle osd
+    }
+    //glFinish();
+    glXSwapBuffers(XlibDisplay, VideoWindow);
+    GlxCheck();
+    glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+#endif
 }
 
 ///
@@ -5230,6 +5354,44 @@ static const VideoModule VaapiModule = {
     .Exit = VaapiExit,
 };
 
+#ifdef USE_GLX
+
+///
+///	VA-API module.
+///
+static const VideoModule VaapiGlxModule = {
+    .Name = "va-api-glx",
+    .Enabled = 1,
+    .NewHwDecoder =
+	(VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
+    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
+	    const AVCodecContext *))VaapiGetSurface,
+    .ReleaseSurface =
+	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
+    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
+    .RenderFrame = (void (*const) (VideoHwDecoder *,
+	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
+    .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
+    .SetTrickSpeed =
+	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
+    .GrabOutput = NULL,
+    .SetBackground = VaapiSetBackground,
+    .SetVideoMode = VaapiSetVideoMode,
+    .ResetAutoCrop = VaapiResetAutoCrop,
+    .DisplayHandlerThread = VaapiDisplayHandlerThread,
+    .OsdClear = GlxOsdClear,
+    .OsdDrawARGB = GlxOsdDrawARGB,
+    .OsdInit = GlxOsdInit,
+    .OsdExit = GlxOsdExit,
+    .Init = VaapiGlxInit,
+    .Exit = VaapiExit,
+};
+
+#endif
+
 #endif
 
 //----------------------------------------------------------------------------
@@ -5276,8 +5438,8 @@ typedef struct _vdpau_decoder_
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
 #endif
 #ifdef noyetUSE_GLX
-    GLuint GlTexture[2];		///< gl texture for VDPAU
-    void *GlxSurface[2];		///< VDPAU/GLX surface
+    GLuint GlTextures[2];		///< gl texture for VDPAU
+    void *GlxSurfaces[2];		///< VDPAU/GLX surface
 #endif
 
     VdpDecoderProfile Profile;		///< vdp decoder profile
@@ -9029,26 +9191,9 @@ static const VideoModule NoopModule = {
 void VideoOsdClear(void)
 {
     VideoThreadLock();
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	void *texbuf;
-
-	texbuf = calloc(OsdWidth * OsdHeight, 4);
-	glEnable(GL_TEXTURE_2D);	// 2d texture
-	glBindTexture(GL_TEXTURE_2D, OsdGlTextures[OsdIndex]);
-	// upload no image data, clears texture (on some drivers only)
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, OsdWidth, OsdHeight, 0,
-	    GL_BGRA, GL_UNSIGNED_BYTE, texbuf);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
-	GlxCheck();
-	free(texbuf);
-    }
-#endif
-
     VideoUsedModule->OsdClear();
 
-    OsdDirtyX = OsdWidth;
+    OsdDirtyX = OsdWidth;		// reset dirty area
     OsdDirtyY = OsdHeight;
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
@@ -9092,14 +9237,6 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
     Debug(4, "video: osd dirty %dx%d%+d%+d -> %dx%d%+d%+d\n", width, height, x,
 	y, OsdDirtyWidth, OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
 
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	Debug(3, "video: %p <-> %p\n", glXGetCurrentContext(), GlxContext);
-	GlxUploadTexture(x, y, height, width, argb);
-	VideoThreadUnlock();
-	return;
-    }
-#endif
     VideoUsedModule->OsdDrawARGB(x, y, width, height, argb);
     OsdShown = 1;
 
@@ -9163,38 +9300,6 @@ void VideoOsdInit(void)
 	OsdHeight = VideoWindowHeight;
     }
 
-#ifdef USE_GLX
-    // FIXME: make an extra function for this
-    if (GlxEnabled) {
-	int i;
-
-	Debug(3, "video/glx: %p <-> %p\n", glXGetCurrentContext(), GlxContext);
-
-	//
-	//  create a RGBA texture.
-	//
-	glEnable(GL_TEXTURE_2D);	// create 2d texture(s)
-
-	glGenTextures(2, OsdGlTextures);
-	for (i = 0; i < 2; ++i) {
-	    glBindTexture(GL_TEXTURE_2D, OsdGlTextures[i]);
-	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
-		GL_CLAMP_TO_EDGE);
-	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
-		GL_CLAMP_TO_EDGE);
-	    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-	    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, OsdWidth, OsdHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-	}
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glDisable(GL_TEXTURE_2D);
-	return;
-    }
-#endif
-
     VideoThreadLock();
     VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
     VideoThreadUnlock();
@@ -9212,84 +9317,6 @@ void VideoOsdExit(void)
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
 }
-
-#if 0
-
-//----------------------------------------------------------------------------
-//	Overlay
-//----------------------------------------------------------------------------
-
-///
-///	Render osd surface.
-///
-void VideoRenderOverlay(void)
-{
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GlxRender(OsdWidth, OsdHeight);
-    } else
-#endif
-    {
-    }
-}
-
-///
-///	Display overlay surface.
-///
-void VideoDisplayOverlay(void)
-{
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	int osd_x1;
-	int osd_y1;
-
-	osd_x1 = 0;
-	osd_y1 = 0;
-#ifdef noDEBUG
-	osd_x1 = 100;
-	osd_y1 = 100;
-#endif
-	GlxRenderTexture(OsdGlTextures[OsdIndex], osd_x1, osd_y1,
-	    VideoWindowWidth, VideoWindowHeight);
-	return;
-    }
-#endif
-#ifdef USE_VAAPI
-    {
-	void *image_buffer;
-	static int counter;
-
-	// upload needs long time
-	if (counter == 5) {
-	    //return;
-	}
-	// osd image available?
-	if (VaOsdImage.image_id == VA_INVALID_ID) {
-	    return;
-	}
-	// FIXME: this version hangups
-	//return;
-
-	// map osd surface/image into memory.
-	if (vaMapBuffer(VaDisplay, VaOsdImage.buf,
-		&image_buffer) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't map osd image buffer\n"));
-	    return;
-	}
-	// 100% transparent
-	memset(image_buffer, 0x80 | counter++, VaOsdImage.data_size);
-
-	// convert internal osd to VA-API image
-	//GfxConvert(image_buffer, VaOsdImage.offsets[0], VaOsdImage.pitches[0]);
-
-	if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't unmap osd image buffer\n"));
-	}
-    }
-#endif
-}
-
-#endif
 
 //----------------------------------------------------------------------------
 //	Events
@@ -9438,10 +9465,6 @@ void VideoPollEvent(void)
 
 #ifdef USE_VIDEO_THREAD
 
-#ifdef USE_GLX
-static GLXContext GlxThreadContext;	///< our gl context for the thread
-#endif
-
 ///
 ///	Lock video thread.
 ///
@@ -9475,20 +9498,21 @@ static void *VideoDisplayHandlerThread(void *dummy)
 
 #ifdef USE_GLX
     if (GlxEnabled) {
-	Debug(3, "video: %p <-> %p\n", glXGetCurrentContext(),
-	    GlxThreadContext);
+	Debug(3, "video/glx: thread context %p <-> %p\n",
+	    glXGetCurrentContext(), GlxThreadContext);
+	Debug(3, "video/glx: context %p <-> %p\n", glXGetCurrentContext(),
+	    GlxContext);
+
 	GlxThreadContext =
-	    glXCreateContext(XlibDisplay, GlxVisualInfo, GlxContext, GL_TRUE);
+	    glXCreateContext(XlibDisplay, GlxVisualInfo, GlxSharedContext,
+	    GL_TRUE);
 	if (!GlxThreadContext) {
 	    Error(_("video/glx: can't create glx context\n"));
 	    return NULL;
 	}
 	// set glx context
-	if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-	    GlxCheck();
-	    Error(_("video/glx: can't make glx context current\n"));
-	    return NULL;
-	}
+	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight,
+	    GlxThreadContext);
     }
 #endif
 
@@ -9511,6 +9535,9 @@ static void *VideoDisplayHandlerThread(void *dummy)
 ///
 static void VideoThreadInit(void)
 {
+#ifdef USE_GLX
+    glXMakeCurrent(XlibDisplay, None, NULL);
+#endif
     pthread_mutex_init(&VideoMutex, NULL);
     pthread_mutex_init(&VideoLockMutex, NULL);
     pthread_cond_init(&VideoWakeupCond, NULL);
@@ -9568,7 +9595,7 @@ void VideoDisplayWakeup(void)
 //----------------------------------------------------------------------------
 
 ///
-///	Table of all audio modules.
+///	Table of all video modules.
 ///
 static const VideoModule *VideoModules[] = {
 #ifdef USE_VDPAU
@@ -9576,6 +9603,9 @@ static const VideoModule *VideoModules[] = {
 #endif
 #ifdef USE_VAAPI
     &VaapiModule,
+#endif
+#ifdef USE_GLX
+    &VaapiGlxModule,			// FIXME: if working, prefer this
 #endif
     &NoopModule
 };
@@ -9712,6 +9742,8 @@ void VideoRenderFrame(VideoHwDecoder * hw_decoder,
 ///
 ///	Get VA-API ffmpeg context
 ///
+///	FIXME: new ffmpeg supports vdpau hw context
+///
 ///	@param hw_decoder	video hardware decoder (must be VA-API)
 ///
 struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * hw_decoder)
@@ -9720,6 +9752,11 @@ struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * hw_decoder)
     if (VideoUsedModule == &VaapiModule) {
 	return hw_decoder->Vaapi.VaapiContext;
     }
+#ifdef USE_GLX
+    if (VideoUsedModule == &VaapiGlxModule) {
+	return hw_decoder->Vaapi.VaapiContext;
+    }
+#endif
 #endif
     (void)hw_decoder;
     Error(_("video/vaapi: get vaapi context, without vaapi enabled\n"));
@@ -10864,7 +10901,12 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-    //XInitThreads();
+#ifdef USE_GLX_doesn_t_help_still_crash
+    if (!XInitThreads()) {
+	Error(_("video: Can't initialize X11 thread support on '%s'\n"),
+	    display_name);
+    }
+#endif
     // Register error handler
     XSetIOErrorHandler(VideoIOErrorHandler);
 
@@ -10912,13 +10954,15 @@ void VideoInit(const char *display_name)
     //	prepare opengl
     //
 #ifdef USE_GLX
-    if (GlxEnabled) {
+    // FIXME: module selected below
+    if (0) {
 
 	GlxInit();
 	// FIXME: use root window?
 	VideoCreateWindow(screen->root, GlxVisualInfo->visualid,
 	    GlxVisualInfo->depth);
-	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight);
+	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight,
+	    GlxContext);
     } else
 #endif
 
@@ -11177,16 +11221,6 @@ int main(int argc, char *const argv[])
     start_tick = GetMsTicks();
     n = 0;
     for (;;) {
-#if 0
-	VideoRenderOverlay();
-	VideoDisplayOverlay();
-	glXSwapBuffers(XlibDisplay, VideoWindow);
-	GlxCheck();
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	XSync(XlibDisplay, False);
-	XFlush(XlibDisplay);
-#endif
 #ifdef USE_VAAPI
 	if (VideoVaapiEnabled) {
 	    VaapiDisplayFrame();

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2013-03-09 19:20+0100\n"
+"POT-Creation-Date: 2013-04-16 15:10+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -895,6 +895,9 @@ msgstr ""
 msgid "unsupported"
 msgstr ""
 
+msgid "video/glx: glx error\n"
+msgstr ""
+
 #, c-format
 msgid "video/vaapi: unsupported pixel format %d\n"
 msgstr ""
@@ -1353,6 +1356,10 @@ msgstr ""
 
 #, c-format
 msgid "video: Can't connect to X11 server on '%s'\n"
+msgstr ""
+
+#, c-format
+msgid "video: Can't initialize X11 thread support on '%s'\n"
 msgstr ""
 
 msgid "video: Can't convert XLIB display to XCB connection\n"

@@ -19,6 +19,8 @@ OSS ?= 1
 VDPAU ?= $(shell pkg-config --exists vdpau && echo 1)
     # support VA-API video output modue
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
+    # support glx output
+#OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
     # screensaver disable/enable
 SCREENSAVER ?= 1
     # use ffmpeg libswresample
@@ -34,6 +36,7 @@ CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
 #CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
 #CONFIG += -DUSE_VDR_SPU		# use VDR SPU decoder.
+#CONFIG += -DUSE_SOFTLIMIT		# (tobe removed) limit the buffer fill
 
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA
@@ -52,6 +55,15 @@ ifeq ($(VAAPI),1)
 CONFIG += -DUSE_VAAPI
 _CFLAGS += $(shell pkg-config --cflags libva-x11 libva)
 LIBS += $(shell pkg-config --libs libva-x11 libva)
+ifeq ($(OPENGL),1)
+_CFLAGS += $(shell pkg-config --cflags libva-glx)
+LIBS += $(shell pkg-config --libs libva-glx)
+endif
+endif
+ifeq ($(OPENGL),1)
+CONFIG += -DUSE_GLX
+_CFLAGS += $(shell pkg-config --cflags gl glu)
+LIBS += $(shell pkg-config --libs gl glu)
 endif
 ifeq ($(SCREENSAVER),1)
 CONFIG += -DUSE_SCREENSAVER
