@@ -92,7 +92,9 @@
 
 #include <xcb/xcb.h>
 //#include <xcb/bigreq.h>
-//#include <xcb/glx.h>
+#ifdef xcb_USE_GLX
+#include <xcb/glx.h>
+#endif
 //#include <xcb/randr.h>
 #ifdef USE_SCREENSAVER
 #include <xcb/screensaver.h>
@@ -2560,6 +2562,11 @@ static void VaapiSetup(VaapiDecoder * decoder,
     //
     //	update OSD associate
     //
+#ifdef USE_GLX
+    if (GlxEnabled) {
+	return;
+    }
+#endif
     VaapiAssociate(decoder);
 }
 
@@ -3365,6 +3372,12 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 #endif
     uint32_t sync;
     uint32_t put1;
+
+#ifdef USE_GLX
+    if (GlxEnabled) {			// already done
+	return;
+    }
+#endif
 
     // wait until we have osd subpicture
     if (VaOsdSubpicture == VA_INVALID_ID) {
@@ -4721,19 +4734,21 @@ static void VaapiDisplayFrame(void)
     }
 
 #ifdef USE_GLX
-    //
-    //	add OSD
-    //
-    if (OsdShown) {
-	GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth,
-	    VideoWindowHeight);
-	// FIXME: toggle osd
+    if (GlxEnabled) {
+	//
+	//	add OSD
+	//
+	if (OsdShown) {
+	    GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth,
+		VideoWindowHeight);
+	    // FIXME: toggle osd
+	}
+	//glFinish();
+	glXSwapBuffers(XlibDisplay, VideoWindow);
+	GlxCheck();
+	//glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
     }
-    //glFinish();
-    glXSwapBuffers(XlibDisplay, VideoWindow);
-    GlxCheck();
-    glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
 #endif
 }
 
@@ -9369,7 +9384,9 @@ static void VideoEvent(void)
     char buf[64];
     uint32_t values[1];
 
+    VideoThreadLock();
     XNextEvent(XlibDisplay, &event);
+    VideoThreadUnlock();
     switch (event.type) {
 	case ClientMessage:
 	    Debug(3, "video/event: ClientMessage\n");
@@ -9382,8 +9399,10 @@ static void VideoEvent(void)
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify\n");
 	    // µwm workaround
+	    VideoThreadLock();
 	    xcb_change_window_attributes(Connection, VideoWindow,
 		XCB_CW_CURSOR, &VideoBlankCursor);
+	    VideoThreadUnlock();
 	    VideoBlankTick = 0;
 	    break;
 	case Expose:
@@ -9401,13 +9420,17 @@ static void VideoEvent(void)
 	    VideoSetFullscreen(-1);
 	    break;
 	case KeyPress:
+	    VideoThreadLock();
 	    XLookupString(&event.xkey, buf, sizeof(buf), &keysym, NULL);
+	    VideoThreadUnlock();
 	    if (keysym == NoSymbol) {
 		Warning(_("video/event: No symbol for %d\n"),
 		    event.xkey.keycode);
 		break;
 	    }
+	    VideoThreadLock();
 	    keynam = XKeysymToString(keysym);
+	    VideoThreadUnlock();
 	    // check for key modifiers (Alt/Ctrl)
 	    if (event.xkey.state & (Mod1Mask | ControlMask)) {
 		if (event.xkey.state & Mod1Mask) {
@@ -9427,8 +9450,10 @@ static void VideoEvent(void)
 	    break;
 	case MotionNotify:
 	    values[0] = XCB_NONE;
+	    VideoThreadLock();
 	    xcb_change_window_attributes(Connection, VideoWindow,
 		XCB_CW_CURSOR, values);
+	    VideoThreadUnlock();
 	    VideoBlankTick = GetMsTicks();
 	    break;
 	default:
@@ -9450,11 +9475,19 @@ void VideoPollEvent(void)
     // hide cursor, after xx ms
     if (VideoBlankTick && VideoWindow != XCB_NONE
 	&& VideoBlankTick + 200 < GetMsTicks()) {
+	VideoThreadLock();
 	xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR,
 	    &VideoBlankCursor);
+	VideoThreadUnlock();
 	VideoBlankTick = 0;
     }
-    while (XlibDisplay && XPending(XlibDisplay)) {
+    while (XlibDisplay) {
+	VideoThreadLock();
+	if (!XPending(XlibDisplay)) {
+	    VideoThreadUnlock();
+	    break;
+	}
+	VideoThreadUnlock();
 	VideoEvent();
     }
 }
@@ -10901,7 +10934,7 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-#ifdef USE_GLX_doesn_t_help_still_crash
+#ifdef USE_GLX_not_needed_done_with_locks
     if (!XInitThreads()) {
 	Error(_("video: Can't initialize X11 thread support on '%s'\n"),
 	    display_name);
@@ -10918,7 +10951,9 @@ void VideoInit(const char *display_name)
     }
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
-    //xcb_prefetch_extension_data(Connection, &xcb_glx_id);
+#ifdef xcb_USE_GLX
+    xcb_prefetch_extension_data(Connection, &xcb_glx_id);
+#endif
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
 #ifdef USE_SCREENSAVER
     xcb_prefetch_extension_data(Connection, &xcb_screensaver_id);

@@ -20,7 +20,7 @@ HOMEPAGE="http://projects.vdr-developer.org/projects/show/plg-softhddevice"
 
 LICENSE="AGPL-3"
 SLOT="0"
-IUSE="alsa oss vaapi vdpau yaepg xscreensaver debug"
+IUSE="alsa oss vaapi vdpau opengl yaepg xscreensaver debug"
 
 RDEPEND=">=media-video/vdr-1.7
 	>=virtual/ffmpeg-0.7[vdpau?,vaapi?]
@@ -30,6 +30,7 @@ RDEPEND=">=media-video/vdr-1.7
 	alsa? ( media-libs/alsa-lib )
 	vdpau? ( x11-libs/libvdpau )
 	vaapi? ( x11-libs/libva )
+	opengl? ( virtual/opengl )
 	alsa? ( media-libs/alsa-lib )
 	yaepg? ( >=media-video/vdr-1.7[yaepg] )"
 DEPEND="${RDEPEND}
@@ -44,6 +45,7 @@ src_compile() {
 	myconf+=" ALSA=$(usex alsa 1 0)"
 	myconf+=" OSS=$(usex oss 1 0)"
 	myconf+=" VDPAU=$(usex vdpau 1 0)"
+	myconf+=" OPENGL=$(usex opengl 1 0)"
 	myconf+=" VAAPI=$(usex vaapi 1 0)"
 	myconf+=" SCREENSAVER=$(usex xscreensaver 1 0)"
 	if has_version ">=media-video/ffmpeg-0.8" ; then
