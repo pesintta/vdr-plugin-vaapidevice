@@ -11044,9 +11044,6 @@ void VideoInit(const char *display_name)
     if (getenv("NO_HW")) {
 	VideoHardwareDecoder = 0;
     }
-    if (getenv("STUDIO_LEVELS")) {
-	VideoStudioLevels = 1;
-    }
     // disable x11 screensaver
     X11SuspendScreenSaver(Connection, 1);
     X11DPMSDisable(Connection);

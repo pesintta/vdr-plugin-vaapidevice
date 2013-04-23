@@ -20,14 +20,14 @@ $Id$
 
 A software and GPU emulated HD output device plugin for VDR.
 
-    o Video decoder CPU / VA-API / VDPAU
-    o Video output VA-API / VDPAU
+    o Video decoder CPU / VDPAU
+    o Video output VDPAU
     o Audio FFMpeg / Alsa / Analog
     o Audio FFMpeg / Alsa / Digital
     o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
     o Software volume, compression, normalize and channel resample
-    o YaepgHD support / new >1.7.33 VDR ScaleVideo API support
+    o VDR ScaleVideo API
     o Software deinterlacer Bob (VA-API only)
     o Autocrop
     o Grab image (VDPAU only)
@@ -36,10 +36,11 @@ A software and GPU emulated HD output device plugin for VDR.
     o atmo light support with plugin http://github.com/durchflieger/DFAtmo
     o PIP (Picture-in-Picture) (VDPAU only)
 
-    o planned: Video decoder VA-API Branch: vaapi-ext/staging
-    o planned: Video output XvBA / Opengl / Xv
-    o planned: VA-API grab image
-    o planned: Improved Software Deinterlacer (yadif or/and ffmpeg filters)
+    o planned: Remove VA-API decoder and output support
+    o planned: Video decoder OpenMax
+    o planned: Video output Opengl / Xv
+    o planned: Improved software deinterlacer (yadif or/and ffmpeg filters)
+    o XvBa support is no longer planned (use future Radeon UVD VDPAU)
 
 To compile you must have the 'requires' installed.
 
@@ -83,8 +84,6 @@ Setup:	environment
 		if set don't use the hardware decoders
 	NO_MPEG_HW=1
 		if set don't use the hardware decoder for mpeg1/2
-	STUDIO_LEVELS=1
-		if set use studio levels with vdpau (deprecated use setup)
 
     only if alsa is configured
 	ALSA_DEVICE=default
@@ -130,7 +129,7 @@ Setup: /etc/vdr/setup.conf
 
 	softhddevice.<res>.Deinterlace = 0
 	0 = bob, 1 = weave, 2 = temporal, 3 = temporal_spatial, 4 = software
-	(only 0, 1 supported with vaapi)
+	(only 0, 1, 4 supported with VA-API)
 
 	softhddevice.<res>.SkipChromaDeinterlace = 0
 	0 = disabled, 1 = enabled (for slower cards, poor qualität)
@@ -361,7 +360,7 @@ Requires:
     or
 	kernel support for oss/oss4 or alsa oss emulation
 
-	x11-libs/libva
+	x11-libs/libva (deprecated)
 		Video Acceleration (VA) API for Linux
 		http://www.freedesktop.org/wiki/Software/vaapi
 	x11-libs/libva-intel-driver
