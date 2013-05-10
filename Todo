@@ -19,6 +19,9 @@ GNU Affero General Public License for more details.
 $Id: $
 
 missing:
+    documentation of the PIP hotkeys.
+    svdrp help page missing PIP hotkeys.
+    svdrp stat: add X11 crashed status.
     more software deinterlace (yadif, ...)
     more software decoder with software deinterlace
     suspend output / energie saver: stop and restart X11
