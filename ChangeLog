@@ -1,6 +1,8 @@
 User johns
 Date:
 
+    Support AMD VDPAU with surface size != requested size.
+    Add cache for auto-crop buffer.
     Fix opengl and opengl threads bugs.
     Initial opengl support with va-api only.
     Fix "broken driver" message if empty ring buffer.

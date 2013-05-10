@@ -5450,6 +5450,8 @@ typedef struct _vdpau_decoder_
     int CropHeight;			///< video crop height
 
 #ifdef USE_AUTOCROP
+    void *AutoCropBuffer;		///< auto-crop buffer cache
+    unsigned AutoCropBufferSize;	///< auto-crop buffer size
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
 #endif
 #ifdef noyetUSE_GLX
@@ -6120,8 +6122,8 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     }
     decoder->Device = VdpauDevice;
     decoder->Window = VideoWindow;
-    decoder->VideoX = 0;
-    decoder->VideoY = 0;
+    //decoder->VideoX = 0;		// done by calloc
+    //decoder->VideoY = 0;
     decoder->VideoWidth = VideoWindowWidth;
     decoder->VideoHeight = VideoWindowHeight;
 
@@ -6161,6 +6163,11 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     decoder->OutputHeight = VideoWindowHeight;
 
     decoder->PixFmt = PIX_FMT_NONE;
+
+#ifdef USE_AUTOCROP
+    //decoder->AutoCropBuffer = NULL;	// done by calloc
+    //decoder->AutoCropBufferSize = 0;
+#endif
 
     decoder->Stream = stream;
     if (!VdpauDecoderN) {		// FIXME: hack sync on audio
@@ -6248,6 +6255,9 @@ static void VdpauDelHwDecoder(VdpauDecoder * decoder)
 
 	    VdpauCleanup(decoder);
 	    VdpauPrintFrames(decoder);
+#ifdef USE_AUTOCROP
+	    free(decoder->AutoCropBuffer);
+#endif
 	    free(decoder);
 
 	    return;
@@ -6920,7 +6930,7 @@ static void VdpauSetupOutput(VdpauDecoder * decoder)
     if (width != (uint32_t) decoder->InputWidth
 	|| height != (uint32_t) decoder->InputHeight) {
 	// FIXME: must rewrite the code to support this case
-	Fatal(_("video/vdpau: video surface size mismatch\n"));
+	Warning(_("video/vdpau: video surface size mismatch\n"));
     }
 }
 
@@ -7202,6 +7212,7 @@ static void VdpauGrabVideoSurface(VdpauDecoder * decoder)
 	case VDP_CHROMA_TYPE_444:
 	    size = width * height + ((width + 1) / 2) * ((height + 1) / 2)
 		+ ((width + 1) / 2) * ((height + 1) / 2);
+	    // FIXME: can use auto-crop buffer cache
 	    base = malloc(size);
 	    if (!base) {
 		Error(_("video/vdpau: out of memory\n"));
@@ -7274,7 +7285,7 @@ static uint8_t *VdpauGrabOutputSurfaceLocked(int *ret_size, int *ret_width,
     source_rect.y1 = height;
 
     if (ret_width && ret_height) {
-	if (*ret_width <= -64) {	// this is a Atmo grab service request
+	if (*ret_width <= -64) {	// this is an Atmo grab service request
 	    int overscan;
 
 	    // calculate aspect correct size of analyze image
@@ -7322,6 +7333,22 @@ static uint8_t *VdpauGrabOutputSurfaceLocked(int *ret_size, int *ret_width,
 
 	    surface = VdpauGrabRenderSurface;
 	    source_rect = output_rect;
+
+	    // FIXME: what if VdpauGrabRenderSurface has different sizes
+	    //	get real surface size
+	    status =
+		VdpauOutputSurfaceGetParameters(surface, &rgba_format, &width,
+		&height);
+	    if (status != VDP_STATUS_OK) {
+		Error(_
+		    ("video/vdpau: can't get output surface parameters: %s\n"),
+		    VdpauGetErrorString(status));
+		return NULL;
+	    }
+	    if (width != output_rect.x1 || height != output_rect.y1) {
+		// FIXME: this warning can be removed, is now for debug only
+		Warning(_("video/vdpau: video surface size mismatch\n"));
+	    }
 	}
     }
 
@@ -7417,7 +7444,7 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
     surface = decoder->SurfacesRb[(decoder->SurfaceRead + 1)
 	% VIDEO_SURFACES_MAX];
 
-    //	get real surface size
+    //	get real surface size (can be different)
     status =
 	VdpauVideoSurfaceGetParameters(surface, &chroma_type, &width, &height);
     if (status != VDP_STATUS_OK) {
@@ -7431,7 +7458,13 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
 	case VDP_CHROMA_TYPE_444:
 	    size = width * height + ((width + 1) / 2) * ((height + 1) / 2)
 		+ ((width + 1) / 2) * ((height + 1) / 2);
-	    base = malloc(size);
+	    // cache buffer for reuse
+	    base = decoder->AutoCropBuffer;
+	    if (size > decoder->AutoCropBufferSize) {
+		free(base);
+		decoder->AutoCropBuffer = malloc(size);
+		base = decoder->AutoCropBuffer;
+	    }
 	    if (!base) {
 		Error(_("video/vdpau: out of memory\n"));
 		return;
@@ -7456,7 +7489,6 @@ static void VdpauAutoCrop(VdpauDecoder * decoder)
     }
 
     AutoCropDetect(decoder->AutoCrop, width, height, data, pitches);
-    free(base);
 
     // ignore black frames
     if (decoder->AutoCrop->Y1 >= decoder->AutoCrop->Y2) {
