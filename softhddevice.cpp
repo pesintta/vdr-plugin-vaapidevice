@@ -2512,6 +2512,9 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
     if (SuspendMode != NOT_SUSPENDED) {
 	return NULL;
     }
+    if (quality < 0) {			// caller should care, but fix it
+	quality = 95;
+    }
 
     return::GrabImage(&size, jpeg, quality, width, height);
 }
