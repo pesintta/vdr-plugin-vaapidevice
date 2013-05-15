@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Use VDR SPU decoder as default.
     Fix bug: grab image negative quality isn't the default 100.
     Support AMD VDPAU with surface size != requested size.
     Add cache for auto-crop buffer.
