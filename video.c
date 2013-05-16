@@ -7333,7 +7333,7 @@ static uint8_t *VdpauGrabOutputSurfaceLocked(int *ret_size, int *ret_width,
 
 	    surface = VdpauGrabRenderSurface;
 	    source_rect = output_rect;
-
+#if 0
 	    // FIXME: what if VdpauGrabRenderSurface has different sizes
 	    //	get real surface size
 	    status =
@@ -7349,6 +7349,7 @@ static uint8_t *VdpauGrabOutputSurfaceLocked(int *ret_size, int *ret_width,
 		// FIXME: this warning can be removed, is now for debug only
 		Warning(_("video/vdpau: video surface size mismatch\n"));
 	    }
+#endif
 	}
     }
 
