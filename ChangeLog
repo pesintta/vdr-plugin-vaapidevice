@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug #1392: Wrong value for mixing LFE.
     Fix bug: wrong grab size, introduced with AMD VDPAU.
     Use VDR SPU decoder as default.
     Fix bug: grab image negative quality isn't the default 100.

@@ -486,7 +486,7 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 		r += in[3] * 200;	// Rs
 		l += in[4] * 300;	// C
 		r += in[4] * 300;
-		l += in[5] * 300;	// LFE
+		l += in[5] * 100;	// LFE
 		r += in[5] * 100;
 		break;
 	    case 7:			// 7.0
