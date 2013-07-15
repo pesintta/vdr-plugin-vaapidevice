@@ -1443,12 +1443,12 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     if (is_start) {			// start of pes packet
 	if (pes_index) {
 	    if (0) {
-		fprintf(stderr, "pip: pes packet %8d %02x%02x\n", pes_index,
+		fprintf(stderr, "pip: PES packet %8d %02x%02x\n", pes_index,
 		    pes_buf[2], pes_buf[3]);
 	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
 		// FIXME: first should always fail
-		esyslog(tr("[softhddev]pip: invalid pes packet %d\n"),
+		esyslog(tr("[softhddev]pip: invalid PES packet %d\n"),
 		    pes_index);
 	    } else {
 		PipPlayVideo(pes_buf, pes_index);

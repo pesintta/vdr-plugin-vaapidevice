@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Reduce PES error messages.
     Fix bug #1392: Wrong value for mixing LFE.
     Fix bug: wrong grab size, introduced with AMD VDPAU.
     Use VDR SPU decoder as default.

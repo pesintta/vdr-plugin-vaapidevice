@@ -1316,6 +1316,8 @@ struct __video_stream__
     volatile char ClearBuffers;		///< command clear video buffers
     volatile char ClearClose;		///< clear video buffers for close
 
+    int InvalidPesCounter;		///< counter of invalid PES packets
+
     AVPacket PacketRb[VIDEO_PACKET_MAX];	///< PES packet ring buffer
     int StartCodeState;			///< last three bytes start code state
 
@@ -1756,6 +1758,7 @@ static void VideoStreamClose(VideoStream * stream)
     VideoPacketExit(stream);
 
     stream->NewStream = 1;
+    stream->InvalidPesCounter = 0;
 }
 
 /**
@@ -2012,6 +2015,7 @@ static void StopVideo(void)
     VideoPacketExit(MyVideoStream);
 
     MyVideoStream->NewStream = 1;
+    MyVideoStream->InvalidPesCounter = 0;
 }
 
 #ifdef DEBUG
@@ -2141,8 +2145,17 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     // must be a PES start code
     // FIXME: Valgrind-3.8.1 has a problem with this code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
-	Error(_("[softhddev] invalid PES video packet\n"));
+	if (!stream->InvalidPesCounter++) {
+	    Error(_("[softhddev] invalid PES video packet\n"));
+	}
 	return size;
+    }
+    if (stream->InvalidPesCounter) {
+	if (stream->InvalidPesCounter > 1) {
+	    Error(_("[softhddev] %d invalid PES video packet(s)\n"),
+		stream->InvalidPesCounter);
+	}
+	stream->InvalidPesCounter = 0;
     }
     // 0xBE, filler, padding stream
     if (data[3] == PES_PADDING_STREAM) {	// from DVD plugin
@@ -2410,6 +2423,7 @@ int SetPlayMode(int play_mode)
 	}
 	if (MyVideoStream->CodecID != CODEC_ID_NONE) {
 	    MyVideoStream->NewStream = 1;
+	    MyVideoStream->InvalidPesCounter = 0;
 	    // tell hw decoder we are closing stream
 	    VideoSetClosing(MyVideoStream->HwDecoder);
 	    VideoResetStart(MyVideoStream->HwDecoder);
@@ -3426,6 +3440,7 @@ void PipStop(void)
     VideoPacketExit(PipVideoStream);
 
     PipVideoStream->NewStream = 1;
+    PipVideoStream->InvalidPesCounter = 0;
 #else
     PipVideoStream->Close = 1;
     for (i = 0; PipVideoStream->Close && i < 50; ++i) {
