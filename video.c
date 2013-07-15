@@ -4892,7 +4892,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    Debug(3, "video/vaapi: synced after %d frames %dms\n",
 		decoder->StartCounter, GetMsTicks() - VideoSwitch);
 #else
-	    Debug(3, "video/vaapi: synced after %d frames\n",
+	    Info("video/vaapi: synced after %d frames\n",
 		decoder->StartCounter);
 #endif
 	    decoder->StartCounter += 1000;
@@ -8453,7 +8453,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    Debug(3, "video/vdpau: synced after %d frames %dms\n",
 		decoder->StartCounter, GetMsTicks() - VideoSwitch);
 #else
-	    Debug(3, "video/vdpau: synced after %d frames\n",
+	    Info("video/vdpau: synced after %d frames\n",
 		decoder->StartCounter);
 #endif
 	    decoder->StartCounter += 1000;
