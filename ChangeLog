@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: video lagging behind after recording stop.
     Reduce PES error messages.
     Fix bug #1392: Wrong value for mixing LFE.
     Fix bug: wrong grab size, introduced with AMD VDPAU.

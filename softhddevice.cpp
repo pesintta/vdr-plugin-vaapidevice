@@ -2190,7 +2190,7 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
-	    return true;
+	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    dsyslog("[softhddev] play mode external\n");
 	    // FIXME: what if already suspended?
