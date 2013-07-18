@@ -151,6 +151,17 @@ typedef enum
 #endif
 
 #include <libavcodec/avcodec.h>
+// support old ffmpeg versions <1.0
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
+#define AVCodecID CodecID
+#define AV_CODEC_ID_H263 CODEC_ID_H263
+#define AV_CODEC_ID_H264 CODEC_ID_H264
+#define AV_CODEC_ID_MPEG1VIDEO CODEC_ID_MPEG1VIDEO
+#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
+#define AV_CODEC_ID_MPEG4 CODEC_ID_MPEG4
+#define AV_CODEC_ID_VC1 CODEC_ID_VC1
+#define AV_CODEC_ID_WMV3 CODEC_ID_WMV3
+#endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/pixdesc.h>
 
@@ -2687,7 +2698,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     int e;
     VAConfigAttrib attrib;
 
-    if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+    if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
 	) {				// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
@@ -2706,19 +2717,19 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 
     // check profile
     switch (video_ctx->codec_id) {
-	case CODEC_ID_MPEG2VIDEO:
+	case AV_CODEC_ID_MPEG2VIDEO:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG2Main);
 	    break;
-	case CODEC_ID_MPEG4:
-	case CODEC_ID_H263:
+	case AV_CODEC_ID_MPEG4:
+	case AV_CODEC_ID_H263:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n,
 		VAProfileMPEG4AdvancedSimple);
 	    break;
-	case CODEC_ID_H264:
+	case AV_CODEC_ID_H264:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
 	    // try more simple formats, fallback to better
@@ -2736,12 +2747,12 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 		p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
 	    }
 	    break;
-	case CODEC_ID_WMV3:
+	case AV_CODEC_ID_WMV3:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
 	    break;
-	case CODEC_ID_VC1:
+	case AV_CODEC_ID_VC1:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
 	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
@@ -7020,7 +7031,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     VdpDecoderProfile profile;
     int max_refs;
 
-    if (!VideoHardwareDecoder || (video_ctx->codec_id == CODEC_ID_MPEG2VIDEO
+    if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
 	) {				// hardware disabled by config
 	Debug(3, "codec: hardware acceleration disabled\n");
@@ -7055,23 +7066,23 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     max_refs = CODEC_SURFACES_DEFAULT;
     // check profile
     switch (video_ctx->codec_id) {
-	case CODEC_ID_MPEG1VIDEO:
+	case AV_CODEC_ID_MPEG1VIDEO:
 	    max_refs = CODEC_SURFACES_MPEG2;
 	    profile = VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG1);
 	    break;
-	case CODEC_ID_MPEG2VIDEO:
+	case AV_CODEC_ID_MPEG2VIDEO:
 	    max_refs = CODEC_SURFACES_MPEG2;
 	    profile =
 		VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_MPEG2_MAIN);
 	    break;
-	case CODEC_ID_MPEG4:
-	case CODEC_ID_H263:
+	case AV_CODEC_ID_MPEG4:
+	case AV_CODEC_ID_H263:
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n,
 	       VAProfileMPEG4AdvancedSimple);
 	     */
 	    goto slow_path;
-	case CODEC_ID_H264:
+	case AV_CODEC_ID_H264:
 	    // FIXME: can calculate level 4.1 limits
 	    // vdpau supports only 16 references
 	    max_refs = 16;
@@ -7103,12 +7114,12 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 		    VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_H264_MAIN);
 	    }
 	    break;
-	case CODEC_ID_WMV3:
+	case AV_CODEC_ID_WMV3:
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
 	     */
 	    goto slow_path;
-	case CODEC_ID_VC1:
+	case AV_CODEC_ID_VC1:
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
 	     */

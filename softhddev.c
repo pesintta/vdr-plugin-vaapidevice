@@ -40,6 +40,19 @@
 #define _N(str) str			///< gettext_noop shortcut
 
 #include <libavcodec/avcodec.h>
+// support old ffmpeg versions <1.0
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
+#define AVCodecID CodecID
+#define AV_CODEC_ID_AAC CODEC_ID_AAC
+#define AV_CODEC_ID_AAC_LATM CODEC_ID_AAC_LATM
+#define AV_CODEC_ID_AC3 CODEC_ID_AC3
+#define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
+#define AV_CODEC_ID_H264 CODEC_ID_H264
+#define AV_CODEC_ID_MP2 CODEC_ID_MP2
+#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
+#define AV_CODEC_ID_NONE CODEC_ID_NONE
+#define AV_CODEC_ID_PCM_DVD CODEC_ID_PCM_DVD
+#endif
 
 #ifndef __USE_GNU
 #define __USE_GNU
@@ -86,7 +99,7 @@ static volatile char StreamFreezed;	///< stream freezed
 static volatile char NewAudioStream;	///< new audio stream
 static volatile char SkipAudio;		///< skip audio stream
 static AudioDecoder *MyAudioDecoder;	///< audio decoder
-static enum CodecID AudioCodecID;	///< current codec id
+static enum AVCodecID AudioCodecID;	///< current codec id
 static int AudioChannelID;		///< current audio channel id
 static VideoStream *AudioSyncStream;	///< video stream for audio/video sync
 
@@ -617,7 +630,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 #if 0
 		// Played with PlayAudio
 		// FIXME: need 0x80 -- 0xA0 state
-		if (AudioCodecID == CODEC_ID_NONE) {
+		if (AudioCodecID == AV_CODEC_ID_NONE) {
 		    if ((*p & 0xF0) == 0x80) {	// AC-3 & DTS
 			Debug(3, "pesdemux: dvd ac-3\n");
 		    } else if ((*p & 0xFF) == 0xA0) {	// LPCM
@@ -660,22 +673,22 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    r = 0;
 		    if (!r && FastMpegCheck(q)) {
 			r = MpegCheck(q, n);
-			codec_id = CODEC_ID_MP2;
+			codec_id = AV_CODEC_ID_MP2;
 		    }
 		    if (!r && FastAc3Check(q)) {
 			r = Ac3Check(q, n);
-			codec_id = CODEC_ID_AC3;
+			codec_id = AV_CODEC_ID_AC3;
 			if (r > 0 && q[5] > (10 << 3)) {
-			    codec_id = CODEC_ID_EAC3;
+			    codec_id = AV_CODEC_ID_EAC3;
 			}
 		    }
 		    if (!r && FastLatmCheck(q)) {
 			r = LatmCheck(q, n);
-			codec_id = CODEC_ID_AAC_LATM;
+			codec_id = AV_CODEC_ID_AAC_LATM;
 		    }
 		    if (!r && FastAdtsCheck(q)) {
 			r = AdtsCheck(q, n);
-			codec_id = CODEC_ID_AAC;
+			codec_id = AV_CODEC_ID_AAC;
 		    }
 		    if (r < 0) {	// need more bytes
 			break;
@@ -705,7 +718,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			//pesdx->State = PES_MPEG_DECODE;
 			break;
 		    }
-		    if (AudioCodecID != CODEC_ID_NONE) {
+		    if (AudioCodecID != AV_CODEC_ID_NONE) {
 			// shouldn't happen after we have a vaild codec
 			// detected
 			Debug(4, "pesdemux: skip @%d %02x\n", pesdx->Skip,
@@ -831,7 +844,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    int bits_per_sample;
 		    const uint8_t *q;
 
-		    if (AudioCodecID != CODEC_ID_PCM_DVD) {
+		    if (AudioCodecID != AV_CODEC_ID_PCM_DVD) {
 
 			q = pesdx->Header;
 			Debug(3, "pesdemux: LPCM %d sr:%d bits:%d chan:%d\n",
@@ -861,8 +874,8 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 				(q[5] & 0x7) + 1);
 			    // FIXME: support resample
 			}
-			//CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
-			AudioCodecID = CODEC_ID_PCM_DVD;
+			//CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+			AudioCodecID = AV_CODEC_ID_PCM_DVD;
 		    }
 		    pesdx->State = PES_LPCM_PAYLOAD;
 		    pesdx->Index = 0;
@@ -1023,7 +1036,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	CodecAudioClose(MyAudioDecoder);
 	AudioFlushBuffers();
 	AudioSetBufferTime(ConfigAudioBufferTime);
-	AudioCodecID = CODEC_ID_NONE;
+	AudioCodecID = AV_CODEC_ID_NONE;
 	AudioChannelID = -1;
 	NewAudioStream = 0;
     }
@@ -1081,7 +1094,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
     if (AudioChannelID != id) {		// id changed audio track changed
 	AudioChannelID = id;
-	AudioCodecID = CODEC_ID_NONE;
+	AudioCodecID = AV_CODEC_ID_NONE;
     }
     // Private stream + LPCM ID
     if ((id & 0xF0) == 0xA0) {
@@ -1089,7 +1102,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    Error(_("[softhddev] invalid LPCM audio packet %d bytes\n"), size);
 	    return size;
 	}
-	if (AudioCodecID != CODEC_ID_PCM_DVD) {
+	if (AudioCodecID != AV_CODEC_ID_PCM_DVD) {
 	    static int samplerates[] = { 48000, 96000, 44100, 32000 };
 	    int samplerate;
 	    int channels;
@@ -1123,8 +1136,8 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		    (p[5] & 0x7) + 1);
 		// FIXME: support resample
 	    }
-	    //CodecAudioOpen(MyAudioDecoder, NULL, CODEC_ID_PCM_DVD);
-	    AudioCodecID = CODEC_ID_PCM_DVD;
+	    //CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+	    AudioCodecID = AV_CODEC_ID_PCM_DVD;
 	}
 
 	if (AudioAvPkt->pts != (int64_t) AV_NOPTS_VALUE) {
@@ -1140,7 +1153,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if ((id & 0xF0) == 0x80 && (p[0] & 0xF0) == 0x80) {
 	p += 4;
 	n -= 4;				// skip track header
-	if (AudioCodecID == CODEC_ID_NONE) {
+	if (AudioCodecID == AV_CODEC_ID_NONE) {
 	    // FIXME: ConfigAudioBufferTime + x
 	    AudioSetBufferTime(400);
 	}
@@ -1162,20 +1175,20 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 	// PCM audio can't be found
 	r = 0;
-	codec_id = CODEC_ID_NONE;	// keep compiler happy
+	codec_id = AV_CODEC_ID_NONE;	// keep compiler happy
 	if (id != 0xbd && FastMpegCheck(p)) {
 	    r = MpegCheck(p, n);
-	    codec_id = CODEC_ID_MP2;
+	    codec_id = AV_CODEC_ID_MP2;
 	}
 	if (id != 0xbd && !r && FastLatmCheck(p)) {
 	    r = LatmCheck(p, n);
-	    codec_id = CODEC_ID_AAC_LATM;
+	    codec_id = AV_CODEC_ID_AAC_LATM;
 	}
 	if ((id == 0xbd || (id & 0xF0) == 0x80) && !r && FastAc3Check(p)) {
 	    r = Ac3Check(p, n);
-	    codec_id = CODEC_ID_AC3;
+	    codec_id = AV_CODEC_ID_AC3;
 	    if (r > 0 && p[5] > (10 << 3)) {
-		codec_id = CODEC_ID_EAC3;
+		codec_id = AV_CODEC_ID_EAC3;
 	    }
 	    /* faster ac3 detection at end of pes packet (no improvemnts)
 	       if (AudioCodecID == codec_id && -r - 2 == n) {
@@ -1185,7 +1198,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	}
 	if (id != 0xbd && !r && FastAdtsCheck(p)) {
 	    r = AdtsCheck(p, n);
-	    codec_id = CODEC_ID_AAC;
+	    codec_id = AV_CODEC_ID_AAC;
 	}
 	if (r < 0) {			// need more bytes
 	    break;
@@ -1253,7 +1266,7 @@ int PlayTsAudio(const uint8_t * data, int size)
 	AudioFlushBuffers();
 	// max time between audio packets 200ms + 24ms hw buffer
 	AudioSetBufferTime(ConfigAudioBufferTime);
-	AudioCodecID = CODEC_ID_NONE;
+	AudioCodecID = AV_CODEC_ID_NONE;
 	AudioChannelID = -1;
 	NewAudioStream = 0;
 	PesReset(PesDemuxAudio);
@@ -1303,8 +1316,8 @@ struct __video_stream__
     VideoDecoder *Decoder;		///< video decoder
     pthread_mutex_t DecoderLockMutex;	///< video decoder lock mutex
 
-    enum CodecID CodecID;		///< current codec id
-    enum CodecID LastCodecID;		///< last codec id
+    enum AVCodecID CodecID;		///< current codec id
+    enum AVCodecID LastCodecID;		///< last codec id
 
     volatile char NewStream;		///< flag new video stream
     volatile char ClosingStream;	///< flag closing video stream
@@ -1318,6 +1331,7 @@ struct __video_stream__
 
     int InvalidPesCounter;		///< counter of invalid PES packets
 
+    enum AVCodecID CodecIDRb[VIDEO_PACKET_MAX];	///< codec ids in ring buffer
     AVPacket PacketRb[VIDEO_PACKET_MAX];	///< PES packet ring buffer
     int StartCodeState;			///< last three bytes start code state
 
@@ -1444,9 +1458,9 @@ static void VideoResetPacket(VideoStream * stream)
 
     stream->StartCodeState = 0;		// reset start code state
 
+    stream->CodecIDRb[stream->PacketWrite] = AV_CODEC_ID_NONE;
     avpkt = &stream->PacketRb[stream->PacketWrite];
     avpkt->stream_index = 0;
-    avpkt->priv = NULL;
     avpkt->pts = AV_NOPTS_VALUE;
     avpkt->dts = AV_NOPTS_VALUE;
 }
@@ -1463,7 +1477,7 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
 
     avpkt = &stream->PacketRb[stream->PacketWrite];
     if (!avpkt->stream_index) {		// ignore empty packets
-	if (codec_id != CODEC_ID_NONE) {
+	if (codec_id != AV_CODEC_ID_NONE) {
 	    return;
 	}
 	Debug(3, "video: possible stream change loss\n");
@@ -1473,7 +1487,7 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
 	// no free slot available drop last packet
 	Error(_("video: no empty slot in packet ringbuffer\n"));
 	avpkt->stream_index = 0;
-	if (codec_id == CODEC_ID_NONE) {
+	if (codec_id == AV_CODEC_ID_NONE) {
 	    Debug(3, "video: possible stream change loss\n");
 	}
 	return;
@@ -1481,7 +1495,7 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
     // clear area for decoder, always enough space allocated
     memset(avpkt->data + avpkt->stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
-    avpkt->priv = (void *)(size_t) codec_id;
+    stream->CodecIDRb[stream->PacketWrite] = codec_id;
     //DumpH264(avpkt->data, avpkt->stream_index);
 
     // advance packet write
@@ -1541,7 +1555,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
 #endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 3;
-		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 3);
 		first = p[0] == 0xb3;
 		p++;
@@ -1558,7 +1572,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
 #endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 2;
-		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 2);
 		first = p[1] == 0xb3;
 		p += 2;
@@ -1575,7 +1589,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
 #endif
 		stream->PacketRb[stream->PacketWrite].stream_index -= 1;
-		VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
 		VideoEnqueue(stream, pts, startcode, 1);
 		first = p[2] == 0xb3;
 		p += 3;
@@ -1608,7 +1622,7 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
 	     */
 	    // first packet goes only upto picture header
 	    VideoEnqueue(stream, pts, data, p - data);
-	    VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+	    VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
 #ifdef DEBUG
 	    fprintf(stderr, "fix\r");
 #endif
@@ -1856,9 +1870,8 @@ int VideoDecodeInput(VideoStream * stream)
 
 	// flush buffers, if close is in the queue
 	for (f = 0; f < filled; ++f) {
-	    avpkt =
-		&stream->PacketRb[(stream->PacketRead + f) % VIDEO_PACKET_MAX];
-	    if ((int)(size_t) avpkt->priv == CODEC_ID_NONE) {
+	    if (stream->CodecIDRb[(stream->PacketRead + f) % VIDEO_PACKET_MAX]
+		== AV_CODEC_ID_NONE) {
 		if (f) {
 		    Debug(3, "video: cleared upto close\n");
 		    atomic_sub(f, &stream->PacketsFilled);
@@ -1877,30 +1890,30 @@ int VideoDecodeInput(VideoStream * stream)
     //	handle queued commands
     //
     avpkt = &stream->PacketRb[stream->PacketRead];
-    switch ((int)(size_t) avpkt->priv) {
-	case CODEC_ID_NONE:
+    switch (stream->CodecIDRb[stream->PacketRead]) {
+	case AV_CODEC_ID_NONE:
 	    stream->ClosingStream = 0;
-	    if (stream->LastCodecID != CODEC_ID_NONE) {
-		stream->LastCodecID = CODEC_ID_NONE;
+	    if (stream->LastCodecID != AV_CODEC_ID_NONE) {
+		stream->LastCodecID = AV_CODEC_ID_NONE;
 		CodecVideoClose(stream->Decoder);
 		goto skip;
 	    }
 	    // FIXME: look if more close are in the queue
 	    // size can be zero
 	    goto skip;
-	case CODEC_ID_MPEG2VIDEO:
-	    if (stream->LastCodecID != CODEC_ID_MPEG2VIDEO) {
-		stream->LastCodecID = CODEC_ID_MPEG2VIDEO;
+	case AV_CODEC_ID_MPEG2VIDEO:
+	    if (stream->LastCodecID != AV_CODEC_ID_MPEG2VIDEO) {
+		stream->LastCodecID = AV_CODEC_ID_MPEG2VIDEO;
 		CodecVideoOpen(stream->Decoder, VideoHardwareDecoder < 0
 		    && VdpauDecoder ? "mpegvideo_vdpau" : NULL,
-		    CODEC_ID_MPEG2VIDEO);
+		    AV_CODEC_ID_MPEG2VIDEO);
 	    }
 	    break;
-	case CODEC_ID_H264:
-	    if (stream->LastCodecID != CODEC_ID_H264) {
-		stream->LastCodecID = CODEC_ID_H264;
+	case AV_CODEC_ID_H264:
+	    if (stream->LastCodecID != AV_CODEC_ID_H264) {
+		stream->LastCodecID = AV_CODEC_ID_H264;
 		CodecVideoOpen(stream->Decoder, VideoHardwareDecoder
-		    && VdpauDecoder ? "h264_vdpau" : NULL, CODEC_ID_H264);
+		    && VdpauDecoder ? "h264_vdpau" : NULL, AV_CODEC_ID_H264);
 	    }
 	    break;
 	default:
@@ -1929,7 +1942,7 @@ int VideoDecodeInput(VideoStream * stream)
     //fprintf(stderr, "]\n");
 #else
     // old version
-    if (stream->LastCodecID == CODEC_ID_MPEG2VIDEO) {
+    if (stream->LastCodecID == AV_CODEC_ID_MPEG2VIDEO) {
 	FixPacketForFFMpeg(stream->Decoder, avpkt);
     } else {
 	CodecVideoDecode(stream->Decoder, avpkt);
@@ -1975,8 +1988,8 @@ static void StartVideo(void)
     VideoOsdInit();
     if (!MyVideoStream->Decoder) {
 	MyVideoStream->SkipStream = 1;
-	MyVideoStream->CodecID = CODEC_ID_NONE;
-	MyVideoStream->LastCodecID = CODEC_ID_NONE;
+	MyVideoStream->CodecID = AV_CODEC_ID_NONE;
+	MyVideoStream->LastCodecID = AV_CODEC_ID_NONE;
 
 	if ((MyVideoStream->HwDecoder = VideoNewHwDecoder(MyVideoStream))) {
 	    MyVideoStream->Decoder =
@@ -2137,8 +2150,8 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	    Debug(3, "video: new video stream lost\n");
 	    return 0;
 	}
-	VideoNextPacket(stream, CODEC_ID_NONE);
-	stream->CodecID = CODEC_ID_NONE;
+	VideoNextPacket(stream, AV_CODEC_ID_NONE);
+	stream->CodecID = AV_CODEC_ID_NONE;
 	stream->ClosingStream = 1;
 	stream->NewStream = 0;
     }
@@ -2210,7 +2223,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     if ((data[6] & 0xC0) == 0x80 && z >= 2 && check[0] == 0x01
 	&& check[1] == 0x09 && !check[3] && !check[4]) {
 	// old PES HDTV recording z == 2 -> stronger check!
-	if (stream->CodecID == CODEC_ID_H264) {
+	if (stream->CodecID == AV_CODEC_ID_H264) {
 #if 0
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
 	    // with some streams
@@ -2222,16 +2235,16 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 		// 1-5=SLICE 6=SEI 7=SPS 8=PPS
 		// NAL SPS sequence parameter set
 		if ((check[7] & 0x1F) == 0x07) {
-		    VideoNextPacket(CODEC_ID_H264);
+		    VideoNextPacket(AV_CODEC_ID_H264);
 		    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264,
 			sizeof(seq_end_h264));
 		}
 	    }
 #endif
-	    VideoNextPacket(stream, CODEC_ID_H264);
+	    VideoNextPacket(stream, AV_CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
-	    stream->CodecID = CODEC_ID_H264;
+	    stream->CodecID = AV_CODEC_ID_H264;
 	}
 	// SKIP PES header (ffmpeg supports short start code)
 	VideoEnqueue(stream, pts, check - 2, l + 2);
@@ -2239,11 +2252,11 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     }
     // PES start code 0x00 0x00 0x01 0x00|0xb3
     if (z > 1 && check[0] == 0x01 && (!check[1] || check[1] == 0xb3)) {
-	if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
-	    VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+	if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
+	    VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
 	} else {
 	    Debug(3, "video: mpeg2 detected ID %02x\n", check[3]);
-	    stream->CodecID = CODEC_ID_MPEG2VIDEO;
+	    stream->CodecID = AV_CODEC_ID_MPEG2VIDEO;
 	}
 #ifdef noDEBUG				// pip pes packet has no lenght
 	if (ValidateMpeg(data, size)) {
@@ -2259,12 +2272,12 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	return size;
     }
     // this happens when vdr sends incomplete packets
-    if (stream->CodecID == CODEC_ID_NONE) {
+    if (stream->CodecID == AV_CODEC_ID_NONE) {
 	Debug(3, "video: not detected\n");
 	return size;
     }
 #ifdef USE_PIP
-    if (stream->CodecID == CODEC_ID_MPEG2VIDEO) {
+    if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
 	// SKIP PES header
 	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
 #ifndef USE_MPEG_COMPLETE
@@ -2288,10 +2301,10 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     // incomplete packets produce artefacts after channel switch
     // packet < 65526 is the last split packet, detect it here for
     // better latency
-    if (size < 65526 && stream->CodecID == CODEC_ID_MPEG2VIDEO) {
+    if (size < 65526 && stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
 	// mpeg codec supports incomplete packets
 	// waiting for a full complete packages, increases needed delays
-	VideoNextPacket(stream, CODEC_ID_MPEG2VIDEO);
+	VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
     }
 #endif
 
@@ -2421,7 +2434,7 @@ int SetPlayMode(int play_mode)
 	    Clear();			// flush all buffers
 	    MyVideoStream->ClearClose = 0;
 	}
-	if (MyVideoStream->CodecID != CODEC_ID_NONE) {
+	if (MyVideoStream->CodecID != AV_CODEC_ID_NONE) {
 	    MyVideoStream->NewStream = 1;
 	    MyVideoStream->InvalidPesCounter = 0;
 	    // tell hw decoder we are closing stream
@@ -2433,7 +2446,7 @@ int SetPlayMode(int play_mode)
 	}
     }
     if (MyAudioDecoder) {		// tell audio parser we have new stream
-	if (AudioCodecID != CODEC_ID_NONE) {
+	if (AudioCodecID != AV_CODEC_ID_NONE) {
 	    NewAudioStream = 1;
 	}
     }
@@ -2611,10 +2624,10 @@ void StillPicture(const uint8_t * data, int size)
     // enable/disable hardware decoder for still picture
     if (VideoHardwareDecoder != ConfigStillDecoder) {
 	VideoHardwareDecoder = ConfigStillDecoder;
-	VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+	VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);	// close last stream
     }
 
-    if (MyVideoStream->CodecID == CODEC_ID_NONE) {
+    if (MyVideoStream->CodecID == AV_CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
 	Error(_("[softhddev] no codec known for still picture\n"));
     }
@@ -2623,7 +2636,7 @@ void StillPicture(const uint8_t * data, int size)
 #ifdef STILL_DEBUG
     fprintf(stderr, "still-picture\n");
 #endif
-    for (i = 0; i < (MyVideoStream->CodecID == CODEC_ID_MPEG2VIDEO ? 4 : 4);
+    for (i = 0; i < (MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO ? 4 : 4);
 	++i) {
 	const uint8_t *split;
 	int n;
@@ -2663,13 +2676,13 @@ void StillPicture(const uint8_t * data, int size)
 
 	    VideoNextPacket(MyVideoStream, MyVideoStream->CodecID);	// terminate last packet
 	} else {			// ES packet
-	    if (MyVideoStream->CodecID != CODEC_ID_MPEG2VIDEO) {
-		VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
-		MyVideoStream->CodecID = CODEC_ID_MPEG2VIDEO;
+	    if (MyVideoStream->CodecID != AV_CODEC_ID_MPEG2VIDEO) {
+		VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);	// close last stream
+		MyVideoStream->CodecID = AV_CODEC_ID_MPEG2VIDEO;
 	    }
 	    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, data, size);
 	}
-	if (MyVideoStream->CodecID == CODEC_ID_H264) {
+	if (MyVideoStream->CodecID == AV_CODEC_ID_H264) {
 	    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, seq_end_h264,
 		sizeof(seq_end_h264));
 	} else {
@@ -2690,7 +2703,7 @@ void StillPicture(const uint8_t * data, int size)
 #endif
     if (VideoHardwareDecoder != old_video_hardware_decoder) {
 	VideoHardwareDecoder = old_video_hardware_decoder;
-	VideoNextPacket(MyVideoStream, CODEC_ID_NONE);	// close last stream
+	VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);	// close last stream
     }
     VideoSetTrickSpeed(MyVideoStream->HwDecoder, 0);
 }
@@ -3140,7 +3153,7 @@ int Start(void)
 	AudioInit();
 	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
-	AudioCodecID = CODEC_ID_NONE;
+	AudioCodecID = AV_CODEC_ID_NONE;
 	AudioChannelID = -1;
 
 	if (!ConfigStartX11Server) {
@@ -3293,7 +3306,7 @@ void Resume(void)
 	AudioInit();
 	av_new_packet(AudioAvPkt, AUDIO_BUFFER_SIZE);
 	MyAudioDecoder = CodecAudioNewDecoder();
-	AudioCodecID = CODEC_ID_NONE;
+	AudioCodecID = AV_CODEC_ID_NONE;
 	AudioChannelID = -1;
     }
 
@@ -3394,8 +3407,8 @@ void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
 
     if (!PipVideoStream->Decoder) {
 	PipVideoStream->SkipStream = 1;
-	PipVideoStream->CodecID = CODEC_ID_NONE;
-	PipVideoStream->LastCodecID = CODEC_ID_NONE;
+	PipVideoStream->CodecID = AV_CODEC_ID_NONE;
+	PipVideoStream->LastCodecID = AV_CODEC_ID_NONE;
 
 	if ((PipVideoStream->HwDecoder = VideoNewHwDecoder(PipVideoStream))) {
 	    PipVideoStream->Decoder =

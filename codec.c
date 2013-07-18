@@ -56,6 +56,13 @@
 
 #include <alsa/iatomic.h>
 #include <libavcodec/avcodec.h>
+// support old ffmpeg versions <1.0
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
+#define AVCodecID CodecID
+#define AV_CODEC_ID_AC3 CODEC_ID_AC3
+#define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
+#define AV_CODEC_ID_H264 CODEC_ID_H264
+#endif
 #include <libavcodec/vaapi.h>
 #ifdef USE_VDPAU
 #include <libavcodec/vdpau.h>
@@ -434,7 +441,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     decoder->VideoCtx->opaque = decoder;	// our structure
 
     Debug(3, "codec: video '%s'\n", decoder->VideoCtx->codec_name);
-    if (codec_id == CODEC_ID_H264) {
+    if (codec_id == AV_CODEC_ID_H264) {
 	// 2.53 Ghz CPU is too slow for this codec at 1080i
 	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_ALL;
 	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_BIDIR;
@@ -990,10 +997,10 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
     audio_decoder->Passthrough = CodecPassthrough;
 
     // SPDIF/HDMI pass-through
-    if ((CodecPassthrough & CodecAC3 && audio_ctx->codec_id == CODEC_ID_AC3)
+    if ((CodecPassthrough & CodecAC3 && audio_ctx->codec_id == AV_CODEC_ID_AC3)
 	|| (CodecPassthrough & CodecEAC3
-	    && audio_ctx->codec_id == CODEC_ID_EAC3)) {
-	if (audio_ctx->codec_id == CODEC_ID_EAC3) {
+	    && audio_ctx->codec_id == AV_CODEC_ID_EAC3)) {
+	if (audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
 	    // EAC3 over HDMI some receivers need HBR
 	    audio_decoder->HwSampleRate *= 4;
 	}
@@ -1009,7 +1016,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 
 	// try EAC3 none HBR
 	audio_decoder->HwSampleRate /= 4;
-	if (audio_ctx->codec_id != CODEC_ID_EAC3
+	if (audio_ctx->codec_id != AV_CODEC_ID_EAC3
 	    || (err =
 		AudioSetup(&audio_decoder->HwSampleRate,
 		    &audio_decoder->HwChannels, *passthrough))) {
@@ -1044,7 +1051,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 
     audio_ctx = audio_decoder->AudioCtx;
     // SPDIF/HDMI passthrough
-    if (CodecPassthrough & CodecAC3 && audio_ctx->codec_id == CODEC_ID_AC3) {
+    if (CodecPassthrough & CodecAC3 && audio_ctx->codec_id == AV_CODEC_ID_AC3) {
 	uint16_t *spdif;
 	int spdif_sz;
 
@@ -1094,7 +1101,8 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	AudioEnqueue(spdif, spdif_sz);
 	return 1;
     }
-    if (CodecPassthrough & CodecEAC3 && audio_ctx->codec_id == CODEC_ID_EAC3) {
+    if (CodecPassthrough & CodecEAC3
+	&& audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
 	uint16_t *spdif;
 	int spdif_sz;
 	int repeat;
@@ -1223,9 +1231,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
 	// SPDIF/HDMI passthrough
 	if ((CodecAudioDrift & CORRECT_AC3) && (!(CodecPassthrough & CodecAC3)
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
+		|| audio_decoder->AudioCtx->codec_id != AV_CODEC_ID_AC3)
 	    && (!(CodecPassthrough & CodecEAC3)
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_EAC3)) {
+		|| audio_decoder->AudioCtx->codec_id != AV_CODEC_ID_EAC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
 
@@ -1625,9 +1633,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	corr = (10 * audio_decoder->HwSampleRate * drift) / (90 * 1000);
 	// SPDIF/HDMI passthrough
 	if ((CodecAudioDrift & CORRECT_AC3) && (!(CodecPassthrough & CodecAC3)
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_AC3)
+		|| audio_decoder->AudioCtx->codec_id != AV_CODEC_ID_AC3)
 	    && (!(CodecPassthrough & CodecEAC3)
-		|| audio_decoder->AudioCtx->codec_id != CODEC_ID_EAC3)) {
+		|| audio_decoder->AudioCtx->codec_id != AV_CODEC_ID_EAC3)) {
 	    audio_decoder->DriftCorr = -corr;
 	}
 
