@@ -2224,7 +2224,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	&& check[1] == 0x09 && !check[3] && !check[4]) {
 	// old PES HDTV recording z == 2 -> stronger check!
 	if (stream->CodecID == AV_CODEC_ID_H264) {
-#if 0
+#ifdef H264_EOS_TRICKSPEED
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
 	    // with some streams
 	    if (stream->TrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
@@ -2235,8 +2235,8 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 		// 1-5=SLICE 6=SEI 7=SPS 8=PPS
 		// NAL SPS sequence parameter set
 		if ((check[7] & 0x1F) == 0x07) {
-		    VideoNextPacket(AV_CODEC_ID_H264);
-		    VideoEnqueue(AV_NOPTS_VALUE, seq_end_h264,
+		    VideoNextPacket(stream, AV_CODEC_ID_H264);
+		    VideoEnqueue(stream, AV_NOPTS_VALUE, seq_end_h264,
 			sizeof(seq_end_h264));
 		}
 	    }
