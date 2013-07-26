@@ -30,7 +30,7 @@
 #define CodecPCM 0x01			///< PCM bit mask
 #define CodecMPA 0x02			///< MPA bit mask (planned)
 #define CodecAC3 0x04			///< AC-3 bit mask
-#define CodecEAC3 0x08			///< EAC-3 bit mask
+#define CodecEAC3 0x08			///< E-AC-3 bit mask
 #define CodecDTS 0x10			///< DTS bit mask (planned)
 
 //----------------------------------------------------------------------------

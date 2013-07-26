@@ -710,7 +710,7 @@ enum IEC61937
 
 #ifdef USE_AUDIO_DRIFT_CORRECTION
 #define CORRECT_PCM	1		///< do PCM audio-drift correction
-#define CORRECT_AC3	2		///< do AC3 audio-drift correction
+#define CORRECT_AC3	2		///< do AC-3 audio-drift correction
 static char CodecAudioDrift;		///< flag: enable audio-drift correction
 #else
 static const int CodecAudioDrift = 0;
@@ -871,7 +871,7 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 /**
 **	Set audio drift correction.
 **
-**	@param mask	enable mask (PCM, AC3)
+**	@param mask	enable mask (PCM, AC-3)
 */
 void CodecSetAudioDrift(int mask)
 {
@@ -884,7 +884,7 @@ void CodecSetAudioDrift(int mask)
 /**
 **	Set audio pass-through.
 **
-**	@param mask	enable mask (PCM, AC3, EAC3)
+**	@param mask	enable mask (PCM, AC-3, E-AC-3)
 */
 void CodecSetAudioPassthrough(int mask)
 {
@@ -985,8 +985,8 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
 	audio_ctx->channels, CodecPassthrough & CodecPCM ? " PCM" : "",
 	CodecPassthrough & CodecMPA ? " MPA" : "",
-	CodecPassthrough & CodecAC3 ? " AC3" : "",
-	CodecPassthrough & CodecEAC3 ? " EAC3" : "",
+	CodecPassthrough & CodecAC3 ? " AC-3" : "",
+	CodecPassthrough & CodecEAC3 ? " E-AC-3" : "",
 	CodecPassthrough ? " pass-through" : "");
 
     *passthrough = 0;
@@ -1001,7 +1001,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 	|| (CodecPassthrough & CodecEAC3
 	    && audio_ctx->codec_id == AV_CODEC_ID_EAC3)) {
 	if (audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
-	    // EAC3 over HDMI some receivers need HBR
+	    // E-AC-3 over HDMI some receivers need HBR
 	    audio_decoder->HwSampleRate *= 4;
 	}
 	audio_decoder->HwChannels = 2;
@@ -1014,7 +1014,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 	    AudioSetup(&audio_decoder->HwSampleRate,
 		&audio_decoder->HwChannels, *passthrough))) {
 
-	// try EAC3 none HBR
+	// try E-AC-3 none HBR
 	audio_decoder->HwSampleRate /= 4;
 	if (audio_ctx->codec_id != AV_CODEC_ID_EAC3
 	    || (err =

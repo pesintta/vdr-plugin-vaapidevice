@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug #1410: wrong spelled AC-3 and E-AC-3.
     Add compile time selectable h264 trickspeed workaround.
     Use ffmpeg new names AVCodecID, AV_CODEC_... .
     Fix bug: video lagging behind after recording stop.

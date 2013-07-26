@@ -309,7 +309,7 @@ static int LatmCheck(const uint8_t * data, int size)
 }
 
 ///
-///	Possible AC3 frame sizes.
+///	Possible AC-3 frame sizes.
 ///
 ///	from ATSC A/52 table 5.18 frame size code table.
 ///
@@ -327,9 +327,9 @@ const uint16_t Ac3FrameSizeTable[38][3] = {
 };
 
 ///
-///	Fast check for (E)AC3 audio.
+///	Fast check for (E-)AC-3 audio.
 ///
-///	5 bytes 0x0B77xxxxxx AC3 audio
+///	5 bytes 0x0B77xxxxxx AC-3 audio
 ///
 static inline int FastAc3Check(const uint8_t * p)
 {
@@ -343,7 +343,7 @@ static inline int FastAc3Check(const uint8_t * p)
 }
 
 ///
-///	Check for (E)AC-3 audio.
+///	Check for (E-)AC-3 audio.
 ///
 ///	0x0B77xxxxxx already checked.
 ///
@@ -354,7 +354,7 @@ static inline int FastAc3Check(const uint8_t * p)
 ///	@retval 0	no valid AC-3 audio
 ///	@retval >0	valid AC-3 audio
 ///
-///	o AC3 Header
+///	o AC-3 Header
 ///	AAAAAAAA AAAAAAAA BBBBBBBB BBBBBBBB CCDDDDDD EEEEEFFF
 ///
 ///	o a 16x Frame sync, always 0x0B77
@@ -364,7 +364,7 @@ static inline int FastAc3Check(const uint8_t * p)
 ///	o e 5x	Bitstream ID
 ///	o f 3x	Bitstream mode
 ///
-///	o EAC3 Header
+///	o E-AC-3 Header
 ///	AAAAAAAA AAAAAAAA BBCCCDDD DDDDDDDD EEFFGGGH IIIII...
 ///
 ///	o a 16x Frame sync, always 0x0B77
@@ -378,17 +378,17 @@ static int Ac3Check(const uint8_t * data, int size)
 {
     int frame_size;
 
-    if (size < 5) {			// need 5 bytes to see if AC3/EAC3
+    if (size < 5) {			// need 5 bytes to see if AC-3/E-AC-3
 	return -5;
     }
 
-    if (data[5] > (10 << 3)) {		// EAC3
+    if (data[5] > (10 << 3)) {		// E-AC-3
 	if ((data[4] & 0xF0) == 0xF0) {	// invalid fscod fscod2
 	    return 0;
 	}
 	frame_size = ((data[2] & 0x03) << 8) + data[3] + 1;
 	frame_size *= 2;
-    } else {				// AC3
+    } else {				// AC-3
 	int fscod;
 	int frmsizcod;
 
@@ -664,8 +664,8 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    unsigned codec_id;
 
 		    // 4 bytes 0xFFExxxxx Mpeg audio
-		    // 5 bytes 0x0B77xxxxxx AC3 audio
-		    // 6 bytes 0x0B77xxxxxxxx EAC3 audio
+		    // 5 bytes 0x0B77xxxxxx AC-3 audio
+		    // 6 bytes 0x0B77xxxxxxxx E-AC-3 audio
 		    // 3 bytes 0x56Exxx AAC LATM audio
 		    // 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 		    // PCM audio can't be found
@@ -1170,8 +1170,8 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
 	// 4 bytes 0xFFExxxxx Mpeg audio
 	// 3 bytes 0x56Exxx AAC LATM audio
-	// 5 bytes 0x0B77xxxxxx AC3 audio
-	// 6 bytes 0x0B77xxxxxxxx EAC3 audio
+	// 5 bytes 0x0B77xxxxxx AC-3 audio
+	// 6 bytes 0x0B77xxxxxxxx E-AC-3 audio
 	// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 	// PCM audio can't be found
 	r = 0;

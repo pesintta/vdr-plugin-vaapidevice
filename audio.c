@@ -620,7 +620,7 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 typedef struct _audio_ring_ring_
 {
     char FlushBuffers;			///< flag: flush buffers
-    char Passthrough;			///< flag: use pass-through (AC3, ...)
+    char Passthrough;			///< flag: use pass-through (AC-3, ...)
     int16_t PacketSize;			///< packet size
     unsigned HwSampleRate;		///< hardware sample rate in Hz
     unsigned HwChannels;		///< hardware number of channels
@@ -642,7 +642,7 @@ static unsigned AudioStartThreshold;	///< start play, if filled
 **
 **	@param sample_rate	sample-rate frequency
 **	@param channels		number of channels
-**	@param passthrough	use /pass-through (AC3, ...) device
+**	@param passthrough	use /pass-through (AC-3, ...) device
 **
 **	@retval -1	error
 **	@retval 0	okay
@@ -838,7 +838,7 @@ static int AlsaPlayRingbuffer(void)
 	if (!avail) {			// full or buffer empty
 	    break;
 	}
-	// muting pass-through ac3, can produce disturbance
+	// muting pass-through AC-3, can produce disturbance
 	if (AudioMute || (AudioSoftVolume
 		&& !AudioRing[AudioRingRead].Passthrough)) {
 	    // FIXME: quick&dirty cast
@@ -987,7 +987,7 @@ static int AlsaThread(void)
 /**
 **	Open alsa pcm device.
 **
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 */
 static snd_pcm_t *AlsaOpenPCM(int passthrough)
 {
@@ -1170,7 +1170,7 @@ static int64_t AlsaGetDelay(void)
 **
 **	@param freq		sample frequency
 **	@param channels		number of channels
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -1563,7 +1563,7 @@ static int OssThread(void)
 /**
 **	Open OSS pcm device.
 **
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 */
 static int OssOpenPCM(int passthrough)
 {
@@ -1727,7 +1727,7 @@ static int64_t OssGetDelay(void)
 **
 **	@param sample_rate	sample rate/frequency
 **	@param channels		number of channels
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination
@@ -1745,7 +1745,7 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 	return -1;
     }
 
-    if (1) {				// close+open for pcm / ac3
+    if (1) {				// close+open for pcm / AC-3
 	int fildes;
 
 	fildes = OssPcmFildes;
@@ -1934,7 +1934,7 @@ static void NoopSetVolume( __attribute__ ((unused))
 **
 **	@param freq		sample frequency
 **	@param channels		number of channels
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 */
 static int NoopSetup( __attribute__ ((unused))
     int *channels, __attribute__ ((unused))
@@ -2576,7 +2576,7 @@ void AudioSetVolume(int volume)
 **
 **	@param freq		sample frequency
 **	@param channels		number of channels
-**	@param passthrough	use pass-through (AC3, ...) device
+**	@param passthrough	use pass-through (AC-3, ...) device
 **
 **	@retval 0	everything ok
 **	@retval 1	didn't support frequency/channels combination

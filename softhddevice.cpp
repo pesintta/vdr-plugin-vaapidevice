@@ -52,7 +52,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.6.0"
+static const char *const VERSION = "0.6.1rc1"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -854,9 +854,9 @@ void cMenuSetupSoft::Create(void)
 		&AudioPassthroughPCM, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("\040\040AC-3 pass-through"),
 		&AudioPassthroughAC3, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("\040\040EAC-3 pass-through"),
+	Add(new cMenuEditBoolItem(tr("\040\040E-AC-3 pass-through"),
 		&AudioPassthroughEAC3, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Enable (E)AC-3 (decoder) downmix"),
+	Add(new cMenuEditBoolItem(tr("Enable (E-)AC-3 (decoder) downmix"),
 		&AudioDownmix, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol,
 		tr("Hardware"), tr("Software")));

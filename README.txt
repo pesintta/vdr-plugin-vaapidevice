@@ -89,7 +89,7 @@ Setup:	environment
 	ALSA_DEVICE=default
 		alsa PCM device name
 	ALSA_PASSTHROUGH_DEVICE=
-		alsa pass-though (AC3,EAC3,DTS,...) device name
+		alsa pass-though (AC-3,E-AC-3,DTS,...) device name
 	ALSA_MIXER=default
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
@@ -99,7 +99,7 @@ Setup:	environment
 	OSS_AUDIODEV=/dev/dsp
 		oss dsp device name
 	OSS_PASSTHROUGHDEV=
-		oss pass-though (AC3,EAC3,DTS,...) device name
+		oss pass-though (AC-3,E-AC-3,DTS,...) device name
 	OSS_MIXERDEV=/dev/mixer
 		oss mixer device name
 	OSS_MIXER_CHANNEL=pcm
