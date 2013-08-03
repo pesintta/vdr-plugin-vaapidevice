@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2013-07-25 13:22+0200\n"
+"POT-Creation-Date: 2013-08-03 17:21+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1272,6 +1272,9 @@ msgstr ""
 msgid "video/vdpau: can't put video surface bits: %s\n"
 msgstr ""
 
+msgid "video: get hwaccel context, not supported\n"
+msgstr ""
+
 #, c-format
 msgid "video/vdpau: can't render bitmap surface: %s\n"
 msgstr ""
@@ -1336,9 +1339,6 @@ msgstr ""
 
 #, c-format
 msgid "video: repeated pict %d found, but not handled\n"
-msgstr ""
-
-msgid "video/vaapi: get vaapi context, without vaapi enabled\n"
 msgstr ""
 
 #, c-format

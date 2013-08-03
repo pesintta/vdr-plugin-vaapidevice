@@ -22,7 +22,7 @@
 
 #define noUSE_SOFTLIMIT			///< add soft buffer limits to Play..
 #define noUSE_PIP			///< include PIP support + new API
-#define DUMP_TRICKSPEED			///< dump raw trickspeed packets
+#define noDUMP_TRICKSPEED		///< dump raw trickspeed packets
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -2448,7 +2448,8 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 int SetPlayMode(int play_mode)
 {
     VideoDisplayWakeup();
-    if (MyVideoStream->Decoder) {	// tell video parser we have new stream
+    // tell video parser we have new stream
+    if (MyVideoStream->Decoder && !MyVideoStream->SkipStream) {
 	if (MyVideoStream->ClearClose) {	// replay clear buffers on close
 	    Clear();			// flush all buffers
 	    MyVideoStream->ClearClose = 0;

@@ -67,8 +67,8 @@ extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
 extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *,
     const AVFrame *);
 
-    /// Get ffmpeg vaapi context.
-extern struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder *);
+    /// Get hwaccel context for ffmpeg.
+extern void *VideoGetHwAccelContext(VideoHwDecoder *);
 
 #ifdef AVCODEC_VDPAU_H
     /// Draw vdpau render state.

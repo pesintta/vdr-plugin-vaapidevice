@@ -483,7 +483,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     } else {
 	decoder->VideoCtx->get_format = Codec_get_format;
 	decoder->VideoCtx->hwaccel_context =
-	    VideoGetVaapiContext(decoder->HwDecoder);
+	    VideoGetHwAccelContext(decoder->HwDecoder);
     }
 
     // our pixel format video hardware decoder hook

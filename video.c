@@ -260,6 +260,7 @@ typedef struct _video_module_
 	const enum PixelFormat *);
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *,
 	const AVFrame *);
+    void *(*const GetHwAccelContext)(VideoHwDecoder *);
     void (*const SetClock) (VideoHwDecoder *, int64_t);
      int64_t(*const GetClock) (const VideoHwDecoder *);
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
@@ -4576,6 +4577,16 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 }
 
 ///
+///	Get hwaccel context for ffmpeg.
+///
+///	@param decoder	VA-API hw decoder
+///
+static void *VaapiGetHwAccelContext(VaapiDecoder * decoder)
+{
+    return decoder->Vaapi.VaapiContext;
+}
+
+///
 ///	Advance displayed frame of decoder.
 ///
 ///	@param decoder	VA-API hw decoder
@@ -5363,6 +5374,8 @@ static const VideoModule VaapiModule = {
 	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
+	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetTrickSpeed =
@@ -5399,6 +5412,8 @@ static const VideoModule VaapiGlxModule = {
 	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
+	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetTrickSpeed =
@@ -7843,6 +7858,20 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 }
 
 ///
+///	Get hwaccel context for ffmpeg.
+///
+///	@param decoder	VDPAU hw decoder
+///
+static void *VdpauGetHwAccelContext(VdpauDecoder * decoder)
+{
+    (void)decoder;
+
+    // FIXME: new ffmpeg versions supports struct AVVDPAUContext
+    Error(_("video: get hwaccel context, not supported\n"));
+    return NULL;
+}
+
+///
 ///	Render osd surface to output surface.
 ///
 static void VdpauMixOsd(void)
@@ -9064,6 +9093,8 @@ static const VideoModule VdpauModule = {
 	    AVCodecContext *, const enum PixelFormat *))Vdpau_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VdpauSyncRenderFrame,
+    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
+	VdpauGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VdpauSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VdpauGetClock,
     .SetTrickSpeed =
@@ -9219,6 +9250,8 @@ static const VideoModule NoopModule = {
 	    AVCodecContext *, const enum PixelFormat *))Noop_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))NoopSyncRenderFrame,
+    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
+	DummyGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))NoopSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))NoopGetClock,
     .SetTrickSpeed =
@@ -9817,27 +9850,15 @@ void VideoRenderFrame(VideoHwDecoder * hw_decoder,
 }
 
 ///
-///	Get VA-API ffmpeg context
+///	Get hwaccel context for ffmpeg.
 ///
 ///	FIXME: new ffmpeg supports vdpau hw context
 ///
 ///	@param hw_decoder	video hardware decoder (must be VA-API)
 ///
-struct vaapi_context *VideoGetVaapiContext(VideoHwDecoder * hw_decoder)
+void *VideoGetHwAccelContext(VideoHwDecoder * hw_decoder)
 {
-#ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
-	return hw_decoder->Vaapi.VaapiContext;
-    }
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiGlxModule) {
-	return hw_decoder->Vaapi.VaapiContext;
-    }
-#endif
-#endif
-    (void)hw_decoder;
-    Error(_("video/vaapi: get vaapi context, without vaapi enabled\n"));
-    return NULL;
+    return VideoUsedModule->GetHwAccelContext(hw_decoder);
 }
 
 #ifdef USE_VDPAU
