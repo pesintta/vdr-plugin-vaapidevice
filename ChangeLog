@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add function SetClosing to the video output module.
     Generalize GetVaapiContext to GetHwAccelContext.
     Add compile time configurable trickspeed packets dump.
     Fix bug #1410: wrong spelled AC-3 and E-AC-3.

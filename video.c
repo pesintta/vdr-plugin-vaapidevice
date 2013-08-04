@@ -263,6 +263,7 @@ typedef struct _video_module_
     void *(*const GetHwAccelContext)(VideoHwDecoder *);
     void (*const SetClock) (VideoHwDecoder *, int64_t);
      int64_t(*const GetClock) (const VideoHwDecoder *);
+    void (*const SetClosing) (const VideoHwDecoder *);
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
     void (*const SetBackground) (uint32_t);
@@ -4583,7 +4584,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 ///
 static void *VaapiGetHwAccelContext(VaapiDecoder * decoder)
 {
-    return decoder->Vaapi.VaapiContext;
+    return decoder->VaapiContext;
 }
 
 ///
@@ -4804,6 +4805,16 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
     }
     return decoder->PTS - 20 * 90 * (atomic_read(&decoder->SurfacesFilled) +
 	2);
+}
+
+///
+///	Set VA-API decoder closing stream flag.
+///
+///	@param decoder	VA-API	decoder
+///
+static void VaapiSetClosing(VaapiDecoder * decoder)
+{
+    decoder->Closing = 1;
 }
 
 ///
@@ -5378,6 +5389,7 @@ static const VideoModule VaapiModule = {
 	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
+    .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
@@ -5416,6 +5428,7 @@ static const VideoModule VaapiGlxModule = {
 	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
+    .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
@@ -8381,10 +8394,20 @@ static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 }
 
 ///
+///	Set VDPAU decoder closing stream flag.
+///
+///	@param decoder	VDPAU  decoder
+///
+static void VdpauSetClosing(VdpauDecoder * decoder)
+{
+    decoder->Closing = 1;
+}
+
+///
 ///	Set trick play speed.
 ///
-///	@param decoder		VDPAU decoder
-///	@param speed		trick speed (0 = normal)
+///	@param decoder	VDPAU decoder
+///	@param speed	trick speed (0 = normal)
 ///
 static void VdpauSetTrickSpeed(VdpauDecoder * decoder, int speed)
 {
@@ -9097,6 +9120,7 @@ static const VideoModule VdpauModule = {
 	VdpauGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VdpauSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VdpauGetClock,
+    .SetClosing = (void (*const) (const VideoHwDecoder *))VdpauSetClosing,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VdpauSetTrickSpeed,
     .GrabOutput = VdpauGrabOutputSurface,
@@ -9254,6 +9278,7 @@ static const VideoModule NoopModule = {
 	DummyGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))NoopSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))NoopGetClock,
+    .SetClosing = (void (*const) (const VideoHwDecoder *))NoopSetClosing,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))NoopSetTrickSpeed,
     .GrabOutput = NoopGrabOutputSurface,
@@ -9961,17 +9986,7 @@ int64_t VideoGetClock(const VideoHwDecoder * hw_decoder)
 void VideoSetClosing(VideoHwDecoder * hw_decoder)
 {
     Debug(3, "video: set closing\n");
-    // FIXME: test to check if working, than make module function
-#ifdef USE_VDPAU
-    if (VideoUsedModule == &VdpauModule) {
-	hw_decoder->Vdpau.Closing = 1;
-    }
-#endif
-#ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
-	hw_decoder->Vaapi.Closing = 1;
-    }
-#endif
+    VideoUsedModule->SetClosing(hw_decoder);
     // clear clock to avoid further sync
     VideoSetClock(hw_decoder, AV_NOPTS_VALUE);
 }
