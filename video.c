@@ -264,6 +264,7 @@ typedef struct _video_module_
     void (*const SetClock) (VideoHwDecoder *, int64_t);
      int64_t(*const GetClock) (const VideoHwDecoder *);
     void (*const SetClosing) (const VideoHwDecoder *);
+    void (*const ResetStart) (const VideoHwDecoder *);
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
     void (*const SetBackground) (uint32_t);
@@ -4810,11 +4811,21 @@ static int64_t VaapiGetClock(const VaapiDecoder * decoder)
 ///
 ///	Set VA-API decoder closing stream flag.
 ///
-///	@param decoder	VA-API	decoder
+///	@param decoder	VA-API decoder
 ///
 static void VaapiSetClosing(VaapiDecoder * decoder)
 {
     decoder->Closing = 1;
+}
+
+///
+///	Reset start of frame counter.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiResetStart(VaapiDecoder * decoder)
+{
+    decoder->StartCounter = 0;
 }
 
 ///
@@ -5390,6 +5401,7 @@ static const VideoModule VaapiModule = {
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
+    .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
@@ -5429,6 +5441,7 @@ static const VideoModule VaapiGlxModule = {
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
+    .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
@@ -8396,11 +8409,21 @@ static int64_t VdpauGetClock(const VdpauDecoder * decoder)
 ///
 ///	Set VDPAU decoder closing stream flag.
 ///
-///	@param decoder	VDPAU  decoder
+///	@param decoder	VDPAU decoder
 ///
 static void VdpauSetClosing(VdpauDecoder * decoder)
 {
     decoder->Closing = 1;
+}
+
+///
+///	Reset start of frame counter.
+///
+///	@param decoder	VDPAU decoder
+///
+static void VdpauResetStart(VdpauDecoder * decoder)
+{
+    decoder->StartCounter = 0;
 }
 
 ///
@@ -9121,6 +9144,7 @@ static const VideoModule VdpauModule = {
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VdpauSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VdpauGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VdpauSetClosing,
+    .ResetStart = (void (*const) (const VideoHwDecoder *))VdpauResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VdpauSetTrickSpeed,
     .GrabOutput = VdpauGrabOutputSurface,
@@ -9279,6 +9303,7 @@ static const VideoModule NoopModule = {
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))NoopSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))NoopGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))NoopSetClosing,
+    .ResetStart = (void (*const) (const VideoHwDecoder *))NoopResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))NoopSetTrickSpeed,
     .GrabOutput = NoopGrabOutputSurface,
@@ -9999,17 +10024,7 @@ void VideoSetClosing(VideoHwDecoder * hw_decoder)
 void VideoResetStart(VideoHwDecoder * hw_decoder)
 {
     Debug(3, "video: reset start\n");
-    // FIXME: test to check if working, than make module function
-#ifdef USE_VDPAU
-    if (VideoUsedModule == &VdpauModule) {
-	hw_decoder->Vdpau.StartCounter = 0;
-    }
-#endif
-#ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
-	hw_decoder->Vaapi.StartCounter = 0;
-    }
-#endif
+    VideoUsedModule->ResetStart(hw_decoder);
     // clear clock to trigger new video stream
     VideoSetClock(hw_decoder, AV_NOPTS_VALUE);
 }
@@ -10022,7 +10037,8 @@ void VideoResetStart(VideoHwDecoder * hw_decoder)
 ///
 void VideoSetTrickSpeed(VideoHwDecoder * hw_decoder, int speed)
 {
-    return VideoUsedModule->SetTrickSpeed(hw_decoder, speed);
+    Debug(3, "video: set trick-speed %d\n", speed);
+    VideoUsedModule->SetTrickSpeed(hw_decoder, speed);
 }
 
 ///
