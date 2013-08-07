@@ -267,6 +267,7 @@ typedef struct _video_module_
     void (*const ResetStart) (const VideoHwDecoder *);
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
+    void (*const GetStats) (VideoHwDecoder *, int *, int *, int *, int *);
     void (*const SetBackground) (uint32_t);
     void (*const SetVideoMode) (void);
     void (*const ResetAutoCrop) (void);
@@ -4844,6 +4845,24 @@ static void VaapiSetTrickSpeed(VaapiDecoder * decoder, int speed)
 }
 
 ///
+///	Get VA-API decoder statistics.
+///
+///	@param decoder		VA-API decoder
+///	@param[out] missed	missed frames
+///	@param[out] duped	duped frames
+///	@param[out] dropped	dropped frames
+///	@param[out] count	number of decoded frames
+///
+void VaapiGetStats(VaapiDecoder * decoder, int *missed, int *duped,
+    int *dropped, int *counter)
+{
+    *missed = decoder->FramesMissed;
+    *duped = decoder->FramesDuped;
+    *dropped = decoder->FramesDropped;
+    *counter = decoder->FrameCounter;
+}
+
+///
 ///	Sync decoder output to audio.
 ///
 ///	trick-speed	show frame <n> times
@@ -5405,6 +5424,8 @@ static const VideoModule VaapiModule = {
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
+    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
+	    int *))VaapiGetStats,
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
     .ResetAutoCrop = VaapiResetAutoCrop,
@@ -5445,6 +5466,8 @@ static const VideoModule VaapiGlxModule = {
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = NULL,
+    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
+	    int *))VaapiGetStats,
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
     .ResetAutoCrop = VaapiResetAutoCrop,
@@ -8442,6 +8465,24 @@ static void VdpauSetTrickSpeed(VdpauDecoder * decoder, int speed)
 }
 
 ///
+///	Get VDPAU decoder statistics.
+///
+///	@param decoder		VDPAU decoder
+///	@param[out] missed	missed frames
+///	@param[out] duped	duped frames
+///	@param[out] dropped	dropped frames
+///	@param[out] count	number of decoded frames
+///
+void VdpauGetStats(VdpauDecoder * decoder, int *missed, int *duped,
+    int *dropped, int *counter)
+{
+    *missed = decoder->FramesMissed;
+    *duped = decoder->FramesDuped;
+    *dropped = decoder->FramesDropped;
+    *counter = decoder->FrameCounter;
+}
+
+///
 ///	Sync decoder output to audio.
 ///
 ///	trick-speed	show frame <n> times
@@ -9148,6 +9189,8 @@ static const VideoModule VdpauModule = {
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VdpauSetTrickSpeed,
     .GrabOutput = VdpauGrabOutputSurface,
+    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
+	    int *))VdpauGetStats,
     .SetBackground = VdpauSetBackground,
     .SetVideoMode = VdpauSetVideoMode,
     .ResetAutoCrop = VdpauResetAutoCrop,
@@ -9307,6 +9350,8 @@ static const VideoModule NoopModule = {
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))NoopSetTrickSpeed,
     .GrabOutput = NoopGrabOutputSurface,
+    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
+	    int *))NoopGetStats,
 #endif
     .SetBackground = NoopSetBackground,
     .SetVideoMode = NoopVoid,
@@ -10198,23 +10243,7 @@ uint8_t *VideoGrabService(int *size, int *width, int *height)
 void VideoGetStats(VideoHwDecoder * hw_decoder, int *missed, int *duped,
     int *dropped, int *counter)
 {
-    // FIXME: test to check if working, than make module function
-#ifdef USE_VDPAU
-    if (VideoUsedModule == &VdpauModule) {
-	*missed = hw_decoder->Vdpau.FramesMissed;
-	*duped = hw_decoder->Vdpau.FramesDuped;
-	*dropped = hw_decoder->Vdpau.FramesDropped;
-	*counter = hw_decoder->Vdpau.FrameCounter;
-    }
-#endif
-#ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
-	*missed = hw_decoder->Vaapi.FramesMissed;
-	*duped = hw_decoder->Vaapi.FramesDuped;
-	*dropped = hw_decoder->Vaapi.FramesDropped;
-	*counter = hw_decoder->Vaapi.FrameCounter;
-    }
-#endif
+    VideoUsedModule->GetStats(hw_decoder, missed, duped, dropped, counter);
 }
 
 ///
@@ -10582,6 +10611,7 @@ void VideoSetBlackPicture(int onoff)
 ///
 void VideoSetBrightness(int brightness)
 {
+    // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauDecoders[0]->Procamp.brightness = brightness / 1000;
@@ -10599,6 +10629,7 @@ void VideoSetBrightness(int brightness)
 ///
 void VideoSetContrast(int contrast)
 {
+    // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauDecoders[0]->Procamp.contrast = contrast / 1000;
@@ -10616,6 +10647,7 @@ void VideoSetContrast(int contrast)
 ///
 void VideoSetSaturation(int saturation)
 {
+    // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauDecoders[0]->Procamp.saturation = saturation / 1000;
@@ -10633,6 +10665,7 @@ void VideoSetSaturation(int saturation)
 ///
 void VideoSetHue(int hue)
 {
+    // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
 	VdpauDecoders[0]->Procamp.hue = hue / 1000;

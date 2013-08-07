@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add function GetStats to the video output module.
     Add function ResetStart to the video output module.
     Add function SetClosing to the video output module.
     Generalize GetVaapiContext to GetHwAccelContext.
