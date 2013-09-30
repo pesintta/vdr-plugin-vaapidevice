@@ -1537,6 +1537,7 @@ struct _vaapi_decoder_
     int SyncOnAudio;			///< flag sync to audio
     int64_t PTS;			///< video PTS clock
 
+    int LastAVDiff;			///< last audio - video difference
     int SyncCounter;			///< counter to sync frames
     int StartCounter;			///< counter for video start
     int FramesDuped;			///< number of frames duplicated
@@ -4893,7 +4894,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    goto out;
 	}
 	// both clocks are known
-	if (audio_clock + VideoAudioDelay <= video_clock + 15 * 90) {
+	if (audio_clock + VideoAudioDelay <= video_clock + 25 * 90) {
 	    goto out;
 	}
 	// out of sync: audio before video
@@ -4928,22 +4929,26 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
     if (audio_clock != (int64_t) AV_NOPTS_VALUE
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
+	int diff;
 
-	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
+	diff = video_clock - audio_clock - VideoAudioDelay;
+	diff = (decoder->LastAVDiff + diff) / 2;
+	decoder->LastAVDiff = diff;
+
+	if (abs(diff) > 5000 * 90) {	// more than 5s
 	    err = VaapiMessage(2, "video: audio/video difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
+	} else if (diff > 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
 	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
+	} else if (diff > 55 * 90) {
 	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
-	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
-	    && filled > 1 + 2 * decoder->Interlaced) {
+	} else if (diff < -25 * 90 && filled > 1 + 2 * decoder->Interlaced) {
 	    err = VaapiMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
@@ -5563,6 +5568,7 @@ typedef struct _vdpau_decoder_
     int SyncOnAudio;			///< flag sync to audio
     int64_t PTS;			///< video PTS clock
 
+    int LastAVDiff;			///< last audio - video difference
     int SyncCounter;			///< counter to sync frames
     int StartCounter;			///< counter for video start
     int FramesDuped;			///< number of frames duplicated
@@ -8519,7 +8525,7 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    goto out;
 	}
 	// both clocks are known
-	if (audio_clock + VideoAudioDelay <= video_clock + 15 * 90) {
+	if (audio_clock + VideoAudioDelay <= video_clock + 25 * 90) {
 	    goto out;
 	}
 	// out of sync: audio before video
@@ -8553,22 +8559,26 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
     if (audio_clock != (int64_t) AV_NOPTS_VALUE
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
+	int diff;
 
-	if (abs(video_clock - audio_clock + VideoAudioDelay) > 5000 * 90) {
+	diff = video_clock - audio_clock - VideoAudioDelay;
+	diff = (decoder->LastAVDiff + diff) / 2;
+	decoder->LastAVDiff = diff;
+
+	if (abs(diff) > 5000 * 90) {	// more than 5s
 	    err = VdpauMessage(2, "video: audio/video difference too big\n");
-	} else if (video_clock > audio_clock + VideoAudioDelay + 100 * 90) {
+	} else if (diff > 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
 	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
-	} else if (video_clock > audio_clock + VideoAudioDelay + 45 * 90) {
+	} else if (diff > 55 * 90) {
 	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
 	    decoder->SyncCounter = 1;
 	    goto out;
-	} else if (audio_clock + VideoAudioDelay > video_clock + 15 * 90
-	    && filled > 1 + 2 * decoder->Interlaced) {
+	} else if (diff < -25 * 90 && filled > 1 + 2 * decoder->Interlaced) {
 	    err = VdpauMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VdpauAdvanceDecoderFrame(decoder);

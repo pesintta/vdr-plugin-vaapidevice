@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Softer audio/video sync.
     Add function GetStats to the video output module.
     Add function ResetStart to the video output module.
     Add function SetClosing to the video output module.
