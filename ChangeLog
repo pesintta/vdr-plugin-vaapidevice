@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    CLOCK_REALTIME -> CLOCK_MONOTONIC to allow time changes.
     Add function VideoStreamOpen and always use VideoStreamClose.
     Softer audio/video sync.
     Add function GetStats to the video output module.

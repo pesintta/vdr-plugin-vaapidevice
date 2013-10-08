@@ -3491,7 +3491,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 		VA_FRAME_PICTURE)) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: vaPutSurface failed %d\n"), status);
     }
-    clock_gettime(CLOCK_REALTIME, &decoder->FrameTime);
+    clock_gettime(CLOCK_MONOTONIC, &decoder->FrameTime);
 
     put1 = GetMsTicks();
     if (put1 - sync > 2000) {
@@ -4731,7 +4731,7 @@ static void VaapiDisplayFrame(void)
 	    put2 = put1;
 #endif
 	}
-	clock_gettime(CLOCK_REALTIME, &nowtime);
+	clock_gettime(CLOCK_MONOTONIC, &nowtime);
 	// FIXME: 31 only correct for 50Hz
 	if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	    * 1000 * 1000 * 1000 + (nowtime.tv_nsec -
@@ -5159,7 +5159,7 @@ static void VaapiDisplayHandlerThread(void)
 	}
     }
 
-    clock_gettime(CLOCK_REALTIME, &nowtime);
+    clock_gettime(CLOCK_MONOTONIC, &nowtime);
     // time for one frame over?
     if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
@@ -8382,7 +8382,7 @@ static void VdpauDisplayFrame(void)
 	    VdpauGetErrorString(status));
     }
     // FIXME: CLOCK_MONOTONIC_RAW
-    clock_gettime(CLOCK_REALTIME, &VdpauFrameTime);
+    clock_gettime(CLOCK_MONOTONIC, &VdpauFrameTime);
     for (i = 0; i < VdpauDecoderN; ++i) {
 	// remember time of last shown surface
 	VdpauDecoders[i]->FrameTime = VdpauFrameTime;
@@ -8884,7 +8884,7 @@ static void VdpauDisplayHandlerThread(void)
 	usleep(5 * 1000);
     }
 
-    clock_gettime(CLOCK_REALTIME, &nowtime);
+    clock_gettime(CLOCK_MONOTONIC, &nowtime);
     // time for one frame over?
     if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
 	(nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
@@ -8893,7 +8893,7 @@ static void VdpauDisplayHandlerThread(void)
 
     if (VdpauPreemption) {		// display preempted
 	if (VdpauPreemptionRecover()) {
-	    clock_gettime(CLOCK_REALTIME, &VdpauFrameTime);
+	    clock_gettime(CLOCK_MONOTONIC, &VdpauFrameTime);
 	    return;
 	}
     }
