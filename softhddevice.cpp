@@ -91,6 +91,7 @@ static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
 static char ConfigVideoBlackPicture;	///< config enable black picture mode
+char ConfigVideoClearOnSwitch;		///< config enable Clear on channel switch
 
 static int ConfigVideoBrightness;	///< config video brightness
 static int ConfigVideoContrast = 1000;	///< config video contrast
@@ -595,6 +596,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int _60HzMode;
     int SoftStartSync;
     int BlackPicture;
+    int ClearOnSwitch;
 
     int Brightness;
     int Contrast;
@@ -785,6 +787,8 @@ void cMenuSetupSoft::Create(void)
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Black during channel switch"),
 		&BlackPicture, trVDR("no"), trVDR("yes")));
+	Add(new cMenuEditBoolItem(tr("Clear decoder on channel switch"),
+		&ClearOnSwitch, trVDR("no"), trVDR("yes")));
 
 	Add(new cMenuEditIntItem(tr("Brightness (-1000..1000) (vdpau)"),
 		&Brightness, -1000, 1000, tr("min"), tr("max")));
@@ -1010,6 +1014,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
     BlackPicture = ConfigVideoBlackPicture;
+    ClearOnSwitch = ConfigVideoClearOnSwitch;
 
     Brightness = ConfigVideoBrightness;
     Contrast = ConfigVideoContrast;
@@ -1133,6 +1138,7 @@ void cMenuSetupSoft::Store(void)
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
     SetupStore("BlackPicture", ConfigVideoBlackPicture = BlackPicture);
     VideoSetBlackPicture(ConfigVideoBlackPicture);
+    SetupStore("ClearOnSwitch", ConfigVideoClearOnSwitch = ClearOnSwitch);
 
     SetupStore("Brightness", ConfigVideoBrightness = Brightness);
     VideoSetBrightness(ConfigVideoBrightness);
@@ -2850,6 +2856,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "BlackPicture")) {
 	VideoSetBlackPicture(ConfigVideoBlackPicture = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "ClearOnSwitch")) {
+	ConfigVideoClearOnSwitch = atoi(value);
 	return true;
     }
     if (!strcasecmp(name, "Brightness")) {

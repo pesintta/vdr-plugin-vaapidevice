@@ -1,5 +1,10 @@
+User Dr. Seltsam
+Date: Tue Nov  5 16:46:34 CET 2013
+
+    Add support to configure and clear buffers on channel switch.
+
 User johns
-Date:
+Date: Tue Oct  8 10:18:04 CET 2013
 
     CLOCK_REALTIME -> CLOCK_MONOTONIC to allow time changes.
     Add function VideoStreamOpen and always use VideoStreamClose.

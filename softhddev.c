@@ -83,6 +83,7 @@ static char VdpauDecoder = 1;		///< vdpau decoder used
 #endif
 
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
+extern int ConfigVideoClearOnSwitch;	//<  clear decoder on channel switch
 char ConfigStartX11Server;		///< flag start the x11 server
 static char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
@@ -2465,45 +2466,47 @@ uint8_t *GrabImage(int *size, int jpeg, int quality, int width, int height)
 */
 int SetPlayMode(int play_mode)
 {
-    VideoDisplayWakeup();
-    // tell video parser we have new stream
-    if (MyVideoStream->Decoder && !MyVideoStream->SkipStream) {
-	if (MyVideoStream->ClearClose) {	// replay clear buffers on close
-	    Clear();			// flush all buffers
-	    MyVideoStream->ClearClose = 0;
-	}
-	if (MyVideoStream->CodecID != AV_CODEC_ID_NONE) {
-	    MyVideoStream->NewStream = 1;
-	    MyVideoStream->InvalidPesCounter = 0;
-	    // tell hw decoder we are closing stream
-	    VideoSetClosing(MyVideoStream->HwDecoder);
-	    VideoResetStart(MyVideoStream->HwDecoder);
-#ifdef DEBUG
-	    VideoSwitch = GetMsTicks();
-#endif
-	}
-    }
-    if (MyAudioDecoder) {		// tell audio parser we have new stream
-	if (AudioCodecID != AV_CODEC_ID_NONE) {
-	    NewAudioStream = 1;
-	}
-    }
     switch (play_mode) {
-	case 0:			// nothing
+	case 0:			// audio/video from decoder
+	    // tell video parser we get new stream
+	    if (MyVideoStream->Decoder && !MyVideoStream->SkipStream) {
+		// clear buffers on close configured always or replay only
+		if (ConfigVideoClearOnSwitch || MyVideoStream->ClearClose) {
+		    Clear();		// flush all buffers
+		    MyVideoStream->ClearClose = 0;
+		}
+		if (MyVideoStream->CodecID != AV_CODEC_ID_NONE) {
+		    MyVideoStream->NewStream = 1;
+		    MyVideoStream->InvalidPesCounter = 0;
+		    // tell hw decoder we are closing stream
+		    VideoSetClosing(MyVideoStream->HwDecoder);
+		    VideoResetStart(MyVideoStream->HwDecoder);
+#ifdef DEBUG
+		    VideoSwitch = GetMsTicks();
+#endif
+		}
+	    }
+	    if (MyAudioDecoder) {	// tell audio parser we have new stream
+		if (AudioCodecID != AV_CODEC_ID_NONE) {
+		    NewAudioStream = 1;
+		}
+	    }
+	    break;
 	case 1:			// audio/video from player
+	    VideoDisplayWakeup();
+	    Play();
 	    break;
-	case 2:			// audio only
+	case 2:			// audio only from player, video from decoder
+	case 3:			// audio only from player, no video (black screen)
 	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+	    VideoDisplayWakeup();
+	    Play();
 	    break;
-	case 3:			// audio only, black screen
-	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
-	    break;
-	case 4:			// video only
+	case 4:			// video only from player, audio from decoder
+	    VideoDisplayWakeup();
+	    Play();
 	    break;
     }
-
-    Play();
-
     return 1;
 }
 
