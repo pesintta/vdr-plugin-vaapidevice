@@ -4979,7 +4979,10 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
-	    if (decoder->Closing < -300) {
+	    // some time no new picture or black video configured
+	    if (decoder->Closing < -300 || (VideoShowBlackPicture
+		    && decoder->Closing)) {
+		// clear ring buffer to trigger black picture
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
@@ -8609,7 +8612,10 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 		_("video: decoder buffer empty, "
 		    "duping frame (%d/%d) %d v-buf\n"), decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
-	    if (decoder->Closing < -300) {
+	    // some time no new picture or black video configured
+	    if (decoder->Closing < -300 || (VideoShowBlackPicture
+		    && decoder->Closing)) {
+		// clear ring buffer to trigger black picture
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
 	}
@@ -8925,7 +8931,7 @@ static void VdpauDisplayHandlerThread(void)
 static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
     int width, int height)
 {
-    Debug(3, "video/vdapu: output %dx%d%+d%+d\n", width, height, x, y);
+    Debug(3, "video/vdpau: output %dx%d%+d%+d\n", width, height, x, y);
 
     decoder->VideoX = x;
     decoder->VideoY = y;

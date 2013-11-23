@@ -2483,6 +2483,7 @@ int SetPlayMode(int play_mode)
 		    VideoResetStart(MyVideoStream->HwDecoder);
 #ifdef DEBUG
 		    VideoSwitch = GetMsTicks();
+		    Debug(3, "video: new stream start\n");
 #endif
 		}
 	    }
