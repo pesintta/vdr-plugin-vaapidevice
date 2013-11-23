@@ -2548,8 +2548,8 @@ cRect cSoftHdDevice::CanScaleVideo(const cRect & rect,
 void cSoftHdDevice::ScaleVideo(const cRect & rect)
 {
 #ifdef OSD_DEBUG
-    dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, VidWinRect.Width(),
-	VidWinRect.Height(), VidWinRect.X(), VidWinRect.Y());
+    dsyslog("[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, rect.Width(),
+	rect.Height(), rect.X(), rect.Y());
 #endif
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
