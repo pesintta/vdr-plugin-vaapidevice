@@ -233,6 +233,10 @@ Setup: /etc/vdr/setup.conf
 	0 disable black picture during channel switch
 	1 enable black picture during channel switch
 
+	softhddevice.ClearOnSwitch = 0
+	0 keep video und audio buffers during channel switch
+	1 clear video and audio buffers on channel switch
+
 	softhddevice.Video4to3DisplayFormat = 1
 	0 pan and scan
 	1 letter box
