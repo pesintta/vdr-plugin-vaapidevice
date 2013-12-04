@@ -1922,6 +1922,7 @@ static void HandleHotkey(int code)
 	    break;
 	case 108:
 	    DelPip();
+	    PipChannelNr = 0;
 	    break;
 #endif
 
@@ -2027,6 +2028,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 	    return osEnd;
 	case osUser8:
 	    DelPip();
+	    PipChannelNr = 0;
 	    return osEnd;
 #endif
 	default:
