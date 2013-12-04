@@ -356,7 +356,7 @@ Requires:
 
 	media-video/ffmpeg (version >=0.7)
 		Complete solution to record, convert and stream audio and
-		video. Includes libavcodec.
+		video. Includes libavcodec and libswresample.
 		http://ffmpeg.org
 	media-libs/alsa-lib
 		Advanced Linux Sound Architecture Library
