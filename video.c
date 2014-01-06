@@ -912,13 +912,13 @@ static void GlxOsdClear(void)
     // FIXME: if not; use zero buffer
     // FIXME: if not; use dirty area
 
-    texbuf = calloc(OsdWidth * OsdHeight, 4);
-
     // set glx context
     if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
 	Error(_("video/glx: can't make glx context current\n"));
 	return;
     }
+
+    texbuf = calloc(OsdWidth * OsdHeight, 4);
     GlxUploadOsdTexture(0, 0, OsdWidth, OsdHeight, texbuf);
     glXMakeCurrent(XlibDisplay, None, NULL);
 

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: memory leak.
     PIP close clears the last used PIP channel.
     Fix bug: -DOSD_DEBUG uses old (deleted) variable.
     Fix bug: Option softhddevice.BlackPicture has no effect.
