@@ -2051,7 +2051,11 @@ class cSoftHdDevice:public cDevice
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
     virtual bool SetPlayMode(ePlayMode);
+#if APIVERSNUM >= 20103
+    virtual void TrickSpeed(int, bool);
+#else
     virtual void TrickSpeed(int);
+#endif
     virtual void Clear(void);
     virtual void Play(void);
     virtual void Freeze(void);
@@ -2239,13 +2243,23 @@ int64_t cSoftHdDevice::GetSTC(void)
 **	times.
 **
 **	@param speed	trick speed
+**	@param forward	flag forward direction
 */
+#if APIVERSNUM >= 20103
+void cSoftHdDevice::TrickSpeed(int speed, bool forward)
+{
+    dsyslog("[softhddev]%s: %d $d\n", __FUNCTION__, speed, forward);
+
+    ::TrickSpeed(speed);
+}
+#else
 void cSoftHdDevice::TrickSpeed(int speed)
 {
     dsyslog("[softhddev]%s: %d\n", __FUNCTION__, speed);
 
     ::TrickSpeed(speed);
 }
+#endif
 
 /**
 **	Clears all video and audio data from the device.

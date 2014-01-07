@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix compile error with VDR 2.1.3.
     Fix bug: memory leak.
     PIP close clears the last used PIP channel.
     Fix bug: -DOSD_DEBUG uses old (deleted) variable.
