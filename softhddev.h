@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.h	@brief software HD device plugin header file.
 ///
-///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2014 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -25,7 +25,8 @@ extern "C"
 {
 #endif
     /// C callback feed key press
-    extern void FeedKeyPress(const char *, const char *, int, int);
+    extern void FeedKeyPress(const char *, const char *, int, int,
+	const char *);
 
     /// C plugin get osd size and ascpect
     extern void GetOsdSize(int *, int *, double *);

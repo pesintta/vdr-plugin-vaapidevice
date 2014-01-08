@@ -1,7 +1,7 @@
 ///
 ///	@file video.c	@brief Video module
 ///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -9526,7 +9526,7 @@ void VideoOsdExit(void)
 //----------------------------------------------------------------------------
 
 /// C callback feed key press
-extern void FeedKeyPress(const char *, const char *, int, int);
+extern void FeedKeyPress(const char *, const char *, int, int, const char *);
 
 ///
 ///	Handle XLib I/O Errors.
@@ -9570,6 +9570,7 @@ static void VideoEvent(void)
     KeySym keysym;
     const char *keynam;
     char buf[64];
+    char letter[64];
     uint32_t values[1];
 
     VideoThreadLock();
@@ -9580,7 +9581,7 @@ static void VideoEvent(void)
 	    Debug(3, "video/event: ClientMessage\n");
 	    if (event.xclient.data.l[0] == (long)WmDeleteWindowAtom) {
 		Debug(3, "video/event: wm-delete-message\n");
-		FeedKeyPress("XKeySym", "Close", 0, 0);
+		FeedKeyPress("XKeySym", "Close", 0, 0, NULL);
 	    }
 	    break;
 
@@ -9609,7 +9610,7 @@ static void VideoEvent(void)
 	    break;
 	case KeyPress:
 	    VideoThreadLock();
-	    XLookupString(&event.xkey, buf, sizeof(buf), &keysym, NULL);
+	    XLookupString(&event.xkey, letter, sizeof(letter), &keysym, NULL);
 	    VideoThreadUnlock();
 	    if (keysym == NoSymbol) {
 		Warning(_("video/event: No symbol for %d\n"),
@@ -9632,7 +9633,7 @@ static void VideoEvent(void)
 		strncat(buf, keynam, sizeof(buf) - 10);
 		keynam = buf;
 	    }
-	    FeedKeyPress("XKeySym", keynam, 0, 0);
+	    FeedKeyPress("XKeySym", keynam, 0, 0, letter);
 	    break;
 	case KeyRelease:
 	    break;
@@ -11289,7 +11290,8 @@ void FeedKeyPress( __attribute__ ((unused))
     const char *x, __attribute__ ((unused))
     const char *y, __attribute__ ((unused))
     int a, __attribute__ ((unused))
-    int b)
+    int b, __attribute__ ((unused))
+    const char *s)
 {
 }
 

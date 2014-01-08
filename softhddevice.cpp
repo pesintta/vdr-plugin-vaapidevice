@@ -212,9 +212,10 @@ class cSoftRemote:public cRemote
 **	@param key	pressed/released key name
 **	@param repeat	repeated key flag
 **	@param release	released key flag
+**	@param letter	x11 character string (system setting locale)
 */
 extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
-    int release)
+    int release, const char *letter)
 {
     cRemote *remote;
     cSoftRemote *csoft;
@@ -237,9 +238,17 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 	csoft = new cSoftRemote(keymap);
     }
 
-    //dsyslog("[softhddev]%s %s, %s\n", __FUNCTION__, keymap, key);
+    //dsyslog("[softhddev]%s %s, %s, %s\n", __FUNCTION__, keymap, key, letter);
     if (key[1]) {			// no single character
-	csoft->Put(key, repeat, release);
+	if (!csoft->Put(key, repeat, release) && letter) {
+	    cCharSetConv conv;
+	    unsigned code;
+
+	    code = Utf8CharGet(conv.Convert(letter));
+	    if (code <= 0xFF) {
+		cRemote::Put(KBDKEY(code));	// feed it for edit mode
+	    }
+	}
     } else if (!csoft->Put(key, repeat, release)) {
 	cRemote::Put(KBDKEY(key[0]));	// feed it for edit mode
     }
