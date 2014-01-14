@@ -46,7 +46,7 @@
 #define USE_DOUBLEBUFFER		///< use GLX double buffers
 //#define USE_VAAPI				///< enable vaapi support
 //#define USE_VDPAU				///< enable vdpau support
-#define noUSE_BITMAP			///< use vdpau bitmap surface
+//#define USE_BITMAP			///< use vdpau bitmap surface
 //#define AV_INFO				///< log a/v sync informations
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
@@ -8024,7 +8024,7 @@ static void VdpauMixOsd(void)
 	status =
 	    VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
 	    [VdpauSurfaceIndex], &output_double_rect,
-	    VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
+	    VdpauOsdBitmapSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
 	    VideoTransparentOsd ? &blend_state : NULL,
 	    VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
 	if (status != VDP_STATUS_OK) {
@@ -8253,15 +8253,29 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 	output_rect.y1 = decoder->VideoHeight;
     }
 
+    // FIXME: double buffered osd disabled
+    // VdpauOsdSurfaceIndex always 0 and only 0 valid
+#ifdef USE_BITMAP
     status =
-	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
+	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
-	VdpauOsdOutputSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
+	VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
 	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
     if (status != VDP_STATUS_OK) {
 	Error(_("video/vdpau: can't render output surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
+#else
+    status =
+	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
+	[VdpauSurfaceIndex], &output_rect,
+	VdpauOsdOutputSurface[VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
+	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
+    if (status != VDP_STATUS_OK) {
+	Error(_("video/vdpau: can't render output surface: %s\n"),
+	    VdpauGetErrorString(status));
+    }
+#endif
 }
 
 ///
