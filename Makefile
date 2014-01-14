@@ -37,7 +37,7 @@ CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
 #CONFIG += -DH264_EOS_TRICKSPEED	# insert seq end packets for trickspeed
 #CONDIF += -DDUMP_TRICKSPEED		# dump trickspeed packets
-CONFIG += -DUSE_BITMAP			# VDPAU, use bitmap surface for OSD
+#CONFIG += -DUSE_BITMAP			# VDPAU, use bitmap surface for OSD
 CONFIG += -DUSE_VDR_SPU			# use VDR SPU decoder.
 #CONFIG += -DUSE_SOFTLIMIT		# (tobe removed) limit the buffer fill
 
