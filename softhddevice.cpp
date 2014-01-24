@@ -240,7 +240,8 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 
     //dsyslog("[softhddev]%s %s, %s, %s\n", __FUNCTION__, keymap, key, letter);
     if (key[1]) {			// no single character
-	if (!csoft->Put(key, repeat, release) && letter) {
+	if (!csoft->Put(key, repeat, release) && letter
+	    && !cRemote::IsLearning()) {
 	    cCharSetConv conv;
 	    unsigned code;
 
