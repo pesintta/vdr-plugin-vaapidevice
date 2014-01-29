@@ -2888,6 +2888,8 @@ const char *CommandLineHelp(void)
 	"\tstill-hw-decoder\tenable hardware decoder for still-pictures\n"
 	"\tstill-h264-hw-decoder\tenable h264 hw decoder for still-pictures\n"
 	"\talsa-driver-broken\tdisable broken alsa driver message\n"
+	"-talsa-no-close-open\tdisable close open to fix alsa no sound bug\n"
+	"-talsa-close-open-delay\tenable close open delay to fix no sound bug\n"
 	"\tignore-repeat-pict\tdisable repeat pict message\n"
 	"  -D\t\tstart in detached mode\n";
 }
@@ -2964,6 +2966,10 @@ int ProcessArgs(int argc, char *const argv[])
 		    ConfigStillDecoder = 1;
 		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
+		} else if (!strcasecmp("alsa-no-close-open", optarg)) {
+		    AudioAlsaNoCloseOpen = 1;
+		} else if (!strcasecmp("alsa-close-open-delay", optarg)) {
+		    AudioAlsaCloseOpenDelay = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
 		    VideoIgnoreRepeatPict = 1;
 		} else {

@@ -1,3 +1,9 @@
+User johns
+Date:
+
+    Add Workaround for alsa blocking audio device.
+    Improves thread handling for audio flush and close.
+
 User mini73
 Date: Fri Jan 24 11:30:49 CET 2014
 

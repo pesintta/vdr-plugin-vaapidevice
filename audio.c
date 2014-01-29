@@ -123,6 +123,8 @@ static const AudioModule NoopModule;	///< forward definition of noop module
 //----------------------------------------------------------------------------
 
 char AudioAlsaDriverBroken;		///< disable broken driver message
+char AudioAlsaNoCloseOpen;		///< disable alsa close/open fix
+char AudioAlsaCloseOpenDelay;		///< enable alsa close/open delay fix
 
 static const char *AudioModuleName;	///< which audio module to use
 
@@ -1189,13 +1191,17 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	// FIXME: if open fails for fe. pass-through, we never recover
 	return -1;
     }
-    if (1) {				// close+open to fix HDMI no sound bug
+    if (!AudioAlsaNoCloseOpen) {	// close+open to fix HDMI no sound bug
 	snd_pcm_t *handle;
 
 	handle = AlsaPCMHandle;
 	// FIXME: need lock
 	AlsaPCMHandle = NULL;		// other threads should check handle
 	snd_pcm_close(handle);
+	if (AudioAlsaCloseOpenDelay) {
+	    usleep(50 * 1000);		// 50ms delay for alsa recovery
+	}
+	// FIXME: can use multiple retries
 	if (!(handle = AlsaOpenPCM(passthrough))) {
 	    return -1;
 	}
@@ -2043,25 +2049,27 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    int read;
 	    int flush;
 	    int err;
+	    int i;
 
 	    // look if there is a flush command in the queue
 	    flush = 0;
 	    filled = atomic_read(&AudioRingFilled);
 	    read = AudioRingRead;
-	    while (filled--) {
+	    i = filled;
+	    while (i--) {
 		read = (read + 1) % AUDIO_RING_MAX;
 		if (AudioRing[read].FlushBuffers) {
 		    AudioRing[read].FlushBuffers = 0;
 		    AudioRingRead = read;
-		    atomic_set(&AudioRingFilled, filled);
 		    // handle all flush in queue
-		    flush = 1;
+		    flush = filled - i;
 		}
 	    }
 
 	    if (flush) {
-		Debug(3, "audio: flush\n");
+		Debug(3, "audio: flush %d ring buffer(s)\n", flush);
 		AudioUsedModule->FlushBuffers();
+		atomic_sub(flush, &AudioRingFilled);
 		if (AudioNextRing()) {
 		    Debug(3, "audio: break after flush\n");
 		    break;
@@ -2421,8 +2429,23 @@ void AudioFlushBuffers(void)
     int old;
     int i;
 
+    if (atomic_read(&AudioRingFilled) >= AUDIO_RING_MAX) {
+	// wait for space in ring buffer, should never happen
+	for (i = 0; i < 24 * 2; ++i) {
+	    if (atomic_read(&AudioRingFilled) < AUDIO_RING_MAX) {
+		break;
+	    }
+	    Debug(3, "audio: flush out of ring buffers\n");
+	    usleep(1 * 1000);		// avoid hot polling
+	}
+	if (atomic_read(&AudioRingFilled) >= AUDIO_RING_MAX) {
+	    // FIXME: We can set the flush flag in the last wrote ring buffer
+	    Error(_("audio: flush out of ring buffers\n"));
+	    return;
+	}
+    }
+
     old = AudioRingWrite;
-    // FIXME: check ring buffer overflow
     AudioRingWrite = (AudioRingWrite + 1) % AUDIO_RING_MAX;
     AudioRing[AudioRingWrite].FlushBuffers = 1;
     AudioRing[AudioRingWrite].Passthrough = AudioRing[old].Passthrough;
@@ -2439,12 +2462,13 @@ void AudioFlushBuffers(void)
 
     atomic_inc(&AudioRingFilled);
 
-    // FIXME: wait for flush complete?
+    // FIXME: wait for flush complete needed?
     for (i = 0; i < 24 * 2; ++i) {
 	if (!AudioRunning) {		// wakeup thread to flush buffers
 	    AudioRunning = 1;
 	    pthread_cond_signal(&AudioStartCond);
 	}
+	// FIXME: waiting on zero isn't correct, but currently works
 	if (!atomic_read(&AudioRingFilled)) {
 	    break;
 	}
