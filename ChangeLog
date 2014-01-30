@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix spelling in arguments help.
     Add Workaround for alsa blocking audio device.
     Improves thread handling for audio flush and close.
 

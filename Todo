@@ -45,6 +45,7 @@ video:
     still-picture of PES recordings should use VideoMpegEnqueue.
     convert PIX_FMT_... PixelFormat to new names AV_PIX_FMT_..., AVPixelFormat.
     atmo service support 3D grab
+    no warnings during still picture
 
 vdpau:
     software deinterlace path not working.
@@ -127,6 +128,7 @@ unsorted:
     svdrp prim: support plugin names for device numbers.
     Workaround exists: hangup PipVideoStream -> Vdpau_get_format -> xcb -> poll
 	+ lock DecoderLockMutex
+    check compiletime and runtime ffmpeg/libav version during init.
 
 future features (not planed for 1.0 - 1.5)
 
