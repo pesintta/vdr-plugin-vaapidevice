@@ -1,5 +1,10 @@
+User  hd.brummy
+Date: Thu Jan 30 10:40:49 CET 2014
+
+    Update gentoo ebuild.
+
 User johns
-Date:
+Date: Thu Jan 30 10:36:53 CET 2014
 
     Fix spelling in arguments help.
     Add Workaround for alsa blocking audio device.

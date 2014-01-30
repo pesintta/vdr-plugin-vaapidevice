@@ -1,67 +1,70 @@
-# Copyright 1999-2012 Gentoo Foundation
+# Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
 EAPI="5"
 
-inherit flag-o-matic toolchain-funcs vdr-plugin-2 eutils
+inherit vdr-plugin-2 git-2
 
-if [ "${PV}" = "9999" ]; then
-	inherit git-2
-	EGIT_REPO_URI="git://projects.vdr-developer.org/vdr-plugin-softhddevice.git"
-	KEYWORDS=""
-else
-	SRC_URI="mirror://vdr-developerorg/889/${P}.tgz"
-	KEYWORDS="~amd64 ~x86"
-fi
+RESTRICT="test"
 
-DESCRIPTION="Software and GPU emulated HD output device plugin for VDR"
+EGIT_REPO_URI="git://projects.vdr-developer.org/vdr-plugin-softhddevice.git"
+KEYWORDS=""
+
+DESCRIPTION="VDR Plugin: Software and GPU emulated HD output device"
 HOMEPAGE="http://projects.vdr-developer.org/projects/show/plg-softhddevice"
 
 LICENSE="AGPL-3"
 SLOT="0"
-IUSE="alsa oss vaapi vdpau opengl yaepg xscreensaver debug"
+IUSE="alsa +debug opengl oss vaapi vdpau xscreensaver"
 
-RDEPEND=">=media-video/vdr-1.7
-	>=virtual/ffmpeg-0.7[vdpau?,vaapi?]
+RDEPEND=">=media-video/vdr-2
 	x11-libs/libX11
 	>=x11-libs/libxcb-1.8
 	x11-libs/xcb-util-wm
+	x11-libs/xcb-util-keysyms
+	x11-libs/xcb-util-renderutil
 	alsa? ( media-libs/alsa-lib )
-	vdpau? ( x11-libs/libvdpau )
-	vaapi? ( x11-libs/libva )
 	opengl? ( virtual/opengl )
-	alsa? ( media-libs/alsa-lib )
-	yaepg? ( >=media-video/vdr-1.7[yaepg] )"
+	vaapi? ( x11-libs/libva
+		virtual/ffmpeg[vaapi] )
+	vdpau? ( x11-libs/libvdpau
+		virtual/ffmpeg[vdpau] )"
 DEPEND="${RDEPEND}
-	x11-libs/xcb-util
-	sys-devel/gettext
 	virtual/pkgconfig
-	oss? ( sys-kernel/linux-headers )"
+	x11-libs/xcb-util"
 
-src_compile() {
-	local myconf
+REQUIRED_USE="opengl? ( vaapi )
+			|| ( vaapi vdpau )
+			|| ( alsa oss )"
 
-	myconf+=" ALSA=$(usex alsa 1 0)"
-	myconf+=" OSS=$(usex oss 1 0)"
-	myconf+=" VDPAU=$(usex vdpau 1 0)"
-	myconf+=" OPENGL=$(usex opengl 1 0)"
-	myconf+=" VAAPI=$(usex vaapi 1 0)"
-	myconf+=" SCREENSAVER=$(usex xscreensaver 1 0)"
-	if has_version ">=media-video/ffmpeg-0.8" ; then
-		myconf+=" SWRESAMPLE=1"
+VDR_CONFD_FILE="${FILESDIR}/confd-0.6.0"
+VDR_RCADDON_FILE="${FILESDIR}/rc-addon-0.6.0.sh"
+
+pkg_setup() {
+	vdr-plugin-2_pkg_setup
+
+	append-cppflags -DHAVE_PTHREAD_NAME
+
+	use debug && append-cppflags -DDEBUG -DOSD_DEBUG
+}
+src_prepare() {
+	vdr-plugin-2_src_prepare
+
+	BUILD_PARAMS+=" ALSA=$(usex alsa 1 0)"
+	BUILD_PARAMS+=" OPENGL=$(usex opengl 1 0)"
+	BUILD_PARAMS+=" OSS=$(usex oss 1 0)"
+	BUILD_PARAMS+=" VAAPI=$(usex vaapi 1 0)"
+	BUILD_PARAMS+=" VDPAU=$(usex vdpau 1 0)"
+	BUILD_PARAMS+=" SCREENSAVER=$(usex xscreensaver 1 0)"
+
+	if has_version ">=media-video/ffmpeg-0.8"; then
+		BUILD_PARAMS+=" SWRESAMPLE=1"
 	fi
-
-	append-cflags -DHAVE_PTHREAD_NAME -D_GNU_SOURCE
-	append-cxxflags -DHAVE_PTHREAD_NAME -D_GNU_SOURCE
-	tc-export CC CXX
-
-	BUILD_PARAMS="${myconf}"
-	vdr-plugin-2_src_compile
 }
 
 src_install() {
 	vdr-plugin-2_src_install
 
-	dodoc ChangeLog README.txt
+	nonfatal dodoc ChangeLog Todo
 }
