@@ -135,6 +135,9 @@ typedef enum
 
 #ifdef USE_VAAPI
 #include <va/va_x11.h>
+#if VA_CHECK_VERSION(0,33,99)
+#include <va/va_vpp.h>
+#endif
 #ifdef USE_GLX
 #include <va/va_glx.h>
 #endif
@@ -1454,6 +1457,10 @@ static VAImage VaOsdImage = {
 static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
 
+#if VA_CHECK_VERSION(0,33,99)
+static char VaapiVideoProcessing;	///< supports video processing
+#endif
+
     /// VA-API decoder typedef
 typedef struct _vaapi_decoder_ VaapiDecoder;
 
@@ -2364,6 +2371,28 @@ static int VaapiInit(const char *display_name)
     Vaapi1080i();
 #endif
 
+#if VA_CHECK_VERSION(0,33,99)
+    //
+    //	check vpp support
+    //
+    if (1) {
+	VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
+	int entrypoint_n;
+	int i;
+
+	vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints,
+	    &entrypoint_n);
+
+	VaapiVideoProcessing = 0;
+	for (i = 0; i < entrypoint_n; i++) {
+	    if (entrypoints[i] == VAEntrypointVideoProc) {
+		Info("video/vaapi: supports video processing\n");
+		VaapiVideoProcessing = 1;
+		break;
+	    }
+	}
+    }
+#endif
     return 1;
 }
 
@@ -2587,6 +2616,126 @@ static void VaapiSetup(VaapiDecoder * decoder,
 }
 
 ///
+///	Configure VA-API for new video format.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
+{
+#if VA_CHECK_VERSION(0,33,99)
+    VAProcFilterType filtertypes[VAProcFilterCount];
+    unsigned filtertype_n;
+    unsigned u;
+    unsigned v;
+    VAProcFilterCap denoise_caps[1];
+    unsigned denoise_cap_n;
+    VAProcFilterCapDeinterlacing deinterlacing_caps[VAProcDeinterlacingCount];
+    unsigned deinterlacing_cap_n;
+    VABufferID denoise_filter;
+    VABufferID deint_filter;
+    VABufferID sharpen_filter;
+    VABufferID color_filter;
+    VABufferID filters[VAProcFilterCount];
+    unsigned filter_n;
+
+    if (!VaapiVideoProcessing) {
+	return;
+    }
+    //
+    //	display and filter infos.
+    //
+    filtertype_n = VAProcFilterCount;	// API break this must be done
+    vaQueryVideoProcFilters(VaDisplay, decoder->VaapiContext->context_id,
+	filtertypes, &filtertype_n);
+    for (u = 0; u < filtertype_n; ++u) {
+	switch (filtertypes[u]) {
+	    case VAProcFilterNoiseReduction:
+		Info("video/vaapi: noise reduction supported\n");
+
+		denoise_cap_n = 1;
+		vaQueryVideoProcFilterCaps(VaDisplay,
+		    decoder->VaapiContext->context_id,
+		    VAProcFilterNoiseReduction, denoise_caps, &denoise_cap_n);
+		if (denoise_cap_n) {
+		    Info("video/vaapi: %.2f - %.2f ++ %.2f = %.2f\n",
+			denoise_caps->range.min_value,
+			denoise_caps->range.max_value,
+			denoise_caps->range.step,
+			denoise_caps->range.default_value);
+		}
+		break;
+	    case VAProcFilterDeinterlacing:
+		Info("video/vaapi: deinterlacing supported\n");
+
+		deinterlacing_cap_n = VAProcDeinterlacingCount;
+		vaQueryVideoProcFilterCaps(VaDisplay,
+		    decoder->VaapiContext->context_id,
+		    VAProcFilterDeinterlacing, deinterlacing_caps,
+		    &deinterlacing_cap_n);
+		for (v = 0; v < deinterlacing_cap_n; ++v) {
+		    switch (deinterlacing_caps[v].type) {
+			case VAProcDeinterlacingBob:
+			    Info("video/vaapi: bob deinterlace supported\n");
+			    break;
+			case VAProcDeinterlacingWeave:
+			    Info("video/vaapi: weave deinterlace supported\n");
+			    break;
+			case VAProcDeinterlacingMotionAdaptive:
+			    Info("video/vaapi: motion adaptive deinterlace supported\n");
+			    break;
+			case VAProcDeinterlacingMotionCompensated:
+			    Info("video/vaapi: motion compensated deinterlace supported\n");
+			    break;
+			default:
+			    Info("video/vaapi: unsupported deinterlace #%02x\n", deinterlacing_caps[v].type);
+			    break;
+		    }
+		}
+		break;
+	    case VAProcFilterSharpening:
+		Info("video/vaapi: sharpening supported\n");
+		break;
+	    case VAProcFilterColorBalance:
+		Info("video/vaapi: color balance supported\n");
+		break;
+	    default:
+		Info("video/vaapi: unsupported filter #%02x\n",
+		    filtertypes[u]);
+		break;
+	}
+    }
+
+    //
+    //	create pipeline filters
+    //
+    filter_n = 0;
+
+    filtertype_n = VAProcFilterCount;
+    vaQueryVideoProcFilters(VaDisplay, decoder->VaapiContext->context_id,
+	filtertypes, &filtertype_n);
+    for (u = 0; u < filtertype_n; ++u) {
+	switch (filtertypes[u]) {
+	    case VAProcFilterNoiseReduction:
+		break;
+	    case VAProcFilterDeinterlacing:
+		break;
+	    case VAProcFilterSharpening:
+		break;
+	    case VAProcFilterColorBalance:
+		break;
+	    default:
+		break;
+	}
+    }
+
+    //
+    //	query pipeline caps
+    //
+
+#endif
+}
+
+///
 ///	Get a free surface.  Called from ffmpeg.
 ///
 ///	@param decoder		VA-API decoder
@@ -2627,6 +2776,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 		vaErrorStr(status));
 	}
 	// FIXME: too late to switch to software rending on failures
+	VaapiSetupVideoProcessing(decoder);
     }
 #else
     (void)video_ctx;
@@ -2859,6 +3009,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	    Error(_("codec: can't create context '%s'\n"), vaErrorStr(status));
 	    goto slow_path;
 	}
+	VaapiSetupVideoProcessing(decoder);
     }
 #endif
 
@@ -5344,7 +5495,7 @@ static void VaapiOsdInit(int width, int height)
 
     VaapiUnscaledOsd = 0;
     if (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) {
-	Info(_("video/vaapi: vaapi supports unscaled osd\n"));
+	Info(_("video/vaapi: supports unscaled osd\n"));
 	VaapiUnscaledOsd = 1;
     }
     //VaapiUnscaledOsd = 0;
