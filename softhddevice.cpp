@@ -266,10 +266,12 @@ class cSoftOsd:public cOsd
 {
   public:
     static volatile char Dirty;		///< flag force redraw everything
-    int OsdLevel;			///< current osd level
+    int OsdLevel;			///< current osd level FIXME: remove
 
      cSoftOsd(int, int, uint);		///< osd constructor
      virtual ~ cSoftOsd(void);		///< osd destructor
+    /// set the sub-areas to the given areas
+    virtual eOsdError SetAreas(const tArea *, int);
     virtual void Flush(void);		///< commits all data to the hardware
     virtual void SetActive(bool);	///< sets OSD to be the active one
 };
@@ -294,11 +296,6 @@ void cSoftOsd::SetActive(bool on)
 	return;				// already active, no action
     }
     cOsd::SetActive(on);
-
-    // ignore sub-title if menu is open
-    if (OsdLevel >= OSD_LEVEL_SUBTITLES && IsOpen()) {
-	return;
-    }
 
     if (on) {
 	Dirty = 1;
@@ -331,7 +328,6 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 #endif
 
     OsdLevel = level;
-    SetActive(true);
 }
 
 /**
@@ -363,6 +359,31 @@ cSoftOsd::~cSoftOsd(void)
 }
 
 /**
++*	Set the sub-areas to the given areas
+*/
+eOsdError cSoftOsd::SetAreas(const tArea * areas, int n)
+{
+#ifdef OSD_DEBUG
+    dsyslog("[softhddev]%s: %d areas \n", __FUNCTION__, n);
+#endif
+
+    // clear old OSD, when new areas are set
+    if (!IsTrueColor()) {
+	cBitmap *bitmap;
+	int i;
+
+	for (i = 0; (bitmap = GetBitmap(i)); i++) {
+	    bitmap->Clean();
+	}
+    }
+    if (Active()) {
+	VideoOsdClear();
+	Dirty = 1;
+    }
+    return cOsd::SetAreas(areas, n);
+}
+
+/**
 **	Actually commits all data to the OSD hardware.
 */
 void cSoftOsd::Flush(void)
@@ -375,10 +396,6 @@ void cSoftOsd::Flush(void)
 #endif
 
     if (!Active()) {			// this osd is not active
-	return;
-    }
-    // don't draw sub-title if menu is active
-    if (OsdLevel >= OSD_LEVEL_SUBTITLES && IsOpen()) {
 	return;
     }
 #ifdef USE_YAEPG
@@ -395,17 +412,6 @@ void cSoftOsd::Flush(void)
 	    vidWin.Height());
     }
 #endif
-
-    //
-    //	VDR draws subtitle without clearing the old
-    //
-    if (OsdLevel >= OSD_LEVEL_SUBTITLES) {
-	VideoOsdClear();
-	cSoftOsd::Dirty = 1;
-#ifdef OSD_DEBUG
-	dsyslog("[softhddev]%s: subtitle clear\n", __FUNCTION__);
-#endif
-    }
 
     if (!IsTrueColor()) {
 	cBitmap *bitmap;
@@ -483,7 +489,7 @@ void cSoftOsd::Flush(void)
 	    // FIXME: reuse argb
 	    free(argb);
 	}
-	cSoftOsd::Dirty = 0;
+	Dirty = 0;
 	return;
     }
 
@@ -507,7 +513,7 @@ void cSoftOsd::Flush(void)
 
 	delete pm;
     }
-    cSoftOsd::Dirty = 0;
+    Dirty = 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////
