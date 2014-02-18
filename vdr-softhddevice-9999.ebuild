@@ -38,8 +38,8 @@ REQUIRED_USE="opengl? ( vaapi )
 			|| ( vaapi vdpau )
 			|| ( alsa oss )"
 
-VDR_CONFD_FILE="${FILESDIR}/confd-0.6.0"
-VDR_RCADDON_FILE="${FILESDIR}/rc-addon-0.6.0.sh"
+#VDR_CONFD_FILE="${FILESDIR}/confd-0.6.0"
+#VDR_RCADDON_FILE="${FILESDIR}/rc-addon-0.6.0.sh"
 
 pkg_setup() {
 	vdr-plugin-2_pkg_setup
