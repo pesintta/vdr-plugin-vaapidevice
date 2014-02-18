@@ -2591,8 +2591,10 @@ void Clear(void)
 
     VideoResetPacket(MyVideoStream);	// terminate work
     MyVideoStream->ClearBuffers = 1;
-    AudioFlushBuffers();
-    //NewAudioStream = 1;
+    if (!SkipAudio) {
+	AudioFlushBuffers();
+	//NewAudioStream = 1;
+    }
     // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
 
     // wait for empty buffers
@@ -3308,6 +3310,8 @@ void Suspend(int video, int audio, int dox11)
     DelPip();				// must stop PIP
 #endif
 
+    // FIXME: should not be correct, if not both are suspended!
+    // Move down into if (video) ...
     MyVideoStream->SkipStream = 1;
     SkipAudio = 1;
 
