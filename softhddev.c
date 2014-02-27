@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.c	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2014 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -32,15 +32,18 @@
 #include <fcntl.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include <string.h>
 
 #include <libintl.h>
 #define _(str) gettext(str)		///< gettext shortcut
 #define _N(str) str			///< gettext_noop shortcut
 
 #include <libavcodec/avcodec.h>
+#include <libavutil/mem.h>
 // support old ffmpeg versions <1.0
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
 #define AVCodecID CodecID

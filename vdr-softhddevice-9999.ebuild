@@ -61,6 +61,9 @@ src_prepare() {
 	if has_version ">=media-video/ffmpeg-0.8"; then
 		BUILD_PARAMS+=" SWRESAMPLE=1"
 	fi
+	if has_version ">=media-video/libav-0.8"; then
+		BUILD_PARAMS+=" AVRESAMPLE=1"
+	fi
 }
 
 src_install() {

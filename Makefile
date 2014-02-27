@@ -25,6 +25,10 @@ VDPAU ?= $(shell pkg-config --exists vdpau && echo 1)
 SCREENSAVER ?= 1
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
+    # use libav libavresample
+ifneq ($(SWRESAMPLE),1)
+AVRESAMPLE ?= $(shell pkg-config --exists libavresample && echo 1)
+endif
 
 CONFIG := # -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
@@ -77,6 +81,11 @@ ifeq ($(SWRESAMPLE),1)
 CONFIG += -DUSE_SWRESAMPLE
 _CFLAGS += $(shell pkg-config --cflags libswresample)
 LIBS += $(shell pkg-config --libs libswresample)
+endif
+ifeq ($(AVRESAMPLE),1)
+CONFIG += -DUSE_AVRESAMPLE
+_CFLAGS += $(shell pkg-config --cflags libavresample)
+LIBS += $(shell pkg-config --libs libavresample)
 endif
 
 _CFLAGS += $(shell pkg-config --cflags libavcodec x11 x11-xcb xcb xcb-icccm)

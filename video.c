@@ -64,6 +64,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <math.h>
 
 #include <libintl.h>
 #define _(str) gettext(str)		///< gettext shortcut
@@ -11474,7 +11475,7 @@ static void PrintVersion(void)
 #ifdef GIT_REV
 	"(GIT-" GIT_REV ")"
 #endif
-	",\n\t(c) 2009 - 2013 by Johns\n"
+	",\n\t(c) 2009 - 2014 by Johns\n"
 	"\tLicense AGPLv3: GNU Affero General Public License version 3\n");
 }
 

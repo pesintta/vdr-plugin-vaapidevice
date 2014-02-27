@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2014-02-04 14:38+0100\n"
+"POT-Creation-Date: 2014-02-26 15:08+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -307,6 +307,9 @@ msgid "codec: error more than one frame data\n"
 msgstr ""
 
 msgid "codec/audio: can't setup resample\n"
+msgstr ""
+
+msgid "codec/audio: can't open resample\n"
 msgstr ""
 
 msgid "codec/audio: latm\n"
