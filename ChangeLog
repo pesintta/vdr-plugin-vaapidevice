@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix "make clean-plugins".
     Fix compile with newer libav.
     Fix OSD bugs.
     Add some VA-API VPP info outputs.

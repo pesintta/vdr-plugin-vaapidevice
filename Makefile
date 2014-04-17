@@ -112,10 +112,10 @@ export CFLAGS	= $(call PKGCFG,cflags)
 export CXXFLAGS = $(call PKGCFG,cxxflags)
 
 ifeq ($(CFLAGS),)
-$(error CFLAGS not set)
+$(warning CFLAGS not set)
 endif
 ifeq ($(CXXFLAGS),)
-$(error CXXFLAGS not set)
+$(warning CXXFLAGS not set)
 endif
 
 ### The version number of VDR's plugin API:
