@@ -222,12 +222,14 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	frame->data[2] = NULL;
 	frame->data[3] = NULL;
 
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
 	// reordered frames
 	if (video_ctx->pkt) {
 	    frame->pkt_pts = video_ctx->pkt->pts;
 	} else {
 	    frame->pkt_pts = AV_NOPTS_VALUE;
 	}
+#endif
 	return 0;
     }
 #endif
@@ -249,12 +251,14 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	frame->data[0] = (void *)(size_t) surface;
 	frame->data[3] = (void *)(size_t) surface;
 
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
 	// reordered frames
 	if (video_ctx->pkt) {
 	    frame->pkt_pts = video_ctx->pkt->pts;
 	} else {
 	    frame->pkt_pts = AV_NOPTS_VALUE;
 	}
+#endif
 	return 0;
     }
     //Debug(3, "codec: fallback to default get_buffer\n");
