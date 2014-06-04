@@ -607,7 +607,7 @@ msgid "  E-AC-3 pass-through"
 msgstr ""
 
 msgid "Enable (E-)AC-3 (decoder) downmix"
-msgstr "Aktiviere (E-)AC-3 (decoder) downmix""
+msgstr "Aktiviere (E-)AC-3 (decoder) downmix"
 
 msgid "Volume control"
 msgstr "Lautstärkesteuerung"

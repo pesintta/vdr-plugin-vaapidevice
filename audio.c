@@ -1,7 +1,7 @@
 ///
 ///	@file audio.c		@brief Audio module
 ///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -132,6 +132,7 @@ static const char *AudioModuleName;	///< which audio module to use
 static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< PCM device name
 static const char *AudioPassthroughDevice;	///< Passthrough device name
+static char AudioAppendAES;		///< flag automatic append AES
 static const char *AudioMixerDevice;	///< mixer device name
 static const char *AudioMixerChannel;	///< mixer channel name
 static char AudioDoingInit;		///> flag in init, reduce error
@@ -1006,6 +1007,26 @@ static snd_pcm_t *AlsaOpenPCM(int passthrough)
     if (!AudioDoingInit) {		// reduce blabla during init
 	Info(_("audio/alsa: using %sdevice '%s'\n"),
 	    passthrough ? "pass-through " : "", device);
+    }
+    //
+    // for AC3 pass-through try to set the non-audio bit, use AES0=6
+    //
+    if (passthrough && AudioAppendAES) {
+#if 0
+	// FIXME: not yet finished
+	char *buf;
+	const char *s;
+	int n;
+
+	n = strlen(device);
+	buf = alloca(n + sizeof(":AES0=6") + 1);
+	strcpy(buf, device);
+	if (!(s = strchr(buf, ':'))) {
+	    // no alsa parameters
+	    strcpy(buf + n, ":AES=6");
+	}
+	Debug(3, "audio/alsa: try '%s'\n", buf);
+#endif
     }
     // open none blocking; if device is already used, we don't want wait
     if ((err =
@@ -2778,6 +2799,20 @@ void AudioSetPassthroughDevice(const char *device)
 void AudioSetChannel(const char *channel)
 {
     AudioMixerChannel = channel;
+}
+
+/**
+**	Set automatic AES flag handling.
+**
+**	@param onoff	turn setting AES flag on or off
+*/
+void AudioSetAutoAES(int onoff)
+{
+    if (onoff < 0) {
+	AudioAppendAES ^= 1;
+    } else {
+	AudioAppendAES = onoff;
+    }
 }
 
 /**

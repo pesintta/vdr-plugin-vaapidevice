@@ -1,7 +1,7 @@
 ///
 ///	@file audio.h		@brief Audio module headerfile
 ///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -52,6 +52,7 @@ extern void AudioSetDevice(const char *);	///< set PCM audio device
     /// set pass-through device
 extern void AudioSetPassthroughDevice(const char *);
 extern void AudioSetChannel(const char *);	///< set mixer channel
+extern void AudioSetAutoAES(int);	///< set automatic AES flag handling
 extern void AudioInit(void);		///< setup audio module
 extern void AudioExit(void);		///< cleanup and exit audio module
 
