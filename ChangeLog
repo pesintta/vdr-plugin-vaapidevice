@@ -1,6 +1,16 @@
 User johns
 Date:
 
+    Config for automatic AES parameters.
+
+User master_red
+Date: Wed Jun  4 14:44:32 CEST 2014
+
+    Support detach or suspend in plugin menu.
+
+User johns
+Date:  Fri May 30 10:18:20 CEST 2014
+
     Fix "make clean-plugins".
     Fix compile with newer libav.
     Fix OSD bugs.

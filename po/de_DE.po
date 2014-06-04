@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2014-02-26 15:08+0100\n"
+"POT-Creation-Date: 2014-03-20 11:50+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -489,6 +489,9 @@ msgstr "OSD Höhe"
 msgid "Suspend"
 msgstr "Unterbrechen"
 
+msgid "Detach from main menu entry"
+msgstr "Detach durch Hauptmenüeintrag"
+
 msgid "Suspend closes video+audio"
 msgstr "Unterbrechen schließt Video+Audio"
 
@@ -604,7 +607,7 @@ msgid "  E-AC-3 pass-through"
 msgstr ""
 
 msgid "Enable (E-)AC-3 (decoder) downmix"
-msgstr ""
+msgstr "Aktiviere (E-)AC-3 (decoder) downmix""
 
 msgid "Volume control"
 msgstr "Lautstärkesteuerung"
@@ -632,6 +635,9 @@ msgstr "Reduziere Steropegel (/1000)"
 
 msgid "Audio buffer size (ms)"
 msgstr "Audio Puffergröße (ms)"
+
+msgid "Enable automatic AES"
+msgstr "Aktiviere automatiche AES"
 
 msgid "Picture-In-Picture"
 msgstr "Bild in Bild (PIP)"
@@ -696,6 +702,9 @@ msgstr ""
 
 msgid "Channel not available!"
 msgstr "Kanal nicht verfügbar!"
+
+msgid "Detach SoftHdDevice"
+msgstr ""
 
 msgid "Suspend SoftHdDevice"
 msgstr "Unterbreche SoftHdDevice"

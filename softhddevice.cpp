@@ -79,6 +79,7 @@ static const char *const Resolution[RESOLUTIONS] = {
 
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
+static char ConfigDetachFromMainMenu;	///< detach from main menu entry instead of suspend
 static char ConfigSuspendClose;		///< suspend should close devices
 static char ConfigSuspendX11;		///< suspend should stop x11
 
@@ -139,6 +140,7 @@ static char ConfigAudioCompression;	///< config use volume compression
 static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 int ConfigAudioBufferTime;		///< config size ms of audio buffer
+static int ConfigAudioAutoAES;		///< config automatic AES handling
 
 static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
@@ -597,6 +599,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int General;
     int MakePrimary;
     int HideMainMenuEntry;
+    int DetachFromMainMenu;
     int OsdSize;
     int OsdWidth;
     int OsdHeight;
@@ -648,6 +651,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioMaxCompression;
     int AudioStereoDescent;
     int AudioBufferTime;
+    int AudioAutoAES;
 
 #ifdef USE_PIP
     int Pip;
@@ -775,6 +779,8 @@ void cMenuSetupSoft::Create(void)
 	//	suspend
 	//
 	Add(SeparatorItem(tr("Suspend")));
+	Add(new cMenuEditBoolItem(tr("Detach from main menu entry"),
+		&DetachFromMainMenu, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Suspend closes video+audio"),
 		&SuspendClose, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Suspend stops x11"), &SuspendX11,
@@ -892,6 +898,8 @@ void cMenuSetupSoft::Create(void)
 		&AudioStereoDescent, 0, 1000));
 	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"),
 		&AudioBufferTime, 0, 1000));
+	Add(new cMenuEditBoolItem(tr("Enable automatic AES"), &AudioAutoAES,
+		trVDR("no"), trVDR("yes")));
     }
 #ifdef USE_PIP
     //
@@ -997,6 +1005,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     General = 0;
     MakePrimary = ConfigMakePrimary;
     HideMainMenuEntry = ConfigHideMainMenuEntry;
+    DetachFromMainMenu = ConfigDetachFromMainMenu;
     //
     //	osd
     //
@@ -1074,6 +1083,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioMaxCompression = ConfigAudioMaxCompression;
     AudioStereoDescent = ConfigAudioStereoDescent;
     AudioBufferTime = ConfigAudioBufferTime;
+    AudioAutoAES = ConfigAudioAutoAES;
 
 #ifdef USE_PIP
     //
@@ -1110,6 +1120,8 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry =
 	HideMainMenuEntry);
+    SetupStore("DetachFromMainMenu", ConfigDetachFromMainMenu =
+	DetachFromMainMenu);
     switch (OsdSize) {
 	case 0:
 	    OsdWidth = 0;
@@ -1236,6 +1248,8 @@ void cMenuSetupSoft::Store(void)
 	AudioStereoDescent);
     AudioSetStereoDescent(ConfigAudioStereoDescent);
     SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime);
+    SetupStore("AudioAutoAES", ConfigAudioAutoAES = AudioAutoAES);
+    AudioSetAutoAES(ConfigAudioAutoAES);
 
 #ifdef USE_PIP
     SetupStore("pip.X", ConfigPipX = PipX);
@@ -1768,7 +1782,12 @@ void cSoftHdMenu::Create(void)
     Clear();				// clear the menu
 
     SetHasHotkeys();
-    Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+
+    if (ConfigDetachFromMainMenu) {
+	Add(new cOsdItem(hk(tr("Detach SoftHdDevice")), osUser1));
+    } else {
+	Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+    }
 #ifdef USE_PIP
     if (PipReceiver) {
 	Add(new cOsdItem(hk(tr("PIP toggle on/off: off")), osUser2));
@@ -2016,9 +2035,14 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 	    if (SuspendMode == NOT_SUSPENDED && !cSoftHdControl::Player) {
 		cControl::Launch(new cSoftHdControl);
 		cControl::Attach();
-		Suspend(ConfigSuspendClose, ConfigSuspendClose,
-		    ConfigSuspendX11);
-		SuspendMode = SUSPEND_NORMAL;
+		if (ConfigDetachFromMainMenu) {
+		    Suspend(1, 1, 0);
+		    SuspendMode = SUSPEND_DETACHED;
+		} else {
+		    Suspend(ConfigSuspendClose, ConfigSuspendClose,
+			ConfigSuspendX11);
+		    SuspendMode = SUSPEND_NORMAL;
+		}
 		if (ShutdownHandler.GetUserInactiveTime()) {
 		    dsyslog("[softhddev]%s: set user inactive\n",
 			__FUNCTION__);
@@ -2841,6 +2865,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	ConfigHideMainMenuEntry = atoi(value);
 	return true;
     }
+    if (!strcasecmp(name, "DetachFromMainMenu")) {
+	ConfigDetachFromMainMenu = atoi(value);
+	return true;
+    }
     if (!strcasecmp(name, "Osd.Width")) {
 	ConfigOsdWidth = atoi(value);
 	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
@@ -3038,6 +3066,11 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "AudioBufferTime")) {
 	ConfigAudioBufferTime = atoi(value);
+	return true;
+    }
+    if (!strcasecmp(name, "AudioAutoAES")) {
+	ConfigAudioAutoAES = atoi(value);
+	AudioSetAutoAES(ConfigAudioAutoAES);
 	return true;
     }
 #ifdef USE_PIP
