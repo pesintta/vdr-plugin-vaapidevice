@@ -58,7 +58,6 @@
 #define _(str) gettext(str)		///< gettext shortcut
 #define _N(str) str			///< gettext_noop shortcut
 
-#include <alsa/iatomic.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/mem.h>
 // support old ffmpeg versions <1.0
@@ -88,6 +87,7 @@
 #ifdef MAIN_H
 #include MAIN_H
 #endif
+#include "iatomic.h"
 #include "misc.h"
 #include "video.h"
 #include "audio.h"

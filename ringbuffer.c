@@ -1,7 +1,7 @@
 ///
 ///	@file ringbuffer.c	@brief Ringbuffer module
 ///
-///	Copyright (c) 2009, 2011  by Johns.  All Rights Reserved.
+///	Copyright (c) 2009, 2011, 2014	by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -30,8 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <alsa/iatomic.h>
-
+#include "iatomic.h"
 #include "ringbuffer.h"
 
     /// ring buffer structure

@@ -63,6 +63,7 @@
 #endif
 #include <pthread.h>
 
+#include "iatomic.h"			// portable atomic_t
 #include "misc.h"
 #include "softhddev.h"
 
@@ -1306,8 +1307,6 @@ void SetVolumeDevice(int volume)
 //////////////////////////////////////////////////////////////////////////////
 //	Video
 //////////////////////////////////////////////////////////////////////////////
-
-#include <alsa/iatomic.h>		// portable atomic_t
 
 #define VIDEO_BUFFER_SIZE (512 * 1024)	///< video PES buffer default size
 #define VIDEO_PACKET_MAX 192		///< max number of video packets

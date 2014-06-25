@@ -2,6 +2,7 @@ User johns
 Date:
 
     Config for automatic AES parameters.
+    Use GCC built-in functions for atomic operations.
 
 User master_red
 Date: Wed Jun  4 14:44:32 CEST 2014

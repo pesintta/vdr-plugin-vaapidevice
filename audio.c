@@ -88,7 +88,7 @@
 #endif
 #endif
 
-#include <alsa/iatomic.h>		// portable atomic_t
+#include "iatomic.h"			// portable atomic_t
 
 #include "ringbuffer.h"
 #include "misc.h"

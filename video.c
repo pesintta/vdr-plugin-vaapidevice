@@ -70,8 +70,6 @@
 #define _(str) gettext(str)		///< gettext shortcut
 #define _N(str) str			///< gettext_noop shortcut
 
-#include <alsa/iatomic.h>		// portable atomic_t
-
 #ifdef USE_VIDEO_THREAD
 #ifndef __USE_GNU
 #define __USE_GNU
@@ -179,6 +177,7 @@ typedef enum
 #define FFMPEG_BUG1_WORKAROUND		///< get_format bug workaround
 #endif
 
+#include "iatomic.h"			// portable atomic_t
 #include "misc.h"
 #include "video.h"
 #include "audio.h"
