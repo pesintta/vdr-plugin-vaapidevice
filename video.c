@@ -1497,7 +1497,11 @@ struct _vaapi_decoder_
 
     VAProfile Profile;			///< VA-API profile
     VAEntrypoint Entrypoint;		///< VA-API entrypoint
+    VAEntrypoint VppEntrypoint;		///< VA-API postprocessing entrypoint
     struct vaapi_context VaapiContext[1];	///< ffmpeg VA-API context
+
+    VAConfigID VppConfig;		///< VPP Config
+    VAContextID	vpp_ctx;		///< VPP Context
 
     int SurfacesNeeded;			///< number of surface to request
     int SurfaceUsedN;			///< number of used surfaces
@@ -1527,12 +1531,24 @@ struct _vaapi_decoder_
 
     /// video surface ring buffer
     VASurfaceID SurfacesRb[VIDEO_SURFACES_MAX];
+    VASurfaceID PostProcSurfacesRb[VIDEO_SURFACES_MAX];	///< Posprocessing result surfaces
+
+    VASurfaceID * ForwardRefSurfaces;	///< Forward referencing surfaces for post processing
+    VASurfaceID * BackwardRefSurfaces;	///< Backward referencing surfaces for post processing
+
+    unsigned int ForwardRefCount;	///< Current number of forward references
+    unsigned int BackwardRefCount;	///< Current number of backward references
+
+    VASurfaceID PlaybackSurface;	///< Currently playing surface
+
 #ifdef VA_EXP
     VASurfaceID LastSurface;		///< last surface
 #endif
     int SurfaceWrite;			///< write pointer
     int SurfaceRead;			///< read pointer
     atomic_t SurfacesFilled;		///< how many of the buffer is used
+
+    int PostProcSurfaceWrite;		///< postprocessing write pointer
 
     int SurfaceField;			///< current displayed field
     int TrickSpeed;			///< current trick speed
@@ -1551,6 +1567,14 @@ struct _vaapi_decoder_
     int FramesDropped;			///< number of frames dropped
     int FrameCounter;			///< number of frames decoded
     int FramesDisplayed;		///< number of frames displayed
+    VABufferID filters[VAProcFilterCount]; ///< video postprocessing filters
+    unsigned filter_n;                  ///< number of postprocessing filters
+    VABufferID* vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
+    VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
+    VABufferID* vpp_brightness_buf;	///< video postprocessing brightness buffer
+    VABufferID* vpp_contrast_buf;	///< video postprocessing contrast buffer
+    VABufferID* vpp_hue_buf;		///< video postprocessing hue buffer
+    VABufferID* vpp_saturation_buf;	///< video postprocessing saturation buffer
 };
 
 static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
@@ -1624,6 +1648,7 @@ static void VaapiAssociate(VaapiDecoder * decoder)
     int y;
     int w;
     int h;
+    VAStatus va_status;
 
     if (VaOsdSubpicture == VA_INVALID_ID) {
 	Warning(_("video/vaapi: no osd subpicture yet\n"));
@@ -1671,6 +1696,13 @@ static void VaapiAssociate(VaapiDecoder * decoder)
 	    Error(_("video/vaapi: can't associate subpicture\n"));
 	}
     }
+
+    va_status = vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+                                      decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX, x, y, w, h, 0, 0,
+                                      VideoWindowWidth, VideoWindowHeight,
+                                      VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
+    if (va_status != VA_STATUS_SUCCESS)
+        Error(_("video/vaapi: can't associate subpicture\n"));
 }
 
 ///
@@ -1696,6 +1728,9 @@ static void VaapiDeassociate(VaapiDecoder * decoder)
 	    Error(_("video/vaapi: can't deassociate %d surfaces\n"),
 		decoder->SurfaceUsedN);
 	}
+
+        vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
+                                decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX);
     }
 }
 
@@ -1726,6 +1761,14 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 	    decoder->SurfaceFreeN);
 	// FIXME: write error handler / fallback
     }
+
+    if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width,
+	    height, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX, NULL,
+	    0) != VA_STATUS_SUCCESS) {
+	Fatal(_("video/vaapi: can't create %d posproc surfaces\n"),
+	    VIDEO_SURFACES_MAX);
+    }
+
 }
 
 ///
@@ -1962,7 +2005,36 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
+	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
+
+    // Initialize postprocessing surfaces to 0
+    // They are allocated on-demand
+    if (decoder->ForwardRefSurfaces)
+        free(decoder->ForwardRefSurfaces);
+    decoder->ForwardRefSurfaces = NULL;
+    decoder->ForwardRefCount = 0;
+
+    decoder->PlaybackSurface = VA_INVALID_ID;
+
+    if (decoder->BackwardRefSurfaces)
+        free(decoder->BackwardRefSurfaces);
+    decoder->BackwardRefSurfaces = NULL;
+    decoder->BackwardRefCount = 0;
+
+    // Initialize vpp filter chain
+    for (i = 0; i < VAProcFilterCount; ++i) {
+        decoder->filters[i] = VA_INVALID_ID;
+    }
+    decoder->filter_n = 0;
+
+    decoder->vpp_deinterlace_buf = NULL;
+    decoder->vpp_denoise_buf = NULL;
+    decoder->vpp_brightness_buf = NULL;
+    decoder->vpp_contrast_buf = NULL;
+    decoder->vpp_saturation_buf = NULL;
+    decoder->vpp_hue_buf = NULL;
+
 #ifdef VA_EXP
     decoder->LastSurface = VA_INVALID_ID;
 #endif
@@ -1974,6 +2046,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     //
     decoder->Profile = VA_INVALID_ID;
     decoder->Entrypoint = VA_INVALID_ID;
+    decoder->VppEntrypoint = VA_INVALID_ID;
+    decoder->VppConfig = VA_INVALID_ID;
     decoder->VaapiContext->display = VaDisplay;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->VaapiContext->context_id = VA_INVALID_ID;
@@ -2021,7 +2095,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 {
     int filled;
     VASurfaceID surface;
-    int i;
+    unsigned int i;
 
     // flush output queue, only 1-2 frames buffered, no big loss
     while ((filled = atomic_read(&decoder->SurfacesFilled))) {
@@ -2050,6 +2124,30 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
+    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
+    }
+
+    // clear forward/backward references for vpp
+    if (decoder->ForwardRefSurfaces)
+        free(decoder->ForwardRefSurfaces);
+    decoder->ForwardRefSurfaces = NULL;
+    decoder->ForwardRefCount = 0;
+
+    decoder->PlaybackSurface = VA_INVALID_ID;
+
+    if (decoder->BackwardRefSurfaces)
+        free(decoder->BackwardRefSurfaces);
+    decoder->BackwardRefSurfaces = NULL;
+    decoder->BackwardRefCount = 0;
+
+    // Free & clear vpp filter chain
+    for (i = 0; i < decoder->filter_n; ++i) {
+        vaDestroyBuffer(VaDisplay, decoder->filters[i]);
+        decoder->filters[i] = VA_INVALID_ID;
+    }
+    decoder->filter_n = 0;
+
 #ifdef VA_EXP
     decoder->LastSurface = VA_INVALID_ID;
 #endif
@@ -2094,6 +2192,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
     decoder->SurfaceField = 0;
+
+    decoder->PostProcSurfaceWrite = 0;
 
     decoder->SyncCounter = 0;
     decoder->FrameCounter = 0;
@@ -2620,6 +2720,54 @@ out_destroy:
     return bgra;
 }
 
+#define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
+
+///
+///	Generic helper to set-up ParameterBuffer filters
+///	(like NoiseReduction, SkinToneEnhancement, Sharpening...).
+///
+///	@param decoder	VA-API decoder
+///	@param type	Type of filter to set-up
+///	@param value	Value of the filter to set-up to
+///	@return 	Buffer ID for the filter or VA_INVALID_ID if unsuccessful
+///
+static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VAProcFilterType type, float value)
+{
+    VAProcFilterParameterBuffer param_buf;
+    VABufferID filter_buf_id;
+    unsigned int cap_n = 1;
+    VAProcFilterCap caps[cap_n];
+
+    VAStatus va_status = vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
+						    type, caps, &cap_n);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("Failed to query filter #%02x capabilities: %s\n", type, vaErrorStr(va_status));
+        return VA_INVALID_ID;
+    }
+    if (cap_n != 1) {
+        Error("Wrong number of capabilities (%d) for filter %#010x\n", cap_n, type);
+        return VA_INVALID_ID;
+    }
+
+    Info("video/vaapi: %.2f - %.2f ++ %.2f = %.2f\n",
+	 caps->range.min_value,
+	 caps->range.max_value,
+	 caps->range.step,
+	 caps->range.default_value);
+
+    param_buf.type = type;
+    param_buf.value = value;
+    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+			       VAProcFilterParameterBufferType, sizeof(param_buf), 1,
+			       &param_buf, &filter_buf_id);
+
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("Could not create buffer for filter #%02x: %s\n", type, vaErrorStr(va_status));
+        return VA_INVALID_ID;
+    }
+    return filter_buf_id;
+}
+
 ///
 ///	Clamp given value to range that fits in uint8_t
 ///
@@ -2852,45 +3000,42 @@ static void VaapiSetup(VaapiDecoder * decoder,
 static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 {
 #if VA_CHECK_VERSION(0,33,99)
+    VAStatus va_status;
     VAProcFilterType filtertypes[VAProcFilterCount];
     unsigned filtertype_n;
     unsigned u;
     unsigned v;
-    VAProcFilterCap denoise_caps[1];
-    unsigned denoise_cap_n;
     VAProcFilterCapDeinterlacing deinterlacing_caps[VAProcDeinterlacingCount];
     unsigned deinterlacing_cap_n;
-    VABufferID denoise_filter;
-    VABufferID deint_filter;
-    VABufferID sharpen_filter;
-    VABufferID color_filter;
-    VABufferID filters[VAProcFilterCount];
-    unsigned filter_n;
+    VAProcFilterCapColorBalance colorbalance_caps[VAProcColorBalanceCount];
+    unsigned colorbalance_cap_n;
+
+    VABufferID filter_buf_id;
+
+    VAProcPipelineCaps pipeline_caps;
+    VAProcColorStandardType in_color_standards[VAProcColorStandardCount];
+    VAProcColorStandardType out_color_standards[VAProcColorStandardCount];
 
     if (!VaapiVideoProcessing) {
 	return;
     }
+
     //
     //	display and filter infos.
     //
     filtertype_n = VAProcFilterCount;	// API break this must be done
-    vaQueryVideoProcFilters(VaDisplay, decoder->VaapiContext->context_id,
+    vaQueryVideoProcFilters(VaDisplay, decoder->vpp_ctx,
 	filtertypes, &filtertype_n);
+
     for (u = 0; u < filtertype_n; ++u) {
 	switch (filtertypes[u]) {
 	    case VAProcFilterNoiseReduction:
 		Info("video/vaapi: noise reduction supported\n");
-
-		denoise_cap_n = 1;
-		vaQueryVideoProcFilterCaps(VaDisplay,
-		    decoder->VaapiContext->context_id,
-		    VAProcFilterNoiseReduction, denoise_caps, &denoise_cap_n);
-		if (denoise_cap_n) {
-		    Info("video/vaapi: %.2f - %.2f ++ %.2f = %.2f\n",
-			denoise_caps->range.min_value,
-			denoise_caps->range.max_value,
-			denoise_caps->range.step,
-			denoise_caps->range.default_value);
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		if (filter_buf_id != VA_INVALID_ID) {
+		    Info("Enabling denoise filter (pos = %d)\n", decoder->filter_n);
+		    decoder->vpp_denoise_buf = &decoder->filters[decoder->filter_n];
+		    decoder->filters[decoder->filter_n++] = filter_buf_id;
 		}
 		break;
 	    case VAProcFilterDeinterlacing:
@@ -2898,68 +3043,194 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 
 		deinterlacing_cap_n = VAProcDeinterlacingCount;
 		vaQueryVideoProcFilterCaps(VaDisplay,
-		    decoder->VaapiContext->context_id,
+		    decoder->vpp_ctx,
 		    VAProcFilterDeinterlacing, deinterlacing_caps,
 		    &deinterlacing_cap_n);
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
+
+		    /* Deinterlacing parameters */
+		    VAProcFilterParameterBufferDeinterlacing deinterlace;
+
+		    deinterlace.type = VAProcFilterDeinterlacing;
+		    deinterlace.flags = 0;
+
 		    switch (deinterlacing_caps[v].type) {
+			case VAProcDeinterlacingNone:
+			    Info("video/vaapi: none deinterlace supported\n");
+			    deinterlace.algorithm = VAProcDeinterlacingNone;
+			    break;
 			case VAProcDeinterlacingBob:
 			    Info("video/vaapi: bob deinterlace supported\n");
+			    deinterlace.algorithm = VAProcDeinterlacingBob;
 			    break;
 			case VAProcDeinterlacingWeave:
 			    Info("video/vaapi: weave deinterlace supported\n");
+			    deinterlace.algorithm = VAProcDeinterlacingWeave;
 			    break;
 			case VAProcDeinterlacingMotionAdaptive:
 			    Info("video/vaapi: motion adaptive deinterlace supported\n");
+			    deinterlace.algorithm = VAProcDeinterlacingMotionAdaptive;
 			    break;
 			case VAProcDeinterlacingMotionCompensated:
 			    Info("video/vaapi: motion compensated deinterlace supported\n");
+			    deinterlace.algorithm = VAProcDeinterlacingMotionCompensated;
 			    break;
 			default:
 			    Info("video/vaapi: unsupported deinterlace #%02x\n", deinterlacing_caps[v].type);
 			    break;
 		    }
+		    /* Force motion comp di */
+		    if (deinterlacing_caps[v].type != VAProcDeinterlacingMotionCompensated)
+			continue;
+
+		    Info("Enabling Deint (pos = %d)\n", decoder->filter_n);
+		    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+					       VAProcFilterParameterBufferType, sizeof(deinterlace), 1,
+					       &deinterlace, &filter_buf_id);
+		    decoder->vpp_deinterlace_buf = &decoder->filters[decoder->filter_n];
+		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+
 		}
 		break;
 	    case VAProcFilterSharpening:
 		Info("video/vaapi: sharpening supported\n");
+#if 0 // Sharpening is advertised by driver but not really supported
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		if (filter_buf_id != VA_INVALID_ID) {
+		    Info("Enabling sharpening filter (pos = %d)\n", decoder->filter_n);
+		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+		}
+#endif
 		break;
 	    case VAProcFilterColorBalance:
-		Info("video/vaapi: color balance supported\n");
+		Info("video/vaapi: enabling color balance filters\n");
+		colorbalance_cap_n = VAProcColorBalanceCount;
+		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
+		     VAProcFilterColorBalance, colorbalance_caps,
+		     &colorbalance_cap_n);
+
+		Info("video/vaapi: Supported color balance filter count: %d\n", colorbalance_cap_n);
+
+		if (!colorbalance_cap_n)
+		    break;
+
+		/* Set each color balance filter individually */
+		for (v = 0; v < colorbalance_cap_n; ++v) {
+
+		    /* Color balance buffer */
+		    VAProcFilterParameterBufferColorBalance cbal_param;
+
+		    switch(colorbalance_caps[v].type) {
+			case VAProcColorBalanceNone:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "None",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    continue; // "None" is not an interesting filter
+			    break;
+			case VAProcColorBalanceHue:
+			    continue; // Not enabling to conserve filters (there seems to be a max limit)
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Hue",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+
+			    decoder->vpp_hue_buf = &decoder->filters[decoder->filter_n];
+			    break;
+			case VAProcColorBalanceSaturation:
+			    continue; // Not enabling to conserve filters (there seems to be a max limit)
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Saturation",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+
+			    decoder->vpp_saturation_buf = &decoder->filters[decoder->filter_n];
+			    break;
+			case VAProcColorBalanceBrightness:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Brightness",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+
+			    decoder->vpp_brightness_buf = &decoder->filters[decoder->filter_n];
+			    break;
+			case VAProcColorBalanceContrast:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Contrast",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+
+			    decoder->vpp_contrast_buf = &decoder->filters[decoder->filter_n];
+
+			    break;
+			case VAProcColorBalanceAutoSaturation:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoSaturation",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    continue;
+			    break;
+			case VAProcColorBalanceAutoBrightness:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoBrightness",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    continue;
+			    break;
+			case VAProcColorBalanceAutoContrast:
+			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoContrast",
+				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    continue;
+			    break;
+
+			default:
+			    Info("video/vaapi: unsupported color balance filter #%02x\n", colorbalance_caps[v].type);
+			    break;
+		    }
+
+		    cbal_param.type = VAProcFilterColorBalance;
+		    cbal_param.attrib = colorbalance_caps[v].type;
+		    cbal_param.value = colorbalance_caps[v].range.default_value;
+
+		    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+					       VAProcFilterParameterBufferType,
+					       sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n,
+					       &cbal_param, &filter_buf_id);
+
+		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+		}
+
+		break;
+	    case VAProcFilterSkinToneEnhancement:
+		Info("video/vaapi: skin tone enhancement supported\n");
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		if (filter_buf_id != VA_INVALID_ID) {
+		    Info("Enabling skin tone filter (pos = %d)\n", decoder->filter_n);
+		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+		}
 		break;
 	    default:
-		Info("video/vaapi: unsupported filter #%02x\n",
-		    filtertypes[u]);
+		Info("video/vaapi: unsupported filter #%02x\n", filtertypes[u]);
 		break;
 	}
     }
-
-    //
-    //	create pipeline filters
-    //
-    filter_n = 0;
-
-    filtertype_n = VAProcFilterCount;
-    vaQueryVideoProcFilters(VaDisplay, decoder->VaapiContext->context_id,
-	filtertypes, &filtertype_n);
-    for (u = 0; u < filtertype_n; ++u) {
-	switch (filtertypes[u]) {
-	    case VAProcFilterNoiseReduction:
-		break;
-	    case VAProcFilterDeinterlacing:
-		break;
-	    case VAProcFilterSharpening:
-		break;
-	    case VAProcFilterColorBalance:
-		break;
-	    default:
-		break;
-	}
-    }
-
     //
     //	query pipeline caps
     //
+    pipeline_caps.input_color_standards      = in_color_standards;
+    pipeline_caps.num_input_color_standards  = ARRAY_ELEMS(in_color_standards);
+    pipeline_caps.output_color_standards     = out_color_standards;
+    pipeline_caps.num_output_color_standards = ARRAY_ELEMS(out_color_standards);
+
+    va_status = vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx,
+                                 decoder->filters, decoder->filter_n, &pipeline_caps);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Fatal("Failed to query proc pipeline caps, error = %s\n", vaErrorStr(va_status));
+    }
+
+    Info("Allocating %d forward reference surfaces for postprocessing\n", pipeline_caps.num_forward_references);
+    decoder->ForwardRefSurfaces = realloc(decoder->ForwardRefSurfaces, pipeline_caps.num_forward_references * sizeof(VASurfaceID));
+    decoder->ForwardRefCount = pipeline_caps.num_forward_references;
+
+    Info("Allocating %d backward reference surfaces for postprocessing\n", pipeline_caps.num_backward_references);
+    decoder->BackwardRefSurfaces = realloc(decoder->BackwardRefSurfaces, pipeline_caps.num_backward_references * sizeof(VASurfaceID));
+    decoder->BackwardRefCount = pipeline_caps.num_backward_references;
+
+    //TODO: Verify that rest of the capabilities are set properly
 
 #endif
 }
@@ -3004,6 +3275,23 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 	    Error(_("video/vaapi: can't create context '%s'\n"),
 		vaErrorStr(status));
 	}
+
+        status = vaCreateConfig(decoder->VaDisplay, VAProfileNone,
+                                decoder->VppEntrypoint, NULL, 0,
+                                &decoder->VppConfig);
+        if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create config '%s'\n"),
+		vaErrorStr(status));
+        }
+        status = vaCreateContext(decoder->VaDisplay, decoder->VppConfig,
+                                 video_ctx->width, video_ctx->height,
+                                 VA_PROGRESSIVE, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX,
+                                 &decoder->vpp_ctx);
+        if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create context '%s'\n"),
+		vaErrorStr(status));
+        }
+
 	// FIXME: too late to switch to software rending on failures
 	VaapiSetupVideoProcessing(decoder);
     }
@@ -3080,6 +3368,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     int entrypoint_n;
     int p;
     int e;
+    int i;
     VAConfigAttrib attrib;
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO
@@ -3204,6 +3493,21 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	goto slow_path;
     }
 
+    vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints,
+                             &entrypoint_n);
+
+    for (i = 0; i < entrypoint_n; i++) {
+        if (entrypoints[i] == VAEntrypointVideoProc) {
+            decoder->VppEntrypoint = entrypoints[i];
+            break;
+        }
+    }
+
+    if (decoder->VppEntrypoint == VA_INVALID_ID)
+        Error("Could not locate Vpp EntryPoint!!\n");
+    else
+        Info("Using entrypoint for vpp: %d\n", decoder->VppEntrypoint);
+
     decoder->Profile = p;
     decoder->Entrypoint = e;
     decoder->PixFmt = *fmt_idx;
@@ -3249,6 +3553,8 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     // no accelerated format found
     decoder->Profile = VA_INVALID_ID;
     decoder->Entrypoint = VA_INVALID_ID;
+    decoder->VppEntrypoint = VA_INVALID_ID;
+    decoder->VppConfig = VA_INVALID_ID;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
     decoder->PixFmt = PIX_FMT_NONE;
@@ -3652,11 +3958,191 @@ static void VaapiResetAutoCrop(void)
 #endif
 
 ///
+///	Run deinterlacers on surface queue (should be called after queuing new surface)
+///
+///	@param decoder	VA-API decoder
+///	@param top_field top field is first
+///	@return Pointer to postprocessed surface or NULL if postprocessing failed
+///
+///	@note we can't mix software and hardware decoder surfaces
+///
+static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_field)
+{
+    unsigned int i;
+    VAStatus va_status;
+    VASurfaceStatus va_surf_status;
+    VABufferID pipeline_buf = VA_INVALID_ID;
+    VAProcPipelineCaps pipeline_caps;
+    VAProcPipelineParameterBuffer *pipeline_param = NULL;
+    VAProcFilterParameterBufferDeinterlacing *deinterlace = NULL;
+    VASurfaceID *surface = NULL;
+    VASurfaceID *prevsurface = NULL;
+
+    /* No postprocessing filters enabled */
+    if (!decoder->filter_n)
+        return NULL;
+
+    /* Get next postproc surface to write from ring buffer */
+    prevsurface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+
+    /* Map deinterlace buffer and handle field ordering */
+    if (decoder->vpp_deinterlace_buf) {
+        va_status = vaMapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf, (void**)&deinterlace);
+        if (va_status != VA_STATUS_SUCCESS) {
+            Error("deint map buffer va_status = 0x%X\n", va_status);
+            return NULL;
+        }
+        if (top_field)
+            deinterlace->flags = 0;
+        else
+            deinterlace->flags = VA_DEINTERLACING_BOTTOM_FIELD;
+
+        if (!decoder->TopFieldFirst)
+            deinterlace->flags |= VA_DEINTERLACING_BOTTOM_FIELD_FIRST;
+
+        vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
+    }
+
+    va_status = vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx,
+                                             decoder->filters, decoder->filter_n,
+                                             &pipeline_caps);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("query pipeline caps va_status = 0x%X, reason = %s\n", va_status, vaErrorStr(va_status));
+        return NULL;
+    }
+
+    if (pipeline_caps.num_forward_references != decoder->ForwardRefCount) {
+        Info("Changing to %d forward reference surfaces for postprocessing\n", pipeline_caps.num_forward_references);
+        decoder->ForwardRefSurfaces = realloc(decoder->ForwardRefSurfaces, pipeline_caps.num_forward_references * sizeof(VASurfaceID));
+        decoder->ForwardRefCount = pipeline_caps.num_forward_references;
+    }
+
+    if (pipeline_caps.num_backward_references != decoder->BackwardRefCount) {
+        Info("Changing to %d backward reference surfaces for postprocessing\n", pipeline_caps.num_backward_references);
+        decoder->BackwardRefSurfaces = realloc(decoder->ForwardRefSurfaces, pipeline_caps.num_backward_references * sizeof(VASurfaceID));
+        decoder->BackwardRefCount = pipeline_caps.num_backward_references;
+    }
+
+    /* Make sure rendering is finished in earliest forward reference surface */
+    if (decoder->ForwardRefCount)
+        vaSyncSurface(VaDisplay, decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1]);
+
+    /* Skip postprocessing if queue is not deinterlaceable */
+    for (i = 0; i < decoder->BackwardRefCount; ++i) {
+        va_status = vaQuerySurfaceStatus(VaDisplay, decoder->BackwardRefSurfaces[i], &va_surf_status);
+        if (va_status != VA_STATUS_SUCCESS) {
+            Error("Surface %d query status = 0x%X: %s\n", i, va_status, vaErrorStr(va_status));
+            return NULL;
+        }
+        if (va_surf_status != VASurfaceReady) {
+            Info("Backward reference surface %d is not ready, surf_status = %d\n", i, va_surf_status);
+            return NULL;
+        }
+    }
+
+    for (i = 0; i < decoder->ForwardRefCount; ++i) {
+        va_status = vaQuerySurfaceStatus(VaDisplay, decoder->ForwardRefSurfaces[i], &va_surf_status);
+        if (va_status != VA_STATUS_SUCCESS) {
+            Error("Surface %d query status = 0x%X: %s\n", i, va_status, vaErrorStr(va_status));
+            return NULL;
+        }
+        if (va_surf_status != VASurfaceReady) {
+            Info("Forward reference surface %d is not ready, surf_status = %d\n", i, va_surf_status);
+            return NULL;
+        }
+    }
+
+    va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, *surface);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("begin picture va_status = 0x%X\n", va_status);
+        return NULL;
+    }
+
+    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+                               VAProcPipelineParameterBufferType, sizeof(VAProcPipelineParameterBuffer), 1,
+                               NULL, &pipeline_buf);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("createbuffer va_status = 0x%X\n", va_status);
+        return NULL;
+    }
+
+    va_status = vaMapBuffer(VaDisplay, pipeline_buf, (void **)&pipeline_param);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("map buffer va_status = 0x%X\n", va_status);
+        return NULL;
+    }
+
+    pipeline_param->surface              = decoder->PlaybackSurface;
+    pipeline_param->surface_region       = NULL;
+    pipeline_param->output_region        = NULL;
+    pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ | top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
+    pipeline_param->filters              = decoder->filters;
+    pipeline_param->num_filters          = decoder->filter_n;
+
+    pipeline_param->forward_references   = decoder->ForwardRefSurfaces;
+    pipeline_param->num_forward_references = decoder->ForwardRefCount;
+    pipeline_param->backward_references  = decoder->BackwardRefSurfaces;
+    pipeline_param->num_backward_references = decoder->BackwardRefCount;
+
+    vaUnmapBuffer(VaDisplay, pipeline_buf);
+
+    va_status = vaRenderPicture(VaDisplay, decoder->vpp_ctx, &pipeline_buf, 1);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("Postprocessing failed, status = 0x%X, reason = %s\n", va_status, vaErrorStr(va_status));
+        surface = NULL;
+    }
+    vaEndPicture(VaDisplay, decoder->vpp_ctx);
+
+    return prevsurface;
+}
+
+///
 ///	Queue output surface.
 ///
 ///	@param decoder	VA-API decoder
 ///	@param surface	output surface
-///	@param softdec	software decoder
+///
+///	@note we can't mix software and hardware decoder surfaces
+///
+static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
+{
+    unsigned int i;
+
+    if (decoder->SurfaceField) {
+        decoder->SurfaceField = 0;
+    } else {
+        decoder->SurfaceField = 1;
+    }
+
+    /* Advance surfaces in queue:
+     * new surface -> last surface in forward reference queue
+     * Nearest surface to playback -> playback position
+     * playback position -> first backward reference
+     */
+    if (decoder->BackwardRefCount) {
+        for (i = 0; i < decoder->BackwardRefCount - 1; ++i) {
+            decoder->BackwardRefSurfaces[i] = decoder->BackwardRefSurfaces[i + 1];
+        }
+        decoder->BackwardRefSurfaces[decoder->BackwardRefCount - 1] = decoder->PlaybackSurface;
+    }
+
+    if (decoder->ForwardRefCount) {
+        decoder->PlaybackSurface = decoder->ForwardRefSurfaces[0];
+        for (i = decoder->ForwardRefCount - 1; i > 0; --i) {
+            decoder->ForwardRefSurfaces[i - 1] = decoder->ForwardRefSurfaces[i];
+        }
+        decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = surface;
+    }
+}
+
+///
+///	Queue output surface.
+///
+///	@param decoder	VA-API decoder
+///	@param surface	output surface
+///	@param softdec  software decoder
 ///
 ///	@note we can't mix software and hardware decoder surfaces
 ///
@@ -3664,7 +4150,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     int softdec)
 {
     VASurfaceID old;
-
+    VASurfaceID * postprocessed = NULL;
     ++decoder->FrameCounter;
 
     if (1) {				// can't wait for output queue empty
@@ -3750,9 +4236,26 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     }
 #endif
 
-    decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1)
-	% VIDEO_SURFACES_MAX;
+    /* Queue new surface and process twice for top & bottom fields */
+    VaapiQueueSurfaceNew(decoder, surface);
+    postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
+    if (!postprocessed) {
+        /* Use unprocessed surface if postprocessing fails */
+        decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+    } else {
+        decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+    }
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    atomic_inc(&decoder->SurfacesFilled);
+
+    postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
+    if (!postprocessed) {
+        /* Use unprocessed surface if postprocessing fails */
+        decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+    } else {
+        decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+    }
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
     atomic_inc(&decoder->SurfacesFilled);
 
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
@@ -5000,39 +5503,29 @@ static void *VaapiGetHwAccelContext(VaapiDecoder * decoder)
 ///
 static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 {
-    // next surface, if complete frame is displayed (1 -> 0)
-    if (decoder->SurfaceField) {
-	VASurfaceID surface;
-	int filled;
+    VASurfaceID surface;
+    int filled;
 
-	filled = atomic_read(&decoder->SurfacesFilled);
-	// FIXME: this should check the caller
-	// check decoder, if new surface is available
-	if (filled <= 1) {
-	    // keep use of last surface
-	    ++decoder->FramesDuped;
-	    // FIXME: don't warn after stream start, don't warn during pause
-	    Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
+    filled = atomic_read(&decoder->SurfacesFilled);
+    // FIXME: this should check the caller
+    // check decoder, if new surface is available
+    if (filled <= 1) {
+        // keep use of last surface
+        ++decoder->FramesDuped;
+        // FIXME: don't warn after stream start, don't warn during pause
+        Error(_("video: display buffer empty, duping frame (%d/%d) %d\n"),
 		decoder->FramesDuped, decoder->FrameCounter,
 		VideoGetBuffers(decoder->Stream));
-	    return;
-	}
-	// wait for rendering finished
-	surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	if (vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: vaSyncSurface failed\n"));
-	}
-
-	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
-	atomic_dec(&decoder->SurfacesFilled);
-
-	// progressiv oder software deinterlacer
-	decoder->SurfaceField = !decoder->Interlaced
-	    || VideoDeinterlace[decoder->Resolution]
-	    >= VideoDeinterlaceSoftBob;
-	return;
+        return;
     }
-    decoder->SurfaceField = 1;
+    // wait for rendering finished
+    surface = decoder->SurfacesRb[decoder->SurfaceRead];
+    if (vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: vaSyncSurface failed\n"));
+    }
+
+    decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
+    atomic_dec(&decoder->SurfacesFilled);
 }
 
 ///
@@ -11071,6 +11564,36 @@ void VideoSetBlackPicture(int onoff)
     VideoShowBlackPicture = onoff;
 }
 
+#ifdef USE_VAAPI
+///
+///	Vaapi helper to set various video params (brightness, contrast etc.)
+///
+///	@param buf	Pointer to value to set
+///	@param value	new value to set
+///	@return 	status whether successful
+///
+static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, float value)
+{
+   VAProcFilterParameterBufferColorBalance *cbal_param;
+   VAStatus va_status = vaMapBuffer(VaDisplay, *buf, (void**)&cbal_param);
+   if (va_status != VA_STATUS_SUCCESS)
+       return va_status;
+
+   printf("Previous value is %f\n", cbal_param->value);
+   /* Assuming here that the type is set before and does not need to be modified */
+   cbal_param->value = value;
+
+   vaUnmapBuffer(VaDisplay, *buf);
+
+   return va_status;
+}
+
+static inline float VaapiScale(float valueIn, float baseMin, float baseMax, float limitMin, float limitMax)
+{
+    return ((limitMax - limitMin) * (valueIn - baseMin) / (baseMax - baseMin)) + limitMin;
+}
+#endif
+
 ///
 ///	Set brightness adjustment.
 ///
@@ -11085,7 +11608,14 @@ void VideoSetBrightness(int brightness)
 	VdpauDecoders[0]->Procamp.brightness = brightness / 1000;
     }
 #endif
-    // FIXME: VA-API support
+
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_buf) {
+        // Scale to match
+        float vaapivalue = VaapiScale(brightness, -1000.0, 1000.0, -100.0, 100.0);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_brightness_buf, vaapivalue);
+    }
+#endif
     (void)brightness;
 }
 
@@ -11103,7 +11633,13 @@ void VideoSetContrast(int contrast)
 	VdpauDecoders[0]->Procamp.contrast = contrast / 1000;
     }
 #endif
-    // FIXME: VA-API support
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_buf) {
+        // Scale to match
+        float vaapivalue = VaapiScale(contrast, 0.0, 10000.0, 0.0, 10.0);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_contrast_buf, vaapivalue);
+    }
+#endif
     (void)contrast;
 }
 
@@ -11121,7 +11657,13 @@ void VideoSetSaturation(int saturation)
 	VdpauDecoders[0]->Procamp.saturation = saturation / 1000;
     }
 #endif
-    // FIXME: VA-API support
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_buf) {
+        // Scale to match
+        float vaapivalue = VaapiScale(saturation, 0.0, 10000.0, 0.0, 10.0);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_saturation_buf, vaapivalue);
+    }
+#endif
     (void)saturation;
 }
 
@@ -11139,7 +11681,13 @@ void VideoSetHue(int hue)
 	VdpauDecoders[0]->Procamp.hue = hue / 1000;
     }
 #endif
-    // FIXME: VA-API support
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_buf) {
+        // Scale to match
+        float vaapivalue = VaapiScale(hue, -M_PI * 1000.0, M_PI * 1000.0, -180.0, 180.0);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_hue_buf, vaapivalue);
+    }
+#endif
     (void)hue;
 }
 
