@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Support ffmpeg new AVFrame API in the audio codec.
     Config for automatic AES parameters.
     Use GCC built-in functions for atomic operations.
 

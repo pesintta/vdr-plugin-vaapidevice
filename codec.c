@@ -681,6 +681,10 @@ struct _audio_decoder_
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
 
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+    AVFrame *Frame;			///< decoded audio frame buffer
+#endif
+
 #if !defined(USE_SWRESAMPLE) && !defined(USE_AVRESAMPLE)
     ReSampleContext *ReSample;		///< old resampling context
 #endif
@@ -757,6 +761,11 @@ AudioDecoder *CodecAudioNewDecoder(void)
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
 	Fatal(_("codec: can't allocate audio decoder\n"));
     }
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+    if (!(audio_decoder->Frame = av_frame_alloc())) {
+	Fatal(_("codec: can't allocate audio decoder frame buffer\n"));
+    }
+#endif
 
     return audio_decoder;
 }
@@ -768,6 +777,9 @@ AudioDecoder *CodecAudioNewDecoder(void)
 */
 void CodecAudioDelDecoder(AudioDecoder * decoder)
 {
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+    av_frame_free(&decoder->Frame);	// callee does checks
+#endif
     free(decoder);
 }
 
@@ -1790,18 +1802,30 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx;
-    AVFrame frame;
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+    AVFrame frame[1];
+#else
+    AVFrame *frame;
+#endif
     int got_frame;
     int n;
 
     audio_ctx = audio_decoder->AudioCtx;
 
     // FIXME: don't need to decode pass-through codecs
-    // libav needs memset, frame.data[0] = NULL;
-    memset(&frame, 0, sizeof(frame));
+
+    // new AVFrame API
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+    avcodec_get_frame_defaults(frame);
+#else
+    frame = audio_decoder->Frame;
+    av_frame_unref(frame);
+#endif
+
     got_frame = 0;
-    n = avcodec_decode_audio4(audio_ctx, &frame, &got_frame,
+    n = avcodec_decode_audio4(audio_ctx, frame, &got_frame,
 	(AVPacket *) avpkt);
+
     if (n != avpkt->size) {
 	if (n == AVERROR(EAGAIN)) {
 	    Error(_("codec/audio: latm\n"));
@@ -1843,7 +1867,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
 	data_sz =
 	    av_samples_get_buffer_size(&plane_sz, audio_ctx->channels,
-	    frame.nb_samples, audio_ctx->sample_fmt, 1);
+	    frame->nb_samples, audio_ctx->sample_fmt, 1);
 	fprintf(stderr, "codec/audio: sample_fmt %s\n",
 	    av_get_sample_fmt_name(audio_ctx->sample_fmt));
 	av_get_channel_layout_string(strbuf, 32, audio_ctx->channels,
@@ -1851,7 +1875,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	fprintf(stderr, "codec/audio: layout %s\n", strbuf);
 	fprintf(stderr,
 	    "codec/audio: channels %d samples %d plane %d data %d\n",
-	    audio_ctx->channels, frame.nb_samples, plane_sz, data_sz);
+	    audio_ctx->channels, frame->nb_samples, plane_sz, data_sz);
     }
 #ifdef USE_SWRESAMPLE
     if (audio_decoder->Resample) {
@@ -1861,7 +1885,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	out[0] = outbuf;
 	n = swr_convert(audio_decoder->Resample, out,
 	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
-	    (const uint8_t **)frame.extended_data, frame.nb_samples);
+	    (const uint8_t **)frame->extended_data, frame->nb_samples);
 	if (n > 0) {
 	    if (!(audio_decoder->Passthrough & CodecPCM)) {
 		CodecReorderAudioFrame((int16_t *) outbuf,
@@ -1882,7 +1906,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	out[0] = outbuf;
 	n = avresample_convert(audio_decoder->Resample, out, 0,
 	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
-	    (uint8_t **) frame.extended_data, 0, frame.nb_samples);
+	    (uint8_t **) frame->extended_data, 0, frame->nb_samples);
 	// FIXME: set out_linesize, in_linesize correct
 	if (n > 0) {
 	    if (!(audio_decoder->Passthrough & CodecPCM)) {
