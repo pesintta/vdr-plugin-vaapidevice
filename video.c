@@ -1488,6 +1488,7 @@ struct _vaapi_decoder_
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
     int Interlaced;			///< ffmpeg interlaced flag
+    int Deinterlaced;			///< vpp deinterlace was run / not run
     int TopFieldFirst;			///< ffmpeg top field displayed first
 
     VAImage DeintImages[5];		///< deinterlace image buffers
@@ -3574,11 +3575,12 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 ///	@param decoder	VA-API decoder
 ///	@param surface		VA-API surface id
 ///	@param interlaced	flag interlaced source
+///	@param deinterlaced	flag source was deinterlaced
 ///	@param top_field_first	flag top_field_first for interlaced source
 ///	@param field		interlaced draw: 0 first field, 1 second field
 ///
 static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
-    int interlaced, int top_field_first, int field)
+    int interlaced, int deinterlaced, int top_field_first, int field)
 {
     unsigned type;
     VAStatus status;
@@ -3586,7 +3588,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     uint32_t e;
 
     // deinterlace
-    if (interlaced
+    if (interlaced && !deinterlaced
 	&& VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
@@ -3680,11 +3682,12 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 ///	@param decoder	VA-API decoder
 ///	@param surface		VA-API surface id
 ///	@param interlaced	flag interlaced source
+///	@param deinterlaced	flag source was deinterlaced
 ///	@param top_field_first	flag top_field_first for interlaced source
 ///	@param field		interlaced draw: 0 first field, 1 second field
 ///
 static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
-    int interlaced, int top_field_first, int field)
+    int interlaced, int deinterlaced, int top_field_first, int field)
 {
     unsigned type;
 
@@ -3693,7 +3696,7 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
     //uint32_t end;
 
     // deinterlace
-    if (interlaced
+    if (interlaced && !deinterlaced
 	&& VideoDeinterlace[decoder->Resolution] < VideoDeinterlaceSoftBob
 	&& VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	if (top_field_first) {
@@ -4243,8 +4246,10 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
     if (!postprocessed) {
         /* Use unprocessed surface if postprocessing fails */
+        decoder->Deinterlaced = 0;
         decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
     } else {
+        decoder->Deinterlaced = 1;
         decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
     }
     decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
@@ -4256,8 +4261,10 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
         if (!postprocessed) {
             /* Use unprocessed surface if postprocessing fails */
+            decoder->Deinterlaced = 0;
             decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
         } else {
+            decoder->Deinterlaced = 1;
             decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
         }
         decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
@@ -5608,13 +5615,13 @@ static void VaapiDisplayFrame(void)
 		    && decoder->InputHeight == 1080))
 	    && VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceWeave) {
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-		decoder->TopFieldFirst, 0);
+		decoder->Deinterlaced, decoder->TopFieldFirst, 0);
 #ifdef DEBUG
 	    put1 = GetMsTicks();
 #endif
 
 	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-		decoder->TopFieldFirst, 1);
+		decoder->Deinterlaced, decoder->TopFieldFirst, 1);
 #ifdef DEBUG
 	    put2 = GetMsTicks();
 #endif
@@ -5622,12 +5629,12 @@ static void VaapiDisplayFrame(void)
 #ifdef USE_GLX
 	    if (GlxEnabled) {
 		VaapiPutSurfaceGLX(decoder, surface, decoder->Interlaced,
-		    decoder->TopFieldFirst, decoder->SurfaceField);
+		    decoder->Deinterlaced, decoder->TopFieldFirst, decoder->SurfaceField);
 	    } else
 #endif
 	    {
 		VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced,
-		    decoder->TopFieldFirst, decoder->SurfaceField);
+		    decoder->Deinterlaced, decoder->TopFieldFirst, decoder->SurfaceField);
 	    }
 #ifdef DEBUG
 	    put1 = GetMsTicks();
