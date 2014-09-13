@@ -4133,6 +4133,9 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
             decoder->ForwardRefSurfaces[i - 1] = decoder->ForwardRefSurfaces[i];
         }
         decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = surface;
+    } else {
+        /* No forward references needed so put new surface to playback position */
+        decoder->PlaybackSurface = surface;
     }
 }
 
