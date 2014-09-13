@@ -11586,7 +11586,6 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, float value)
    if (va_status != VA_STATUS_SUCCESS)
        return va_status;
 
-   printf("Previous value is %f\n", cbal_param->value);
    /* Assuming here that the type is set before and does not need to be modified */
    cbal_param->value = value;
 
