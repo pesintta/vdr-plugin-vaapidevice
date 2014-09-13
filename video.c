@@ -1486,6 +1486,7 @@ struct _vaapi_decoder_
 
     /// flags for put surface for different resolutions groups
     unsigned SurfaceFlagsTable[VideoResolutionMax];
+    unsigned SurfaceDeintTable[VideoResolutionMax];
 
     enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
@@ -1899,6 +1900,21 @@ static void VaapiPrintFrames(const VaapiDecoder * decoder)
 }
 
 ///
+///	Scale value from one range to another
+///
+///	@param valueIn	value to scale
+///	@param baseMin	original range min value
+///	@param baseMax	original range max value
+///	@param limitMin	new range min value
+///	@param limitMax	new range max value
+///	@return	scaled value
+///
+static inline float VaapiScale(float valueIn, float baseMin, float baseMax, float limitMin, float limitMax)
+{
+    return ((limitMax - limitMin) * (valueIn - baseMin) / (baseMax - baseMin)) + limitMin;
+}
+
+///
 ///	Initialize surface flags.
 ///
 ///	@param decoder	video hardware decoder
@@ -1949,21 +1965,34 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 	// deinterlace flags (not yet supported by libva)
 	switch (VideoDeinterlace[i]) {
 	    case VideoDeinterlaceBob:
+                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingBob;
 		break;
 	    case VideoDeinterlaceWeave:
+		// TODO: Utilizing weave should be the same as disabling deint filter
+                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingNone;
 		break;
 	    case VideoDeinterlaceTemporal:
-		//FIXME: private hack
-		//decoder->SurfaceFlagsTable[i] |= 0x00002000;
+                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingMotionAdaptive;
 		break;
 	    case VideoDeinterlaceTemporalSpatial:
-		//FIXME: private hack
-		//decoder->SurfaceFlagsTable[i] |= 0x00006000;
+                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingMotionCompensated;
 		break;
 	    default:
 		break;
 	}
+
     }
+    if (decoder->vpp_denoise_buf) {
+        VAProcFilterParameterBuffer *denoise_param;
+        VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_denoise_buf, (void**)&denoise_param);
+        if (va_status == VA_STATUS_SUCCESS) {
+
+            /* Assuming here that the type is set before and does not need to be modified */
+            denoise_param->value = VaapiScale(VideoDenoise[decoder->Resolution], 0.0, 1000.0, 0.0, 1.0);
+            vaUnmapBuffer(VaDisplay, *decoder->vpp_denoise_buf);
+        }
+    }
+
 }
 
 ///
@@ -4026,6 +4055,9 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
             Error("deint map buffer va_status = 0x%X\n", va_status);
             return NULL;
         }
+        /* Change deint algorithm as set in plugin menu */
+        deinterlace->algorithm = decoder->SurfaceDeintTable[decoder->Resolution];
+
         if (top_field)
             deinterlace->flags = 0;
         else
@@ -4125,7 +4157,7 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     pipeline_param->output_background_color = 0xff000000;
     pipeline_param->output_color_standard = VAProcColorStandardBT601;
     pipeline_param->pipeline_flags       = 0;
-    pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ;
+    pipeline_param->filter_flags         = decoder->SurfaceFlagsTable[decoder->Resolution];
     if (decoder->Deinterlaced || !decoder->Interlaced)
         pipeline_param->filter_flags    |= VA_FRAME_PICTURE;
     else if (decoder->Interlaced)
@@ -11667,11 +11699,6 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, float value)
    vaUnmapBuffer(VaDisplay, *buf);
 
    return va_status;
-}
-
-static inline float VaapiScale(float valueIn, float baseMin, float baseMax, float limitMin, float limitMax)
-{
-    return ((limitMax - limitMin) * (valueIn - baseMin) / (baseMax - baseMin)) + limitMin;
 }
 #endif
 
