@@ -4001,6 +4001,9 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
         if (!decoder->TopFieldFirst)
             deinterlace->flags |= VA_DEINTERLACING_BOTTOM_FIELD_FIRST;
+        /* If non-interlaced then override flags with one field setup */
+        if (!decoder->Interlaced)
+            deinterlace->flags = VA_DEINTERLACING_ONE_FIELD;
 
         vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
     }
@@ -4077,7 +4080,9 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     pipeline_param->surface              = decoder->PlaybackSurface;
     pipeline_param->surface_region       = NULL;
     pipeline_param->output_region        = NULL;
-    pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ | top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
+    pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ;
+    if (decoder->Interlaced)
+        pipeline_param->filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
     pipeline_param->filters              = decoder->filters;
     pipeline_param->num_filters          = decoder->filter_n;
 
