@@ -4129,12 +4129,6 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
 {
     unsigned int i;
 
-    if (decoder->SurfaceField) {
-        decoder->SurfaceField = 0;
-    } else {
-        decoder->SurfaceField = 1;
-    }
-
     /* Advance surfaces in queue:
      * new surface -> last surface in forward reference queue
      * Nearest surface to playback -> playback position
@@ -4255,7 +4249,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     }
 #endif
 
-    /* Queue new surface and process twice for top & bottom fields */
+    /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
     postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
     if (!postprocessed) {
@@ -4265,17 +4259,22 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
     }
     decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
     atomic_inc(&decoder->SurfacesFilled);
 
-    postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
-    if (!postprocessed) {
-        /* Use unprocessed surface if postprocessing fails */
-        decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
-    } else {
-        decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+    /* Run postprocessing twice for top & bottom fields */
+    if (decoder->Interlaced) {
+        postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
+        if (!postprocessed) {
+            /* Use unprocessed surface if postprocessing fails */
+            decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+        } else {
+            decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+        }
+        decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+        decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
+        atomic_inc(&decoder->SurfacesFilled);
     }
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
-    atomic_inc(&decoder->SurfacesFilled);
 
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
 }
