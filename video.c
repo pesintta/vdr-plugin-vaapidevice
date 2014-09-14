@@ -2049,6 +2049,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->Entrypoint = VA_INVALID_ID;
     decoder->VppEntrypoint = VA_INVALID_ID;
     decoder->VppConfig = VA_INVALID_ID;
+    decoder->vpp_ctx = VA_INVALID_ID;
     decoder->VaapiContext->display = VaDisplay;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->VaapiContext->context_id = VA_INVALID_ID;
@@ -2125,6 +2126,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
+    vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX);
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
@@ -2182,6 +2184,17 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	    decoder->VaapiContext->config_id = VA_INVALID_ID;
 	}
     }
+
+    if (vaDestroyContext(VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: can't destroy postproc context!\n"));
+    }
+    decoder->vpp_ctx = VA_INVALID_ID;
+
+    if (vaDestroyConfig(VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: can't destroy config!\n"));
+    }
+    decoder->VppConfig = VA_INVALID_ID;
+
     //	cleanup surfaces
     if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
 	VaapiDestroySurfaces(decoder);
