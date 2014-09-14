@@ -2099,6 +2099,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     VASurfaceID surface;
     unsigned int i;
 
+    pthread_mutex_lock(&VideoMutex);
+
     // flush output queue, only 1-2 frames buffered, no big loss
     while ((filled = atomic_read(&decoder->SurfacesFilled))) {
 	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
@@ -2118,6 +2120,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
 #ifdef DEBUG
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
+        Error("Surface queue mismatch. SurfaceRead = %d, SurfaceWrite = %d, SurfacesFilled = %d\n",
+              decoder->SurfaceRead, decoder->SurfaceWrite, atomic_read(&decoder->SurfacesFilled));
 	abort();
     }
 #endif
@@ -2216,6 +2220,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     decoder->Closing = 0;
     decoder->PTS = AV_NOPTS_VALUE;
     VideoDeltaPTS = 0;
+    pthread_mutex_unlock(&VideoMutex);
 }
 
 ///
@@ -4254,6 +4259,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     }
 #endif
 
+    pthread_mutex_lock(&VideoMutex);
     /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
     postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
@@ -4284,6 +4290,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
         atomic_inc(&decoder->SurfacesFilled);
     }
+    pthread_mutex_unlock(&VideoMutex);
 
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
 }
