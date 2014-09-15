@@ -4102,7 +4102,9 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     pipeline_param->surface_region       = NULL;
     pipeline_param->output_region        = NULL;
     pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ;
-    if (decoder->Interlaced)
+    if (decoder->Deinterlaced || !decoder->Interlaced)
+        pipeline_param->filter_flags    |= VA_FRAME_PICTURE;
+    else if (decoder->Interlaced)
         pipeline_param->filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
     pipeline_param->filters              = decoder->filters;
     pipeline_param->num_filters          = decoder->filter_n;
