@@ -3047,6 +3047,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     unsigned u;
     unsigned v;
     VAProcFilterCapDeinterlacing deinterlacing_caps[VAProcDeinterlacingCount];
+    VAProcFilterParameterBufferDeinterlacing deinterlace;
     unsigned deinterlacing_cap_n;
     VAProcFilterCapColorBalance colorbalance_caps[VAProcColorBalanceCount];
     unsigned colorbalance_cap_n;
@@ -3072,7 +3073,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 	switch (filtertypes[u]) {
 	    case VAProcFilterNoiseReduction:
 		Info("video/vaapi: noise reduction supported\n");
-		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.00);
 		if (filter_buf_id != VA_INVALID_ID) {
 		    Info("Enabling denoise filter (pos = %d)\n", decoder->filter_n);
 		    decoder->vpp_denoise_buf = &decoder->filters[decoder->filter_n];
@@ -3090,8 +3091,6 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
 
 		    /* Deinterlacing parameters */
-		    VAProcFilterParameterBufferDeinterlacing deinterlace;
-
 		    deinterlace.type = VAProcFilterDeinterlacing;
 		    deinterlace.flags = 0;
 
@@ -3120,18 +3119,14 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    Info("video/vaapi: unsupported deinterlace #%02x\n", deinterlacing_caps[v].type);
 			    break;
 		    }
-		    /* Force motion comp di */
-		    if (deinterlacing_caps[v].type != VAProcDeinterlacingMotionCompensated)
-			continue;
-
-		    Info("Enabling Deint (pos = %d)\n", decoder->filter_n);
-		    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
-					       VAProcFilterParameterBufferType, sizeof(deinterlace), 1,
-					       &deinterlace, &filter_buf_id);
-		    decoder->vpp_deinterlace_buf = &decoder->filters[decoder->filter_n];
-		    decoder->filters[decoder->filter_n++] = filter_buf_id;
-
 		}
+		/* Enabling the deint algorithm that was seen last */
+		Info("Enabling Deint (pos = %d)\n", decoder->filter_n);
+		va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+					   VAProcFilterParameterBufferType, sizeof(deinterlace), 1,
+					   &deinterlace, &filter_buf_id);
+		decoder->vpp_deinterlace_buf = &decoder->filters[decoder->filter_n];
+		decoder->filters[decoder->filter_n++] = filter_buf_id;
 		break;
 	    case VAProcFilterSharpening:
 		Info("video/vaapi: sharpening supported\n");
