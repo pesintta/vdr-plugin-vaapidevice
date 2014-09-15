@@ -4262,7 +4262,9 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     }
 #endif
 
-    pthread_mutex_lock(&VideoMutex);
+    /* No point in adding new surface if cleanup is in progress */
+    if (pthread_mutex_trylock(&VideoMutex))
+        return;
     /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
     postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
