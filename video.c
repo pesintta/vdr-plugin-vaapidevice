@@ -304,6 +304,7 @@ typedef struct _video_module_
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
+#define POSTPROC_SURFACES_MAX	4	///< video postprocessing surfaces for queue
 #define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
@@ -1532,7 +1533,7 @@ struct _vaapi_decoder_
 
     /// video surface ring buffer
     VASurfaceID SurfacesRb[VIDEO_SURFACES_MAX];
-    VASurfaceID PostProcSurfacesRb[VIDEO_SURFACES_MAX];	///< Posprocessing result surfaces
+    VASurfaceID PostProcSurfacesRb[POSTPROC_SURFACES_MAX];	///< Posprocessing result surfaces
 
     VASurfaceID * ForwardRefSurfaces;	///< Forward referencing surfaces for post processing
     VASurfaceID * BackwardRefSurfaces;	///< Backward referencing surfaces for post processing
@@ -1699,7 +1700,7 @@ static void VaapiAssociate(VaapiDecoder * decoder)
     }
 
     va_status = vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-                                      decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX, x, y, w, h, 0, 0,
+                                      decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w, h, 0, 0,
                                       VideoWindowWidth, VideoWindowHeight,
                                       VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
     if (va_status != VA_STATUS_SUCCESS)
@@ -1731,7 +1732,7 @@ static void VaapiDeassociate(VaapiDecoder * decoder)
 	}
 
         vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture,
-                                decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX);
+                                decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
     }
 }
 
@@ -1764,7 +1765,7 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
     }
 
     if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width,
-	    height, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX, NULL,
+	    height, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, NULL,
 	    0) != VA_STATUS_SUCCESS) {
 	Fatal(_("video/vaapi: can't create %d posproc surfaces\n"),
 	    VIDEO_SURFACES_MAX);
@@ -2006,6 +2007,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
+    }
+    for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
 
@@ -2130,8 +2133,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
-    vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX);
-    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+    vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
+    for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
 
@@ -3304,7 +3307,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
         }
         status = vaCreateContext(decoder->VaDisplay, decoder->VppConfig,
                                  video_ctx->width, video_ctx->height,
-                                 VA_PROGRESSIVE, decoder->PostProcSurfacesRb, VIDEO_SURFACES_MAX,
+                                 VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX,
                                  &decoder->vpp_ctx);
         if (status != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create context '%s'\n"),
@@ -4005,7 +4008,7 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
     /* Get next postproc surface to write from ring buffer */
     prevsurface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
-    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
 
     /* Map deinterlace buffer and handle field ordering */
@@ -4279,7 +4282,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
     decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
     atomic_inc(&decoder->SurfacesFilled);
-
+#if 1 /* libva-intel-driver has bugs and may not be able to cope with the second call */
     /* Run postprocessing twice for top & bottom fields */
     if (decoder->Interlaced) {
         postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
@@ -4295,6 +4298,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
         atomic_inc(&decoder->SurfacesFilled);
     }
+#endif
     pthread_mutex_unlock(&VideoMutex);
 
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
