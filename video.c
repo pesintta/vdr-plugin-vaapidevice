@@ -4117,7 +4117,11 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
     pipeline_param->surface              = decoder->PlaybackSurface;
     pipeline_param->surface_region       = NULL;
+    pipeline_param->surface_color_standard = VAProcColorStandardBT601;
     pipeline_param->output_region        = NULL;
+    pipeline_param->output_background_color = 0xff000000;
+    pipeline_param->output_color_standard = VAProcColorStandardBT601;
+    pipeline_param->pipeline_flags       = 0;
     pipeline_param->filter_flags         = VA_FILTER_SCALING_HQ;
     if (decoder->Deinterlaced || !decoder->Interlaced)
         pipeline_param->filter_flags    |= VA_FRAME_PICTURE;
