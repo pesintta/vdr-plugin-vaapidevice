@@ -304,7 +304,8 @@ typedef struct _video_module_
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
-#define POSTPROC_SURFACES_MAX	4	///< video postprocessing surfaces for queue
+#define POSTPROC_SURFACES_MAX	6	///< video postprocessing surfaces for queue
+#define FIELD_SURFACES_MAX	POSTPROC_SURFACES_MAX / 2	///< video postprocessing surfaces for queue
 #define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
@@ -1534,6 +1535,8 @@ struct _vaapi_decoder_
     /// video surface ring buffer
     VASurfaceID SurfacesRb[VIDEO_SURFACES_MAX];
     VASurfaceID PostProcSurfacesRb[POSTPROC_SURFACES_MAX];	///< Posprocessing result surfaces
+    VASurfaceID FirstFieldHistory[FIELD_SURFACES_MAX];	///< Postproc history result surfaces
+    VASurfaceID SecondFieldHistory[FIELD_SURFACES_MAX];	///< Postproc history result surfaces
 
     VASurfaceID * ForwardRefSurfaces;	///< Forward referencing surfaces for post processing
     VASurfaceID * BackwardRefSurfaces;	///< Backward referencing surfaces for post processing
@@ -2011,6 +2014,10 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
+    for (i = 0; i < FIELD_SURFACES_MAX; ++i) {
+	decoder->FirstFieldHistory[i] = VA_INVALID_ID;
+	decoder->SecondFieldHistory[i] = VA_INVALID_ID;
+    }
 
     // Initialize postprocessing surfaces to 0
     // They are allocated on-demand
@@ -2136,6 +2143,10 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
     for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
+    }
+    for (i = 0; i < FIELD_SURFACES_MAX; ++i) {
+	decoder->FirstFieldHistory[i] = VA_INVALID_ID;
+	decoder->SecondFieldHistory[i] = VA_INVALID_ID;
     }
 
     // clear forward/backward references for vpp
@@ -3995,14 +4006,12 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     VAProcPipelineParameterBuffer *pipeline_param = NULL;
     VAProcFilterParameterBufferDeinterlacing *deinterlace = NULL;
     VASurfaceID *surface = NULL;
-    VASurfaceID *prevsurface = NULL;
 
     /* No postprocessing filters enabled */
     if (!decoder->filter_n)
         return NULL;
 
     /* Get next postproc surface to write from ring buffer */
-    prevsurface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
 
@@ -4126,7 +4135,7 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     vaEndPicture(VaDisplay, decoder->vpp_ctx);
     vaSyncSurface(VaDisplay, *surface);
 
-    return prevsurface;
+    return surface;
 }
 
 ///
@@ -4165,6 +4174,16 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
     }
 }
 
+static void VaapiAddToHistoryQueue(VASurfaceID* queue, VASurfaceID surface)
+{
+    unsigned int i;
+
+    for (i = FIELD_SURFACES_MAX - 1; i > 0; --i) {
+        queue[i] = queue[i - 1];
+    }
+    queue[0] = surface;
+}
+
 ///
 ///	Queue output surface.
 ///
@@ -4178,7 +4197,8 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     int softdec)
 {
     VASurfaceID old;
-    VASurfaceID * postprocessed = NULL;
+    VASurfaceID * firstfield = NULL;
+    VASurfaceID * secondfield = NULL;
     ++decoder->FrameCounter;
 
     if (1) {				// can't wait for output queue empty
@@ -4269,35 +4289,43 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         return;
     /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
-    postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
-    if (!postprocessed) {
+    firstfield = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 1 : 0);
+    if (!firstfield) {
         /* Use unprocessed surface if postprocessing fails */
         decoder->Deinterlaced = 0;
-        decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+        VaapiAddToHistoryQueue(decoder->FirstFieldHistory, surface);
     } else {
         decoder->Deinterlaced = 1;
-        decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+        VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
     }
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
-    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
-    atomic_inc(&decoder->SurfacesFilled);
-#if 1 /* libva-intel-driver has bugs and may not be able to cope with the second call */
+
+    /* Intel driver seems to order fields so that second deint field is
+       deinterlaced against previous second field surface.
+       That's why we don't queue the first field here */
+
     /* Run postprocessing twice for top & bottom fields */
     if (decoder->Interlaced) {
-        postprocessed = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
-        if (!postprocessed) {
+        secondfield = VaapiDeinterlaceSurface(decoder, decoder->TopFieldFirst ? 0 : 1);
+        if (!secondfield) {
             /* Use unprocessed surface if postprocessing fails */
             decoder->Deinterlaced = 0;
-            decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
+            VaapiAddToHistoryQueue(decoder->SecondFieldHistory, surface);
         } else {
             decoder->Deinterlaced = 1;
-            decoder->SurfacesRb[decoder->SurfaceWrite] = *postprocessed;
+            VaapiAddToHistoryQueue(decoder->SecondFieldHistory, *secondfield);
         }
+        decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->SecondFieldHistory[2];
         decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
         decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
         atomic_inc(&decoder->SurfacesFilled);
     }
-#endif
+
+    /* Now queue the first field once the possible second field exists */
+    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[0];
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
+    atomic_inc(&decoder->SurfacesFilled);
+
     pthread_mutex_unlock(&VideoMutex);
 
     Debug(4, "video/vaapi: yy video surface %#010x ready\n", surface);
