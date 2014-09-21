@@ -4018,9 +4018,11 @@ static void VaapiResetAutoCrop(void)
 static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_field)
 {
     unsigned int i;
+    unsigned int filter_count = 0;
     VAStatus va_status;
     VASurfaceStatus va_surf_status;
     VABufferID pipeline_buf = VA_INVALID_ID;
+    VABufferID filters_to_run[VAProcFilterCount];
     VAProcPipelineCaps pipeline_caps;
     VAProcPipelineParameterBuffer *pipeline_param = NULL;
     VAProcFilterParameterBufferDeinterlacing *deinterlace = NULL;
@@ -4053,10 +4055,23 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
             deinterlace->flags = VA_DEINTERLACING_ONE_FIELD;
 
         vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
+
+        /* This block of code skips deinterlace filter in-flight if material is
+           not interlaced */
+        if (decoder->Interlaced) {
+            memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
+            filter_count = decoder->filter_n;
+        } else {
+            for (i = 0; i < decoder->filter_n; ++i) {
+                if (decoder->filters[i] == *decoder->vpp_deinterlace_buf)
+                    continue;
+                filters_to_run[filter_count++] = decoder->filters[i];
+            }
+        }
     }
 
     va_status = vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx,
-                                             decoder->filters, decoder->filter_n,
+                                             filters_to_run, filter_count,
                                              &pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
         Error("query pipeline caps va_status = 0x%X, reason = %s\n", va_status, vaErrorStr(va_status));
@@ -4136,8 +4151,8 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         pipeline_param->filter_flags    |= VA_FRAME_PICTURE;
     else if (decoder->Interlaced)
         pipeline_param->filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
-    pipeline_param->filters              = decoder->filters;
-    pipeline_param->num_filters          = decoder->filter_n;
+    pipeline_param->filters              = filters_to_run;
+    pipeline_param->num_filters          = filter_count;
 
     pipeline_param->forward_references   = decoder->ForwardRefSurfaces;
     pipeline_param->num_forward_references = decoder->ForwardRefCount;
