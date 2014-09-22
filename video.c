@@ -4089,10 +4089,12 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
         vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
 
-        /* This block of code skips deinterlace filter in-flight if material is
-           not interlaced or if deint is not enabled */
+        /* This block of code skips various filters in-flight if source/settings
+           disallow running the filter in question */
         filter_count = 0;
         for (i = 0; i < decoder->filter_n; ++i) {
+
+            /* Skip deinterlacer if disabled or source is not interlaced */
             if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
                 if (!decoder->Interlaced)
                     continue;
@@ -4100,6 +4102,14 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
                     deinterlace->algorithm == VAProcDeinterlacingWeave)
                     continue;
             }
+
+            /* Skip denoise if value is set to 0 ("off") */
+            if (decoder->vpp_denoise_buf &&
+                decoder->filters[i] == *decoder->vpp_denoise_buf) {
+                if (!VideoDenoise[decoder->Resolution])
+                    continue;
+            }
+
             filters_to_run[filter_count++] = decoder->filters[i];
         }
     }
