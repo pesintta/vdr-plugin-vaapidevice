@@ -4017,6 +4017,9 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
 
+    memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
+    filter_count = decoder->filter_n;
+
     /* Map deinterlace buffer and handle field ordering */
     if (decoder->vpp_deinterlace_buf) {
         va_status = vaMapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf, (void**)&deinterlace);
@@ -4039,15 +4042,11 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
         /* This block of code skips deinterlace filter in-flight if material is
            not interlaced */
-        if (decoder->Interlaced) {
-            memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
-            filter_count = decoder->filter_n;
-        } else {
-            for (i = 0; i < decoder->filter_n; ++i) {
-                if (decoder->filters[i] == *decoder->vpp_deinterlace_buf)
-                    continue;
-                filters_to_run[filter_count++] = decoder->filters[i];
-            }
+        filter_count = 0;
+        for (i = 0; i < decoder->filter_n; ++i) {
+            if (!decoder->Interlaced && decoder->filters[i] == *decoder->vpp_deinterlace_buf)
+                continue;
+            filters_to_run[filter_count++] = decoder->filters[i];
         }
     }
 
