@@ -1968,8 +1968,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
                 decoder->SurfaceDeintTable[i] = VAProcDeinterlacingBob;
 		break;
 	    case VideoDeinterlaceWeave:
-		// TODO: Utilizing weave should be the same as disabling deint filter
-                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingNone;
+                decoder->SurfaceDeintTable[i] = VAProcDeinterlacingWeave;
 		break;
 	    case VideoDeinterlaceTemporal:
                 decoder->SurfaceDeintTable[i] = VAProcDeinterlacingMotionAdaptive;
@@ -4072,11 +4071,16 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
 
         /* This block of code skips deinterlace filter in-flight if material is
-           not interlaced */
+           not interlaced or if deint is not enabled */
         filter_count = 0;
         for (i = 0; i < decoder->filter_n; ++i) {
-            if (!decoder->Interlaced && decoder->filters[i] == *decoder->vpp_deinterlace_buf)
-                continue;
+            if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
+                if (!decoder->Interlaced)
+                    continue;
+                if (deinterlace->algorithm == VAProcDeinterlacingNone ||
+                    deinterlace->algorithm == VAProcDeinterlacingWeave)
+                    continue;
+            }
             filters_to_run[filter_count++] = decoder->filters[i];
         }
     }
