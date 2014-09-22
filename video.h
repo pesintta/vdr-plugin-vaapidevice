@@ -152,6 +152,10 @@ extern void VideoSetCutTopBottom(int[]);
     /// Set cut left and right.
 extern void VideoSetCutLeftRight(int[]);
 
+    /// Set first & second field ordering.
+extern void VideoSetFirstField(int[]);
+extern void VideoSetSecondField(int[]);
+
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
 

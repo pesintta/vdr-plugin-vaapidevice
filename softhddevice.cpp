@@ -123,6 +123,10 @@ static int ConfigVideoCutTopBottom[RESOLUTIONS];
     /// config cut left and right pixels
 static int ConfigVideoCutLeftRight[RESOLUTIONS];
 
+    /// config vaapi field ordering for first & second field
+static int ConfigVideoFirstField[RESOLUTIONS];
+static int ConfigVideoSecondField[RESOLUTIONS];
+
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
@@ -631,6 +635,8 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen[RESOLUTIONS];
     int CutTopBottom[RESOLUTIONS];
     int CutLeftRight[RESOLUTIONS];
+    int FirstField[RESOLUTIONS];
+    int SecondField[RESOLUTIONS];
 
     int AutoCropInterval;
     int AutoCropDelay;
@@ -851,6 +857,11 @@ void cMenuSetupSoft::Create(void)
 			&CutTopBottom[i], 0, 250));
 		Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
 			&CutLeftRight[i], 0, 250));
+
+		Add(new cMenuEditIntItem(tr("First field order (0-2) (vaapi)"),
+			&FirstField[i], 0, 2));
+		Add(new cMenuEditIntItem(tr("Second field order (0-2) (vaapi)"),
+			&SecondField[i], 0, 2));
 	    }
 	}
 	//
@@ -1057,6 +1068,10 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 
 	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
 	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
+
+	FirstField[i] = ConfigVideoFirstField[i];
+	SecondField[i] = ConfigVideoSecondField[i];
+
     }
     //
     //	auto-crop
@@ -1199,6 +1214,12 @@ void cMenuSetupSoft::Store(void)
 	SetupStore(buf, ConfigVideoCutTopBottom[i] = CutTopBottom[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
 	SetupStore(buf, ConfigVideoCutLeftRight[i] = CutLeftRight[i]);
+
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
+	SetupStore(buf, ConfigVideoFirstField[i] = FirstField[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
+	SetupStore(buf, ConfigVideoSecondField[i] = SecondField[i]);
+
     }
     VideoSetScaling(ConfigVideoScaling);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
@@ -1208,6 +1229,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetSharpen(ConfigVideoSharpen);
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
     VideoSetCutLeftRight(ConfigVideoCutLeftRight);
+    VideoSetFirstField(ConfigVideoFirstField);
+    VideoSetSecondField(ConfigVideoSecondField);
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
@@ -2989,6 +3012,18 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	if (!strcasecmp(name, buf)) {
 	    ConfigVideoCutLeftRight[i] = atoi(value);
 	    VideoSetCutLeftRight(ConfigVideoCutLeftRight);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoFirstField[i] = atoi(value);
+	    VideoSetFirstField(ConfigVideoFirstField);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoSecondField[i] = atoi(value);
+	    VideoSetSecondField(ConfigVideoSecondField);
 	    return true;
 	}
     }
