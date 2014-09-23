@@ -149,6 +149,7 @@ static int AudioBufferTime = 336;	///< audio buffer time in ms
 static pthread_t AudioThread;		///< audio play thread
 static pthread_mutex_t AudioMutex;	///< audio condition mutex
 static pthread_cond_t AudioStartCond;	///< condition variable
+static char AudioThreadStop;		///< stop audio thread
 #else
 static const int AudioThread;		///< dummy audio thread
 #endif
@@ -942,7 +943,6 @@ static int AlsaThread(void)
 	return -1;
     }
     for (;;) {
-	pthread_testcancel();
 	if (AudioPaused) {
 	    return 1;
 	}
@@ -1216,7 +1216,8 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	snd_pcm_t *handle;
 
 	handle = AlsaPCMHandle;
-	// FIXME: need lock
+	// no lock needed, thread exit in main loop only
+	//Debug(3, "audio: %s [\n", __FUNCTION__);
 	AlsaPCMHandle = NULL;		// other threads should check handle
 	snd_pcm_close(handle);
 	if (AudioAlsaCloseOpenDelay) {
@@ -1227,6 +1228,7 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	    return -1;
 	}
 	AlsaPCMHandle = handle;
+	//Debug(3, "audio: %s ]\n", __FUNCTION__);
     }
 
     for (;;) {
@@ -1548,7 +1550,6 @@ static int OssThread(void)
     for (;;) {
 	struct pollfd fds[1];
 
-	pthread_testcancel();
 	if (AudioPaused) {
 	    return 1;
 	}
@@ -2050,6 +2051,12 @@ static void *AudioPlayHandlerThread(void *dummy)
 {
     Debug(3, "audio: play thread started\n");
     for (;;) {
+	// check if we should stop the thread
+	if (AudioThreadStop) {
+	    Debug(3, "audio: play thread stopped\n");
+	    return PTHREAD_CANCELED;
+	}
+
 	Debug(3, "audio: wait on start condition\n");
 	pthread_mutex_lock(&AudioMutex);
 	AudioRunning = 0;
@@ -2072,6 +2079,11 @@ static void *AudioPlayHandlerThread(void *dummy)
 	    int err;
 	    int i;
 
+	    // check if we should stop the thread
+	    if (AudioThreadStop) {
+		Debug(3, "audio: play thread stopped\n");
+		return PTHREAD_CANCELED;
+	    }
 	    // look if there is a flush command in the queue
 	    flush = 0;
 	    filled = atomic_read(&AudioRingFilled);
@@ -2156,6 +2168,7 @@ static void *AudioPlayHandlerThread(void *dummy)
 */
 static void AudioInitThread(void)
 {
+    AudioThreadStop = 0;
     pthread_mutex_init(&AudioMutex, NULL);
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
@@ -2169,10 +2182,12 @@ static void AudioExitThread(void)
 {
     void *retval;
 
+    Debug(3, "audio: %s\n", __FUNCTION__);
+
     if (AudioThread) {
-	if (pthread_cancel(AudioThread)) {
-	    Error(_("audio: can't queue cancel play thread\n"));
-	}
+	AudioThreadStop = 1;
+	AudioRunning = 1;		// wakeup thread, if needed
+	pthread_cond_signal(&AudioStartCond);
 	if (pthread_join(AudioThread, &retval) || retval != PTHREAD_CANCELED) {
 	    Error(_("audio: can't cancel play thread\n"));
 	}
@@ -2993,6 +3008,8 @@ void AudioInit(void)
 void AudioExit(void)
 {
     const AudioModule *module;
+
+    Debug(3, "audio: %s\n", __FUNCTION__);
 
 #ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
