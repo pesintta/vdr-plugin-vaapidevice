@@ -2151,7 +2151,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
         Error("Surface queue mismatch. SurfaceRead = %d, SurfaceWrite = %d, SurfacesFilled = %d\n",
               decoder->SurfaceRead, decoder->SurfaceWrite, atomic_read(&decoder->SurfacesFilled));
-	abort();
     }
 #endif
 
