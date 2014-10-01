@@ -742,6 +742,15 @@ void cMenuSetupSoft::Create(void)
     static const char *const video_display_formats_16_9[] = {
 	"pan&scan", "pillarbox", "center cut-out",
     };
+#ifdef USE_VAAPI
+    static const char *const deinterlace[] = {
+	"Bob", "Weave/None", "MotionAdaptive", "MotionCompensated", "Software Bob",
+	"Software Spatial",
+    };
+    static const char *const deinterlace_short[] = {
+	"B", "W", "MADI", "MCDI", "S+B", "S+S",
+    };
+#else
     static const char *const deinterlace[] = {
 	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
 	"Software Spatial",
@@ -749,6 +758,7 @@ void cMenuSetupSoft::Create(void)
     static const char *const deinterlace_short[] = {
 	"B", "W", "T", "T+S", "S+B", "S+S",
     };
+#endif
     static const char *const scaling[] = {
 	"Normal", "Fast", "HQ", "Anamorphic"
     };
