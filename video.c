@@ -1581,6 +1581,7 @@ struct _vaapi_decoder_
     int FramesDisplayed;		///< number of frames displayed
     VABufferID filters[VAProcFilterCount]; ///< video postprocessing filters
     unsigned filter_n;                  ///< number of postprocessing filters
+    unsigned MaxSupportedDeinterlacer;	///< greatest supported deinterlacing method
     VABufferID* vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
     VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
     VABufferID* vpp_brightness_buf;	///< video postprocessing brightness buffer
@@ -1985,6 +1986,8 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 	    default:
 		break;
 	}
+        if (decoder->SurfaceDeintTable[i] > decoder->MaxSupportedDeinterlacer)
+            Error("Selected deinterlacer for resolution %d is not supported by HW\n", i);
 
     }
     if (decoder->vpp_denoise_buf) {
@@ -2072,6 +2075,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
         decoder->filters[i] = VA_INVALID_ID;
     }
     decoder->filter_n = 0;
+
+    decoder->MaxSupportedDeinterlacer = 0;
 
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
@@ -3147,6 +3152,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		}
 		/* Enabling the deint algorithm that was seen last */
 		Info("Enabling Deint (pos = %d)\n", decoder->filter_n);
+		decoder->MaxSupportedDeinterlacer = deinterlace.algorithm;
 		va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
 					   VAProcFilterParameterBufferType, sizeof(deinterlace), 1,
 					   &deinterlace, &filter_buf_id);
@@ -4074,8 +4080,6 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         if (!decoder->Interlaced)
             deinterlace->flags = VA_DEINTERLACING_ONE_FIELD;
 
-        vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
-
         /* This block of code skips various filters in-flight if source/settings
            disallow running the filter in question */
         filter_count = 0;
@@ -4088,6 +4092,8 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
                 if (deinterlace->algorithm == VAProcDeinterlacingNone ||
                     deinterlace->algorithm == VAProcDeinterlacingWeave)
                     continue;
+                if (deinterlace->algorithm > decoder->MaxSupportedDeinterlacer)
+                    continue;
             }
 
             /* Skip denoise if value is set to 0 ("off") */
@@ -4099,6 +4105,8 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
 
             filters_to_run[filter_count++] = decoder->filters[i];
         }
+
+        vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
     va_status = vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx,
