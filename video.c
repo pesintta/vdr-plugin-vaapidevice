@@ -5619,6 +5619,17 @@ static void VaapiOsdClear(void)
 
     Debug(3, "video/vaapi: clear image\n");
 
+    if (VaOsdImage.width < OsdDirtyWidth + OsdDirtyX || VaOsdImage.height < OsdDirtyHeight + OsdDirtyY) {
+	Debug(3, "video/vaapi: OSD dirty area will not fit\n");
+    }
+    if (VaOsdImage.width < OsdDirtyX || VaOsdImage.height < OsdDirtyY)
+	return;
+
+    if (VaOsdImage.width < OsdDirtyWidth + OsdDirtyX)
+	OsdDirtyWidth = VaOsdImage.width - OsdDirtyX;
+    if (VaOsdImage.height < OsdDirtyHeight + OsdDirtyY)
+	OsdDirtyHeight = VaOsdImage.height - OsdDirtyY;
+
     // map osd surface/image into memory.
     if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer)
 	!= VA_STATUS_SUCCESS) {
@@ -5664,11 +5675,27 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
 #endif
     void *image_buffer;
     int o;
+    int copywidth, copyheight;
 
     // osd image available?
     if (VaOsdImage.image_id == VA_INVALID_ID) {
 	return;
     }
+
+    if (VaOsdImage.width < width + x || VaOsdImage.height < height + y) {
+	Error("video/vaapi: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d\n",
+	      width, x, VaOsdImage.width, height, y, VaOsdImage.height);
+    }
+    if (VaOsdImage.width < x || VaOsdImage.height < y)
+	return;
+
+    copywidth = width;
+    copyheight = height;
+    if (VaOsdImage.width < width + x)
+	copywidth = VaOsdImage.width - x;
+    if (VaOsdImage.height < height + y)
+	copyheight = VaOsdImage.height - y;
+
 #ifdef DEBUG
     start = GetMsTicks();
 #endif
@@ -5681,9 +5708,9 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     // FIXME: convert image from ARGB to subpicture format, if not argb
 
     // copy argb to image
-    for (o = 0; o < height; ++o) {
+    for (o = 0; o < copyheight; ++o) {
 	memcpy(image_buffer + (x + (y + o) * VaOsdImage.width) * 4,
-	    argb + o * width * 4, width * 4);
+	    argb + o * width * 4, copywidth * 4);
     }
 
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
