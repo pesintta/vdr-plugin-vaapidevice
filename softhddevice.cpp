@@ -855,13 +855,18 @@ void cMenuSetupSoft::Create(void)
 	    if (ResolutionShown[i]) {
 		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4,
 			scaling));
+#ifdef USE_VAAPI
+		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
+			4, deinterlace));
+#else
 		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
 			6, deinterlace));
+#endif
 		Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
 			&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
 		Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
 			&InverseTelecine[i], trVDR("no"), trVDR("yes")));
-		Add(new cMenuEditIntItem(tr("Denoise (0..1000) (vdpau)"),
+		Add(new cMenuEditIntItem(tr("Denoise (0..1000)"),
 			&Denoise[i], 0, 1000, tr("off"), tr("max")));
 		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
 			&Sharpen[i], -1000, 1000, tr("blur max"),
