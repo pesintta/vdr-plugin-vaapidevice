@@ -1584,6 +1584,7 @@ struct _vaapi_decoder_
     unsigned MaxSupportedDeinterlacer;	///< greatest supported deinterlacing method
     VABufferID* vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
     VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
+    VABufferID* vpp_sharpen_buf;	///< video postprocessing sharpen buffer
     VABufferID* vpp_brightness_buf;	///< video postprocessing brightness buffer
     VABufferID* vpp_contrast_buf;	///< video postprocessing contrast buffer
     VABufferID* vpp_hue_buf;		///< video postprocessing hue buffer
@@ -2000,7 +2001,16 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
             vaUnmapBuffer(VaDisplay, *decoder->vpp_denoise_buf);
         }
     }
-
+    int level = VideoSharpen[decoder->Resolution];
+    if (decoder->vpp_sharpen_buf && level) {
+        VAProcFilterParameterBuffer *sharpen_param;
+        VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_sharpen_buf, (void**)&sharpen_param);
+        if (va_status == VA_STATUS_SUCCESS) {
+            /* Assuming here that the type is set before and does not need to be modified */
+            sharpen_param->value = VaapiScale(level, 1000.0, 1000.0, -1.0, 1.0);
+            vaUnmapBuffer(VaDisplay, *decoder->vpp_sharpen_buf);
+        }
+    }
 }
 
 ///
@@ -2080,6 +2090,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
+    decoder->vpp_sharpen_buf = NULL;
     decoder->vpp_brightness_buf = NULL;
     decoder->vpp_contrast_buf = NULL;
     decoder->vpp_saturation_buf = NULL;
@@ -3165,6 +3176,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
 		if (filter_buf_id != VA_INVALID_ID) {
 		    Info("Enabling sharpening filter (pos = %d)\n", decoder->filter_n);
+		    decoder->vpp_sharpen_buf = &decoder->filters[decoder->filter_n];
 		    decoder->filters[decoder->filter_n++] = filter_buf_id;
 		}
 #endif
