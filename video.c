@@ -4165,7 +4165,6 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         surface = NULL;
     }
     vaEndPicture(VaDisplay, decoder->vpp_ctx);
-    vaSyncSurface(VaDisplay, *surface);
 
     return surface;
 }
