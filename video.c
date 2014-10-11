@@ -3321,6 +3321,11 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 
     s = GetMsTicks();
     xcb_flush(Connection);
+    status = vaSyncSurface(decoder->VaDisplay, surface);
+    if (status != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaSyncSurface failed: %s"), vaErrorStr(status));
+	return;
+    }
     if ((status = vaPutSurface(decoder->VaDisplay, surface, decoder->Window,
 		// decoder src
 		decoder->CropX, decoder->CropY, decoder->CropWidth,
@@ -3331,11 +3336,11 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 		type | decoder->SurfaceFlagsTable[decoder->Resolution]))
 	!= VA_STATUS_SUCCESS) {
 	// switching video kills VdpPresentationQueueBlockUntilSurfaceIdle
-	Error(_("video/vaapi: vaPutSurface failed %d\n"), status);
+	Error(_("video/vaapi: vaPutSurface failed: %s\n"), vaErrorStr(status));
     }
-
-    if (0 && vaSyncSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: vaSyncSurface failed\n"));
+    status = vaSyncSurface(decoder->VaDisplay, surface);
+    if (status != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: vaSyncSurface failed: %s\n"), vaErrorStr(status));
     }
     e = GetMsTicks();
     if (e - s > 2000) {
@@ -3378,7 +3383,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
 	    usleep(1 * 1000);
 	}
     }
-    usleep(1 * 1000);
 }
 
 #ifdef USE_GLX
