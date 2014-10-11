@@ -9736,6 +9736,7 @@ static void VideoEvent(void)
     const char *keynam;
     char buf[64];
     char letter[64];
+    int letter_len;
     uint32_t values[1];
 
     VideoThreadLock();
@@ -9775,8 +9776,14 @@ static void VideoEvent(void)
 	    break;
 	case KeyPress:
 	    VideoThreadLock();
-	    XLookupString(&event.xkey, letter, sizeof(letter), &keysym, NULL);
+	    letter_len =
+		XLookupString(&event.xkey, letter, sizeof(letter) - 1, &keysym,
+		NULL);
 	    VideoThreadUnlock();
+	    if (letter_len < 0) {
+		letter_len = 0;
+	    }
+	    letter[letter_len] = '\0';
 	    if (keysym == NoSymbol) {
 		Warning(_("video/event: No symbol for %d\n"),
 		    event.xkey.keycode);

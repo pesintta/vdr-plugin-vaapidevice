@@ -1,5 +1,10 @@
+User mini73
+Date: Sat Oct 11 16:53:18 CEST 2014
+
+    Fix bug: random rubbish at the end of letter.
+
 User johns
-Date:
+Date: Tue Sep 23 12:36:39 CEST 2014
 
     Fix audio thread close race condition.
     Support ffmpeg new AVFrame API in the audio codec.
