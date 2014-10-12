@@ -868,8 +868,13 @@ void cMenuSetupSoft::Create(void)
 			&InverseTelecine[i], trVDR("no"), trVDR("yes")));
 		Add(new cMenuEditIntItem(tr("Denoise (0..1000)"),
 			&Denoise[i], 0, 1000, tr("off"), tr("max")));
-		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000) (vdpau)"),
+#ifdef USE_VAAPI
+		Add(new cMenuEditIntItem(tr("Sharpen (0..1000)"),
+			&Sharpen[i], 0, 1000, tr("off"),
+#else
+		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000)"),
 			&Sharpen[i], -1000, 1000, tr("blur max"),
+#endif
 			tr("sharpen max")));
 
 		Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
