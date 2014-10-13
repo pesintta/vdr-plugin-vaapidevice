@@ -2380,15 +2380,17 @@ static int VaapiInit(const char *display_name)
 	int entrypoint_n;
 	int i;
 
-	vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints,
-	    &entrypoint_n);
-
 	VaapiVideoProcessing = 0;
-	for (i = 0; i < entrypoint_n; i++) {
-	    if (entrypoints[i] == VAEntrypointVideoProc) {
-		Info("video/vaapi: supports video processing\n");
-		VaapiVideoProcessing = 1;
-		break;
+	if (!vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints,
+		&entrypoint_n)) {
+
+	    for (i = 0; i < entrypoint_n; i++) {
+		fprintf(stderr, "oops %d\n", i);
+		if (entrypoints[i] == VAEntrypointVideoProc) {
+		    Info("video/vaapi: supports video processing\n");
+		    VaapiVideoProcessing = 1;
+		    break;
+		}
 	    }
 	}
     }
