@@ -34,7 +34,7 @@ CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
 
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
-CONFIG += -DUSE_PIP			# PIP support
+#CONFIG += -DUSE_PIP			# PIP support
 #CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
