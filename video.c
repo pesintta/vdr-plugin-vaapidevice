@@ -2637,6 +2637,131 @@ static void VaapiSetup(VaapiDecoder * decoder,
 }
 
 ///
+///	Clamp given value to range that fits in uint8_t
+///
+///	@param value[in]	input value to clamp
+///
+static inline uint8_t VaapiClampToUint8(const int value)
+{
+    if (value > 0xFF)
+	return 0xFF;
+    else if (value < 0)
+	return 0;
+    return value;
+}
+
+///
+///	Grab output surface.
+///
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
+///
+static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
+    int *ret_height)
+{
+    int i, j;
+    VAStatus status;
+    VAImage image;
+    VAImageFormat format[1];
+    uint8_t *image_buffer = NULL;
+    uint8_t *bgra = NULL;
+    VaapiDecoder *decoder = NULL;
+
+    if (!(decoder = VaapiDecoders[0])) {
+	Error(_("video/vaapi: Decoder not available for GRAB\n"));
+	return NULL;
+    }
+
+    // No support for image scaling in vaapi
+    *ret_width = decoder->InputWidth;
+    *ret_height = decoder->InputHeight;
+
+    // Create bgra image from yuv. FIXME: could create only rgb
+    *ret_size = *ret_width * *ret_height * 4;
+
+    status = vaDeriveImage(VaDisplay,
+	decoder->SurfacesRb[decoder->SurfaceRead],
+	&image);
+    if (status != VA_STATUS_SUCCESS) {
+	Warning(_("video/vaapi: Failed to derive image: %s\n Falling back to GetImage\n"),
+	    vaErrorStr(status));
+
+	if (!decoder->GetPutImage) {
+	    Error(_("video/vaapi: Image grabbing not supported by HW\n"));
+	    return NULL;
+	}
+
+	if (!VaapiFindImageFormat(decoder, PIX_FMT_NV12, format)) {
+	    Error(_("video/vaapi: Image format suitable for grab not supported\n"));
+	    return NULL;
+	}
+
+	status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: Failed to create image for grab: %s\n"),
+		vaErrorStr(status));
+	    return NULL;
+	}
+
+	status = vaGetImage(VaDisplay,
+	    decoder->SurfacesRb[decoder->SurfaceRead],
+	    0, 0,
+	    *ret_width, *ret_height, image.image_id);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: Failed to capture image: %s\n"),
+		vaErrorStr(status));
+	    goto out_destroy;
+	}
+    }
+
+    // Sanity check for image format
+    if (image.format.fourcc != VA_FOURCC_NV12 || image.num_planes != 2) {
+	Error(_("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)\n"),
+	    image.format.fourcc, image.num_planes);
+	goto out_destroy;
+    }
+
+    status = vaMapBuffer(VaDisplay, image.buf, (void**)&image_buffer);
+    if (status != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: Could not map grabbed image for access: %s\n"),
+	    vaErrorStr(status));
+	goto out_destroy;
+    }
+
+    bgra = malloc(*ret_size);
+    if (!bgra) {
+	Error(_("video/vaapi: Grab failed: Out of memory\n"));
+	goto out_unmap;
+    }
+
+    for (j = 0; j < *ret_height; ++j) {
+	for (i = 0; i < *ret_width; ++i) {
+	    unsigned int uv_index = image.offsets[1] + (image.pitches[1] * (j / 2)) + (i / 2) * 2;
+
+	    uint8_t y = image_buffer[j * image.pitches[0] + i];
+	    uint8_t u = image_buffer[uv_index];
+	    uint8_t v = image_buffer[uv_index + 1];
+
+	    int b = 1.164 * (y-16) + 2.018 * (u - 128);
+	    int g = 1.164 * (y-16) - 0.813 * (v - 128) - 0.391 * (u - 128);
+	    int r = 1.164 * (y-16) + 1.596 * (v - 128);
+
+	    bgra[(i + j * *ret_width) * 4 + 0] = VaapiClampToUint8(b);
+	    bgra[(i + j * *ret_width) * 4 + 1] = VaapiClampToUint8(g);
+	    bgra[(i + j * *ret_width) * 4 + 2] = VaapiClampToUint8(r);
+	    bgra[(i + j * *ret_width) * 4 + 3] = 0x00;
+	}
+    }
+
+out_unmap:
+    vaUnmapBuffer(VaDisplay, image.buf);
+out_destroy:
+    vaDestroyImage(VaDisplay, image.image_id);
+    return bgra;
+}
+
+///
 ///	Configure VA-API for new video format.
 ///
 ///	@param decoder	VA-API decoder
@@ -5622,7 +5747,7 @@ static const VideoModule VaapiModule = {
     .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
-    .GrabOutput = NULL,
+    .GrabOutput = VaapiGrabOutputSurface,
     .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
 	    int *))VaapiGetStats,
     .SetBackground = VaapiSetBackground,
@@ -5664,7 +5789,7 @@ static const VideoModule VaapiGlxModule = {
     .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
     .SetTrickSpeed =
 	(void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
-    .GrabOutput = NULL,
+    .GrabOutput = VaapiGrabOutputSurface,
     .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
 	    int *))VaapiGetStats,
     .SetBackground = VaapiSetBackground,
