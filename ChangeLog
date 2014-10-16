@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Newer va-api intel drivers support PutImage.
     Use more portable fork for vfork.
     Fix crash with VA-API vdpau backend.
 

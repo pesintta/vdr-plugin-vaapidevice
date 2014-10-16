@@ -1446,7 +1446,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 static char VaapiBuggyXvBA;		///< fix xvba-video bugs
 static char VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
 static char VaapiBuggyIntel;		///< fix libva-driver-intel bugs
-static char VaapiNewIntel;		///< new libva-driver-intel driver
 
 static VADisplay *VaDisplay;		///< VA-API display
 
@@ -2000,9 +1999,13 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     decoder->PTS = AV_NOPTS_VALUE;
 
-    // get/put still not working
-    //decoder->GetPutImage = !VaapiBuggyIntel || VaapiNewIntel;
+    // old va-api intel driver didn't supported get/put-image.
+#if VA_CHECK_VERSION(0,33,99)
+    // FIXME: not the exact version with support
+    decoder->GetPutImage = 1;
+#else
     decoder->GetPutImage = !VaapiBuggyIntel;
+#endif
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
 
@@ -2345,9 +2348,6 @@ static int VaapiInit(const char *display_name)
     }
     if (strstr(s, "Intel i965")) {
 	VaapiBuggyIntel = 1;
-    }
-    if (strstr(s, "Intel i965 driver - 1.0.16.")) {
-	VaapiNewIntel = 1;
     }
     //
     //	check which attributes are supported
