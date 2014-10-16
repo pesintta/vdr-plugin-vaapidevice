@@ -3555,66 +3555,85 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     }
 
     if (decoder->BlackSurface == VA_INVALID_ID) {
-	if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420,
-		VideoWindowWidth, VideoWindowHeight, &decoder->BlackSurface, 1,
-		NULL, 0) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't create a surface\n"));
+	uint8_t *va_image_data;
+	unsigned u;
+
+	status =
+	    vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420,
+	    VideoWindowWidth, VideoWindowHeight, &decoder->BlackSurface, 1,
+	    NULL, 0);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create a surface: %s\n"),
+		vaErrorStr(status));
 	    return;
 	}
 	// full sized surface, no difference unscaled/scaled osd
-	if (vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
-		&decoder->BlackSurface, 1, 0, 0, VaOsdImage.width,
-		VaOsdImage.height, 0, 0, VideoWindowWidth, VideoWindowHeight,
-		0) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't associate subpicture\n"));
+	status =
+	    vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
+	    &decoder->BlackSurface, 1, 0, 0, VaOsdImage.width,
+	    VaOsdImage.height, 0, 0, VideoWindowWidth, VideoWindowHeight, 0);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't associate subpicture: %s\n"),
+		vaErrorStr(status));
 	}
 	Debug(3, "video/vaapi: associate %08x\n", decoder->BlackSurface);
-	// FIXME: check if intel forgets this also
 
-	if (0 && decoder->Image->image_id == VA_INVALID_ID) {
+	if (decoder->Image->image_id == VA_INVALID_ID) {
 	    VAImageFormat format[1];
-	    void *va_image_data;
-	    int i;
 
-	    printf("No image\n");
 	    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-	    if ((status =
-		    vaDeriveImage(decoder->VaDisplay, decoder->BlackSurface,
-			decoder->Image)) != VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: vaDeriveImage failed %d\n"), status);
-		if (vaCreateImage(VaDisplay, format, VideoWindowWidth,
-			VideoWindowHeight,
-			decoder->Image) != VA_STATUS_SUCCESS) {
-		    Error(_("video/vaapi: can't create image!\n"));
-		}
-	    }
-	    if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data)
-		!= VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: can't map the image!\n"));
-	    }
-
-	    for (i = 0; (unsigned)i < decoder->Image->data_size; i += 2) {
-		((uint8_t *) va_image_data)[i + 0] = 0xFF;
-		((uint8_t *) va_image_data)[i + 1] = 0xFF;
-	    }
-
-	    if (vaUnmapBuffer(VaDisplay,
-		    decoder->Image->buf) != VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: can't unmap the image!\n"));
-	    }
-	    if (vaDestroyImage(VaDisplay,
-		    decoder->Image->image_id) != VA_STATUS_SUCCESS) {
-		Error(_("video/vaapi: can't destroy image!\n"));
+	    status =
+		vaCreateImage(VaDisplay, format, VideoWindowWidth,
+		VideoWindowHeight, decoder->Image);
+	    if (status != VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't create image: %s\n"),
+		    vaErrorStr(status));
+		return;
 	    }
 	}
-	// FIXME: intel didn't support put image.
-	if (0
-	    && vaPutImage(VaDisplay, decoder->BlackSurface,
+
+	status =
+	    vaMapBuffer(VaDisplay, decoder->Image->buf,
+	    (void **)&va_image_data);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't map the image: %s\n"),
+		vaErrorStr(status));
+	    return;
+	}
+
+	for (u = 0; u < decoder->Image->data_size; ++u) {
+	    if (u < decoder->Image->offsets[1]) {
+		va_image_data[u] = 0x00;	// Y
+	    } else if (u % 2 == 0) {
+		va_image_data[u] = 0x80;	// U
+	    } else {
+#ifdef DEBUG
+		// make black surface visible
+		va_image_data[u] = 0xFF;	// V
+#else
+		va_image_data[u] = 0x80;	// V
+#endif
+	    }
+	}
+
+	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't unmap the image!\n"));
+	}
+
+	if (decoder->GetPutImage) {
+	    status =
+		vaPutImage(VaDisplay, decoder->BlackSurface,
 		decoder->Image->image_id, 0, 0, VideoWindowWidth,
-		VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't put image!\n"));
+		VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight);
+	    if (status != VA_STATUS_SUCCESS) {
+		Error(_("video/vaapi: can't put image!\n"));
+	    }
+	} else {
+	    // FIXME: PutImage isn't always supported
+	    Debug(3,
+		"video/vaapi: put image not supported, alternative path not written\n");
 	}
+
 #ifdef DEBUG
 	start = GetMsTicks();
 #endif

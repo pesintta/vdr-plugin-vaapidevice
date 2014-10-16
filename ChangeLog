@@ -1,5 +1,10 @@
+User Antti Seppälä
+Date: Thu Oct 16 14:15:15 CEST 2014
+
+    Corrected black surface for va-api.
+
 User johns
-Date:
+Date: Thu Oct 16 14:05:17 CEST 2014
 
     Newer va-api intel drivers support PutImage.
     Use more portable fork for vfork.
