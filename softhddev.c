@@ -3092,7 +3092,7 @@ static void StartXServer(void)
     Debug(3, "x-setup: Starting X server '%s' '%s'\n", args[0],
 	X11ServerArguments);
     //	fork
-    if ((pid = vfork())) {		// parent
+    if ((pid = fork())) {		// parent
 
 	X11ServerPid = pid;
 	Debug(3, "x-setup: Started x-server pid=%d\n", X11ServerPid);

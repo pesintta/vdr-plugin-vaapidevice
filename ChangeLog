@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Use more portable fork for vfork.
     Fix crash with VA-API vdpau backend.
 
 User mini73
