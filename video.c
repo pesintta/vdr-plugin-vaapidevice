@@ -2499,6 +2499,12 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 	case PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
 	    break;
+	case PIX_FMT_BGRA:
+	    fourcc = VA_FOURCC_BGRX;
+	    break;
+	case PIX_FMT_RGBA:
+	    fourcc = VA_FOURCC_RGBX;
+	    break;
 	default:
 	    Fatal(_("video/vaapi: unsupported pixel format %d\n"), pix_fmt);
     }
@@ -2539,82 +2545,79 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 }
 
 ///
-///	Configure VA-API for new video format.
+///	Grab output surface by utilizing VA-API surface color conversion HW.
 ///
-///	@param decoder	VA-API decoder
+///	@param decoder[in]		VA-API decoder
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
 ///
-static void VaapiSetup(VaapiDecoder * decoder,
-    const AVCodecContext * video_ctx)
+static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder,
+    int *ret_size, int *ret_width, int *ret_height)
 {
-    int width;
-    int height;
+    int j;
+    VAStatus status;
+    VAImage image;
     VAImageFormat format[1];
+    uint8_t *image_buffer = NULL;
+    uint8_t *bgra = NULL;
 
-    // create initial black surface and display
-    VaapiBlackSurface(decoder);
-    // cleanup last context
-    VaapiCleanup(decoder);
-
-    width = video_ctx->width;
-    height = video_ctx->height;
-#ifdef DEBUG
-    // FIXME: remove this if
-    if (decoder->Image->image_id != VA_INVALID_ID) {
-	abort();			// should be done by VaapiCleanup()
+    if (!decoder->GetPutImage) {
+	Error(_("video/vaapi: Image grabbing not supported by HW\n"));
+	return NULL;
     }
-#endif
-    // FIXME: PixFmt not set!
-    //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
 
-    // FIXME: this image is only needed for software decoder and auto-crop
-    if (decoder->GetPutImage
-	&& vaCreateImage(VaDisplay, format, width, height,
-	    decoder->Image) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't create image!\n"));
+    // No support for image scaling in vaapi
+    *ret_width = decoder->InputWidth;
+    *ret_height = decoder->InputHeight;
+
+    *ret_size = *ret_width * *ret_height * 4;
+
+    if (!VaapiFindImageFormat(decoder, PIX_FMT_BGRA, format)) {
+        Error(_("video/vaapi: Image format suitable for grab not supported\n"));
+        return NULL;
     }
-    Debug(3,
-	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
-	width, height, decoder->Image->image_id, decoder->Image->buf);
 
-    // FIXME: interlaced not valid here?
-    decoder->Resolution =
-	VideoResolutionGroup(width, height, decoder->Interlaced);
-    VaapiCreateSurfaces(decoder, width, height);
-
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	// FIXME: destroy old context
-
-	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight,
-	    decoder->GlTextures);
-	// FIXME: try two textures
-	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-		decoder->GlTextures[0], &decoder->GlxSurfaces[0])
-	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces\n"));
-	    // FIXME: no fatal here
-	}
-	/*
-	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-	   decoder->GlTextures[1], &decoder->GlxSurfaces[1])
-	   != VA_STATUS_SUCCESS) {
-	   Fatal(_("video/glx: can't create glx surfaces\n"));
-	   }
-	 */
+    status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+    if (status != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: Failed to create image for grab: %s\n"),
+	    vaErrorStr(status));
+	return NULL;
     }
-#endif
-    VaapiUpdateOutput(decoder);
 
-    //
-    //	update OSD associate
-    //
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	return;
+    status = vaGetImage(VaDisplay,
+        decoder->SurfacesRb[decoder->SurfaceRead],
+        0, 0,
+        *ret_width, *ret_height, image.image_id);
+    if (status != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: Failed to capture image: %s\n"),
+	    vaErrorStr(status));
+	return NULL;
     }
-#endif
-    VaapiAssociate(decoder);
+
+    status = vaMapBuffer(VaDisplay, image.buf, (void**)&image_buffer);
+    if (status != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: Could not map grabbed image for access: %s\n"),
+	    vaErrorStr(status));
+	goto out_destroy;
+    }
+
+    bgra = malloc(*ret_size);
+    if (!bgra) {
+	Error(_("video/vaapi: Grab failed: Out of memory\n"));
+	goto out_unmap;
+    }
+
+    for (j = 0; j < *ret_height; ++j) {
+	memcpy(bgra + j * *ret_width * 4, image_buffer + j * image.pitches[0],
+	    *ret_width * 4);
+    }
+
+out_unmap:
+    vaUnmapBuffer(VaDisplay, image.buf);
+out_destroy:
+    vaDestroyImage(VaDisplay, image.image_id);
+    return bgra;
 }
 
 ///
@@ -2632,14 +2635,15 @@ static inline uint8_t VaapiClampToUint8(const int value)
 }
 
 ///
-///	Grab output surface.
+///	Grab output surface in YUV format and covert to bgra.
 ///
+///	@param decoder[in]		VA-API decoder
 ///	@param ret_size[out]		size of allocated surface copy
 ///	@param ret_width[in,out]	width of output
 ///	@param ret_height[in,out]	height of output
 ///
-static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
-    int *ret_height)
+static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
+    int *ret_size, int *ret_width, int *ret_height)
 {
     int i, j;
     VAStatus status;
@@ -2647,12 +2651,6 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
     VAImageFormat format[1];
     uint8_t *image_buffer = NULL;
     uint8_t *bgra = NULL;
-    VaapiDecoder *decoder = NULL;
-
-    if (!(decoder = VaapiDecoders[0])) {
-	Error(_("video/vaapi: Decoder not available for GRAB\n"));
-	return NULL;
-    }
 
     // No support for image scaling in vaapi
     *ret_width = decoder->InputWidth;
@@ -2740,6 +2738,110 @@ out_unmap:
 out_destroy:
     vaDestroyImage(VaDisplay, image.image_id);
     return bgra;
+}
+
+///
+///	Grab output surface.
+///
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
+///
+static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
+    int *ret_height)
+{
+    uint8_t *bgra = NULL;
+    VaapiDecoder *decoder = NULL;
+
+    if (!(decoder = VaapiDecoders[0])) {
+	Error(_("video/vaapi: Decoder not available for GRAB\n"));
+	return NULL;
+    }
+
+    bgra = VaapiGrabOutputSurfaceHW(decoder, ret_size, ret_width, ret_height);
+    if (!bgra)
+	bgra = VaapiGrabOutputSurfaceYUV(decoder, ret_size, ret_width, ret_height);
+
+    return bgra;
+}
+
+///
+///	Configure VA-API for new video format.
+///
+///	@param decoder	VA-API decoder
+///
+static void VaapiSetup(VaapiDecoder * decoder,
+    const AVCodecContext * video_ctx)
+{
+    int width;
+    int height;
+    VAImageFormat format[1];
+
+    // create initial black surface and display
+    VaapiBlackSurface(decoder);
+    // cleanup last context
+    VaapiCleanup(decoder);
+
+    width = video_ctx->width;
+    height = video_ctx->height;
+#ifdef DEBUG
+    // FIXME: remove this if
+    if (decoder->Image->image_id != VA_INVALID_ID) {
+	abort();			// should be done by VaapiCleanup()
+    }
+#endif
+    // FIXME: PixFmt not set!
+    //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
+    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+
+    // FIXME: this image is only needed for software decoder and auto-crop
+    if (decoder->GetPutImage
+	&& vaCreateImage(VaDisplay, format, width, height,
+	    decoder->Image) != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: can't create image!\n"));
+    }
+    Debug(3,
+	"video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x\n",
+	width, height, decoder->Image->image_id, decoder->Image->buf);
+
+    // FIXME: interlaced not valid here?
+    decoder->Resolution =
+	VideoResolutionGroup(width, height, decoder->Interlaced);
+    VaapiCreateSurfaces(decoder, width, height);
+
+#ifdef USE_GLX
+    if (GlxEnabled) {
+	// FIXME: destroy old context
+
+	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight,
+	    decoder->GlTextures);
+	// FIXME: try two textures
+	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
+		decoder->GlTextures[0], &decoder->GlxSurfaces[0])
+	    != VA_STATUS_SUCCESS) {
+	    Fatal(_("video/glx: can't create glx surfaces\n"));
+	    // FIXME: no fatal here
+	}
+	/*
+	   if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
+	   decoder->GlTextures[1], &decoder->GlxSurfaces[1])
+	   != VA_STATUS_SUCCESS) {
+	   Fatal(_("video/glx: can't create glx surfaces\n"));
+	   }
+	 */
+    }
+#endif
+    VaapiUpdateOutput(decoder);
+
+    //
+    //	update OSD associate
+    //
+#ifdef USE_GLX
+    if (GlxEnabled) {
+	return;
+    }
+#endif
+    VaapiAssociate(decoder);
 }
 
 ///
