@@ -507,8 +507,8 @@ msgstr "Video Hintergrundfrabe (RGB)"
 msgid "Video background color (Alpha)"
 msgstr "Video Hintergrundfarbe (Alpha)"
 
-msgid "Use studio levels (vdpau only)"
-msgstr "Benutze Studio Levels (nur vdpau)"
+msgid "Use studio levels"
+msgstr "Benutze Studio Levels"
 
 msgid "60hz display mode"
 msgstr "60Hz Anzeigemodus"
@@ -522,23 +522,21 @@ msgstr "Schwarz während Kanalwechsel"
 msgid "Clear decoder on channel switch"
 msgstr "Decoder bei Kanalwechsel leeren"
 
-msgid "Brightness (-1000..1000) (vdpau)"
-msgstr "Helligkeit (-1000..1000) (vdpau)"
+#, c-format
+msgid "Brightness (%d..[%d]..%d)"
+msgstr "Helligkeit (%d..[%d]..%d)"
 
-msgid "min"
-msgstr "min"
+#, c-format
+msgid "Contrast (%d..[%d]..%d)"
+msgstr "Kontrast (%d..[%d]..%d)"
 
-msgid "max"
-msgstr "max"
+#, c-format
+msgid "Saturation (%d..[%d]..%d)"
+msgstr "Sättigung (%d..[%d]..%d)"
 
-msgid "Contrast (0..10000) (vdpau)"
-msgstr "Kontrast (0..10000) (vdpau)"
-
-msgid "Saturation (0..10000) (vdpau)"
-msgstr "Sättigung (0..10000) (vdpau)"
-
-msgid "Hue (-3141..3141) (vdpau)"
-msgstr "Farbton (-3141..3141) (vdpau)"
+#, c-format
+msgid "Hue (%d..[%d]..%d)"
+msgstr "Farbton (%d..[%d]..%d)"
 
 msgid "Scaling"
 msgstr "Skalierung"
@@ -546,26 +544,19 @@ msgstr "Skalierung"
 msgid "Deinterlace"
 msgstr "Deinterlace"
 
-msgid "SkipChromaDeinterlace (vdpau)"
+msgid "SkipChromaDeinterlace"
 msgstr ""
 
-msgid "Inverse Telecine (vdpau)"
-msgstr "Inverse Filmübertragung (vdpau)"
+msgid "Inverse Telecine"
+msgstr "Inverse Filmübertragung"
 
-msgid "Denoise (0..1000) (vdpau)"
+#, c-format
+msgid "Denoise (%d..[%d]..%d)"
 msgstr ""
 
-msgid "off"
-msgstr "aus"
-
-msgid "Sharpen (-1000..1000) (vdpau)"
-msgstr "Schärfen (-1000..1000) (vdpau)"
-
-msgid "blur max"
-msgstr "Weichzeichnen max."
-
-msgid "sharpen max"
-msgstr "Schärfen max."
+#, c-format
+msgid "Sharpen (%d..[%d]..%d)"
+msgstr "Schärfen (%d..[%d]..%d)"
 
 msgid "Cut top and bottom (pixel)"
 msgstr "Schneide oben und unten ab (Pixel)"
@@ -573,11 +564,20 @@ msgstr "Schneide oben und unten ab (Pixel)"
 msgid "Cut left and right (pixel)"
 msgstr "Schneide links und rechts ab (Pixel)"
 
+msgid "First field order (0-2)"
+msgstr ""
+
+msgid "Second field order (0-2)"
+msgstr ""
+
 msgid "Auto-crop"
 msgstr ""
 
 msgid "Autocrop interval (frames)"
 msgstr ""
+
+msgid "off"
+msgstr "aus"
 
 msgid "Autocrop delay (n * interval)"
 msgstr ""
@@ -769,6 +769,9 @@ msgstr ""
 msgid "[softhddev]: hot key %d is not supported\n"
 msgstr ""
 
+msgid "video/glx: can't make glx osd context current\n"
+msgstr ""
+
 msgid "video/glx: can't make glx context current\n"
 msgstr ""
 
@@ -782,6 +785,9 @@ msgstr ""
 msgid "video/glx: glx version %d.%d\n"
 msgstr ""
 
+msgid "video/glx: can't get FB configs\n"
+msgstr ""
+
 msgid "video/glx: can't get a RGB visual\n"
 msgstr ""
 
@@ -789,6 +795,9 @@ msgid "video/glx: no valid visual found\n"
 msgstr ""
 
 msgid "video/glx: need atleast 8-bits per RGB\n"
+msgstr ""
+
+msgid "video/glx: can't create shared glx context\n"
 msgstr ""
 
 msgid "video/glx: can't create glx context\n"
@@ -806,6 +815,36 @@ msgstr ""
 msgid "video/glx: v-sync enabled\n"
 msgstr ""
 
+msgid "Invalid initialization to Video AV Filters\n"
+msgstr ""
+
+msgid "Out of memory allocating Video AV Filters\n"
+msgstr ""
+
+msgid "Out of memory allocating Video AV Filter graph\n"
+msgstr ""
+
+#, c-format
+msgid "Failed to create avfilter source: %s\n"
+msgstr ""
+
+msgid "Failed to create avfilter sink\n"
+msgstr ""
+
+msgid "Failed to set output pixel formats\n"
+msgstr ""
+
+#, c-format
+msgid "Failed to parse avfilter string: %s\n"
+msgstr ""
+
+msgid "Failed to query config for filter graph\n"
+msgstr ""
+
+#, c-format
+msgid "Successfully initialized filter: %s\n"
+msgstr ""
+
 msgid "video/vaapi: no osd subpicture yet\n"
 msgstr ""
 
@@ -821,6 +860,10 @@ msgstr ""
 
 #, c-format
 msgid "video/vaapi: can't create %d surfaces\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: can't create %d posproc surfaces\n"
 msgstr ""
 
 #, c-format
@@ -857,6 +900,9 @@ msgid "video/vaapi: can't destroy context!\n"
 msgstr ""
 
 msgid "video/vaapi: can't destroy config!\n"
+msgstr ""
+
+msgid "video/vaapi: can't destroy postproc context!\n"
 msgstr ""
 
 msgid "video/vaapi: can't deassociate black surfaces\n"
@@ -933,10 +979,60 @@ msgstr ""
 msgid "video/vaapi: vaQueryImageFormats failed\n"
 msgstr ""
 
+msgid "Implementation does not support YUV420P image format needed for libavfilters\n"
+msgstr ""
+
+#, c-format
+msgid "Could not create backing store for libavfilters: %s\n"
+msgstr ""
+
+#, c-format
+msgid ""
+"video/vaapi: Failed to derive image: %s\n"
+" Falling back to GetImage\n"
+msgstr ""
+
+msgid "video/vaapi: Image grabbing not supported by HW\n"
+msgstr ""
+
+msgid "video/vaapi: Image format suitable for grab not supported\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: Failed to create image for grab: %s\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: Failed to capture image: %s\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: Could not map grabbed image for access: %s\n"
+msgstr ""
+
+msgid "video/vaapi: Grab failed: Out of memory\n"
+msgstr ""
+
+msgid "video/vaapi: Decoder not available for GRAB\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: can't create scaling surface for grab: %s\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: can't create scaling context for grab: %s\n"
+msgstr ""
+
 msgid "video/vaapi: can't create image!\n"
 msgstr ""
 
-msgid "video/glx: can't create glx surfaces\n"
+#, c-format
+msgid "video/glx: can't create glx surfaces (0x%X): %s\n"
 msgstr ""
 
 #, c-format
@@ -971,7 +1067,11 @@ msgid "codec: can't create context '%s'\n"
 msgstr ""
 
 #, c-format
-msgid "video/vaapi: vaPutSurface failed %d\n"
+msgid "video/vaapi: vaSyncSurface failed: %s\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: vaPutSurface failed: %s\n"
 msgstr ""
 
 #, c-format
@@ -1019,6 +1119,10 @@ msgid "video/vaapi: can't unmap the image!\n"
 msgstr ""
 
 msgid "video/vaapi: can't put image!\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: vaPutSurface failed %d\n"
 msgstr ""
 
 msgid "video/vaapi: can't unmap image buffer\n"

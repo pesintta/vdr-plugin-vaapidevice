@@ -697,6 +697,7 @@ class cMenuSetupSoft:public cMenuSetupPage
      virtual void Store(void);
   public:
      cMenuSetupSoft(void);
+     ~cMenuSetupSoft();
     virtual eOSState ProcessKey(eKeys);	// handle input
 };
 
@@ -748,29 +749,6 @@ void cMenuSetupSoft::Create(void)
     static const char *const video_display_formats_16_9[] = {
 	"pan&scan", "pillarbox", "center cut-out",
     };
-#ifdef USE_VAAPI
-    static const char *const deinterlace[] = {
-	"Bob", "Weave/None", "MotionAdaptive", "MotionCompensated", "Software Bob",
-	"Software Spatial",
-    };
-    static const char *const deinterlace_short[] = {
-	"B", "W", "MADI", "MCDI", "S+B", "S+S",
-    };
-#else
-    static const char *const deinterlace[] = {
-	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
-	"Software Spatial",
-    };
-    static const char *const deinterlace_short[] = {
-	"B", "W", "T", "T+S", "S+B", "S+S",
-    };
-#endif
-    static const char *const scaling[] = {
-	"Normal", "Fast", "HQ", "Anamorphic"
-    };
-    static const char *const scaling_short[] = {
-	"N", "F", "HQ", "A"
-    };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
     };
@@ -779,6 +757,24 @@ void cMenuSetupSoft::Create(void)
     };
     int current;
     int i;
+    const char* *scaling;
+    const char* *scaling_short;
+    const char* *deinterlace;
+    const char* *deinterlace_short;
+    int scaling_modes = VideoGetScalingModes(&scaling, &scaling_short);
+    int deinterlace_modes = VideoGetDeinterlaceModes(&deinterlace, &deinterlace_short);
+    int brightness_min, brightness_def, brightness_max;
+    int brightness_active = VideoGetBrightnessConfig(&brightness_min, &brightness_def, &brightness_max);
+    int contrast_min, contrast_def, contrast_max;
+    int contrast_active = VideoGetContrastConfig(&contrast_min, &contrast_def, &contrast_max);
+    int saturation_min, saturation_def, saturation_max;
+    int saturation_active = VideoGetSaturationConfig(&saturation_min, &saturation_def, &saturation_max);
+    int hue_min, hue_def, hue_max;
+    int hue_active = VideoGetHueConfig(&hue_min, &hue_def, &hue_max);
+    int denoise_min, denoise_def, denoise_max;
+    int denoise_active = VideoGetDenoiseConfig(&denoise_min, &denoise_def, &denoise_max);
+    int sharpen_min, sharpen_def, sharpen_max;
+    int sharpen_active = VideoGetSharpenConfig(&sharpen_min, &sharpen_def, &sharpen_max);
 
     current = Current();		// get current menu item index
     Clear();				// clear the menu
@@ -827,8 +823,9 @@ void cMenuSetupSoft::Create(void)
 		(int *)&Background, 0, 0x00FFFFFF));
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"),
 		(int *)&BackgroundAlpha, 0, 0xFF));
-	Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
-		&StudioLevels, trVDR("no"), trVDR("yes")));
+	if (VideoIsDriverVdpau())
+		Add(new cMenuEditBoolItem(tr("Use studio levels"),
+			&StudioLevels, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode,
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync,
@@ -838,14 +835,21 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Clear decoder on channel switch"),
 		&ClearOnSwitch, trVDR("no"), trVDR("yes")));
 
-	Add(new cMenuEditIntItem(tr("Brightness (-1000..1000) (vdpau)"),
-		&Brightness, -1000, 1000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Contrast (0..10000) (vdpau)"), &Contrast,
-		0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Saturation (0..10000) (vdpau)"),
-		&Saturation, 0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Hue, -3141,
-		3141, tr("min"), tr("max")));
+	if (brightness_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Brightness (%d..[%d]..%d)"),
+			brightness_min, brightness_def, brightness_max), &Brightness,
+			brightness_min, brightness_max));
+	if (contrast_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Contrast (%d..[%d]..%d)"),
+			contrast_min, contrast_def, contrast_max), &Contrast,
+			contrast_min, contrast_max));
+	if (saturation_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Saturation (%d..[%d]..%d)"),
+			saturation_min, saturation_def, saturation_max), &Saturation,
+			saturation_min, saturation_max));
+	if (hue_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Hue (%d..[%d]..%d)"),
+			hue_min, hue_def, hue_max), &Hue, hue_min, hue_max));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
@@ -859,39 +863,36 @@ void cMenuSetupSoft::Create(void)
 	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
-		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4,
-			scaling));
-#ifdef USE_VAAPI
+		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i],
+			scaling_modes, scaling));
 		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
-			4, deinterlace));
-#else
-		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
-			6, deinterlace));
-#endif
-		Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
-			&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
-		Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
-			&InverseTelecine[i], trVDR("no"), trVDR("yes")));
-		Add(new cMenuEditIntItem(tr("Denoise (0..1000)"),
-			&Denoise[i], 0, 1000, tr("off"), tr("max")));
-#ifdef USE_VAAPI
-		Add(new cMenuEditIntItem(tr("Sharpen (0..1000)"),
-			&Sharpen[i], 0, 1000, tr("off"),
-#else
-		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000)"),
-			&Sharpen[i], -1000, 1000, tr("blur max"),
-#endif
-			tr("sharpen max")));
+			deinterlace_modes, deinterlace));
+		if (VideoIsDriverVdpau()) {
+			Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace"),
+				&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
+			Add(new cMenuEditBoolItem(tr("Inverse Telecine"),
+				&InverseTelecine[i], trVDR("no"), trVDR("yes")));
+		}
+		if (denoise_active)
+			Add(new cMenuEditIntItem(*cString::sprintf(tr("Denoise (%d..[%d]..%d)"),
+				denoise_min, denoise_def, denoise_max), &Denoise[i],
+				denoise_min, denoise_max));
+		if (sharpen_active)
+			Add(new cMenuEditIntItem(*cString::sprintf(tr("Sharpen (%d..[%d]..%d)"),
+				sharpen_min, sharpen_def, sharpen_max), &Sharpen[i],
+				sharpen_min, sharpen_max));
 
 		Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
 			&CutTopBottom[i], 0, 250));
 		Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
 			&CutLeftRight[i], 0, 250));
 
-		Add(new cMenuEditIntItem(tr("First field order (0-2) (vaapi)"),
-			&FirstField[i], 0, 2));
-		Add(new cMenuEditIntItem(tr("Second field order (0-2) (vaapi)"),
-			&SecondField[i], 0, 2));
+		if (VideoIsDriverVaapi()) {
+			Add(new cMenuEditIntItem(tr("First field order (0-2)"),
+				&FirstField[i], 0, 2));
+			Add(new cMenuEditIntItem(tr("Second field order (0-2)"),
+				&SecondField[i], 0, 2));
+		}
 	    }
 	}
 	//
@@ -997,6 +998,12 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 #endif
     int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
+    int old_denoise[RESOLUTIONS];
+    int old_sharpen[RESOLUTIONS];
+    int old_brightness;
+    int old_contrast;
+    int old_saturation;
+    int old_hue;
     int i;
 
     old_general = General;
@@ -1007,6 +1014,12 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 #endif
     old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
+    memcpy(old_denoise, Denoise, sizeof(Denoise));
+    memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+    old_brightness = Brightness;
+    old_contrast = Contrast;
+    old_saturation = Saturation;
+    old_hue = Hue;
     state = cMenuSetupPage::ProcessKey(key);
 
     if (key != kNone) {
@@ -1024,7 +1037,23 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 		    Create();		// update menu
 		    break;
 		}
+		if (old_denoise[i] != Denoise[i]) {
+		    VideoSetDenoise(Denoise);
+		    break;
+		}
+		if (old_sharpen[i] != Sharpen[i]) {
+		    VideoSetSharpen(Sharpen);
+		    break;
+		}
 	    }
+	    if (old_brightness != Brightness)
+		VideoSetBrightness(Brightness);
+	    if (old_contrast != Contrast)
+		VideoSetContrast(Contrast);
+	    if (old_saturation != Saturation)
+		VideoSetSaturation(Saturation);
+	    if (old_hue != Hue)
+		VideoSetHue(Hue);
 	}
     }
 
@@ -1153,6 +1182,20 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     PipAltVideoHeight = ConfigPipAltVideoHeight;
 #endif
     Create();
+}
+
+cMenuSetupSoft::~cMenuSetupSoft()
+{
+    int i;
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	VideoSetDenoise(ConfigVideoDenoise);
+	VideoSetSharpen(ConfigVideoSharpen);
+    }
+    VideoSetBrightness(ConfigVideoBrightness);
+    VideoSetContrast(ConfigVideoContrast);
+    VideoSetSaturation(ConfigVideoSaturation);
+    VideoSetHue(ConfigVideoHue);
 }
 
 /**

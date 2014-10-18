@@ -89,6 +89,10 @@ extern void VideoSetDevice(const char *);
     /// Get video driver name.
 extern const char *VideoGetDriverName(void);
 
+    /// Get used video driver.
+extern int VideoIsDriverVdpau(void);
+extern int VideoIsDriverVaapi(void);
+
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
 
@@ -104,14 +108,26 @@ extern void VideoSetBlackPicture(int);
     /// Set brightness adjustment.
 extern void VideoSetBrightness(int);
 
+    /// Get brightness configurations.
+extern int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set contrast adjustment.
 extern void VideoSetContrast(int);
+
+    /// Get contrast configurations.
+extern int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set saturation adjustment.
 extern void VideoSetSaturation(int);
 
+    /// Get saturation configurations.
+extern int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set hue adjustment.
 extern void VideoSetHue(int);
+
+    /// Get hue configurations.
+extern int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set video output position.
 extern void VideoSetOutputPosition(VideoHwDecoder *, int, int, int, int);
@@ -128,6 +144,12 @@ extern void VideoSetOtherDisplayFormat(int);
     /// Set video fullscreen mode.
 extern void VideoSetFullscreen(int);
 
+    /// Get scaling modes.
+extern int VideoGetScalingModes(const char* **long_table, const char* **short_table);
+
+    /// Get deinterlace modes.
+extern int VideoGetDeinterlaceModes(const char* **long_table, const char* **short_table);
+
     /// Set deinterlace.
 extern void VideoSetDeinterlace(int[]);
 
@@ -143,8 +165,14 @@ extern void VideoSetScaling(int[]);
     /// Set denoise.
 extern void VideoSetDenoise(int[]);
 
+    /// Get denoise configurations.
+extern int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set sharpen.
 extern void VideoSetSharpen(int[]);
+
+    /// Get sharpen configurations.
+extern int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set cut top and bottom.
 extern void VideoSetCutTopBottom(int[]);
