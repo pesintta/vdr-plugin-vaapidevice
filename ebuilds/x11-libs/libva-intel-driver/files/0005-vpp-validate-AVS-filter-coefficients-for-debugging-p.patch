@@ -1,0 +1,203 @@
+From 02023af25a836921aaa081804f92a6241bea3367 Mon Sep 17 00:00:00 2001
+From: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+Date: Mon, 13 Oct 2014 16:50:59 +0200
+Subject: [PATCH 5/8] vpp: validate AVS filter coefficients for debugging
+ purposes.
+
+Make sure the newly calculated filter coefficients fall into the HW
+accepted range of values. This normally should not be an issue with
+the current configuration / scaling algorithms though.
+
+Signed-off-by: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+---
+ src/gen8_post_processing.c | 15 +++++++++++++++
+ src/i965_post_processing.c | 30 ++++++++++++++++++++++++++++++
+ src/i965_vpp_avs.c         | 41 +++++++++++++++++++++++++++++++++++++++--
+ src/i965_vpp_avs.h         | 11 +++++++++++
+ 4 files changed, 95 insertions(+), 2 deletions(-)
+
+diff --git a/src/gen8_post_processing.c b/src/gen8_post_processing.c
+index d36c061..5632ca8 100644
+--- a/src/gen8_post_processing.c
++++ b/src/gen8_post_processing.c
+@@ -746,6 +746,21 @@ static const AVSConfig gen8_avs_config = {
+     .num_phases = 16,
+     .num_luma_coeffs = 8,
+     .num_chroma_coeffs = 4,
++
++    .coeff_range = {
++        .lower_bound = {
++            .y_k_h = { -2, -2, -2, -2, -2, -2, -2, -2 },
++            .y_k_v = { -2, -2, -2, -2, -2, -2, -2, -2 },
++            .uv_k_h = { -1, -2, -2, -1 },
++            .uv_k_v = { -1, -2, -2, -1 },
++        },
++        .upper_bound = {
++            .y_k_h = { 2, 2, 2, 2, 2, 2, 2, 2 },
++            .y_k_v = { 2, 2, 2, 2, 2, 2, 2, 2 },
++            .uv_k_h = { 1, 2, 2, 1 },
++            .uv_k_v = { 1, 2, 2, 1 },
++        },
++    },
+ };
+ 
+ static VAStatus
+diff --git a/src/i965_post_processing.c b/src/i965_post_processing.c
+index 12cd1ae..3e479a8 100755
+--- a/src/i965_post_processing.c
++++ b/src/i965_post_processing.c
+@@ -2370,6 +2370,21 @@ static const AVSConfig gen5_avs_config = {
+     .num_phases = 16,
+     .num_luma_coeffs = 8,
+     .num_chroma_coeffs = 4,
++
++    .coeff_range = {
++        .lower_bound = {
++            .y_k_h = { -0.25f, -0.5f, -1, 0, 0, -1, -0.5f, -0.25f },
++            .y_k_v = { -0.25f, -0.5f, -1, 0, 0, -1, -0.5f, -0.25f },
++            .uv_k_h = { -1, 0, 0, -1 },
++            .uv_k_v = { -1, 0, 0, -1 },
++        },
++        .upper_bound = {
++            .y_k_h = { 0.25f, 0.5f, 1, 2, 2, 1, 0.5f, 0.25f },
++            .y_k_v = { 0.25f, 0.5f, 1, 2, 2, 1, 0.5f, 0.25f },
++            .uv_k_h = { 1, 2, 2, 1 },
++            .uv_k_v = { 1, 2, 2, 1 },
++        },
++    },
+ };
+ 
+ static const AVSConfig gen6_avs_config = {
+@@ -2378,6 +2393,21 @@ static const AVSConfig gen6_avs_config = {
+     .num_phases = 16,
+     .num_luma_coeffs = 8,
+     .num_chroma_coeffs = 4,
++
++    .coeff_range = {
++        .lower_bound = {
++            .y_k_h = { -0.25f, -0.5f, -1, -2, -2, -1, -0.5f, -0.25f },
++            .y_k_v = { -0.25f, -0.5f, -1, -2, -2, -1, -0.5f, -0.25f },
++            .uv_k_h = { -1, 0, 0, -1 },
++            .uv_k_v = { -1, 0, 0, -1 },
++        },
++        .upper_bound = {
++            .y_k_h = { 0.25f, 0.5f, 1, 2, 2, 1, 0.5f, 0.25f },
++            .y_k_v = { 0.25f, 0.5f, 1, 2, 2, 1, 0.5f, 0.25f },
++            .uv_k_h = { 1, 2, 2, 1 },
++            .uv_k_v = { 1, 2, 2, 1 },
++        },
++    },
+ };
+ 
+ static VAStatus
+diff --git a/src/i965_vpp_avs.c b/src/i965_vpp_avs.c
+index 2dfaecd..f8e5887 100644
+--- a/src/i965_vpp_avs.c
++++ b/src/i965_vpp_avs.c
+@@ -118,6 +118,37 @@ avs_normalize_coeffs(AVSCoeffs *coeffs, const AVSConfig *config)
+         config->coeff_epsilon);
+ }
+ 
++/* Validate coefficients for one sample/direction */
++static bool
++avs_validate_coeffs_1(float *coeffs, int num_coeffs, const float *min_coeffs,
++    const float *max_coeffs)
++{
++    int i;
++
++    for (i = 0; i < num_coeffs; i++) {
++        if (coeffs[i] < min_coeffs[i] || coeffs[i] > max_coeffs[i])
++            return false;
++    }
++    return true;
++}
++
++/* Validate coefficients wrt. the supplied range in config */
++static bool
++avs_validate_coeffs(AVSCoeffs *coeffs, const AVSConfig *config)
++{
++    const AVSCoeffs * const min_coeffs = &config->coeff_range.lower_bound;
++    const AVSCoeffs * const max_coeffs = &config->coeff_range.upper_bound;
++
++    return avs_validate_coeffs_1(coeffs->y_k_h, config->num_luma_coeffs,
++            min_coeffs->y_k_h, max_coeffs->y_k_h) &&
++        avs_validate_coeffs_1(coeffs->y_k_v, config->num_luma_coeffs,
++            min_coeffs->y_k_v, max_coeffs->y_k_v) &&
++        avs_validate_coeffs_1(coeffs->uv_k_h, config->num_chroma_coeffs,
++            min_coeffs->uv_k_h, max_coeffs->uv_k_h) &&
++        avs_validate_coeffs_1(coeffs->uv_k_v, config->num_chroma_coeffs,
++            min_coeffs->uv_k_v, max_coeffs->uv_k_v);
++}
++
+ /* Generate coefficients for default quality (bilinear) */
+ static void
+ avs_gen_coeffs_linear(float *coeffs, int num_coeffs, int phase, int num_phases,
+@@ -147,7 +178,7 @@ avs_gen_coeffs_lanczos(float *coeffs, int num_coeffs, int phase, int num_phases,
+ }
+ 
+ /* Generate coefficients with the supplied scaler */
+-static void
++static bool
+ avs_gen_coeffs(AVSState *avs, float sx, float sy, AVSGenCoeffsFunc gen_coeffs)
+ {
+     const AVSConfig * const config = avs->config;
+@@ -166,7 +197,10 @@ avs_gen_coeffs(AVSState *avs, float sx, float sy, AVSGenCoeffsFunc gen_coeffs)
+             i, config->num_phases, sy);
+ 
+         avs_normalize_coeffs(coeffs, config);
++        if (!avs_validate_coeffs(coeffs, config))
++            return false;
+     }
++    return true;
+ }
+ 
+ /* Initializes AVS state with the supplied configuration */
+@@ -191,6 +225,9 @@ avs_update_coefficients(AVSState *avs, float sx, float sy, uint32_t flags)
+         gen_coeffs = avs_gen_coeffs_linear;
+         break;
+     }
+-    avs_gen_coeffs(avs, sx, sy, gen_coeffs);
++    if (!avs_gen_coeffs(avs, sx, sy, gen_coeffs)) {
++        assert(0 && "invalid set of coefficients generated");
++        return false;
++    }
+     return true;
+ }
+diff --git a/src/i965_vpp_avs.h b/src/i965_vpp_avs.h
+index 0938c4d..b209468 100644
+--- a/src/i965_vpp_avs.h
++++ b/src/i965_vpp_avs.h
+@@ -37,6 +37,7 @@
+ #define AVS_MAX_CHROMA_COEFFS 4
+ 
+ typedef struct avs_coeffs               AVSCoeffs;
++typedef struct avs_coeffs_range         AVSCoeffsRange;
+ typedef struct avs_config               AVSConfig;
+ typedef struct avs_state                AVSState;
+ 
+@@ -52,12 +53,22 @@ struct avs_coeffs {
+     float uv_k_v[AVS_MAX_CHROMA_COEFFS];
+ };
+ 
++/** AVS coefficients range used for validation */
++struct avs_coeffs_range {
++    /** Lower bound for all coefficients */
++    AVSCoeffs lower_bound;
++    /** Upper bound for all coefficients */
++    AVSCoeffs upper_bound;
++};
++
+ /** Static configuration (per-generation) */
+ struct avs_config {
+     /** Number of bits used for the fractional part of a coefficient */
+     int coeff_frac_bits;
+     /** The smallest float that could be represented as a coefficient */
+     float coeff_epsilon;
++    /** Coefficients range */
++    AVSCoeffsRange coeff_range;
+     /** Number of phases for the sharp filter */
+     int num_phases;
+     /** Number of coefficients for luma samples */
+-- 
+2.0.4
+

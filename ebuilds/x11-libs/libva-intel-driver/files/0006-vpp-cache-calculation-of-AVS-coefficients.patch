@@ -1,0 +1,248 @@
+From 36530692cd690e7c5f51f8108511068648edbfb5 Mon Sep 17 00:00:00 2001
+From: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+Date: Mon, 13 Oct 2014 17:30:10 +0200
+Subject: [PATCH 6/8] vpp: cache calculation of AVS coefficients.
+
+If scaling parameters don't change, i.e. if the same scaling algorithm
+and factors are used, there is no point in calculating the filter
+coefficients again. So, just cache them into the existing AVS context.
+
+Signed-off-by: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+---
+ src/gen8_post_processing.c | 13 ++++++-------
+ src/i965_post_processing.c | 27 +++++++++++++--------------
+ src/i965_post_processing.h |  3 +++
+ src/i965_vpp_avs.c         | 28 ++++++++++++++++++++++++++++
+ src/i965_vpp_avs.h         |  6 ++++++
+ 5 files changed, 56 insertions(+), 21 deletions(-)
+
+diff --git a/src/gen8_post_processing.c b/src/gen8_post_processing.c
+index 5632ca8..bd798f3 100644
+--- a/src/gen8_post_processing.c
++++ b/src/gen8_post_processing.c
+@@ -39,7 +39,6 @@
+ #include "i965_drv_video.h"
+ #include "i965_post_processing.h"
+ #include "i965_render.h"
+-#include "i965_vpp_avs.h"
+ #include "intel_media.h"
+ 
+ #define SURFACE_STATE_PADDED_SIZE               SURFACE_STATE_PADDED_SIZE_GEN8
+@@ -779,7 +778,7 @@ gen8_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     int width[3], height[3], pitch[3], offset[3];
+     int src_width, src_height;
+     unsigned char *cc_ptr;
+-    AVSState avs;
++    AVSState * const avs = &pp_avs_context->state;
+     float sx, sy;
+ 
+     memset(pp_static_parameter, 0, sizeof(struct gen7_pp_static_parameter));
+@@ -894,17 +893,15 @@ gen8_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     sampler_8x8->dw15.s1u = 113; /* s1u = 0 */
+     sampler_8x8->dw15.s2u = 1203; /* s2u = 0 */
+ 
+-    avs_init_state(&avs, &gen8_avs_config);
+-
+     sx = (float)dst_rect->width / src_rect->width;
+     sy = (float)dst_rect->height / src_rect->height;
+-    avs_update_coefficients(&avs, sx, sy, 0);
++    avs_update_coefficients(avs, sx, sy, 0);
+ 
+-    assert(avs.config->num_phases == 16);
++    assert(avs->config->num_phases == 16);
+     for (i = 0; i <= 16; i++) {
+         struct gen8_sampler_8x8_avs_coefficients * const sampler_8x8_state =
+             &sampler_8x8->coefficients[i];
+-        const AVSCoeffs * const coeffs = &avs.coeffs[i];
++        const AVSCoeffs * const coeffs = &avs->coeffs[i];
+ 
+         sampler_8x8_state->dw0.table_0x_filter_c0 =
+             intel_format_convert(coeffs->y_k_h[0], 1, 6, 1);
+@@ -1506,4 +1503,6 @@ gen8_post_processing_context_init(VADriverContextP ctx,
+ 
+     pp_context->idrt_size = 5 * sizeof(struct gen8_interface_descriptor_data);
+     pp_context->curbe_size = 256;
++
++    avs_init_state(&pp_context->pp_avs_context.state, &gen8_avs_config);
+ }
+diff --git a/src/i965_post_processing.c b/src/i965_post_processing.c
+index 3e479a8..1e932fd 100755
+--- a/src/i965_post_processing.c
++++ b/src/i965_post_processing.c
+@@ -38,7 +38,6 @@
+ #include "i965_drv_video.h"
+ #include "i965_post_processing.h"
+ #include "i965_render.h"
+-#include "i965_vpp_avs.h"
+ #include "intel_media.h"
+ 
+ extern VAStatus
+@@ -2430,7 +2429,7 @@ pp_nv12_avs_initialize(VADriverContextP ctx, struct i965_post_processing_context
+     int in_w, in_h, in_wpitch, in_hpitch;
+     int out_w, out_h, out_wpitch, out_hpitch;
+     int i;
+-    AVSState avs;
++    AVSState * const avs = &pp_avs_context->state;
+     float sx, sy;
+ 
+     /* surface */
+@@ -2483,16 +2482,13 @@ pp_nv12_avs_initialize(VADriverContextP ctx, struct i965_post_processing_context
+     sampler_8x8_state = pp_context->sampler_state_table.bo_8x8->virtual;
+     memset(sampler_8x8_state, 0, sizeof(*sampler_8x8_state));
+ 
+-    avs_init_state(&avs, IS_GEN6(i965->intel.device_info) ? &gen6_avs_config :
+-        &gen5_avs_config);
+-
+     sx = (float)dst_rect->width / src_rect->width;
+     sy = (float)dst_rect->height / src_rect->height;
+-    avs_update_coefficients(&avs, sx, sy, 0);
++    avs_update_coefficients(avs, sx, sy, 0);
+ 
+-    assert(avs.config->num_phases == 16);
++    assert(avs->config->num_phases == 16);
+     for (i = 0; i <= 16; i++) {
+-        const AVSCoeffs * const coeffs = &avs.coeffs[i];
++        const AVSCoeffs * const coeffs = &avs->coeffs[i];
+ 
+         sampler_8x8_state->coefficients[i].dw0.table_0x_filter_c0 =
+             intel_format_convert(coeffs->y_k_h[0], 1, 6, 1);
+@@ -2819,7 +2815,7 @@ gen7_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     int index, i;
+     int width[3], height[3], pitch[3], offset[3];
+     int src_width, src_height;
+-    AVSState avs;
++    AVSState * const avs = &pp_avs_context->state;
+     float sx, sy;
+ 
+     /* source surface */
+@@ -2841,15 +2837,13 @@ gen7_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     sampler_8x8_state = pp_context->sampler_state_table.bo_8x8->virtual;
+     memset(sampler_8x8_state, 0, sizeof(*sampler_8x8_state));
+ 
+-    avs_init_state(&avs, &gen6_avs_config);
+-
+     sx = (float)dst_rect->width / src_rect->width;
+     sy = (float)dst_rect->height / src_rect->height;
+-    avs_update_coefficients(&avs, sx, sy, 0);
++    avs_update_coefficients(avs, sx, sy, 0);
+ 
+-    assert(avs.config->num_phases == 16);
++    assert(avs->config->num_phases == 16);
+     for (i = 0; i <= 16; i++) {
+-        const AVSCoeffs * const coeffs = &avs.coeffs[i];
++        const AVSCoeffs * const coeffs = &avs->coeffs[i];
+ 
+         sampler_8x8_state->coefficients[i].dw0.table_0x_filter_c0 =
+             intel_format_convert(coeffs->y_k_h[0], 1, 6, 1);
+@@ -5376,6 +5370,7 @@ i965_post_processing_context_init(VADriverContextP ctx,
+     struct i965_driver_data *i965 = i965_driver_data(ctx);
+     int i;
+     struct i965_post_processing_context *pp_context = data;
++    const AVSConfig *avs_config;
+ 
+     if (IS_IRONLAKE(i965->intel.device_info)) {
+ 	pp_context->urb.size = i965->intel.device_info->urb_size;
+@@ -5442,6 +5437,10 @@ i965_post_processing_context_init(VADriverContextP ctx,
+     pp_context->pp_dndi_context.current_out_obj_surface = NULL;
+     pp_context->pp_dndi_context.frame_order = -1;
+     pp_context->batch = batch;
++
++    avs_config = IS_IRONLAKE(i965->intel.device_info) ? &gen5_avs_config :
++        &gen6_avs_config;
++    avs_init_state(&pp_context->pp_avs_context.state, avs_config);
+ }
+ 
+ bool
+diff --git a/src/i965_post_processing.h b/src/i965_post_processing.h
+index f0a277e..1350401 100755
+--- a/src/i965_post_processing.h
++++ b/src/i965_post_processing.h
+@@ -29,6 +29,8 @@
+ #ifndef __I965_POST_PROCESSING_H__
+ #define __I965_POST_PROCESSING_H__
+ 
++#include "i965_vpp_avs.h"
++
+ #define MAX_PP_SURFACES                 48
+ 
+ #define I965_PP_FLAG_TOP_FIELD          1
+@@ -79,6 +81,7 @@ struct pp_scaling_context
+ 
+ struct pp_avs_context
+ {
++    AVSState state;
+     int dest_x; /* in pixel */
+     int dest_y; /* in pixel */
+     int dest_w;
+diff --git a/src/i965_vpp_avs.c b/src/i965_vpp_avs.c
+index f8e5887..f587f87 100644
+--- a/src/i965_vpp_avs.c
++++ b/src/i965_vpp_avs.c
+@@ -208,6 +208,27 @@ void
+ avs_init_state(AVSState *avs, const AVSConfig *config)
+ {
+     avs->config = config;
++    avs->flags = 0;
++    avs->scale_x = 0.0f;
++    avs->scale_y = 0.0f;
++}
++
++/* Checks whether the AVS scaling parameters changed */
++static inline bool
++avs_params_changed(AVSState *avs, float sx, float sy, uint32_t flags)
++{
++    if (avs->flags != flags)
++        return true;
++
++    if (flags >= VA_FILTER_SCALING_HQ) {
++        if (avs->scale_x != sx || avs->scale_y != sy)
++            return true;
++    }
++    else {
++        if (avs->scale_x == 0.0f || avs->scale_y == 0.0f)
++            return true;
++    }
++    return false;
+ }
+ 
+ /* Updates AVS coefficients for the supplied factors and quality level */
+@@ -217,6 +238,9 @@ avs_update_coefficients(AVSState *avs, float sx, float sy, uint32_t flags)
+     AVSGenCoeffsFunc gen_coeffs;
+ 
+     flags &= VA_FILTER_SCALING_MASK;
++    if (!avs_params_changed(avs, sx, sy, flags))
++        return true;
++
+     switch (flags) {
+     case VA_FILTER_SCALING_HQ:
+         gen_coeffs = avs_gen_coeffs_lanczos;
+@@ -229,5 +253,9 @@ avs_update_coefficients(AVSState *avs, float sx, float sy, uint32_t flags)
+         assert(0 && "invalid set of coefficients generated");
+         return false;
+     }
++
++    avs->flags = flags;
++    avs->scale_x = sx;
++    avs->scale_y = sy;
+     return true;
+ }
+diff --git a/src/i965_vpp_avs.h b/src/i965_vpp_avs.h
+index b209468..ead4261 100644
+--- a/src/i965_vpp_avs.h
++++ b/src/i965_vpp_avs.h
+@@ -81,6 +81,12 @@ struct avs_config {
+ struct avs_state {
+     /** Per-generation configuration parameters */
+     const AVSConfig *config;
++    /** Scaling flags */
++    uint32_t flags;
++    /** Scaling factor on the X-axis (horizontal) */
++    float scale_x;
++    /** Scaling factor on the Y-axis (vertical) */
++    float scale_y;
+     /** Coefficients for the polyphase scaler */
+     AVSCoeffs coeffs[AVS_MAX_PHASES + 1];
+ };
+-- 
+2.0.4
+

@@ -1,0 +1,99 @@
+From 265c63bf2976abc2bd2a94d4ccfb2444db2321fc Mon Sep 17 00:00:00 2001
+From: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+Date: Mon, 13 Oct 2014 15:17:10 +0200
+Subject: [PATCH 1/8] vpp: fix adaptive filter for all channels flag (<
+ Haswell).
+
+The "Adaptive filter for all channels" bit for AVS on Ironlake up to
+including Ivybridge/Baytrail is not located in DW137, but rather in
+the first table of coefficients for chroma samples.
+
+Thus, split the SAMPLER_STATE_8x8 message DW137 into parts relevant
+to Haswell and newer generations ("hsw"), and to the legacy platforms
+down to Ironlake ("ilk").
+
+Signed-off-by: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+---
+ src/i965_post_processing.c | 21 +++++++++++++++------
+ src/i965_structs.h         | 25 ++++++++++++++++++-------
+ 2 files changed, 33 insertions(+), 13 deletions(-)
+
+diff --git a/src/i965_post_processing.c b/src/i965_post_processing.c
+index 6d435a8..4d3c9b1 100755
+--- a/src/i965_post_processing.c
++++ b/src/i965_post_processing.c
+@@ -2470,10 +2470,12 @@ pp_nv12_avs_initialize(VADriverContextP ctx, struct i965_post_processing_context
+         sampler_8x8_state->coefficients[i].dw7.table_1y_filter_c7 = 0x0;
+     }
+ 
++    /* Adaptive filter for all channels (DW4.15) */
++    sampler_8x8_state->coefficients[0].dw4.table_1x_filter_c1 = 1U << 7;
++
+     sampler_8x8_state->dw136.default_sharpness_level = 0;
+-    sampler_8x8_state->dw137.adaptive_filter_for_all_channel = 1;
+-    sampler_8x8_state->dw137.bypass_y_adaptive_filtering = 1;
+-    sampler_8x8_state->dw137.bypass_x_adaptive_filtering = 1;
++    sampler_8x8_state->dw137.ilk.bypass_y_adaptive_filtering = 1;
++    sampler_8x8_state->dw137.ilk.bypass_x_adaptive_filtering = 1;
+     dri_bo_unmap(pp_context->sampler_state_table.bo_8x8);
+ 
+     /* sampler 8x8 */
+@@ -2801,9 +2803,16 @@ gen7_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     }
+ 
+     sampler_8x8_state->dw136.default_sharpness_level = 0;
+-    sampler_8x8_state->dw137.adaptive_filter_for_all_channel = 1;
+-    sampler_8x8_state->dw137.bypass_y_adaptive_filtering = 1;
+-    sampler_8x8_state->dw137.bypass_x_adaptive_filtering = 1;
++    if (IS_HASWELL(i965->intel.device_info)) {
++        sampler_8x8_state->dw137.hsw.adaptive_filter_for_all_channel = 1;
++        sampler_8x8_state->dw137.hsw.bypass_y_adaptive_filtering = 1;
++        sampler_8x8_state->dw137.hsw.bypass_x_adaptive_filtering = 1;
++    }
++    else {
++        sampler_8x8_state->coefficients[0].dw4.table_1x_filter_c1 = 1U << 7;
++        sampler_8x8_state->dw137.ilk.bypass_y_adaptive_filtering = 1;
++        sampler_8x8_state->dw137.ilk.bypass_x_adaptive_filtering = 1;
++    }
+     dri_bo_unmap(pp_context->sampler_state_table.bo_8x8);
+ 
+     /* sampler 8x8 */
+diff --git a/src/i965_structs.h b/src/i965_structs.h
+index 682dc2d..07e9197 100644
+--- a/src/i965_structs.h
++++ b/src/i965_structs.h
+@@ -841,13 +841,24 @@ struct i965_sampler_8x8_state
+         unsigned int default_sharpness_level:8;
+     } dw136;
+ 
+-    struct {
+-        unsigned int bit_field_name:1;
+-        unsigned int adaptive_filter_for_all_channel:1;
+-        unsigned int pad0:19;
+-        unsigned int bypass_y_adaptive_filtering:1;
+-        unsigned int bypass_x_adaptive_filtering:1;
+-        unsigned int pad1:9;
++    union {
++        /* Ironlake, Sandybridge, Ivybridge (Gen5+) */
++        struct {
++            unsigned int pad0:21;
++            unsigned int bypass_y_adaptive_filtering:1;
++            unsigned int bypass_x_adaptive_filtering:1;
++            unsigned int pad1:9;
++        } ilk;
++
++        /* Haswell (Gen7.5+) */
++        struct {
++            unsigned int rgb_adaptive:1;
++            unsigned int adaptive_filter_for_all_channel:1;
++            unsigned int pad0:19;
++            unsigned int bypass_y_adaptive_filtering:1;
++            unsigned int bypass_x_adaptive_filtering:1;
++            unsigned int pad1:9;
++        } hsw;
+     } dw137;
+ };
+ 
+-- 
+2.0.4
+
