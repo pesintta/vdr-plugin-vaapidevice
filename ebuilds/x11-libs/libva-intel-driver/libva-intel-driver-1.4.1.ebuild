@@ -7,7 +7,7 @@ EAPI=5
 SCM=""
 #if [ "${PV%9999}" != "${PV}" ] ; then # Live ebuild
 	SCM=git-2
-	EGIT_COMMIT="1.4.0"
+	EGIT_COMMIT="1.4.1"
 	EGIT_REPO_URI="git://anongit.freedesktop.org/git/vaapi/intel-driver"
 #fi
 
@@ -55,4 +55,12 @@ src_unpack() {
 	git-2_src_unpack
 	cd "${S}"
 	git cherry-pick f4b0f97..ed378b9
+	epatch "${FILESDIR}/0001-vpp-fix-adaptive-filter-for-all-channels-flag-Haswel.patch"
+	epatch "${FILESDIR}/0002-vpp-fix-AVS-coefficients-for-Broadwell.patch"
+	epatch "${FILESDIR}/0003-vpp-factor-out-calculation-of-AVS-coefficients.patch"
+	epatch "${FILESDIR}/0004-vpp-add-support-for-high-quality-scaling.patch"
+	epatch "${FILESDIR}/0005-vpp-validate-AVS-filter-coefficients-for-debugging-p.patch"
+	epatch "${FILESDIR}/0006-vpp-cache-calculation-of-AVS-coefficients.patch"
+	epatch "${FILESDIR}/0007-vpp-drop-internal-postprocessing-I965_PP_xxx-flags.patch"
+	epatch "${FILESDIR}/0008-vpp-enable-advanced-video-scaling-in-VPP-pipelines-t.patch"
 }

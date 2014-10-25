@@ -1,27 +1,27 @@
 # Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Header: /var/cvsroot/gentoo-x86/x11-libs/libva-intel-driver/libva-intel-driver-1.4.0.ebuild,v 1.1 2014/10/24 07:05:21 aballier Exp $
+# $Header: /var/cvsroot/gentoo-x86/x11-libs/libva-intel-driver/libva-intel-driver-9999.ebuild,v 1.13 2014/10/24 07:05:21 aballier Exp $
 
 EAPI=5
 
 SCM=""
-#if [ "${PV%9999}" != "${PV}" ] ; then # Live ebuild
+if [ "${PV%9999}" != "${PV}" ] ; then # Live ebuild
 	SCM=git-2
-	EGIT_COMMIT="f11176415ec26eb5960ba6841d2d9c22f2cabc60"
+	EGIT_BRANCH=master
 	EGIT_REPO_URI="git://anongit.freedesktop.org/git/vaapi/intel-driver"
-#fi
+fi
 
 AUTOTOOLS_AUTORECONF="yes"
 inherit autotools-multilib ${SCM}
 
 DESCRIPTION="HW video decode support for Intel integrated graphics"
 HOMEPAGE="http://www.freedesktop.org/wiki/Software/vaapi"
-#if [ "${PV%9999}" != "${PV}" ] ; then # Live ebuild
+if [ "${PV%9999}" != "${PV}" ] ; then # Live ebuild
 	SRC_URI=""
 	S="${WORKDIR}/${PN}"
-#else
-#	SRC_URI="http://www.freedesktop.org/software/vaapi/releases/libva-intel-driver/${P}.tar.bz2"
-#fi
+else
+	SRC_URI="http://www.freedesktop.org/software/vaapi/releases/libva-intel-driver/${P}.tar.bz2"
+fi
 
 LICENSE="MIT"
 SLOT="0"
@@ -55,4 +55,12 @@ src_unpack() {
 	git-2_src_unpack
 	cd "${S}"
 	git cherry-pick f4b0f97..ed378b9
+	epatch "${FILESDIR}/0001-vpp-fix-adaptive-filter-for-all-channels-flag-Haswel.patch"
+	epatch "${FILESDIR}/0002-vpp-fix-AVS-coefficients-for-Broadwell.patch"
+	epatch "${FILESDIR}/0003-vpp-factor-out-calculation-of-AVS-coefficients.patch"
+	epatch "${FILESDIR}/0004-vpp-add-support-for-high-quality-scaling.patch"
+	epatch "${FILESDIR}/0005-vpp-validate-AVS-filter-coefficients-for-debugging-p.patch"
+	epatch "${FILESDIR}/0006-vpp-cache-calculation-of-AVS-coefficients.patch"
+	epatch "${FILESDIR}/0007-vpp-drop-internal-postprocessing-I965_PP_xxx-flags.patch"
+	epatch "${FILESDIR}/0008-vpp-enable-advanced-video-scaling-in-VPP-pipelines-t.patch"
 }
