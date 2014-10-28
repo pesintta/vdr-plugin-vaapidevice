@@ -54,7 +54,6 @@ multilib_src_configure() {
 src_unpack() {
 	git-2_src_unpack
 	cd "${S}"
-	git cherry-pick f4b0f97..ed378b9
 	epatch "${FILESDIR}/0001-vpp-fix-adaptive-filter-for-all-channels-flag-Haswel.patch"
 	epatch "${FILESDIR}/0002-vpp-fix-AVS-coefficients-for-Broadwell.patch"
 	epatch "${FILESDIR}/0003-vpp-factor-out-calculation-of-AVS-coefficients.patch"
