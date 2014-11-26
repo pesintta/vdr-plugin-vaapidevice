@@ -4275,26 +4275,27 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
     unsigned int i;
 
     /* Advance surfaces in queue:
-     * new surface -> last surface in forward reference queue
+     * Playback position -> last forward temporal reference (past-surface)
      * Nearest surface to playback -> playback position
-     * playback position -> first backward reference
+     * New surface -> first surface in backward (future-surface) reference queue
      */
-    if (decoder->BackwardRefCount) {
-        for (i = 0; i < decoder->BackwardRefCount - 1; ++i) {
-            decoder->BackwardRefSurfaces[i] = decoder->BackwardRefSurfaces[i + 1];
-        }
-        decoder->BackwardRefSurfaces[decoder->BackwardRefCount - 1] = decoder->PlaybackSurface;
+    if (decoder->ForwardRefCount) {
+	for (i = 0; i < decoder->ForwardRefCount - 1; ++i) {
+	    decoder->ForwardRefSurfaces[i] = decoder->ForwardRefSurfaces[i + 1];
+	}
+	decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = decoder->PlaybackSurface;
     }
 
-    if (decoder->ForwardRefCount) {
-        decoder->PlaybackSurface = decoder->ForwardRefSurfaces[0];
-        for (i = decoder->ForwardRefCount - 1; i > 0; --i) {
-            decoder->ForwardRefSurfaces[i - 1] = decoder->ForwardRefSurfaces[i];
-        }
-        decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = surface;
+    if (decoder->BackwardRefCount) {
+	decoder->PlaybackSurface = decoder->BackwardRefSurfaces[0];
+	for (i = decoder->BackwardRefCount - 1; i > 0; --i) {
+	    decoder->BackwardRefSurfaces[i - 1] = decoder->BackwardRefSurfaces[i];
+	}
+	decoder->BackwardRefSurfaces[decoder->BackwardRefCount - 1] = surface;
     } else {
-        /* No forward references needed so put new surface to playback position */
-        decoder->PlaybackSurface = surface;
+	/* No backward (future-surface) references needed so put new surface
+	   to playback position */
+	decoder->PlaybackSurface = surface;
     }
 }
 
