@@ -4077,9 +4077,6 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
 
-    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
-    gpe_surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
-
 
     memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
     filter_count = decoder->filter_n;
@@ -4231,6 +4228,12 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         return surface;
 
     vaSyncSurface(VaDisplay, *surface);
+
+
+    /* Get postproc surface for gpe pipeline */
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
+    gpe_surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+
 
     va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, *gpe_surface);
     if (va_status != VA_STATUS_SUCCESS) {
