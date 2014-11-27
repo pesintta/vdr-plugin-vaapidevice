@@ -304,7 +304,7 @@ typedef struct _video_module_
 #define CODEC_SURFACES_VC1	3	///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	///< video output surfaces for queue
-#define POSTPROC_SURFACES_MAX	6	///< video postprocessing surfaces for queue
+#define POSTPROC_SURFACES_MAX	8	///< video postprocessing surfaces for queue
 #define FIELD_SURFACES_MAX	POSTPROC_SURFACES_MAX / 2	///< video postprocessing surfaces for queue
 #define OUTPUT_SURFACES_MAX	4	///< output surfaces for flip page
 
@@ -1579,11 +1579,14 @@ struct _vaapi_decoder_
     int FramesDropped;			///< number of frames dropped
     int FrameCounter;			///< number of frames decoded
     int FramesDisplayed;		///< number of frames displayed
-    VABufferID filters[VAProcFilterCount]; ///< video postprocessing filters
+    VABufferID filters[VAProcFilterCount]; ///< video postprocessing filters via vpp
+    VABufferID gpe_filters[VAProcFilterCount]; ///< video postprocessing filters via gpe
     unsigned filter_n;                  ///< number of postprocessing filters
+    unsigned gpe_filter_n;              ///< number of gpe postprocessing filters
     unsigned MaxSupportedDeinterlacer;	///< greatest supported deinterlacing method
     VABufferID* vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
     VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
+    VABufferID* vpp_sharpen_buf;	///< video postprocessing sharpen buffer
     VABufferID* vpp_brightness_buf;	///< video postprocessing brightness buffer
     VABufferID* vpp_contrast_buf;	///< video postprocessing contrast buffer
     VABufferID* vpp_hue_buf;		///< video postprocessing hue buffer
@@ -2000,7 +2003,15 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
             vaUnmapBuffer(VaDisplay, *decoder->vpp_denoise_buf);
         }
     }
-
+    if (decoder->vpp_sharpen_buf) {
+        VAProcFilterParameterBuffer *sharpen_param;
+        VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_sharpen_buf, (void**)&sharpen_param);
+        if (va_status == VA_STATUS_SUCCESS) {
+            /* Assuming here that the type is set before and does not need to be modified */
+            sharpen_param->value = VaapiScale(VideoSharpen[decoder->Resolution], 0.0, 1000.0, 0.0, 1.0);
+            vaUnmapBuffer(VaDisplay, *decoder->vpp_sharpen_buf);
+        }
+    }
 }
 
 ///
@@ -2073,13 +2084,16 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     // Initialize vpp filter chain
     for (i = 0; i < VAProcFilterCount; ++i) {
         decoder->filters[i] = VA_INVALID_ID;
+        decoder->gpe_filters[i] = VA_INVALID_ID;
     }
     decoder->filter_n = 0;
+    decoder->gpe_filter_n = 0;
 
     decoder->MaxSupportedDeinterlacer = 0;
 
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
+    decoder->vpp_sharpen_buf = NULL;
     decoder->vpp_brightness_buf = NULL;
     decoder->vpp_contrast_buf = NULL;
     decoder->vpp_saturation_buf = NULL;
@@ -2203,9 +2217,12 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     // Free & clear vpp filter chain
     for (i = 0; i < decoder->filter_n; ++i) {
         vaDestroyBuffer(VaDisplay, decoder->filters[i]);
+        vaDestroyBuffer(VaDisplay, decoder->gpe_filters[i]);
         decoder->filters[i] = VA_INVALID_ID;
+        decoder->gpe_filters[i] = VA_INVALID_ID;
     }
     decoder->filter_n = 0;
+    decoder->gpe_filter_n = 0;
 
 #ifdef VA_EXP
     decoder->LastSurface = VA_INVALID_ID;
@@ -3161,13 +3178,13 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		break;
 	    case VAProcFilterSharpening:
 		Info("video/vaapi: sharpening supported\n");
-#if 0 // Sharpening is advertised by driver but not really supported
+		// Sharpening needs to on a separated pipeline apart from vebox
 		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
 		if (filter_buf_id != VA_INVALID_ID) {
-		    Info("Enabling sharpening filter (pos = %d)\n", decoder->filter_n);
-		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+		    Info("Enabling sharpening filter (pos = %d)\n", decoder->gpe_filter_n);
+		    decoder->vpp_sharpen_buf = &decoder->gpe_filters[decoder->gpe_filter_n];
+		    decoder->gpe_filters[decoder->gpe_filter_n++] = filter_buf_id;
 		}
-#endif
 		break;
 	    case VAProcFilterColorBalance:
 		Info("video/vaapi: enabling color balance filters\n");
@@ -4042,19 +4059,24 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     VAStatus va_status;
     VASurfaceStatus va_surf_status;
     VABufferID pipeline_buf = VA_INVALID_ID;
+    VABufferID gpe_pipeline_buf = VA_INVALID_ID;
     VABufferID filters_to_run[VAProcFilterCount];
     VAProcPipelineCaps pipeline_caps;
-    VAProcPipelineParameterBuffer *pipeline_param = NULL;
+    VAProcPipelineParameterBuffer pipeline_param;
     VAProcFilterParameterBufferDeinterlacing *deinterlace = NULL;
     VASurfaceID *surface = NULL;
+    VASurfaceID *gpe_surface = NULL;
 
     /* No postprocessing filters enabled */
     if (!decoder->filter_n)
         return NULL;
 
+    memset(&pipeline_param, 0, sizeof(pipeline_param));
+
     /* Get next postproc surface to write from ring buffer */
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+
 
     memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
     filter_count = decoder->filter_n;
@@ -4158,47 +4180,41 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
         }
     }
 
-    va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, *surface);
-    if (va_status != VA_STATUS_SUCCESS) {
-        Error("begin picture va_status = 0x%X\n", va_status);
-        return NULL;
-    }
+
+    pipeline_param.surface              = decoder->PlaybackSurface;
+    pipeline_param.surface_region       = NULL;
+    pipeline_param.surface_color_standard = VAProcColorStandardNone;
+    pipeline_param.output_region        = NULL;
+    pipeline_param.output_background_color = 0xff000000;
+    pipeline_param.output_color_standard = VAProcColorStandardNone;
+    pipeline_param.pipeline_flags       = 0;
+    pipeline_param.filter_flags         = decoder->SurfaceFlagsTable[decoder->Resolution];
+    if (decoder->Deinterlaced || !decoder->Interlaced)
+        pipeline_param.filter_flags    |= VA_FRAME_PICTURE;
+    else if (decoder->Interlaced)
+        pipeline_param.filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
+    pipeline_param.filters              = filters_to_run;
+    pipeline_param.num_filters          = filter_count;
+
+    pipeline_param.forward_references   = decoder->ForwardRefSurfaces;
+    pipeline_param.num_forward_references = decoder->ForwardRefCount;
+    pipeline_param.backward_references  = decoder->BackwardRefSurfaces;
+    pipeline_param.num_backward_references = decoder->BackwardRefCount;
+
 
     va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
                                VAProcPipelineParameterBufferType, sizeof(VAProcPipelineParameterBuffer), 1,
-                               NULL, &pipeline_buf);
+                               &pipeline_param, &pipeline_buf);
     if (va_status != VA_STATUS_SUCCESS) {
         Error("createbuffer va_status = 0x%X\n", va_status);
         return NULL;
     }
 
-    va_status = vaMapBuffer(VaDisplay, pipeline_buf, (void **)&pipeline_param);
+    va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, *surface);
     if (va_status != VA_STATUS_SUCCESS) {
-        Error("map buffer va_status = 0x%X\n", va_status);
+        Error("begin picture va_status = 0x%X\n", va_status);
         return NULL;
     }
-
-    pipeline_param->surface              = decoder->PlaybackSurface;
-    pipeline_param->surface_region       = NULL;
-    pipeline_param->surface_color_standard = VAProcColorStandardBT601;
-    pipeline_param->output_region        = NULL;
-    pipeline_param->output_background_color = 0xff000000;
-    pipeline_param->output_color_standard = VAProcColorStandardBT601;
-    pipeline_param->pipeline_flags       = 0;
-    pipeline_param->filter_flags         = decoder->SurfaceFlagsTable[decoder->Resolution];
-    if (decoder->Deinterlaced || !decoder->Interlaced)
-        pipeline_param->filter_flags    |= VA_FRAME_PICTURE;
-    else if (decoder->Interlaced)
-        pipeline_param->filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
-    pipeline_param->filters              = filters_to_run;
-    pipeline_param->num_filters          = filter_count;
-
-    pipeline_param->forward_references   = decoder->ForwardRefSurfaces;
-    pipeline_param->num_forward_references = decoder->ForwardRefCount;
-    pipeline_param->backward_references  = decoder->BackwardRefSurfaces;
-    pipeline_param->num_backward_references = decoder->BackwardRefCount;
-
-    vaUnmapBuffer(VaDisplay, pipeline_buf);
 
     va_status = vaRenderPicture(VaDisplay, decoder->vpp_ctx, &pipeline_buf, 1);
     if (va_status != VA_STATUS_SUCCESS) {
@@ -4207,7 +4223,46 @@ static VASurfaceID* VaapiDeinterlaceSurface(VaapiDecoder * decoder, int top_fiel
     }
     vaEndPicture(VaDisplay, decoder->vpp_ctx);
 
-    return surface;
+    /* Skip sharpening if off */
+    if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
+        return surface;
+
+    vaSyncSurface(VaDisplay, *surface);
+
+
+    /* Get postproc surface for gpe pipeline */
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
+    gpe_surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+
+
+    va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, *gpe_surface);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("begin picture va_status = 0x%X\n", va_status);
+        return NULL;
+    }
+
+    pipeline_param.surface              = *surface;
+    pipeline_param.filters              = decoder->gpe_filters;
+    pipeline_param.num_filters          = decoder->gpe_filter_n;
+    pipeline_param.filter_flags         = decoder->SurfaceFlagsTable[decoder->Resolution];
+    pipeline_param.filter_flags         |= VA_FRAME_PICTURE; /* Always deinterlaced */
+
+    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+                               VAProcPipelineParameterBufferType, sizeof(VAProcPipelineParameterBuffer), 1,
+                               &pipeline_param, &gpe_pipeline_buf);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("createbuffer va_status = 0x%X\n", va_status);
+        return NULL;
+    }
+
+    va_status = vaRenderPicture(VaDisplay, decoder->vpp_ctx, &gpe_pipeline_buf, 1);
+    if (va_status != VA_STATUS_SUCCESS) {
+        Error("Postprocessing failed, status = 0x%X, reason = %s\n", va_status, vaErrorStr(va_status));
+        surface = NULL;
+    }
+    vaEndPicture(VaDisplay, decoder->vpp_ctx);
+
+    return gpe_surface;
 }
 
 ///
@@ -4223,26 +4278,27 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
     unsigned int i;
 
     /* Advance surfaces in queue:
-     * new surface -> last surface in forward reference queue
+     * Playback position -> last forward temporal reference (past-surface)
      * Nearest surface to playback -> playback position
-     * playback position -> first backward reference
+     * New surface -> first surface in backward (future-surface) reference queue
      */
-    if (decoder->BackwardRefCount) {
-        for (i = 0; i < decoder->BackwardRefCount - 1; ++i) {
-            decoder->BackwardRefSurfaces[i] = decoder->BackwardRefSurfaces[i + 1];
-        }
-        decoder->BackwardRefSurfaces[decoder->BackwardRefCount - 1] = decoder->PlaybackSurface;
+    if (decoder->ForwardRefCount) {
+	for (i = 0; i < decoder->ForwardRefCount - 1; ++i) {
+	    decoder->ForwardRefSurfaces[i] = decoder->ForwardRefSurfaces[i + 1];
+	}
+	decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = decoder->PlaybackSurface;
     }
 
-    if (decoder->ForwardRefCount) {
-        decoder->PlaybackSurface = decoder->ForwardRefSurfaces[0];
-        for (i = decoder->ForwardRefCount - 1; i > 0; --i) {
-            decoder->ForwardRefSurfaces[i - 1] = decoder->ForwardRefSurfaces[i];
-        }
-        decoder->ForwardRefSurfaces[decoder->ForwardRefCount - 1] = surface;
+    if (decoder->BackwardRefCount) {
+	decoder->PlaybackSurface = decoder->BackwardRefSurfaces[0];
+	for (i = decoder->BackwardRefCount - 1; i > 0; --i) {
+	    decoder->BackwardRefSurfaces[i - 1] = decoder->BackwardRefSurfaces[i];
+	}
+	decoder->BackwardRefSurfaces[decoder->BackwardRefCount - 1] = surface;
     } else {
-        /* No forward references needed so put new surface to playback position */
-        decoder->PlaybackSurface = surface;
+	/* No backward (future-surface) references needed so put new surface
+	   to playback position */
+	decoder->PlaybackSurface = surface;
     }
 }
 
@@ -4371,9 +4427,11 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
     }
 
-    /* Intel driver seems to order fields so that second deint field is
-       deinterlaced against previous second field surface.
-       That's why we don't queue the first field here */
+    /* Queue the first field */
+    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[VideoFirstField[decoder->Resolution]];
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
+    atomic_inc(&decoder->SurfacesFilled);
 
     /* Run postprocessing twice for top & bottom fields */
     if (decoder->Interlaced) {
@@ -4391,12 +4449,6 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
         atomic_inc(&decoder->SurfacesFilled);
     }
-
-    /* Now queue the first field once the possible second field exists */
-    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[VideoFirstField[decoder->Resolution]];
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
-    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
-    atomic_inc(&decoder->SurfacesFilled);
 
     pthread_mutex_unlock(&VideoMutex);
 
