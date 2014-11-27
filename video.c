@@ -4443,9 +4443,11 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
     }
 
-    /* Intel driver seems to order fields so that second deint field is
-       deinterlaced against previous second field surface.
-       That's why we don't queue the first field here */
+    /* Queue the first field */
+    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[VideoFirstField[decoder->Resolution]];
+    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
+    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
+    atomic_inc(&decoder->SurfacesFilled);
 
     /* Run postprocessing twice for top & bottom fields */
     if (decoder->Interlaced) {
@@ -4463,12 +4465,6 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
         atomic_inc(&decoder->SurfacesFilled);
     }
-
-    /* Now queue the first field once the possible second field exists */
-    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[VideoFirstField[decoder->Resolution]];
-    decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
-    decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
-    atomic_inc(&decoder->SurfacesFilled);
 
     pthread_mutex_unlock(&VideoMutex);
 
