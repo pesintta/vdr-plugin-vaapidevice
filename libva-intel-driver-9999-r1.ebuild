@@ -43,6 +43,7 @@ DEPEND="${RDEPEND}
 DOCS=( AUTHORS NEWS README )
 
 src_prepare() {
+	epatch_user
 	sed -e 's/intel-gen4asm/\0diSaBlEd/g' -i configure.ac || die
 	autotools-multilib_src_prepare
 }
