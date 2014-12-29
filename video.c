@@ -3030,6 +3030,7 @@ static void VaapiSetup(VaapiDecoder * decoder,
 {
     int width;
     int height;
+    VAStatus status;
     VAImageFormat format[1];
 
     // create initial black surface and display
@@ -3071,10 +3072,10 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight,
 	    decoder->GlTextures);
 	// FIXME: try two textures
-	if (vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
-		decoder->GlTextures[0], &decoder->GlxSurfaces[0])
-	    != VA_STATUS_SUCCESS) {
-	    Fatal(_("video/glx: can't create glx surfaces\n"));
+	status = vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D,
+			decoder->GlTextures[0], &decoder->GlxSurfaces[0]);
+	if (status != VA_STATUS_SUCCESS) {
+	    Fatal(_("video/glx: can't create glx surfaces (0x%X): %s\n"), status, vaErrorStr(status));
 	    // FIXME: no fatal here
 	}
 	/*
