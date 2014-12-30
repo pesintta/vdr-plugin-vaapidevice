@@ -3068,6 +3068,22 @@ static void VaapiSetup(VaapiDecoder * decoder,
 #ifdef USE_GLX
     if (GlxEnabled) {
 	// FIXME: destroy old context
+	GLXContext prevcontext = glXGetCurrentContext();
+
+	if (!prevcontext) {
+#ifdef USE_VIDEO_THREAD
+	    if (GlxThreadContext) {
+		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
+		    Fatal(_("video/glx: can't make glx context current\n"));
+		}
+	    } else
+#endif
+	    if (GlxContext) {
+		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
+		    Fatal(_("video/glx: can't make glx context current\n"));
+		}
+	    }
+	}
 
 	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight,
 	    decoder->GlTextures);
@@ -3085,6 +3101,8 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	   Fatal(_("video/glx: can't create glx surfaces\n"));
 	   }
 	 */
+	if (!prevcontext)
+	    glXMakeCurrent(XlibDisplay, None, NULL);
     }
 #endif
     VaapiUpdateOutput(decoder);
@@ -5880,7 +5898,8 @@ static void VaapiDisplayFrame(void)
 	    // FIXME: toggle osd
 	}
 	//glFinish();
-	glXSwapBuffers(XlibDisplay, VideoWindow);
+	if (glXGetCurrentContext())
+	    glXSwapBuffers(XlibDisplay, VideoWindow);
 	GlxCheck();
 	//glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
