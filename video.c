@@ -5894,15 +5894,6 @@ static void VaapiDisplayFrame(void)
 #ifdef USE_GLX
     if (GlxEnabled) {
         GLXContext prevcontext = glXGetCurrentContext();
-	//
-	//	add OSD
-	//
-	if (OsdShown) {
-	    GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth,
-		VideoWindowHeight);
-	    // FIXME: toggle osd
-	}
-	//glFinish();
 
         if (!prevcontext) {
 #ifdef USE_VIDEO_THREAD
@@ -5922,6 +5913,16 @@ static void VaapiDisplayFrame(void)
                 }
             }
         }
+
+	//
+	//	add OSD
+	//
+	if (OsdShown) {
+	    GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth,
+		VideoWindowHeight);
+	    // FIXME: toggle osd
+	}
+	//glFinish();
 	glXSwapBuffers(XlibDisplay, VideoWindow);
 
 	GlxCheck();
