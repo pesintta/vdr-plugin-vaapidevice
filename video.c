@@ -3073,12 +3073,16 @@ static void VaapiSetup(VaapiDecoder * decoder,
 	if (!prevcontext) {
 #ifdef USE_VIDEO_THREAD
 	    if (GlxThreadContext) {
+		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)",
+			__FUNCTION__, GlxThreadContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
 		    Fatal(_("video/glx: can't make glx context current\n"));
 		}
 	    } else
 #endif
 	    if (GlxContext) {
+		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)",
+			__FUNCTION__, GlxThreadContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
 		    Fatal(_("video/glx: can't make glx context current\n"));
 		}
@@ -5889,6 +5893,7 @@ static void VaapiDisplayFrame(void)
 
 #ifdef USE_GLX
     if (GlxEnabled) {
+        GLXContext prevcontext = glXGetCurrentContext();
 	//
 	//	add OSD
 	//
@@ -5898,8 +5903,27 @@ static void VaapiDisplayFrame(void)
 	    // FIXME: toggle osd
 	}
 	//glFinish();
-	if (glXGetCurrentContext())
-	    glXSwapBuffers(XlibDisplay, VideoWindow);
+
+        if (!prevcontext) {
+#ifdef USE_VIDEO_THREAD
+            if (GlxThreadContext) {
+		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)",
+			__FUNCTION__, GlxThreadContext);
+                if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
+                    Fatal(_("video/glx: can't make glx context current\n"));
+                }
+            } else
+#endif
+            if (GlxContext) {
+		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)",
+			__FUNCTION__, GlxContext);
+                if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
+                    Fatal(_("video/glx: can't make glx context current\n"));
+                }
+            }
+        }
+	glXSwapBuffers(XlibDisplay, VideoWindow);
+
 	GlxCheck();
 	//glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
