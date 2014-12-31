@@ -20,7 +20,7 @@ VDPAU ?= $(shell pkg-config --exists vdpau && echo 1)
     # support VA-API video output module (deprecated)
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
-#OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
+OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
     # screensaver disable/enable
 SCREENSAVER ?= 1
     # use ffmpeg libswresample
