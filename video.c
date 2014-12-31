@@ -899,6 +899,22 @@ static void GlxOsdDrawARGB(int x, int y, int width, int height,
     uint32_t end;
 #endif
 
+    int copywidth, copyheight;
+
+    if (OsdWidth < width + x || OsdHeight < height + y) {
+	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d\n",
+		width, x, OsdWidth, height, y, OsdHeight);
+    }
+    if (OsdWidth < x || OsdHeight < y)
+	return;
+
+    copywidth = width;
+    copyheight = height;
+    if (OsdWidth < width + x)
+	copywidth = OsdWidth - x;
+    if (OsdHeight < height + y)
+	copyheight = OsdHeight - y;
+
 #ifdef DEBUG
     if (!GlxEnabled) {
 	Debug(3, "video/glx: %s called without glx enabled\n", __FUNCTION__);
@@ -914,7 +930,7 @@ static void GlxOsdDrawARGB(int x, int y, int width, int height,
 	Error(_("video/glx: can't make glx context current\n"));
 	return;
     }
-    GlxUploadOsdTexture(x, y, width, height, argb);
+    GlxUploadOsdTexture(x, y, copywidth, copyheight, argb);
     glXMakeCurrent(XlibDisplay, None, NULL);
 
 #ifdef DEBUG
