@@ -841,6 +841,10 @@ static void GlxOsdInit(int width, int height)
     Debug(3, "video/glx: osd init context %p <-> %p\n", glXGetCurrentContext(),
 	GlxContext);
 
+    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
+	Fatal(_("video/glx: can't make glx osd context current\n"));
+    }
+
     //
     //	create a RGBA texture.
     //
@@ -860,6 +864,8 @@ static void GlxOsdInit(int width, int height)
 
     glBindTexture(GL_TEXTURE_2D, 0);
     glDisable(GL_TEXTURE_2D);
+    glXMakeCurrent(XlibDisplay, None, NULL);
+
 }
 
 ///
