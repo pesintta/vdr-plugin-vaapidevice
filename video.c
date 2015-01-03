@@ -2989,7 +2989,8 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
     }
 
     // Sanity check for image format
-    if (image.format.fourcc != VA_FOURCC_NV12 || image.num_planes != 2) {
+    if (image.format.fourcc != VA_FOURCC_NV12 &&
+	image.format.fourcc != VA_FOURCC('I','4','2','0')) {
 	Error(_("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)\n"),
 	    image.format.fourcc, image.num_planes);
 	goto out_destroy;
@@ -3010,15 +3011,28 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
 
     for (j = 0; j < *ret_height; ++j) {
 	for (i = 0; i < *ret_width; ++i) {
-	    unsigned int uv_index = image.offsets[1] + (image.pitches[1] * (j / 2)) + (i / 2) * 2;
-
+	    unsigned int uv_index, u_index, v_index;
 	    uint8_t y = image_buffer[j * image.pitches[0] + i];
-	    uint8_t u = image_buffer[uv_index];
-	    uint8_t v = image_buffer[uv_index + 1];
+	    uint8_t u, v;
+	    int b, g, r;
 
-	    int b = 1.164 * (y-16) + 2.018 * (u - 128);
-	    int g = 1.164 * (y-16) - 0.813 * (v - 128) - 0.391 * (u - 128);
-	    int r = 1.164 * (y-16) + 1.596 * (v - 128);
+	    if (image.format.fourcc == VA_FOURCC_NV12) {
+		uv_index = image.offsets[1] + (image.pitches[1] * (j / 2)) + (i / 2) * 2;
+		u = image_buffer[uv_index];
+		v = image_buffer[uv_index + 1];
+	    } else if (image.format.fourcc == VA_FOURCC('I','4','2','0')) {
+		u_index = image.offsets[1] + (image.pitches[1] * (j / 2) + (i / 2));
+		v_index = image.offsets[2] + (image.pitches[2] * (j / 2) + (i / 2));
+		u = image_buffer[u_index];
+		v = image_buffer[v_index];
+	    } else {
+		/* Use only y-plane if plane format is unknown */
+		u = v = y;
+	    }
+
+	    b = 1.164 * (y-16) + 2.018 * (u - 128);
+	    g = 1.164 * (y-16) - 0.813 * (v - 128) - 0.391 * (u - 128);
+	    r = 1.164 * (y-16) + 1.596 * (v - 128);
 
 	    bgra[(i + j * *ret_width) * 4 + 0] = VaapiClampToUint8(b);
 	    bgra[(i + j * *ret_width) * 4 + 1] = VaapiClampToUint8(g);
