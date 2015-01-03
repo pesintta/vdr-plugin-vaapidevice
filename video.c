@@ -678,6 +678,7 @@ static GLXContext GlxContext;		///< our gl context
 static GLXContext GlxThreadContext;	///< our gl context for the thread
 #endif
 
+static GLXFBConfig *GlxFBConfigs;	///< our gl fb configs
 static XVisualInfo *GlxVisualInfo;	///< our gl visual
 
 static GLuint OsdGlTextures[2];		///< gl texture for OSD
@@ -1078,18 +1079,21 @@ static void GlxSetupWindow(xcb_window_t window, int width, int height,
 ///
 static void GlxInit(void)
 {
-    static GLint visual_attr[] = {
-	GLX_RGBA,
-	GLX_RED_SIZE, 8,
-	GLX_GREEN_SIZE, 8,
-	GLX_BLUE_SIZE, 8,
+    static GLint fb_attr[] = {
+	GLX_DRAWABLE_TYPE,	GLX_WINDOW_BIT,
+	GLX_RENDER_TYPE,  	GLX_RGBA_BIT,
+	GLX_RED_SIZE,		8,
+	GLX_GREEN_SIZE,		8,
+	GLX_BLUE_SIZE,		8,
 #ifdef USE_DOUBLEBUFFER
-	GLX_DOUBLEBUFFER,
+	GLX_DOUBLEBUFFER,	True,
 #endif
 	None
     };
     XVisualInfo *vi;
     GLXContext context;
+    GLXFBConfig *fbconfigs;
+    int numconfigs;
     int major;
     int minor;
     int glx_GLX_EXT_swap_control;
@@ -1142,7 +1146,13 @@ static void GlxInit(void)
 
     // create glx context
     glXMakeCurrent(XlibDisplay, None, NULL);
-    vi = glXChooseVisual(XlibDisplay, DefaultScreen(XlibDisplay), visual_attr);
+    fbconfigs = glXChooseFBConfig(XlibDisplay, DefaultScreen(XlibDisplay), fb_attr, &numconfigs);
+    if (!fbconfigs || !numconfigs) {
+	Error(_("video/glx: can't get FB configs\n"));
+	GlxEnabled = 0;
+	return;
+    }
+    vi = glXGetVisualFromFBConfig(XlibDisplay, fbconfigs[0]);
     if (!vi) {
 	Error(_("video/glx: can't get a RGB visual\n"));
 	GlxEnabled = 0;
@@ -1158,14 +1168,14 @@ static void GlxInit(void)
 	GlxEnabled = 0;
 	return;
     }
-    context = glXCreateContext(XlibDisplay, vi, NULL, GL_TRUE);
+    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, NULL, GL_TRUE);
     if (!context) {
-	Error(_("video/glx: can't create glx context\n"));
+	Error(_("video/glx: can't create shared glx context\n"));
 	GlxEnabled = 0;
 	return;
     }
     GlxSharedContext = context;
-    context = glXCreateContext(XlibDisplay, vi, GlxSharedContext, GL_TRUE);
+    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, GlxSharedContext, GL_TRUE);
     if (!context) {
 	Error(_("video/glx: can't create glx context\n"));
 	GlxEnabled = 0;
@@ -1174,7 +1184,7 @@ static void GlxInit(void)
 	return;
     }
     GlxContext = context;
-
+    GlxFBConfigs = fbconfigs;
     GlxVisualInfo = vi;
     Debug(3, "video/glx: visual %#02x depth %u\n", (unsigned)vi->visualid,
 	vi->depth);
@@ -1270,7 +1280,14 @@ static void GlxExit(void)
     if (GlxThreadContext) {
 	glXDestroyContext(XlibDisplay, GlxThreadContext);
     }
-    // FIXME: must free GlxVisualInfo
+    if (GlxVisualInfo) {
+	XFree(GlxVisualInfo);
+	GlxVisualInfo = NULL;
+    }
+    if (GlxFBConfigs) {
+	XFree(GlxFBConfigs);
+	GlxFBConfigs = NULL;
+    }
 }
 
 #endif
@@ -10950,8 +10967,9 @@ static void *VideoDisplayHandlerThread(void *dummy)
 	    GlxContext);
 
 	GlxThreadContext =
-	    glXCreateContext(XlibDisplay, GlxVisualInfo, GlxSharedContext,
-	    GL_TRUE);
+	    glXCreateNewContext(XlibDisplay, GlxFBConfigs[0], GLX_RGBA_TYPE,
+	    GlxSharedContext, GL_TRUE);
+
 	if (!GlxThreadContext) {
 	    Error(_("video/glx: can't create glx context\n"));
 	    return NULL;
