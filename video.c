@@ -2790,82 +2790,6 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
     return 0;
 }
 
-///
-///	Grab output surface by utilizing VA-API surface color conversion HW.
-///
-///	@param decoder[in]		VA-API decoder
-///	@param ret_size[out]		size of allocated surface copy
-///	@param ret_width[in,out]	width of output
-///	@param ret_height[in,out]	height of output
-///
-static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder,
-    int *ret_size, int *ret_width, int *ret_height)
-{
-    int j;
-    VAStatus status;
-    VAImage image;
-    VAImageFormat format[1];
-    uint8_t *image_buffer = NULL;
-    uint8_t *bgra = NULL;
-
-    if (!decoder->GetPutImage) {
-	Error(_("video/vaapi: Image grabbing not supported by HW\n"));
-	return NULL;
-    }
-
-    // No support for image scaling in vaapi
-    *ret_width = decoder->InputWidth;
-    *ret_height = decoder->InputHeight;
-
-    *ret_size = *ret_width * *ret_height * 4;
-
-    if (!VaapiFindImageFormat(decoder, PIX_FMT_BGRA, format)) {
-        Error(_("video/vaapi: Image format suitable for grab not supported\n"));
-        return NULL;
-    }
-
-    status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
-    if (status != VA_STATUS_SUCCESS) {
-        Error(_("video/vaapi: Failed to create image for grab: %s\n"),
-	    vaErrorStr(status));
-	return NULL;
-    }
-
-    status = vaGetImage(VaDisplay,
-        decoder->SurfacesRb[decoder->SurfaceRead],
-        0, 0,
-        *ret_width, *ret_height, image.image_id);
-    if (status != VA_STATUS_SUCCESS) {
-        Error(_("video/vaapi: Failed to capture image: %s\n"),
-	    vaErrorStr(status));
-	return NULL;
-    }
-
-    status = vaMapBuffer(VaDisplay, image.buf, (void**)&image_buffer);
-    if (status != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: Could not map grabbed image for access: %s\n"),
-	    vaErrorStr(status));
-	goto out_destroy;
-    }
-
-    bgra = malloc(*ret_size);
-    if (!bgra) {
-	Error(_("video/vaapi: Grab failed: Out of memory\n"));
-	goto out_unmap;
-    }
-
-    for (j = 0; j < *ret_height; ++j) {
-	memcpy(bgra + j * *ret_width * 4, image_buffer + j * image.pitches[0],
-	    *ret_width * 4);
-    }
-
-out_unmap:
-    vaUnmapBuffer(VaDisplay, image.buf);
-out_destroy:
-    vaDestroyImage(VaDisplay, image.image_id);
-    return bgra;
-}
-
 #define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 ///
@@ -3039,6 +2963,82 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
 	    bgra[(i + j * *ret_width) * 4 + 2] = VaapiClampToUint8(r);
 	    bgra[(i + j * *ret_width) * 4 + 3] = 0x00;
 	}
+    }
+
+out_unmap:
+    vaUnmapBuffer(VaDisplay, image.buf);
+out_destroy:
+    vaDestroyImage(VaDisplay, image.image_id);
+    return bgra;
+}
+
+///
+///	Grab output surface by utilizing VA-API surface color conversion HW.
+///
+///	@param decoder[in]		VA-API decoder
+///	@param ret_size[out]		size of allocated surface copy
+///	@param ret_width[in,out]	width of output
+///	@param ret_height[in,out]	height of output
+///
+static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder,
+    int *ret_size, int *ret_width, int *ret_height)
+{
+    int j;
+    VAStatus status;
+    VAImage image;
+    VAImageFormat format[1];
+    uint8_t *image_buffer = NULL;
+    uint8_t *bgra = NULL;
+
+    if (!decoder->GetPutImage) {
+	Error(_("video/vaapi: Image grabbing not supported by HW\n"));
+	return NULL;
+    }
+
+    // No support for image scaling in vaapi
+    *ret_width = decoder->InputWidth;
+    *ret_height = decoder->InputHeight;
+
+    *ret_size = *ret_width * *ret_height * 4;
+
+    if (!VaapiFindImageFormat(decoder, PIX_FMT_BGRA, format)) {
+        Error(_("video/vaapi: Image format suitable for grab not supported\n"));
+        return NULL;
+    }
+
+    status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+    if (status != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: Failed to create image for grab: %s\n"),
+	    vaErrorStr(status));
+	return NULL;
+    }
+
+    status = vaGetImage(VaDisplay,
+        decoder->SurfacesRb[decoder->SurfaceRead],
+        0, 0,
+        *ret_width, *ret_height, image.image_id);
+    if (status != VA_STATUS_SUCCESS) {
+        Error(_("video/vaapi: Failed to capture image: %s\n"),
+	    vaErrorStr(status));
+	return NULL;
+    }
+
+    status = vaMapBuffer(VaDisplay, image.buf, (void**)&image_buffer);
+    if (status != VA_STATUS_SUCCESS) {
+	Error(_("video/vaapi: Could not map grabbed image for access: %s\n"),
+	    vaErrorStr(status));
+	goto out_destroy;
+    }
+
+    bgra = malloc(*ret_size);
+    if (!bgra) {
+	Error(_("video/vaapi: Grab failed: Out of memory\n"));
+	goto out_unmap;
+    }
+
+    for (j = 0; j < *ret_height; ++j) {
+	memcpy(bgra + j * *ret_width * 4, image_buffer + j * image.pitches[0],
+	    *ret_width * 4);
     }
 
 out_unmap:
