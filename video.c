@@ -2866,20 +2866,24 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
         return va_status;
     }
 
-    if (pipeline_caps.num_forward_references > *num_frefs) {
-	Debug(3, "vaapi/vpp: Not enough forward references to run postprocessing. Needed %d, got %d",
+    if (pipeline_caps.num_forward_references != *num_frefs) {
+	Debug(3, "vaapi/vpp: Wrong number of forward references. Needed %d, got %d",
 		pipeline_caps.num_forward_references, *num_frefs);
 	*num_frefs = pipeline_caps.num_forward_references;
 	*num_brefs = pipeline_caps.num_backward_references;
-	return VA_STATUS_ERROR_INVALID_PARAMETER;
+	/* Fail operation when needing more references than currently have */
+	if (pipeline_caps.num_forward_references > *num_frefs)
+	    return VA_STATUS_ERROR_INVALID_PARAMETER;
     }
 
-    if (pipeline_caps.num_backward_references > *num_brefs) {
-	Debug(3, "vaapi/vpp: Not enough backward references to run postprocessing. Needed %d, got %d",
+    if (pipeline_caps.num_backward_references != *num_brefs) {
+	Debug(3, "vaapi/vpp: Wrong number of backward references. Needed %d, got %d",
 		pipeline_caps.num_forward_references, *num_brefs);
 	*num_frefs = pipeline_caps.num_forward_references;
 	*num_brefs = pipeline_caps.num_backward_references;
-	return VA_STATUS_ERROR_INVALID_PARAMETER;
+	/* Fail operation when needing more references than currently have */
+	if (pipeline_caps.num_backward_references > *num_brefs)
+	    return VA_STATUS_ERROR_INVALID_PARAMETER;
     }
 
     *num_frefs = pipeline_caps.num_forward_references;
@@ -2957,7 +2961,6 @@ static inline VAStatus VaapiRunScaling(VaapiDecoder * decoder,
 		NULL, 0, VA_FILTER_SCALING_HQ, VA_PROC_PIPELINE_SUBPICTURES,
 		NULL, 0, NULL, 0);
 }
-
 
 ///
 ///	Construct and apply filters to a surface (should be called after queuing new surface)
