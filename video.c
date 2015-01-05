@@ -1644,11 +1644,12 @@ struct _vaapi_decoder_
     unsigned MaxSupportedDeinterlacer;	///< greatest supported deinterlacing method
     VABufferID* vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
     VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
+    VABufferID* vpp_cbal_buf;           ///< video color balance filters via vpp
     VABufferID* vpp_sharpen_buf;	///< video postprocessing sharpen buffer
-    VABufferID* vpp_brightness_buf;	///< video postprocessing brightness buffer
-    VABufferID* vpp_contrast_buf;	///< video postprocessing contrast buffer
-    VABufferID* vpp_hue_buf;		///< video postprocessing hue buffer
-    VABufferID* vpp_saturation_buf;	///< video postprocessing saturation buffer
+    int vpp_brightness_idx;		///< video postprocessing brightness buffer index
+    int vpp_contrast_idx;		///< video postprocessing contrast buffer index
+    int vpp_hue_idx;			///< video postprocessing hue buffer index
+    int vpp_saturation_idx;		///< video postprocessing saturation buffer index
 };
 
 static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
@@ -2152,10 +2153,10 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
     decoder->vpp_sharpen_buf = NULL;
-    decoder->vpp_brightness_buf = NULL;
-    decoder->vpp_contrast_buf = NULL;
-    decoder->vpp_saturation_buf = NULL;
-    decoder->vpp_hue_buf = NULL;
+    decoder->vpp_brightness_idx = -1;
+    decoder->vpp_contrast_idx = -1;
+    decoder->vpp_saturation_idx = -1;
+    decoder->vpp_hue_idx = -1;
 
 #ifdef VA_EXP
     decoder->LastSurface = VA_INVALID_ID;
@@ -3525,6 +3526,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     VAProcFilterCapDeinterlacing deinterlacing_caps[VAProcDeinterlacingCount];
     VAProcFilterParameterBufferDeinterlacing deinterlace;
     unsigned deinterlacing_cap_n;
+    VAProcFilterParameterBufferColorBalance cbal_param[VAProcColorBalanceCount];
     VAProcFilterCapColorBalance colorbalance_caps[VAProcColorBalanceCount];
     unsigned colorbalance_cap_n;
 
@@ -3630,64 +3632,50 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		/* Set each color balance filter individually */
 		for (v = 0; v < colorbalance_cap_n; ++v) {
 
-		    /* Color balance buffer */
-		    VAProcFilterParameterBufferColorBalance cbal_param;
-
 		    switch(colorbalance_caps[v].type) {
 			case VAProcColorBalanceNone:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "None",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-			    continue; // "None" is not an interesting filter
 			    break;
 			case VAProcColorBalanceHue:
-			    continue; // Not enabling to conserve filters (there seems to be a max limit)
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Hue",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-
-			    decoder->vpp_hue_buf = &decoder->filters[decoder->filter_n];
+				decoder->vpp_hue_idx = v;
 			    break;
 			case VAProcColorBalanceSaturation:
-			    continue; // Not enabling to conserve filters (there seems to be a max limit)
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Saturation",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-
-			    decoder->vpp_saturation_buf = &decoder->filters[decoder->filter_n];
+				decoder->vpp_saturation_idx = v;
 			    break;
 			case VAProcColorBalanceBrightness:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Brightness",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-
-			    decoder->vpp_brightness_buf = &decoder->filters[decoder->filter_n];
+				decoder->vpp_brightness_idx = v;
 			    break;
 			case VAProcColorBalanceContrast:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Contrast",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-
-			    decoder->vpp_contrast_buf = &decoder->filters[decoder->filter_n];
-
+				decoder->vpp_contrast_idx = v;
 			    break;
 			case VAProcColorBalanceAutoSaturation:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoSaturation",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-			    continue;
 			    break;
 			case VAProcColorBalanceAutoBrightness:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoBrightness",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-			    continue;
 			    break;
 			case VAProcColorBalanceAutoContrast:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoContrast",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-			    continue;
 			    break;
 
 			default:
@@ -3695,18 +3683,21 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    break;
 		    }
 
-		    cbal_param.type = VAProcFilterColorBalance;
-		    cbal_param.attrib = colorbalance_caps[v].type;
-		    cbal_param.value = colorbalance_caps[v].range.default_value;
-
-		    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
-					       VAProcFilterParameterBufferType,
-					       sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n,
-					       &cbal_param, &filter_buf_id);
-
-		    decoder->filters[decoder->filter_n++] = filter_buf_id;
+		    cbal_param[v].type = VAProcFilterColorBalance;
+		    cbal_param[v].attrib = colorbalance_caps[v].type;
+		    cbal_param[v].value = colorbalance_caps[v].range.default_value;
+		}
+		va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+					   VAProcFilterParameterBufferType,
+					   sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n,
+					   &cbal_param, &filter_buf_id);
+		if (va_status != VA_STATUS_SUCCESS) {
+		    Error("video/vaapi: Could not create buffer for color balance settings: %s\n", vaErrorStr(va_status));
+		    break;
 		}
 
+		decoder->vpp_cbal_buf = &decoder->filters[decoder->filter_n];
+		decoder->filters[decoder->filter_n++] = filter_buf_id;
 		break;
 	    case VAProcFilterSkinToneEnhancement:
 		Info("video/vaapi: skin tone enhancement supported\n");
@@ -11994,18 +11985,24 @@ void VideoSetBlackPicture(int onoff)
 ///	Vaapi helper to set various video params (brightness, contrast etc.)
 ///
 ///	@param buf	Pointer to value to set
+///	@param Index	which part of the buffer to touch
 ///	@param value	new value to set
 ///	@return 	status whether successful
 ///
-static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, float value)
+static VAStatus VaapiVideoSetColorbalance(VABufferID* buf, int Index, float value)
 {
+   VAStatus va_status;
    VAProcFilterParameterBufferColorBalance *cbal_param;
-   VAStatus va_status = vaMapBuffer(VaDisplay, *buf, (void**)&cbal_param);
+
+   if (!buf || Index < 0)
+	return VA_STATUS_ERROR_INVALID_PARAMETER;
+
+   va_status = vaMapBuffer(VaDisplay, *buf, (void**)&cbal_param);
    if (va_status != VA_STATUS_SUCCESS)
        return va_status;
 
    /* Assuming here that the type is set before and does not need to be modified */
-   cbal_param->value = value;
+   cbal_param[Index].value = value;
 
    vaUnmapBuffer(VaDisplay, *buf);
 
@@ -12029,10 +12026,10 @@ void VideoSetBrightness(int brightness)
 #endif
 
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_buf) {
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_idx >= 0) {
         // Scale to match
         float vaapivalue = VaapiScale(brightness, -1000.0, 1000.0, -100.0, 100.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_brightness_buf, vaapivalue);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx, vaapivalue);
     }
 #endif
     (void)brightness;
@@ -12053,10 +12050,10 @@ void VideoSetContrast(int contrast)
     }
 #endif
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_buf) {
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_idx >= 0) {
         // Scale to match
         float vaapivalue = VaapiScale(contrast, 0.0, 10000.0, 0.0, 10.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_contrast_buf, vaapivalue);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx, vaapivalue);
     }
 #endif
     (void)contrast;
@@ -12077,10 +12074,10 @@ void VideoSetSaturation(int saturation)
     }
 #endif
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_buf) {
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_idx >= 0) {
         // Scale to match
         float vaapivalue = VaapiScale(saturation, 0.0, 10000.0, 0.0, 10.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_saturation_buf, vaapivalue);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx, vaapivalue);
     }
 #endif
     (void)saturation;
@@ -12101,10 +12098,10 @@ void VideoSetHue(int hue)
     }
 #endif
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_buf) {
+    if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_idx >= 0) {
         // Scale to match
         float vaapivalue = VaapiScale(hue, -M_PI * 1000.0, M_PI * 1000.0, -180.0, 180.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_hue_buf, vaapivalue);
+        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx, vaapivalue);
     }
 #endif
     (void)hue;
