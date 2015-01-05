@@ -3630,25 +3630,25 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Hue",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-				decoder->vpp_hue_idx = v;
+			    decoder->vpp_hue_idx = v;
 			    break;
 			case VAProcColorBalanceSaturation:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Saturation",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-				decoder->vpp_saturation_idx = v;
+			    decoder->vpp_saturation_idx = v;
 			    break;
 			case VAProcColorBalanceBrightness:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Brightness",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-				decoder->vpp_brightness_idx = v;
+			    decoder->vpp_brightness_idx = v;
 			    break;
 			case VAProcColorBalanceContrast:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Contrast",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
-				decoder->vpp_contrast_idx = v;
+			    decoder->vpp_contrast_idx = v;
 			    break;
 			case VAProcColorBalanceAutoSaturation:
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "AutoSaturation",
