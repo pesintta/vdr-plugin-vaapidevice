@@ -3328,7 +3328,7 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
 	scaled[0] = VA_INVALID_ID;
     }
 
-    status = VaapiRunScaling(decoder->vpp_ctx, grabbing, scaled[0]);
+    status = VaapiRunScaling(scaling_ctx, grabbing, scaled[0]);
     if (status != VA_STATUS_SUCCESS) {
 	vaDestroyContext(VaDisplay, scaling_ctx);
 	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
