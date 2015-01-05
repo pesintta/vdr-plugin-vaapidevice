@@ -3069,7 +3069,7 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     if (tmp_backwardRefCount != decoder->BackwardRefCount) {
         Info("Changing to %d backward reference surfaces for postprocessing\n", tmp_backwardRefCount);
-        decoder->BackwardRefSurfaces = realloc(decoder->ForwardRefSurfaces, tmp_backwardRefCount * sizeof(VASurfaceID));
+        decoder->BackwardRefSurfaces = realloc(decoder->BackwardRefSurfaces, tmp_backwardRefCount * sizeof(VASurfaceID));
         decoder->BackwardRefCount = tmp_backwardRefCount;
     }
 
