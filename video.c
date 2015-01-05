@@ -2892,20 +2892,6 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
     *num_frefs = pipeline_caps.num_forward_references;
     *num_brefs = pipeline_caps.num_backward_references;
 
-#if 0
-    if ((pipeline_caps.filter_flags | filter_flags) != pipeline_caps.filter_flags) {
-	Info("vaapi/vpp: Unsupported filter flags for VPP. Supported: 0x%x, got: 0x%x",
-		pipeline_caps.filter_flags, filter_flags);
-	//return VA_STATUS_ERROR_INVALID_PARAMETER;
-    }
-
-    if ((pipeline_caps.pipeline_flags | pipeline_flags) != pipeline_caps.pipeline_flags) {
-	Info("vaapi/vpp: Unsupported pipeline flags for VPP. Supported: 0x%x, got: 0x%x",
-		pipeline_caps.pipeline_flags, pipeline_flags);
-	//return VA_STATUS_ERROR_INVALID_PARAMETER;
-    }
-#endif
-
     if (src == VA_INVALID_ID || dst == VA_INVALID_ID || src == dst)
 	return VA_STATUS_ERROR_INVALID_PARAMETER;
 
