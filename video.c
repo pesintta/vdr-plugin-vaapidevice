@@ -2796,7 +2796,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 ///
 ///	Verify & Run arbitrary VPP processing on src/dst surface(s)
 ///
-///	@param decoder[in]		VA-API decoder
+///	@param ctx[in]			VA-API postprocessing context
 ///	@param src[in]			source surface to scale
 ///	@param dst[in]			destination surface to put result in
 ///	@param filters[in]		array of VABufferID filters to run
@@ -2808,7 +2808,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 ///	@param brefs[in]		array of backward reference surface ids
 ///	@param num_brefs[in,out]	number of backward reference surface ids supplied/needed
 ///
-static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
+static VAStatus VaapiPostprocessSurface(VAContextID ctx,
 		    VASurfaceID src, VASurfaceID dst,
 		    VABufferID* filters, unsigned int num_filters,
 		    int filter_flags, int pipeline_flags,
@@ -2859,7 +2859,7 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
         }
     }
 
-    va_status = vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx,
+    va_status = vaQueryVideoProcPipelineCaps(VaDisplay, ctx,
 					     filters, num_filters,
 					     &pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
@@ -2914,7 +2914,7 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
     pipeline_param.num_backward_references = *num_brefs;
 
 
-    va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
+    va_status = vaCreateBuffer(VaDisplay, ctx,
 			       VAProcPipelineParameterBufferType, sizeof(VAProcPipelineParameterBuffer), 1,
 			       &pipeline_param, &pipeline_buf);
     if (va_status != VA_STATUS_SUCCESS) {
@@ -2922,31 +2922,31 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
         return va_status;
     }
 
-    va_status = vaBeginPicture(VaDisplay, decoder->vpp_ctx, dst);
+    va_status = vaBeginPicture(VaDisplay, ctx, dst);
     if (va_status != VA_STATUS_SUCCESS) {
         Error("vaapi/vpp: begin picture failed (0x%x): %s\n", va_status, vaErrorStr(va_status));
         return va_status;
     }
 
-    va_status = vaRenderPicture(VaDisplay, decoder->vpp_ctx, &pipeline_buf, 1);
+    va_status = vaRenderPicture(VaDisplay, ctx, &pipeline_buf, 1);
     if (va_status != VA_STATUS_SUCCESS) {
         Error("vaapi/vpp: Postprocessing failed (0x%X): %s\n", va_status, vaErrorStr(va_status));
         return va_status;
     }
-    vaEndPicture(VaDisplay, decoder->vpp_ctx);
+    vaEndPicture(VaDisplay, ctx);
     return VA_STATUS_SUCCESS;
 }
 
 ///
 ///	Convert & Scale between source / destination surfaces
 ///
-///	@param decoder[in]		VA-API decoder
+///	@param ctx[in]			VA-API postprocessing context
 ///	@param src[in]			source surface to scale
 ///	@param dst[in]			destination surface to put result in
-static inline VAStatus VaapiRunScaling(VaapiDecoder * decoder,
+static inline VAStatus VaapiRunScaling(VAContextID ctx,
 					VASurfaceID src, VASurfaceID dst)
 {
-    return VaapiPostprocessSurface(decoder, src, dst,
+    return VaapiPostprocessSurface(ctx, src, dst,
 		NULL, 0, VA_FILTER_SCALING_HQ, VA_PROC_PIPELINE_SUBPICTURES,
 		NULL, 0, NULL, 0);
 }
@@ -3041,7 +3041,7 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     }
 
 
-    va_status = VaapiPostprocessSurface(decoder, decoder->PlaybackSurface, *surface,
+    va_status = VaapiPostprocessSurface(decoder->vpp_ctx, decoder->PlaybackSurface, *surface,
 		    filters_to_run, filter_count,
 		    filter_flags, 0,
 		    decoder->ForwardRefSurfaces, &tmp_forwardRefCount,
@@ -3073,7 +3073,7 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     gpe_surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
 
-    va_status = VaapiPostprocessSurface(decoder, *surface, *gpe_surface,
+    va_status = VaapiPostprocessSurface(decoder->vpp_ctx, *surface, *gpe_surface,
 		    decoder->gpe_filters, decoder->gpe_filter_n,
 		    VA_FRAME_PICTURE, 0,
                     NULL, NULL,
@@ -3328,7 +3328,7 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width,
 	scaled[0] = VA_INVALID_ID;
     }
 
-    status = VaapiRunScaling(decoder, grabbing, scaled[0]);
+    status = VaapiRunScaling(decoder->vpp_ctx, grabbing, scaled[0]);
     if (status != VA_STATUS_SUCCESS) {
 	vaDestroyContext(VaDisplay, scaling_ctx);
 	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
