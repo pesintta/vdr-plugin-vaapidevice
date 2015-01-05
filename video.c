@@ -2870,21 +2870,23 @@ static VAStatus VaapiPostprocessSurface(VaapiDecoder * decoder,
     if (pipeline_caps.num_forward_references != *num_frefs) {
 	Debug(3, "vaapi/vpp: Wrong number of forward references. Needed %d, got %d",
 		pipeline_caps.num_forward_references, *num_frefs);
-	*num_frefs = pipeline_caps.num_forward_references;
-	*num_brefs = pipeline_caps.num_backward_references;
 	/* Fail operation when needing more references than currently have */
-	if (pipeline_caps.num_forward_references > *num_frefs)
+	if (pipeline_caps.num_forward_references > *num_frefs) {
+	    *num_frefs = pipeline_caps.num_forward_references;
+	    *num_brefs = pipeline_caps.num_backward_references;
 	    return VA_STATUS_ERROR_INVALID_PARAMETER;
+	}
     }
 
     if (pipeline_caps.num_backward_references != *num_brefs) {
 	Debug(3, "vaapi/vpp: Wrong number of backward references. Needed %d, got %d",
 		pipeline_caps.num_forward_references, *num_brefs);
-	*num_frefs = pipeline_caps.num_forward_references;
-	*num_brefs = pipeline_caps.num_backward_references;
 	/* Fail operation when needing more references than currently have */
-	if (pipeline_caps.num_backward_references > *num_brefs)
+	if (pipeline_caps.num_backward_references > *num_brefs) {
+	    *num_frefs = pipeline_caps.num_forward_references;
+	    *num_brefs = pipeline_caps.num_backward_references;
 	    return VA_STATUS_ERROR_INVALID_PARAMETER;
+	}
     }
 
     *num_frefs = pipeline_caps.num_forward_references;
