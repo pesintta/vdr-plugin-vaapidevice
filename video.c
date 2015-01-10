@@ -3040,6 +3040,9 @@ static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
     uint8_t* buf;
     uint8_t* planeptrs[3];
 
+    if (!VideoAvFilterIsEnabled(filter))
+	return;
+
     va_status = vaSyncSurface(VaDisplay, surface);
     if (va_status != VA_STATUS_SUCCESS) {
 	Error("Could not sync surface for derive: %s\n", vaErrorStr(va_status));
