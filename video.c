@@ -1712,8 +1712,10 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     memset((*filter)->frameIn, '\0', sizeof(AVFrame));
     memset((*filter)->frameOut, '\0', sizeof(AVFrame));
 
+#ifdef DEBUG
     Info(_("Successfully initialized filter: %s\n"), avfilter_graph_dump((*filter)->filterGraph, NULL));
-
+    printf("%s\n", avfilter_graph_dump((*filter)->filterGraph, NULL));
+#endif
     return;
 
 error_inout:
