@@ -29,6 +29,8 @@ SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
 ifneq ($(SWRESAMPLE),1)
 AVRESAMPLE ?= $(shell pkg-config --exists libavresample && echo 1)
 endif
+    # use libav/ffmpeg filters
+AVFILTER ?= $(shell pkg-config --exists libavfilter && echo 1)
 
 CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
@@ -86,6 +88,11 @@ ifeq ($(AVRESAMPLE),1)
 CONFIG += -DUSE_AVRESAMPLE
 _CFLAGS += $(shell pkg-config --cflags libavresample)
 LIBS += $(shell pkg-config --libs libavresample)
+endif
+ifeq ($(AVFILTER),1)
+CONFIG += -DUSE_AVFILTER
+_CFLAGS += $(shell pkg-config --cflags libavfilter)
+LIBS += $(shell pkg-config --libs libavfilter)
 endif
 
 _CFLAGS += $(shell pkg-config --cflags libavcodec x11 x11-xcb xcb xcb-icccm)

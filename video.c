@@ -177,6 +177,14 @@ typedef enum
 #define FFMPEG_BUG1_WORKAROUND		///< get_format bug workaround
 #endif
 
+#ifdef USE_AVFILTER
+#include <libavfilter/avfiltergraph.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
+#include <libavutil/avutil.h>
+#include <libavutil/opt.h>
+#endif
+
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
 #include "video.h"
@@ -1497,6 +1505,214 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 
 #endif
 
+#ifdef USE_AVFILTER
+
+struct _video_avfilter_ {
+    AVFilterContext* srcFilter;
+    AVFilterContext* outFilter;
+    AVFilterGraph* filterGraph;
+    AVFrame* frameIn;
+    AVFrame* frameOut;
+};
+
+typedef struct _video_avfilter_ VideoAvFilter;
+
+static void VideoAvFilterClear(VideoAvFilter * filter)
+{
+    if (!filter)
+       return;
+
+    avfilter_graph_free(&filter->filterGraph);
+
+    // FIXME: ffmpeg > 2.0 compatibility
+    //av_frame_free(&filter->frameIn);
+    //av_frame_free(&filter->frameOut);
+    free(filter->frameIn);
+    free(filter->frameOut);
+}
+
+static void VideoFilterProcessInput(VideoAvFilter *filter,
+	unsigned int width, unsigned int height, uint8_t* data[3],
+	unsigned int pitches[3], unsigned int num_planes, int interlaced, int top_field_first)
+{
+    if (!filter || !filter->frameIn) {
+	printf("Filter context not properly allocated\n");
+	return;
+    }
+
+    if (num_planes != 2) {
+	printf("Invalid num of planes: %d\n", num_planes);
+	abort();
+    }
+    filter->frameIn->format = AV_PIX_FMT_NV12;
+    filter->frameIn->width = width;
+    filter->frameIn->height = height;
+    filter->frameIn->linesize[0] = pitches[0];
+    filter->frameIn->linesize[1] = pitches[1];
+    filter->frameIn->interlaced_frame = interlaced;
+    filter->frameIn->top_field_first = top_field_first;
+
+    filter->frameIn->pkt_pts = AV_NOPTS_VALUE; // Should try to figure PTS?
+
+    filter->frameIn->data[0] = data[0]; // Place planes to be copied
+    filter->frameIn->data[1] = data[1]; // Assuming NV12 format
+
+    // Does SSE optimized memcpy, slow but the best we can really do
+    if (av_buffersrc_write_frame(filter->srcFilter, filter->frameIn) < 0)
+	printf("av_buffersrc_write_frame failed\n");
+}
+
+
+static void VideoFilterObtainOutput(VideoAvFilter * filter,
+	uint8_t* planeptrs[3], unsigned int pitches[3],
+	int width, int height)
+{
+    int i, j;
+    AVFilterBufferRef* bufref = NULL;
+
+    if (!filter || !filter->outFilter) {
+	printf("Filters are not properly allocated\n");
+	return;
+    }
+
+    //printf("avail: %d\n", av_buffersink_poll_frame(filter->outFilter));
+
+    if (av_buffersink_get_buffer_ref(filter->outFilter, &bufref, 0) < 0)
+	printf("av_buffersink_get_buffer_ref failed\n");
+
+    if (!bufref) {
+	printf("No buffer yet\n");
+	return;
+    }
+
+    if (height > bufref->video->h) {
+	printf("Invalid height for buffer: got: %d have: %d\n", height, bufref->video->h);
+    }
+
+    // FIXME: just blindly relying the format is NV12!
+    for (j = 0; j < bufref->video->h; ++j) {
+	memcpy(planeptrs[0] + pitches[0] * j, bufref->data[0] + bufref->linesize[0] * j, width);
+    }
+    for (j = 0; j < bufref->video->h / 2; ++j) {
+	memcpy(planeptrs[1] + pitches[1] * j, bufref->data[1] + bufref->linesize[1] * j, width);
+    }
+}
+
+
+static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int pixfmt,
+	const char * const filterstring)
+{
+    char srcformat[1024];
+    AVFilter *inbuffer, *outbuffer;
+    AVFilterInOut *inputs, *outputs;
+    AVBufferSinkParams *buffersink_params;
+    enum AVPixelFormat out_formats[] = { pixfmt, AV_PIX_FMT_NONE };
+
+    if (!filter) {
+	Error(_("Invalid initialization to Video AV Filters\n"));
+	abort();
+    }
+
+    avfilter_register_all();
+
+    if (!*filter) {
+	*filter = malloc(sizeof(VideoAvFilter));
+	if (!*filter) {
+	    Error(_("Out of memory allocating Video AV Filters\n"));
+	    return;
+	}
+	memset(*filter, '\0', sizeof(VideoAvFilter));
+    } else {
+	VideoAvFilterClear(*filter);
+    }
+
+    (*filter)->filterGraph = avfilter_graph_alloc();
+    if (!(*filter)->filterGraph) {
+	Error(_("Out of memory allocating Video AV Filter graph\n"));
+	return;
+    }
+    inbuffer = avfilter_get_by_name("buffer");
+    outbuffer = avfilter_get_by_name("buffersink");
+
+    snprintf(srcformat, sizeof(srcformat), "%d:%d:%d:%d:%d:%d:%d",
+	width, height, AV_PIX_FMT_NV12, 1, 1, 1, 1);
+//    snprintf(srcformat, sizeof(srcformat),
+//	"width=%d:height=%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+//	width, height, AV_PIX_FMT_NV12, 1, 1, 1, 1);
+
+    printf("srcFilter: %p graph: %p\n", (*filter)->srcFilter, (*filter)->filterGraph);
+    if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
+	    NULL, (*filter)->filterGraph) < 0) {
+	Error(_("Failed to create avfilter source: %s\n"), srcformat);
+	return;
+    }
+
+    Info("AV Filter source configured as: %s\n", srcformat);
+    printf("AV Filter source configured as: %s\n", srcformat);
+
+    buffersink_params = av_buffersink_params_alloc();
+    if (!buffersink_params) {
+	printf("Could not allocate buffersink params\n");
+	return;
+    }
+
+    buffersink_params->pixel_fmts = out_formats;
+
+    if (avfilter_graph_create_filter(&(*filter)->outFilter, outbuffer, "out", NULL,
+	    buffersink_params, (*filter)->filterGraph) < 0) {
+	Error(_("Failed to create avfilter sink\n"));
+	return;
+    }
+    // FIXME: ffmpeg > 2.0
+#if 0
+    if (av_opt_set_int_list((*filter)->outFilter, "pix_fmts", out_formats,
+	    AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN) < 0) {
+	Error(_("Failed to set output pixel formats\n"));
+	return;
+    }
+#endif
+
+    inputs = avfilter_inout_alloc();
+    outputs = avfilter_inout_alloc();
+
+    outputs->name       = av_strdup("in"); // hmm???
+    outputs->filter_ctx = (*filter)->srcFilter;
+    outputs->pad_idx    = 0;
+    outputs->next       = NULL;
+
+    inputs->name        = av_strdup("out"); // hmm???
+    inputs->filter_ctx  = (*filter)->outFilter;
+    inputs->pad_idx     = 0;
+    inputs->next        = NULL;
+
+    // FIXME: ffmpeg > 2.0 = avfilter_graph_parse_ptr
+    if (avfilter_graph_parse((*filter)->filterGraph, filterstring, &inputs, &outputs, NULL) < 0) {
+	Error(_("Failed to parse avfilter string: %s\n"), filterstring);
+	avfilter_inout_free(&inputs);
+	avfilter_inout_free(&outputs);
+	return;
+    }
+
+    avfilter_inout_free(&inputs);
+    avfilter_inout_free(&outputs);
+
+    if (avfilter_graph_config((*filter)->filterGraph, NULL) < 0) {
+	Error(_("Failed to query config for filter graph\n"));
+	return;
+    }
+    // FIXME: ffmpeg < 2.0 compatibility
+    // (*filter)->frameIn = av_frame_alloc();
+    // (*filter)->frameOut = av_frame_alloc();
+    (*filter)->frameIn = malloc(sizeof(AVFrame));
+    (*filter)->frameOut = malloc(sizeof(AVFrame));
+    memset((*filter)->frameIn, '\0', sizeof(AVFrame));
+    memset((*filter)->frameOut, '\0', sizeof(AVFrame));
+
+}
+
+#endif
+
+
 //----------------------------------------------------------------------------
 //	software - deinterlace
 //----------------------------------------------------------------------------
@@ -1650,6 +1866,10 @@ struct _vaapi_decoder_
     int vpp_contrast_idx;		///< video postprocessing contrast buffer index
     int vpp_hue_idx;			///< video postprocessing hue buffer index
     int vpp_saturation_idx;		///< video postprocessing saturation buffer index
+#ifdef USE_AVFILTER
+    VideoAvFilter* preavfilter;		///< video avfilter processing context before VPP
+    VideoAvFilter* postavfilter;	///< video avfilter processing context after vpp
+#endif
 };
 
 static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
@@ -2791,6 +3011,104 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
     return 0;
 }
 
+
+#ifdef USE_AVFILTER
+static void VaapiAddSurfaceToAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
+{
+    VAStatus va_status;
+    VAImage derived;
+    uint8_t* buf;
+    uint8_t* planeptrs[3];
+
+    va_status = vaSyncSurface(VaDisplay, surface);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("Could not sync surface for derive: %s\n", vaErrorStr(va_status));
+	return;
+    }
+    va_status = vaDeriveImage(VaDisplay, surface, &derived);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	return;
+    }
+    va_status = vaMapBuffer(VaDisplay, derived.buf, (void**)&buf);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	return;
+    }
+
+
+    if (derived.format.fourcc != VA_FOURCC_NV12) {
+	printf("Not in right pixel format\n");
+	abort();
+    }
+
+    planeptrs[0] = buf + derived.offsets[0];
+    planeptrs[1] = buf + derived.offsets[1];
+    planeptrs[2] = buf + derived.offsets[2];
+
+    VideoFilterProcessInput(decoder->postavfilter, derived.width, derived.height,
+	planeptrs, derived.pitches, derived.num_planes, decoder->Interlaced, decoder->TopFieldFirst);
+
+    vaUnmapBuffer(VaDisplay, derived.buf);
+    vaDestroyImage(VaDisplay, derived.image_id);
+}
+
+static void VaapiGetSurfaceDataFromAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
+{
+    uint8_t* buf;
+    uint8_t* planeptrs[3];
+    VAStatus va_status;
+    static VAImage image;
+    static VAImageFormat format;
+
+    if (format.fourcc == 0) {
+	printf("allocating cached image for access\n");
+	VaapiFindImageFormat(decoder, PIX_FMT_NV12, &format);
+
+	va_status = vaCreateImage(VaDisplay, &format,
+	    decoder->InputWidth,
+	    decoder->InputHeight, &image);
+	if (va_status != VA_STATUS_SUCCESS) {
+	    Error(_("Could not create image: %s\n"), vaErrorStr(va_status));
+	    return;
+	}
+    }
+
+    if (image.format.fourcc != VA_FOURCC_NV12) {
+	printf("Invalid fourcc: 0x%x\n", image.format.fourcc);
+	return;
+    }
+
+    va_status = vaMapBuffer(VaDisplay, image.buf, (void**)&buf);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	return;
+    }
+
+    planeptrs[0] = buf + image.offsets[0];
+    planeptrs[1] = buf + image.offsets[1];
+    planeptrs[2] = buf + image.offsets[2];
+
+    VideoFilterObtainOutput(decoder->postavfilter, planeptrs, image.pitches,
+	decoder->InputWidth, decoder->InputHeight);
+
+
+    va_status = vaUnmapBuffer(VaDisplay, image.buf);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	return;
+    }
+
+    va_status = vaPutImage(VaDisplay, surface, image.image_id,
+	0, 0, decoder->InputWidth, decoder->InputHeight,
+	0, 0, decoder->InputWidth, decoder->InputHeight);
+    if (va_status != VA_STATUS_SUCCESS) {
+	printf("Error putting image: %s\n", vaErrorStr(va_status));
+    }
+}
+#endif // USE_AVFILTER
+
+
 #define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 ///
@@ -3062,6 +3380,9 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     if (va_status != VA_STATUS_SUCCESS)
 	return NULL;
 
+    /* Apply ffmpeg filters */
+    VaapiAddSurfaceToAvFilter(decoder, *surface);
+    VaapiGetSurfaceDataFromAvFilter(decoder, *surface);
 
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
@@ -3786,6 +4107,13 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 
 	// FIXME: too late to switch to software rending on failures
 	VaapiSetupVideoProcessing(decoder);
+
+	// Initialize with some test filter(s)
+	// FIXME: this should come from setup.conf
+	//VideoFilterInit(&(decoder->postavfilter), video_ctx->width, video_ctx->height,
+	//	AV_PIX_FMT_NV12, "yadif=0:-1");
+	VideoFilterInit(&(decoder->postavfilter), video_ctx->width, video_ctx->height,
+		AV_PIX_FMT_NV12, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
     }
 #else
     (void)video_ctx;
