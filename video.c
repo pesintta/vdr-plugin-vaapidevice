@@ -1574,7 +1574,7 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
 	uint8_t* planeptrs[3], unsigned int pitches[3],
 	int width, int height)
 {
-    int i, j;
+    int j;
     AVFilterBufferRef* bufref = NULL;
 
     if (!VideoAvFilterIsEnabled(filter)) {
