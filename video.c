@@ -3353,7 +3353,7 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	return NULL;
 
     /* Apply ffmpeg filters, parameter indicates always deinterlaced */
-    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *surface, 0, top_field);
+    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *surface, 0, decoder->TopFieldFirst);
 
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
