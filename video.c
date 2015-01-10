@@ -3013,7 +3013,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 
 
 #ifdef USE_AVFILTER
-static void VaapiAddSurfaceToAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
+static void VaapiProcessSurfaceWithAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
 {
     VAStatus va_status;
     VAImage derived;
@@ -3046,66 +3046,18 @@ static void VaapiAddSurfaceToAvFilter(VaapiDecoder * decoder, VASurfaceID surfac
     planeptrs[1] = buf + derived.offsets[1];
     planeptrs[2] = buf + derived.offsets[2];
 
+    // Put new data in
     VideoFilterProcessInput(decoder->postavfilter, derived.width, derived.height,
 	planeptrs, derived.pitches, derived.num_planes, decoder->Interlaced, decoder->TopFieldFirst);
+
+    // Get processed data to surface
+    VideoFilterObtainOutput(decoder->postavfilter, planeptrs, derived.pitches,
+	derived.width, derived.height);
 
     vaUnmapBuffer(VaDisplay, derived.buf);
     vaDestroyImage(VaDisplay, derived.image_id);
 }
 
-static void VaapiGetSurfaceDataFromAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
-{
-    uint8_t* buf;
-    uint8_t* planeptrs[3];
-    VAStatus va_status;
-    static VAImage image;
-    static VAImageFormat format;
-
-    if (format.fourcc == 0) {
-	printf("allocating cached image for access\n");
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, &format);
-
-	va_status = vaCreateImage(VaDisplay, &format,
-	    decoder->InputWidth,
-	    decoder->InputHeight, &image);
-	if (va_status != VA_STATUS_SUCCESS) {
-	    Error(_("Could not create image: %s\n"), vaErrorStr(va_status));
-	    return;
-	}
-    }
-
-    if (image.format.fourcc != VA_FOURCC_NV12) {
-	printf("Invalid fourcc: 0x%x\n", image.format.fourcc);
-	return;
-    }
-
-    va_status = vaMapBuffer(VaDisplay, image.buf, (void**)&buf);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
-	return;
-    }
-
-    planeptrs[0] = buf + image.offsets[0];
-    planeptrs[1] = buf + image.offsets[1];
-    planeptrs[2] = buf + image.offsets[2];
-
-    VideoFilterObtainOutput(decoder->postavfilter, planeptrs, image.pitches,
-	decoder->InputWidth, decoder->InputHeight);
-
-
-    va_status = vaUnmapBuffer(VaDisplay, image.buf);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
-	return;
-    }
-
-    va_status = vaPutImage(VaDisplay, surface, image.image_id,
-	0, 0, decoder->InputWidth, decoder->InputHeight,
-	0, 0, decoder->InputWidth, decoder->InputHeight);
-    if (va_status != VA_STATUS_SUCCESS) {
-	printf("Error putting image: %s\n", vaErrorStr(va_status));
-    }
-}
 #endif // USE_AVFILTER
 
 
@@ -3381,8 +3333,7 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	return NULL;
 
     /* Apply ffmpeg filters */
-    VaapiAddSurfaceToAvFilter(decoder, *surface);
-    VaapiGetSurfaceDataFromAvFilter(decoder, *surface);
+    VaapiProcessSurfaceWithAvFilter(decoder, *surface);
 
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
