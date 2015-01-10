@@ -3013,7 +3013,8 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 
 
 #ifdef USE_AVFILTER
-static void VaapiProcessSurfaceWithAvFilter(VaapiDecoder * decoder, VASurfaceID surface)
+static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
+	VASurfaceID surface, int interlaced, int top_field_first)
 {
     VAStatus va_status;
     VAImage derived;
@@ -3047,11 +3048,11 @@ static void VaapiProcessSurfaceWithAvFilter(VaapiDecoder * decoder, VASurfaceID 
     planeptrs[2] = buf + derived.offsets[2];
 
     // Put new data in
-    VideoFilterProcessInput(decoder->postavfilter, derived.width, derived.height,
-	planeptrs, derived.pitches, derived.num_planes, decoder->Interlaced, decoder->TopFieldFirst);
+    VideoFilterProcessInput(filter, derived.width, derived.height,
+	planeptrs, derived.pitches, derived.num_planes, interlaced, top_field_first);
 
     // Get processed data to surface
-    VideoFilterObtainOutput(decoder->postavfilter, planeptrs, derived.pitches,
+    VideoFilterObtainOutput(filter, planeptrs, derived.pitches,
 	derived.width, derived.height);
 
     vaUnmapBuffer(VaDisplay, derived.buf);
@@ -3332,8 +3333,8 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     if (va_status != VA_STATUS_SUCCESS)
 	return NULL;
 
-    /* Apply ffmpeg filters */
-    VaapiProcessSurfaceWithAvFilter(decoder, *surface);
+    /* Apply ffmpeg filters, parameter indicates always deinterlaced */
+    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *surface, 0, top_field);
 
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
@@ -4061,7 +4062,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 
 	// Initialize with some test filter(s)
 	// FIXME: this should come from setup.conf
-	//VideoFilterInit(&(decoder->postavfilter), video_ctx->width, video_ctx->height,
+	//VideoFilterInit(&(decoder->preavfilter), video_ctx->width, video_ctx->height,
 	//	AV_PIX_FMT_NV12, "yadif=0:-1");
 	VideoFilterInit(&(decoder->postavfilter), video_ctx->width, video_ctx->height,
 		AV_PIX_FMT_NV12, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
