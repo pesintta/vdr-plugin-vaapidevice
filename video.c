@@ -1517,6 +1517,11 @@ struct _video_avfilter_ {
 
 typedef struct _video_avfilter_ VideoAvFilter;
 
+static inline int VideoAvFilterIsEnabled(VideoAvFilter const * const filter)
+{
+    return (filter && filter->filterGraph && filter->srcFilter && filter->outFilter);
+}
+
 static void VideoAvFilterClear(VideoAvFilter * filter)
 {
     if (!filter)
@@ -1528,7 +1533,9 @@ static void VideoAvFilterClear(VideoAvFilter * filter)
     //av_frame_free(&filter->frameIn);
     //av_frame_free(&filter->frameOut);
     free(filter->frameIn);
+    filter->frameIn = NULL;
     free(filter->frameOut);
+    filter->frameOut = NULL;
 }
 
 static void VideoFilterProcessInput(VideoAvFilter *filter,
@@ -1570,7 +1577,7 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
     int i, j;
     AVFilterBufferRef* bufref = NULL;
 
-    if (!filter || !filter->outFilter) {
+    if (!VideoAvFilterIsEnabled(filter)) {
 	printf("Filters are not properly allocated\n");
 	return;
     }
@@ -1629,7 +1636,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     (*filter)->filterGraph = avfilter_graph_alloc();
     if (!(*filter)->filterGraph) {
 	Error(_("Out of memory allocating Video AV Filter graph\n"));
-	return;
+	goto error;
     }
     inbuffer = avfilter_get_by_name("buffer");
     outbuffer = avfilter_get_by_name("buffersink");
@@ -1644,16 +1651,15 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
 	    NULL, (*filter)->filterGraph) < 0) {
 	Error(_("Failed to create avfilter source: %s\n"), srcformat);
-	return;
+	goto error;
     }
 
     Info("AV Filter source configured as: %s\n", srcformat);
-    printf("AV Filter source configured as: %s\n", srcformat);
 
     buffersink_params = av_buffersink_params_alloc();
     if (!buffersink_params) {
 	printf("Could not allocate buffersink params\n");
-	return;
+	goto error;
     }
 
     buffersink_params->pixel_fmts = out_formats;
@@ -1661,14 +1667,14 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     if (avfilter_graph_create_filter(&(*filter)->outFilter, outbuffer, "out", NULL,
 	    buffersink_params, (*filter)->filterGraph) < 0) {
 	Error(_("Failed to create avfilter sink\n"));
-	return;
+	goto error_buffersink;
     }
     // FIXME: ffmpeg > 2.0
 #if 0
     if (av_opt_set_int_list((*filter)->outFilter, "pix_fmts", out_formats,
 	    AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN) < 0) {
 	Error(_("Failed to set output pixel formats\n"));
-	return;
+	goto error_buffersink;
     }
 #endif
 
@@ -1688,9 +1694,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     // FIXME: ffmpeg > 2.0 = avfilter_graph_parse_ptr
     if (avfilter_graph_parse((*filter)->filterGraph, filterstring, &inputs, &outputs, NULL) < 0) {
 	Error(_("Failed to parse avfilter string: %s\n"), filterstring);
-	avfilter_inout_free(&inputs);
-	avfilter_inout_free(&outputs);
-	return;
+	goto error_inout;
     }
 
     avfilter_inout_free(&inputs);
@@ -1698,7 +1702,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
 
     if (avfilter_graph_config((*filter)->filterGraph, NULL) < 0) {
 	Error(_("Failed to query config for filter graph\n"));
-	return;
+	goto error_buffersink;
     }
     // FIXME: ffmpeg < 2.0 compatibility
     // (*filter)->frameIn = av_frame_alloc();
@@ -1708,6 +1712,21 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     memset((*filter)->frameIn, '\0', sizeof(AVFrame));
     memset((*filter)->frameOut, '\0', sizeof(AVFrame));
 
+    Info(_("Successfully initialized filter: %s\n"), avfilter_graph_dump((*filter)->filterGraph, NULL));
+
+    return;
+
+error_inout:
+    avfilter_inout_free(&inputs);
+    avfilter_inout_free(&outputs);
+
+error_buffersink:
+    av_free(buffersink_params);
+
+error:
+   VideoAvFilterClear((*filter));
+   free(*filter);
+   *filter = NULL;
 }
 
 #endif
