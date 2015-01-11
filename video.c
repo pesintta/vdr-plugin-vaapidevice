@@ -3126,8 +3126,10 @@ static void VaapiSetupVideoFilters(VaapiDecoder * decoder)
 
     // Initialize with some test filter(s)
     // FIXME: this should come from setup.conf
-    //VideoFilterInit(&(decoder->preavfilter), video_ctx->width, video_ctx->height,
-    //	AV_PIX_FMT_NV12, "yadif=0:-1");
+    //VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
+    //	AV_PIX_FMT_YUV420P, "yadif=0:-1");
+    //VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
+    //	AV_PIX_FMT_YUV420P, "copy");
     //VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
     //	AV_PIX_FMT_YUV420P, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
     VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
@@ -3408,9 +3410,6 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     if (va_status != VA_STATUS_SUCCESS)
 	return NULL;
-
-    /* Apply ffmpeg filters, parameter indicates always deinterlaced */
-    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *surface, 0, decoder->TopFieldFirst);
 
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
@@ -4955,15 +4954,29 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     /* No point in adding new surface if cleanup is in progress */
     if (pthread_mutex_trylock(&VideoMutex))
         return;
+
+    /* Apply pre-gpu-processing ffmpeg filters */
+    VaapiProcessSurfaceWithAvFilter(decoder->preavfilter, surface,
+	decoder->Interlaced, decoder->TopFieldFirst);
+
     /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
     firstfield = VaapiApplyFilters(decoder, decoder->TopFieldFirst ? 1 : 0);
     if (!firstfield) {
         /* Use unprocessed surface if postprocessing fails */
         decoder->Deinterlaced = 0;
+
+	/* Apply post-gpu-processing ffmpeg filters */
+	VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, surface,
+	    decoder->Deinterlaced, decoder->TopFieldFirst);
+
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, surface);
     } else {
         decoder->Deinterlaced = 1;
+
+	VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *firstfield,
+		decoder->Deinterlaced, decoder->TopFieldFirst);
+
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
     }
 
@@ -4979,9 +4992,18 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         if (!secondfield) {
             /* Use unprocessed surface if postprocessing fails */
             decoder->Deinterlaced = 0;
+
+	    /* Apply post-gpu-processing ffmpeg filters */
+	    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, surface,
+		decoder->Deinterlaced, decoder->TopFieldFirst);
+
             VaapiAddToHistoryQueue(decoder->SecondFieldHistory, surface);
         } else {
             decoder->Deinterlaced = 1;
+
+	    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *secondfield,
+		decoder->Deinterlaced, decoder->TopFieldFirst);
+
             VaapiAddToHistoryQueue(decoder->SecondFieldHistory, *secondfield);
         }
         decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->SecondFieldHistory[VideoSecondField[decoder->Resolution]];
