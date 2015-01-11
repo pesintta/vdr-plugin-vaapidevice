@@ -1541,18 +1541,14 @@ static void VideoAvFilterClear(VideoAvFilter * filter)
 
 static void VideoFilterProcessInput(VideoAvFilter *filter,
 	unsigned int width, unsigned int height, uint8_t* data[4],
-	unsigned int pitches[4], unsigned int num_planes, int interlaced, int top_field_first)
+	unsigned int pitches[4], int interlaced, int top_field_first)
 {
     if (!filter || !filter->frameIn) {
 	printf("Filter context not properly allocated\n");
 	return;
     }
 
-    if (num_planes != 2) {
-	printf("Invalid num of planes: %d\n", num_planes);
-	abort();
-    }
-    filter->frameIn->format = AV_PIX_FMT_NV12;
+    filter->frameIn->format = AV_PIX_FMT_YUV420P;
     filter->frameIn->width = width;
     filter->frameIn->height = height;
     filter->frameIn->linesize[0] = pitches[0];
@@ -1592,16 +1588,13 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
 	printf("av_buffersink_get_buffer_ref failed\n");
 
     if (!bufref) {
-	printf("No buffer yet\n");
 	return;
     }
 
-    if (height > bufref->video->h) {
-	printf("Invalid height for buffer: got: %d have: %d\n", height, bufref->video->h);
-    }
-
     // FIXME: just blindly relying the format is NV12!
-    av_image_copy(planeptrs, (int*)pitches, (const uint8_t**)bufref->data, bufref->linesize, AV_PIX_FMT_NV12, width, height);
+    // FIXME: it might be possible to not copy data around at all by using references...
+    av_image_copy(planeptrs, (int*)pitches, (const uint8_t**)bufref->data, bufref->linesize,
+	AV_PIX_FMT_YUV420P, width, height);
     avfilter_unref_bufferp(&bufref);
 }
 
@@ -1642,12 +1635,11 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     outbuffer = avfilter_get_by_name("buffersink");
 
     snprintf(srcformat, sizeof(srcformat), "%d:%d:%d:%d:%d:%d:%d",
-	width, height, AV_PIX_FMT_NV12, 1, 1, 1, 1);
+	width, height, pixfmt, 1, 1, 1, 1);
 //    snprintf(srcformat, sizeof(srcformat),
-//	"width=%d:height=%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+//	"size=%dx%d:pixfmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
 //	width, height, AV_PIX_FMT_NV12, 1, 1, 1, 1);
 
-    printf("srcFilter: %p graph: %p\n", (*filter)->srcFilter, (*filter)->filterGraph);
     if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
 	    NULL, (*filter)->filterGraph) < 0) {
 	Error(_("Failed to create avfilter source: %s\n"), srcformat);
@@ -1755,6 +1747,12 @@ static VADisplay *VaDisplay;		///< VA-API display
 static VAImage VaOsdImage = {
     .image_id = VA_INVALID_ID
 };					///< osd VA-API image
+
+#ifdef USE_AVFILTER
+static VAImage VaAvImage = {
+    .image_id = VA_INVALID_ID
+};					///< libavfilter VA-API backing-store image
+#endif
 
 static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
@@ -2576,6 +2574,12 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->DeintImages[0].image_id != VA_INVALID_ID) {
 	VaapiDestroyDeinterlaceImages(decoder);
     }
+
+#ifdef USE_AVFILTER
+    vaDestroyImage(VaDisplay, VaAvImage.image_id);
+    VaAvImage.image_id = VA_INVALID_ID;
+#endif
+
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
     decoder->SurfaceField = 0;
@@ -3038,56 +3042,97 @@ static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
 	VASurfaceID surface, int interlaced, int top_field_first)
 {
     VAStatus va_status;
-    VAImage derived;
     uint8_t* buf;
     uint8_t* planeptrs[4];
     unsigned int pitches[4];
+
+    // Not set-up yet?
+    if (VaAvImage.image_id == VA_INVALID_ID)
+	return;
 
     if (!VideoAvFilterIsEnabled(filter))
 	return;
 
     va_status = vaSyncSurface(VaDisplay, surface);
     if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could not sync surface for derive: %s\n", vaErrorStr(va_status));
+	Error("Could not sync surface for libavfilter: %s\n", vaErrorStr(va_status));
 	return;
     }
-    va_status = vaDeriveImage(VaDisplay, surface, &derived);
+
+    va_status = vaGetImage(VaDisplay, surface, 0, 0,
+	VaAvImage.width, VaAvImage.height, VaAvImage.image_id);
     if (va_status != VA_STATUS_SUCCESS) {
-	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	Error("Could get image data to libavfilter backing store: %s\n", vaErrorStr(va_status));
 	return;
     }
-    va_status = vaMapBuffer(VaDisplay, derived.buf, (void**)&buf);
+
+    va_status = vaMapBuffer(VaDisplay, VaAvImage.buf, (void**)&buf);
     if (va_status != VA_STATUS_SUCCESS) {
-	Error("%s : %d : %s\n", __FUNCTION__, __LINE__, vaErrorStr(va_status));
+	Error("Could not map libavfilter backing store: %s\n", vaErrorStr(va_status));
 	return;
     }
 
-
-    if (derived.format.fourcc != VA_FOURCC_NV12) {
-	printf("Not in right pixel format\n");
-	abort();
-    }
-
-    planeptrs[0] = buf + derived.offsets[0];
-    planeptrs[1] = buf + derived.offsets[1];
-    planeptrs[2] = buf + derived.offsets[2];
+    planeptrs[0] = buf + VaAvImage.offsets[0];
+    planeptrs[1] = buf + VaAvImage.offsets[1];
+    planeptrs[2] = buf + VaAvImage.offsets[2];
     planeptrs[3] = NULL; // No plane 4 for VA-API
 
-    pitches[0] = derived.pitches[0];
-    pitches[1] = derived.pitches[1];
-    pitches[2] = derived.pitches[2];
+    pitches[0] = VaAvImage.pitches[0];
+    pitches[1] = VaAvImage.pitches[1];
+    pitches[2] = VaAvImage.pitches[2];
     pitches[3] = 0; // No plane 4 for VA-API
 
     // Put new data in
-    VideoFilterProcessInput(filter, derived.width, derived.height,
-	planeptrs, pitches, derived.num_planes, interlaced, top_field_first);
+    VideoFilterProcessInput(filter, VaAvImage.width, VaAvImage.height,
+	planeptrs, pitches, interlaced, top_field_first);
 
     // Get processed data to surface
-    VideoFilterObtainOutput(filter, planeptrs, derived.pitches,
-	derived.width, derived.height);
+    VideoFilterObtainOutput(filter, planeptrs, VaAvImage.pitches,
+	VaAvImage.width, VaAvImage.height);
 
-    vaUnmapBuffer(VaDisplay, derived.buf);
-    vaDestroyImage(VaDisplay, derived.image_id);
+    vaUnmapBuffer(VaDisplay, VaAvImage.buf);
+
+    va_status = vaPutImage(VaDisplay, surface, VaAvImage.image_id,
+	0, 0, VaAvImage.width, VaAvImage.height,
+	0, 0, VaAvImage.width, VaAvImage.height);
+    if (va_status != VA_STATUS_SUCCESS) {
+	Error("Could not write libavfilter backing store contents to surface: %s\n",
+		vaErrorStr(va_status));
+	return;
+    }
+}
+
+
+static void VaapiSetupVideoFilters(VaapiDecoder * decoder)
+{
+    VAStatus va_status;
+    VAImageFormat format;
+
+    // Image already setup?
+    if (VaAvImage.image_id == VA_INVALID_ID) {
+
+	if (!VaapiFindImageFormat(VaapiDecoders[0], PIX_FMT_YUV420P, &format)) {
+	    Error(_("Implementation does not support YUV420P image format needed for libavfilters\n"));
+	    return;
+	}
+
+	va_status = vaCreateImage(VaDisplay, &format,
+	    decoder->InputWidth, decoder->InputHeight, &VaAvImage);
+	if (va_status != VA_STATUS_SUCCESS) {
+	    Error(_("Could not create backing store for libavfilters: %s\n"), vaErrorStr(va_status));
+	    return;
+	}
+    }
+
+    // Initialize with some test filter(s)
+    // FIXME: this should come from setup.conf
+    //VideoFilterInit(&(decoder->preavfilter), video_ctx->width, video_ctx->height,
+    //	AV_PIX_FMT_NV12, "yadif=0:-1");
+    //VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
+    //	AV_PIX_FMT_YUV420P, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
+    VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
+	AV_PIX_FMT_YUV420P, "pp=hb/vb/dr");
+
 }
 
 #endif // USE_AVFILTER
@@ -4091,12 +4136,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 	// FIXME: too late to switch to software rending on failures
 	VaapiSetupVideoProcessing(decoder);
 
-	// Initialize with some test filter(s)
-	// FIXME: this should come from setup.conf
-	//VideoFilterInit(&(decoder->preavfilter), video_ctx->width, video_ctx->height,
-	//	AV_PIX_FMT_NV12, "yadif=0:-1");
-	VideoFilterInit(&(decoder->postavfilter), video_ctx->width, video_ctx->height,
-		AV_PIX_FMT_NV12, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
+	VaapiSetupVideoFilters(decoder);
     }
 #else
     (void)video_ctx;
@@ -4346,6 +4386,8 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	    goto slow_path;
 	}
 	VaapiSetupVideoProcessing(decoder);
+
+	VaapiSetupVideoFilters(decoder);
     }
 #endif
 
