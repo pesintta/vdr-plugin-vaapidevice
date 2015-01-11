@@ -1634,11 +1634,9 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     inbuffer = avfilter_get_by_name("buffer");
     outbuffer = avfilter_get_by_name("buffersink");
 
-    snprintf(srcformat, sizeof(srcformat), "%d:%d:%d:%d:%d:%d:%d",
+    snprintf(srcformat, sizeof(srcformat),
+	"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
 	width, height, pixfmt, 1, 1, 1, 1);
-//    snprintf(srcformat, sizeof(srcformat),
-//	"size=%dx%d:pixfmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-//	width, height, AV_PIX_FMT_NV12, 1, 1, 1, 1);
 
     if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
 	    NULL, (*filter)->filterGraph) < 0) {
