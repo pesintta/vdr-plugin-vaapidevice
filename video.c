@@ -2572,6 +2572,10 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 #ifdef USE_AVFILTER
     vaDestroyImage(VaDisplay, VaAvImage.image_id);
     VaAvImage.image_id = VA_INVALID_ID;
+    VideoAvFilterClear(decoder->preavfilter);
+    VideoAvFilterClear(decoder->postavfilter);
+    decoder->preavfilter = NULL;
+    decoder->postavfilter = NULL;
 #endif
 
     decoder->SurfaceRead = 0;
