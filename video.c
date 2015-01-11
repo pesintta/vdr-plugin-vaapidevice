@@ -1714,7 +1714,10 @@ error:
    *filter = NULL;
 }
 
-#endif
+#else
+typedef void* VideoAvFilter;
+
+#endif // USE_AVFILTER
 
 
 //----------------------------------------------------------------------------
@@ -3121,6 +3124,10 @@ static void VaapiSetupVideoFilters(VaapiDecoder * decoder)
     VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
 	AV_PIX_FMT_YUV420P, VideoPostAvFilterString[decoder->Resolution]);
 }
+#else
+
+#define VaapiSetupVideoFilters(...)
+#define VaapiProcessSurfaceWithAvFilter(...)
 
 #endif // USE_AVFILTER
 
