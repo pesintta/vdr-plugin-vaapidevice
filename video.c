@@ -1512,8 +1512,6 @@ struct _video_avfilter_ {
     AVFilterContext* srcFilter;
     AVFilterContext* outFilter;
     AVFilterGraph* filterGraph;
-    AVFrame* frameIn;
-    AVFrame* frameOut;
 };
 
 typedef struct _video_avfilter_ VideoAvFilter;
@@ -1529,45 +1527,42 @@ static void VideoAvFilterClear(VideoAvFilter * filter)
        return;
 
     avfilter_graph_free(&filter->filterGraph);
+}
 
-    // FIXME: ffmpeg > 2.0 compatibility
-    //av_frame_free(&filter->frameIn);
-    //av_frame_free(&filter->frameOut);
-    free(filter->frameIn);
-    filter->frameIn = NULL;
-    free(filter->frameOut);
-    filter->frameOut = NULL;
+static void VideoFilterFreeBufCB(__attribute__ ((unused)) AVFilterBuffer *buf)
+{
+    // Not freeing buffer because it was allocated via VA-API and will be
+    // mapped/unmapped via those mechanisms
+
+    // The filters have already pushed their data to the backing store buffer
+    // so the only thing to do is to put it to surface
 }
 
 static void VideoFilterProcessInput(VideoAvFilter *filter,
 	unsigned int width, unsigned int height, uint8_t* data[4],
 	unsigned int pitches[4], int interlaced, int top_field_first)
 {
-    if (!filter || !filter->frameIn) {
+    AVFilterBufferRef* picref;
+
+    if (!filter) {
 	printf("Filter context not properly allocated\n");
 	return;
     }
 
-    filter->frameIn->format = AV_PIX_FMT_YUV420P;
-    filter->frameIn->width = width;
-    filter->frameIn->height = height;
-    filter->frameIn->linesize[0] = pitches[0];
-    filter->frameIn->linesize[1] = pitches[1];
-    filter->frameIn->linesize[2] = pitches[2];
-    filter->frameIn->linesize[3] = pitches[3];
-    filter->frameIn->interlaced_frame = interlaced;
-    filter->frameIn->top_field_first = top_field_first;
+    picref = avfilter_get_video_buffer_ref_from_arrays(data, (const int *)pitches,
+		AV_PERM_READ | AV_PERM_WRITE | AV_PERM_PRESERVE | AV_PERM_ALIGN,
+		width, height, AV_PIX_FMT_YUV420P);
+    picref->buf->priv = filter; // Should store something more meaningful here
+    picref->buf->free = VideoFilterFreeBufCB;
 
-    filter->frameIn->pkt_pts = AV_NOPTS_VALUE; // Should try to figure PTS?
+    picref->pts = AV_NOPTS_VALUE; // Should try to figure PTS?
 
-    filter->frameIn->data[0] = data[0]; // Place planes to be copied
-    filter->frameIn->data[1] = data[1]; // Assuming planes have been filled
-    filter->frameIn->data[2] = data[2]; // appropriately
-    filter->frameIn->data[3] = data[3];
+    picref->video->interlaced = interlaced;
+    picref->video->top_field_first = top_field_first;
 
-    // Does SSE optimized memcpy, slow but the best we can really do
-    if (av_buffersrc_write_frame(filter->srcFilter, filter->frameIn) < 0)
-	printf("av_buffersrc_write_frame failed\n");
+    if (av_buffersrc_add_ref(filter->srcFilter, picref,
+	AV_BUFFERSRC_FLAG_PUSH | AV_BUFFERSRC_FLAG_NO_COPY) < 0)
+	printf("av_buffersrc_add_ref failed\n");
 }
 
 
@@ -1591,10 +1586,6 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
 	return;
     }
 
-    // FIXME: just blindly relying the format is NV12!
-    // FIXME: it might be possible to not copy data around at all by using references...
-    av_image_copy(planeptrs, (int*)pitches, (const uint8_t**)bufref->data, bufref->linesize,
-	AV_PIX_FMT_YUV420P, width, height);
     avfilter_unref_bufferp(&bufref);
 }
 
@@ -1694,13 +1685,6 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
 	Error(_("Failed to query config for filter graph\n"));
 	goto error_buffersink;
     }
-    // FIXME: ffmpeg < 2.0 compatibility
-    // (*filter)->frameIn = av_frame_alloc();
-    // (*filter)->frameOut = av_frame_alloc();
-    (*filter)->frameIn = malloc(sizeof(AVFrame));
-    (*filter)->frameOut = malloc(sizeof(AVFrame));
-    memset((*filter)->frameIn, '\0', sizeof(AVFrame));
-    memset((*filter)->frameOut, '\0', sizeof(AVFrame));
 
 #ifdef DEBUG
     Info(_("Successfully initialized filter: %s\n"), avfilter_graph_dump((*filter)->filterGraph, NULL));
