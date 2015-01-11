@@ -1539,8 +1539,8 @@ static void VideoAvFilterClear(VideoAvFilter * filter)
 }
 
 static void VideoFilterProcessInput(VideoAvFilter *filter,
-	unsigned int width, unsigned int height, uint8_t* data[3],
-	unsigned int pitches[3], unsigned int num_planes, int interlaced, int top_field_first)
+	unsigned int width, unsigned int height, uint8_t* data[4],
+	unsigned int pitches[4], unsigned int num_planes, int interlaced, int top_field_first)
 {
     if (!filter || !filter->frameIn) {
 	printf("Filter context not properly allocated\n");
@@ -1556,13 +1556,17 @@ static void VideoFilterProcessInput(VideoAvFilter *filter,
     filter->frameIn->height = height;
     filter->frameIn->linesize[0] = pitches[0];
     filter->frameIn->linesize[1] = pitches[1];
+    filter->frameIn->linesize[2] = pitches[2];
+    filter->frameIn->linesize[3] = pitches[3];
     filter->frameIn->interlaced_frame = interlaced;
     filter->frameIn->top_field_first = top_field_first;
 
     filter->frameIn->pkt_pts = AV_NOPTS_VALUE; // Should try to figure PTS?
 
     filter->frameIn->data[0] = data[0]; // Place planes to be copied
-    filter->frameIn->data[1] = data[1]; // Assuming NV12 format
+    filter->frameIn->data[1] = data[1]; // Assuming planes have been filled
+    filter->frameIn->data[2] = data[2]; // appropriately
+    filter->frameIn->data[3] = data[3];
 
     // Does SSE optimized memcpy, slow but the best we can really do
     if (av_buffersrc_write_frame(filter->srcFilter, filter->frameIn) < 0)
@@ -1571,7 +1575,7 @@ static void VideoFilterProcessInput(VideoAvFilter *filter,
 
 
 static void VideoFilterObtainOutput(VideoAvFilter * filter,
-	uint8_t* planeptrs[3], unsigned int pitches[3],
+	uint8_t* planeptrs[4], unsigned int pitches[4],
 	int width, int height)
 {
     int j;
@@ -3040,7 +3044,8 @@ static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
     VAStatus va_status;
     VAImage derived;
     uint8_t* buf;
-    uint8_t* planeptrs[3];
+    uint8_t* planeptrs[4];
+    unsigned int pitches[4];
 
     if (!VideoAvFilterIsEnabled(filter))
 	return;
@@ -3070,10 +3075,16 @@ static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
     planeptrs[0] = buf + derived.offsets[0];
     planeptrs[1] = buf + derived.offsets[1];
     planeptrs[2] = buf + derived.offsets[2];
+    planeptrs[3] = NULL; // No plane 4 for VA-API
+
+    pitches[0] = derived.pitches[0];
+    pitches[1] = derived.pitches[1];
+    pitches[2] = derived.pitches[2];
+    pitches[3] = 0; // No plane 4 for VA-API
 
     // Put new data in
     VideoFilterProcessInput(filter, derived.width, derived.height,
-	planeptrs, derived.pitches, derived.num_planes, interlaced, top_field_first);
+	planeptrs, pitches, derived.num_planes, interlaced, top_field_first);
 
     // Get processed data to surface
     VideoFilterObtainOutput(filter, planeptrs, derived.pitches,
