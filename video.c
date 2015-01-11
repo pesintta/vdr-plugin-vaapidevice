@@ -383,6 +383,12 @@ static int VideoFirstField[VideoResolutionMax];
     /// Default field ordering for second field
 static int VideoSecondField[VideoResolutionMax];
 
+#ifdef USE_AVFILTER
+    /// Video filter strings to pass to libavfiler
+static char* VideoPreAvFilterString[VideoResolutionMax];
+static char* VideoPostAvFilterString[VideoResolutionMax];
+#endif
+
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
 static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
     VideoColorSpaceBt601, VideoColorSpaceBt709, VideoColorSpaceBt709,
@@ -1598,6 +1604,9 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     AVFilterInOut *inputs, *outputs;
     AVBufferSinkParams *buffersink_params;
     enum AVPixelFormat out_formats[] = { pixfmt, AV_PIX_FMT_NONE };
+
+    if (!filterstring)
+	return;
 
     if (!filter) {
 	Error(_("Invalid initialization to Video AV Filters\n"));
@@ -3106,17 +3115,11 @@ static void VaapiSetupVideoFilters(VaapiDecoder * decoder)
 	}
     }
 
-    // Initialize with some test filter(s)
-    // FIXME: this should come from setup.conf
-    //VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
-    //	AV_PIX_FMT_YUV420P, "yadif=0:-1");
-    //VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
-    //	AV_PIX_FMT_YUV420P, "copy");
-    //VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
-    //	AV_PIX_FMT_YUV420P, "drawbox=x=100:y=100:w=400:h=400:color=orange:t=max");
+    // Initialize filter(s)
+    VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
+	AV_PIX_FMT_YUV420P, VideoPreAvFilterString[decoder->Resolution]);
     VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
-	AV_PIX_FMT_YUV420P, "pp=hb/vb/dr");
-
+	AV_PIX_FMT_YUV420P, VideoPostAvFilterString[decoder->Resolution]);
 }
 
 #endif // USE_AVFILTER
@@ -12773,6 +12776,33 @@ void VideoSetSecondField(int second[VideoResolutionMax])
     VideoSecondField[2] = second[2];
     VideoSecondField[3] = second[3];
 }
+
+#ifdef USE_AVFILTER
+///
+///	Set video avfilter before gpu processing
+///
+///	@param filter	filter string to pass to libavfilter
+///
+void VideoSetPreAvFilter(char* filterstring[VideoResolutionMax])
+{
+    VideoPreAvFilterString[0] = filterstring[0];
+    VideoPreAvFilterString[1] = filterstring[1];
+    VideoPreAvFilterString[2] = filterstring[2];
+    VideoPreAvFilterString[3] = filterstring[3];
+}
+///
+///	Set video avfilter after gpu processing
+///
+///	@param filter	filter string to pass to libavfilter
+///
+void VideoSetPostAvFilter(char* filterstring[VideoResolutionMax])
+{
+    VideoPostAvFilterString[0] = filterstring[0];
+    VideoPostAvFilterString[1] = filterstring[1];
+    VideoPostAvFilterString[2] = filterstring[2];
+    VideoPostAvFilterString[3] = filterstring[3];
+}
+#endif
 
 ///
 ///	Set studio levels.

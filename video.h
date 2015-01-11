@@ -156,6 +156,11 @@ extern void VideoSetCutLeftRight(int[]);
 extern void VideoSetFirstField(int[]);
 extern void VideoSetSecondField(int[]);
 
+#ifdef USE_AVFILTER
+extern void VideoSetPreAvFilter(char*[]);
+extern void VideoSetPostAvFilter(char*[]);
+#endif
+
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
 
