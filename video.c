@@ -1602,6 +1602,7 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
 
     // FIXME: just blindly relying the format is NV12!
     av_image_copy(planeptrs, (int*)pitches, (const uint8_t**)bufref->data, bufref->linesize, AV_PIX_FMT_NV12, width, height);
+    avfilter_unref_bufferp(&bufref);
 }
 
 
