@@ -182,6 +182,7 @@ typedef enum
 #include <libavfilter/buffersink.h>
 #include <libavfilter/buffersrc.h>
 #include <libavutil/avutil.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #endif
 
@@ -1578,7 +1579,6 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
 	uint8_t* planeptrs[4], unsigned int pitches[4],
 	int width, int height)
 {
-    int j;
     AVFilterBufferRef* bufref = NULL;
 
     if (!VideoAvFilterIsEnabled(filter)) {
@@ -1601,12 +1601,7 @@ static void VideoFilterObtainOutput(VideoAvFilter * filter,
     }
 
     // FIXME: just blindly relying the format is NV12!
-    for (j = 0; j < bufref->video->h; ++j) {
-	memcpy(planeptrs[0] + pitches[0] * j, bufref->data[0] + bufref->linesize[0] * j, width);
-    }
-    for (j = 0; j < bufref->video->h / 2; ++j) {
-	memcpy(planeptrs[1] + pitches[1] * j, bufref->data[1] + bufref->linesize[1] * j, width);
-    }
+    av_image_copy(planeptrs, (int*)pitches, (const uint8_t**)bufref->data, bufref->linesize, AV_PIX_FMT_NV12, width, height);
 }
 
 
