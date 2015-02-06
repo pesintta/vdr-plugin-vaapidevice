@@ -446,13 +446,27 @@ static void VideoThreadExit(void);	///< exit/kill video thread
 ///
 ///	@note frame->interlaced_frame can't be used for interlace detection
 ///
-static void VideoSetPts(int64_t * pts_p, int interlaced, const AVFrame * frame)
+static void VideoSetPts(int64_t * pts_p, int interlaced,
+    const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     int64_t pts;
+    int duration;
+
+    //
+    //	Get duration for this frame.
+    //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
+    //
+    if (video_ctx->framerate.num != 0 && video_ctx->framerate.den != 0) {
+	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
+    } else {
+	duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+    }
+    Debug(4, "video: %d/%d %" PRIx64 " -> %d\n", video_ctx->framerate.den,
+	video_ctx->framerate.num, av_frame_get_pkt_duration(frame), duration);
 
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
-	*pts_p += interlaced ? 40 * 90 : 20 * 90;
+	*pts_p += duration * 90;
 	//Info("video: %s +pts\n", Timestamp2String(*pts_p));
     }
     //av_opt_ptr(avcodec_get_frame_class(), frame, "best_effort_timestamp");
@@ -5257,7 +5271,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     }
 
     if (!decoder->Closing) {
-	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);
     }
     VaapiRenderFrame(decoder, video_ctx, frame);
 #ifdef USE_AUTOCROP
@@ -8879,7 +8893,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 
     if (VdpauPreemption) {		// display preempted
 	if (!decoder->Closing) {
-	    VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+	    VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);
 	}
 	return;
     }
@@ -8929,7 +8943,7 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 #endif
 
     if (!decoder->Closing) {
-	VideoSetPts(&decoder->PTS, decoder->Interlaced, frame);
+	VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);
     }
     VdpauRenderFrame(decoder, video_ctx, frame);
 }
