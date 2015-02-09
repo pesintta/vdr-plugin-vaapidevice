@@ -456,6 +456,10 @@ static void VideoSetPts(int64_t * pts_p, int interlaced,
     //	Get duration for this frame.
     //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
     //
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,13,100)
+    // FIXME: need frame rate for older versions
+    duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+#else
     if (video_ctx->framerate.num != 0 && video_ctx->framerate.den != 0) {
 	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
     } else {
@@ -463,6 +467,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced,
     }
     Debug(4, "video: %d/%d %" PRIx64 " -> %d\n", video_ctx->framerate.den,
 	video_ctx->framerate.num, av_frame_get_pkt_duration(frame), duration);
+#endif
 
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
