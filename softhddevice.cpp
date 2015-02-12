@@ -496,7 +496,7 @@ void cSoftOsd::Flush(void)
     }
 
     LOCK_PIXMAPS;
-    while ((pm = RenderPixmaps())) {
+    while ((pm = (dynamic_cast < cPixmapMemory * >(RenderPixmaps())))) {
 	int x;
 	int y;
 	int w;
@@ -513,7 +513,7 @@ void cSoftOsd::Flush(void)
 #endif
 	OsdDrawARGB(x, y, w, h, pm->Data());
 
-	delete pm;
+	DestroyPixmap(pm);
     }
     Dirty = 0;
 }

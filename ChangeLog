@@ -1,3 +1,10 @@
+User johns
+Date:
+
+    Compile with vdr 2.1.10.
+    Fix bug: AVCodecContext.framerate not supported.
+    Use video stream frame rate for A/V sync.
+
 User Antti Seppälä
 Date: Thu Oct 16 14:15:15 CEST 2014
 
