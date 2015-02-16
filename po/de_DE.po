@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2014-03-20 11:50+0100\n"
+"POT-Creation-Date: 2014-10-31 12:36+0100\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -229,9 +229,6 @@ msgstr ""
 msgid "audio: can't set channels %d sample-rate %dHz\n"
 msgstr ""
 
-msgid "audio: can't queue cancel play thread\n"
-msgstr ""
-
 msgid "audio: can't cancel play thread\n"
 msgstr ""
 
@@ -277,6 +274,9 @@ msgid "codec: can't allocate decoder frame\n"
 msgstr ""
 
 msgid "codec: can't allocate audio decoder\n"
+msgstr ""
+
+msgid "codec: can't allocate audio decoder frame buffer\n"
 msgstr ""
 
 msgid "codec: can't allocate audio codec context\n"
@@ -753,6 +753,12 @@ msgstr ""
 msgid "audio delay changed to %d"
 msgstr ""
 
+msgid "surround downmix enabled"
+msgstr ""
+
+msgid "surround downmix disabled"
+msgstr ""
+
 msgid "auto-crop disabled and freezed"
 msgstr ""
 
@@ -993,14 +999,20 @@ msgstr ""
 msgid "video: output buffer full, dropping frame (%d/%d)\n"
 msgstr ""
 
-msgid "video/vaapi: can't create a surface\n"
+#, c-format
+msgid "video/vaapi: can't create a surface: %s\n"
 msgstr ""
 
 #, c-format
-msgid "video/vaapi: vaDeriveImage failed %d\n"
+msgid "video/vaapi: can't associate subpicture: %s\n"
 msgstr ""
 
-msgid "video/vaapi: can't map the image!\n"
+#, c-format
+msgid "video/vaapi: can't create image: %s\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: can't map the image: %s\n"
 msgstr ""
 
 msgid "video/vaapi: can't unmap the image!\n"
@@ -1016,10 +1028,17 @@ msgid "video/vaapi: can't get source image\n"
 msgstr ""
 
 #, c-format
+msgid "video/vaapi: vaDeriveImage failed %d\n"
+msgstr ""
+
+#, c-format
 msgid "video/vaapi: can't put image: %d!\n"
 msgstr ""
 
 msgid "video/vaapi: stream <-> surface size mismatch\n"
+msgstr ""
+
+msgid "video/vaapi: can't map the image!\n"
 msgstr ""
 
 #, c-format

@@ -1,5 +1,10 @@
+User jinx
+Date: Mon Feb 16 09:58:06 CET 2015
+
+    Enable toggle AC3 downmix.
+
 User johns
-Date:
+Date: Thu Feb 12 10:30:50 CET 2015
 
     Compile with vdr 2.1.10.
     Fix bug: AVCodecContext.framerate not supported.

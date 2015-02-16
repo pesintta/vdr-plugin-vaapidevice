@@ -1883,6 +1883,17 @@ static void HandleHotkey(int code)
 		cString::sprintf(tr("audio delay changed to %d"),
 		    ConfigVideoAudioDelay));
 	    break;
+	case 15:
+	    ConfigAudioDownmix ^= 1;
+	    fprintf(stderr, "toggle downmix\n");
+	    CodecSetAudioDownmix(ConfigAudioDownmix);
+	    if (ConfigAudioDownmix) {
+		Skins.QueueMessage(mtInfo, tr("surround downmix enabled"));
+	    } else {
+		Skins.QueueMessage(mtInfo, tr("surround downmix disabled"));
+	    }
+	    ResetChannelId();
+	    break;
 
 	case 20:			// disable full screen
 	    VideoSetFullscreen(0);
@@ -2288,7 +2299,7 @@ int64_t cSoftHdDevice::GetSTC(void)
 #if APIVERSNUM >= 20103
 void cSoftHdDevice::TrickSpeed(int speed, bool forward)
 {
-    dsyslog("[softhddev]%s: %d $d\n", __FUNCTION__, speed, forward);
+    dsyslog("[softhddev]%s: %d %d\n", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
@@ -3258,7 +3269,7 @@ static const char *SVDRPHelpText[] = {
 	"    11: enable audio pass-through\n"
 	"    12: toggle audio pass-through\n"
 	"    13: decrease audio delay by 10ms\n"
-	"    14: increase audio delay by 10ms\n"
+	"    14: increase audio delay by 10ms\n" "    15: toggle ac3 mixdown\n"
 	"    20: disable fullscreen\n\040   21: enable fullscreen\n"
 	"    22: toggle fullscreen\n"
 	"    23: disable auto-crop\n\040   24: enable auto-crop\n"

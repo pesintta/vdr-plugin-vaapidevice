@@ -1101,6 +1101,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (AudioChannelID != id) {		// id changed audio track changed
 	AudioChannelID = id;
 	AudioCodecID = AV_CODEC_ID_NONE;
+	Debug(3, "audio/demux: new channel id\n");
     }
     // Private stream + LPCM ID
     if ((id & 0xF0) == 0xA0) {
@@ -1302,6 +1303,15 @@ int PlayTsAudio(const uint8_t * data, int size)
 void SetVolumeDevice(int volume)
 {
     AudioSetVolume((volume * 1000) / 255);
+}
+
+/**
+***	Resets channel ID (restarts audio).
+**/
+void ResetChannelId(void)
+{
+    AudioChannelID = -1;
+    Debug(3, "audio/demux: reset channel id\n");
 }
 
 //////////////////////////////////////////////////////////////////////////////

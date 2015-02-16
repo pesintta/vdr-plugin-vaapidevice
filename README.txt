@@ -321,6 +321,7 @@ Keymacros:
 	@softhddevice Blue 1 2		toggle pass-through
 	@softhddevice Blue 1 3		decrease audio delay by 10ms
 	@softhddevice Blue 1 4		increase audio delay by 10ms
+	@softhddevice Blue 1 5		toggle ac3 mixdown
 	@softhddevice Blue 2 0		disable fullscreen
 	@softhddevice Blue 2 1		enable fullscreen
 	@softhddevice Blue 2 2		toggle fullscreen

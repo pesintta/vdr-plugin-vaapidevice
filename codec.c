@@ -1802,6 +1802,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx;
+
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
     AVFrame frame[1];
 #else

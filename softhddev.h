@@ -42,6 +42,8 @@ extern "C"
     extern int PlayTsAudio(const uint8_t *, int);
     /// C plugin set audio volume
     extern void SetVolumeDevice(int);
+    /// C plugin reset channel id (restarts audio)
+    extern void ResetChannelId(void);
 
     /// C plugin play video packet
     extern int PlayVideo(const uint8_t *, int);
