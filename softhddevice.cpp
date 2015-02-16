@@ -513,7 +513,11 @@ void cSoftOsd::Flush(void)
 #endif
 	OsdDrawARGB(x, y, w, h, pm->Data());
 
+#if APIVERSNUM >= 20110
 	DestroyPixmap(pm);
+#else
+	delete pm;
+#endif
     }
     Dirty = 0;
 }
