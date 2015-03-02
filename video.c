@@ -6419,6 +6419,26 @@ static void VaapiSetVideoMode(void)
     }
 }
 
+///
+///     Set VA-API video output position.
+///
+///     @param decoder  VA-API decoder
+///     @param x        video output x coordinate inside the window
+///     @param y        video output y coordinate inside the window
+///     @param width    video output width
+///     @param height   video output height
+///
+static void VaapiSetOutputPosition(VaapiDecoder * decoder, int x, int y,
+    int width, int height)
+{
+    Debug(3, "video/vaapi: output %dx%d%+d%+d\n", width, height, x, y);
+
+    decoder->VideoX = x;
+    decoder->VideoY = y;
+    decoder->VideoWidth = width;
+    decoder->VideoHeight = height;
+}
+
 #ifdef USE_VIDEO_THREAD
 
 ///
@@ -12141,8 +12161,21 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y,
     }
 #endif
 #ifdef USE_VAAPI
-    // FIXME: not supported by vaapi without unscaled OSD,
-    // FIXME: if used to position video inside osd
+    if (VideoUsedModule == &VaapiModule) {
+        // check values to be able to avoid
+        // interfering with the video thread if possible
+
+        if (x == hw_decoder->Vaapi.VideoX && y == hw_decoder->Vaapi.VideoY
+            && width == hw_decoder->Vaapi.VideoWidth
+            && height == hw_decoder->Vaapi.VideoHeight) {
+            // not necessary...
+            return;
+        }
+        VideoThreadLock();
+        VaapiSetOutputPosition(&hw_decoder->Vaapi, x, y, width, height);
+        VaapiUpdateOutput(&hw_decoder->Vaapi);
+        VideoThreadUnlock();
+    }
 #endif
     (void)hw_decoder;
 }
