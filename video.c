@@ -332,7 +332,7 @@ static const VideoModule NoopModule;	///< forward definition of noop module
     /// selected video module
 static const VideoModule *VideoUsedModule = &NoopModule;
 
-char VideoHardwareDecoder = -1;		///< flag use hardware decoder
+signed char VideoHardwareDecoder = -1;	///< flag use hardware decoder
 
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
