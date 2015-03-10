@@ -10861,7 +10861,7 @@ void VideoSetBrightness(int brightness)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.brightness = brightness / 1000;
+	VdpauDecoders[0]->Procamp.brightness = (double)brightness / 1000;
     }
 #endif
     // FIXME: VA-API support
@@ -10879,7 +10879,7 @@ void VideoSetContrast(int contrast)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.contrast = contrast / 1000;
+	VdpauDecoders[0]->Procamp.contrast = (double)contrast / 1000;
     }
 #endif
     // FIXME: VA-API support
@@ -10897,7 +10897,7 @@ void VideoSetSaturation(int saturation)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.saturation = saturation / 1000;
+	VdpauDecoders[0]->Procamp.saturation = (double)saturation / 1000;
     }
 #endif
     // FIXME: VA-API support
@@ -10915,7 +10915,7 @@ void VideoSetHue(int hue)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.hue = hue / 1000;
+	VdpauDecoders[0]->Procamp.hue = (double)hue / 1000;
     }
 #endif
     // FIXME: VA-API support

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: brightness and .. are calculated wrong.
     Add automatic frame rate detection for older ffmpeg versions.
     Fix bug: destroyed vdpau surfaces still used in queue.
     Fix bug: need signed char, if compiler has unsigned chars.
