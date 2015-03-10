@@ -133,25 +133,35 @@ static inline const char *Timestamp2String(int64_t ts)
 }
 
 /**
-**	Get ticks in ms.
+**	Get ticks in us.
 **
-**	@returns ticks in ms,
+**	@returns ticks in us,
 */
-static inline uint32_t GetMsTicks(void)
+static inline uint32_t GetUsTicks(void)
 {
 #ifdef CLOCK_MONOTONIC
     struct timespec tspec;
 
     clock_gettime(CLOCK_MONOTONIC, &tspec);
-    return (tspec.tv_sec * 1000) + (tspec.tv_nsec / (1000 * 1000));
+    return (tspec.tv_sec * 1000 * 1000) + (tspec.tv_nsec / (1000));
 #else
     struct timeval tval;
 
     if (gettimeofday(&tval, NULL) < 0) {
 	return 0;
     }
-    return (tval.tv_sec * 1000) + (tval.tv_usec / 1000);
+    return (tval.tv_sec * 1000 * 1000) + (tval.tv_usec);
 #endif
+}
+
+/**
+**	Get ticks in ms.
+**
+**	@returns ticks in ms,
+*/
+static inline uint32_t GetMsTicks(void)
+{
+    return GetUsTicks() / 1000;
 }
 
 /// @}

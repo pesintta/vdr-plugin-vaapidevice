@@ -127,6 +127,12 @@ static int ConfigVideoCutLeftRight[RESOLUTIONS];
 static int ConfigVideoFirstField[RESOLUTIONS];
 static int ConfigVideoSecondField[RESOLUTIONS];
 
+#ifdef USE_AVFILTER
+    /// config avfilter parameters
+static char* ConfigVideoPreAvFilter[RESOLUTIONS];
+static char* ConfigVideoPostAvFilter[RESOLUTIONS];
+#endif
+
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
@@ -3061,6 +3067,20 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	    VideoSetSecondField(ConfigVideoSecondField);
 	    return true;
 	}
+#ifdef USE_AVFILTER
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilter");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoPreAvFilter[i] = (char*)value;
+	    VideoSetPreAvFilter(ConfigVideoPreAvFilter);
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilter");
+	if (!strcasecmp(name, buf)) {
+	    ConfigVideoPostAvFilter[i] = (char*)value;
+	    VideoSetPostAvFilter(ConfigVideoPostAvFilter);
+	    return true;
+	}
+#endif
     }
 
     if (!strcasecmp(name, "AutoCrop.Interval")) {
