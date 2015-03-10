@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Try smaller audio puffer, if default size fails.
     Fix bug: center cut-out didn't use cut off pixels.
     Fix bug #2058: support for Make.plgcfg.
     Fix for compile with vdr 2.1.10, for older vdr versions.

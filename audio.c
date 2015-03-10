@@ -1237,21 +1237,29 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 		    AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
 		    SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
 		    96 * 1000))) {
+	    // try reduced buffer size (needed for sunxi)
+	    // FIXME: alternativ make this configurable
+	    if ((err =
+		    snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
+			AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
+			SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
+			72 * 1000))) {
 
-	    /*
-	       if ( err == -EBADFD ) {
-	       snd_pcm_close(AlsaPCMHandle);
-	       AlsaPCMHandle = NULL;
-	       continue;
-	       }
-	     */
+		/*
+		   if ( err == -EBADFD ) {
+		   snd_pcm_close(AlsaPCMHandle);
+		   AlsaPCMHandle = NULL;
+		   continue;
+		   }
+		 */
 
-	    if (!AudioDoingInit) {
-		Error(_("audio/alsa: set params error: %s\n"),
-		    snd_strerror(err));
+		if (!AudioDoingInit) {
+		    Error(_("audio/alsa: set params error: %s\n"),
+			snd_strerror(err));
+		}
+		// FIXME: must stop sound, AudioChannels ... invalid
+		return -1;
 	    }
-	    // FIXME: must stop sound, AudioChannels ... invalid
-	    return -1;
 	}
 	break;
     }
