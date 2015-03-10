@@ -6648,6 +6648,14 @@ static void VdpauExitOutputQueue(void)
     int i;
     VdpStatus status;
 
+    if (VdpauQueue) {
+	VdpauPresentationQueueDestroy(VdpauQueue);
+	VdpauQueue = 0;
+    }
+    if (VdpauQueueTarget) {
+	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	VdpauQueueTarget = 0;
+    }
     //
     //	destroy display output surfaces
     //
@@ -6671,14 +6679,6 @@ static void VdpauExitOutputQueue(void)
 		VdpauGetErrorString(status));
 	}
 	VdpauGrabRenderSurface = VDP_INVALID_HANDLE;
-    }
-    if (VdpauQueue) {
-	VdpauPresentationQueueDestroy(VdpauQueue);
-	VdpauQueue = 0;
-    }
-    if (VdpauQueueTarget) {
-	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
-	VdpauQueueTarget = 0;
     }
 }
 
