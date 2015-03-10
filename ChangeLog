@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Add automatic frame rate detection for older ffmpeg versions.
     Fix bug: destroyed vdpau surfaces still used in queue.
     Fix bug: need signed char, if compiler has unsigned chars.
     Try smaller audio puffer, if default size fails.

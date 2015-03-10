@@ -457,10 +457,18 @@ static void VideoSetPts(int64_t * pts_p, int interlaced,
     //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
     //
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,13,100)
-    // FIXME: need frame rate for older versions
-    duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+    // version for older ffmpeg without framerate
+    if (video_ctx->time_base.num && video_ctx->time_base.den) {
+	duration =
+	    (video_ctx->ticks_per_frame * 1000 * video_ctx->time_base.num) /
+	    video_ctx->time_base.den;
+    } else {
+	duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+    }
+    Debug(4, "video: %d/%d %" PRIx64 " -> %d\n", video_ctx->time_base.den,
+	video_ctx->time_base.num, av_frame_get_pkt_duration(frame), duration);
 #else
-    if (video_ctx->framerate.num != 0 && video_ctx->framerate.den != 0) {
+    if (video_ctx->framerate.num && video_ctx->framerate.den) {
 	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
     } else {
 	duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
