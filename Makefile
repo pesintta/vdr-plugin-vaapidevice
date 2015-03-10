@@ -45,6 +45,52 @@ CONFIG += -DUSE_PIP			# PIP support
 CONFIG += -DUSE_VDR_SPU			# use VDR SPU decoder.
 #CONFIG += -DUSE_SOFTLIMIT		# (tobe removed) limit the buffer fill
 
+### The version number of this plugin (taken from the main source file):
+
+VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | awk '{ print $$7 }' | sed -e 's/[";]//g')
+GIT_REV = $(shell git describe --always 2>/dev/null)
+
+### The directory environment:
+
+# Use package data if installed...otherwise assume we're under the VDR source directory:
+PKGCFG = $(if $(VDRDIR),$(shell pkg-config --variable=$(1) $(VDRDIR)/vdr.pc),$(shell PKG_CONFIG_PATH="$$PKG_CONFIG_PATH:../../.." pkg-config --variable=$(1) vdr))
+LIBDIR = $(call PKGCFG,libdir)
+LOCDIR = $(call PKGCFG,locdir)
+PLGCFG = $(call PKGCFG,plgcfg)
+#
+TMPDIR ?= /tmp
+
+### The compiler options:
+
+export CFLAGS	= $(call PKGCFG,cflags)
+export CXXFLAGS = $(call PKGCFG,cxxflags)
+
+ifeq ($(CFLAGS),)
+$(warning CFLAGS not set)
+endif
+ifeq ($(CXXFLAGS),)
+$(warning CXXFLAGS not set)
+endif
+
+### The version number of VDR's plugin API:
+
+APIVERSION = $(call PKGCFG,apiversion)
+
+### Allow user defined options to overwrite defaults:
+
+-include $(PLGCFG)
+
+### The name of the distribution archive:
+
+ARCHIVE = $(PLUGIN)-$(VERSION)
+PACKAGE = vdr-$(ARCHIVE)
+
+### The name of the shared object file:
+
+SOFILE = libvdr-$(PLUGIN).so
+
+### Parse softhddevice config
+
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA
 _CFLAGS += $(shell pkg-config --cflags alsa)
@@ -90,50 +136,6 @@ endif
 
 _CFLAGS += $(shell pkg-config --cflags libavcodec x11 x11-xcb xcb xcb-icccm)
 LIBS += -lrt $(shell pkg-config --libs libavcodec x11 x11-xcb xcb xcb-icccm)
-
-### The version number of this plugin (taken from the main source file):
-
-VERSION = $(shell grep 'static const char \*const VERSION *=' $(PLUGIN).cpp | awk '{ print $$7 }' | sed -e 's/[";]//g')
-GIT_REV = $(shell git describe --always 2>/dev/null)
-
-### The directory environment:
-
-# Use package data if installed...otherwise assume we're under the VDR source directory:
-PKGCFG = $(if $(VDRDIR),$(shell pkg-config --variable=$(1) $(VDRDIR)/vdr.pc),$(shell pkg-config --variable=$(1) vdr || pkg-config --variable=$(1) ../../../vdr.pc))
-LIBDIR = $(call PKGCFG,libdir)
-LOCDIR = $(call PKGCFG,locdir)
-PLGCFG = $(call PKGCFG,plgcfg)
-#
-TMPDIR ?= /tmp
-
-### The compiler options:
-
-export CFLAGS	= $(call PKGCFG,cflags)
-export CXXFLAGS = $(call PKGCFG,cxxflags)
-
-ifeq ($(CFLAGS),)
-$(warning CFLAGS not set)
-endif
-ifeq ($(CXXFLAGS),)
-$(warning CXXFLAGS not set)
-endif
-
-### The version number of VDR's plugin API:
-
-APIVERSION = $(call PKGCFG,apiversion)
-
-### Allow user defined options to overwrite defaults:
-
--include $(PLGCFG)
-
-### The name of the distribution archive:
-
-ARCHIVE = $(PLUGIN)-$(VERSION)
-PACKAGE = vdr-$(ARCHIVE)
-
-### The name of the shared object file:
-
-SOFILE = libvdr-$(PLUGIN).so
 
 ### Includes and Defines (add further entries here):
 

@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug #2058: support for Make.plgcfg.
     Fix for compile with vdr 2.1.10, for older vdr versions.
 
 User jinx
