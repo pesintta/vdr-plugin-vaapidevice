@@ -343,7 +343,7 @@ static const VideoModule NoopModule;	///< forward definition of noop module
     /// selected video module
 static const VideoModule *VideoUsedModule = &NoopModule;
 
-char VideoHardwareDecoder = -1;		///< flag use hardware decoder
+signed char VideoHardwareDecoder = -1;	///< flag use hardware decoder
 
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
@@ -480,10 +480,18 @@ static void VideoSetPts(int64_t * pts_p, int interlaced,
     //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
     //
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,13,100)
-    // FIXME: need frame rate for older versions
-    duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+    // version for older ffmpeg without framerate
+    if (video_ctx->time_base.num && video_ctx->time_base.den) {
+	duration =
+	    (video_ctx->ticks_per_frame * 1000 * video_ctx->time_base.num) /
+	    video_ctx->time_base.den;
+    } else {
+	duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
+    }
+    Debug(4, "video: %d/%d %" PRIx64 " -> %d\n", video_ctx->time_base.den,
+	video_ctx->time_base.num, av_frame_get_pkt_duration(frame), duration);
 #else
-    if (video_ctx->framerate.num != 0 && video_ctx->framerate.den != 0) {
+    if (video_ctx->framerate.num && video_ctx->framerate.den) {
 	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
     } else {
 	duration = interlaced ? 40 : 20;	// 50Hz -> 20ms default
@@ -655,27 +663,37 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 
     // look which side must be cut
     if (*crop_width > video_width) {
-	*crop_height = input_height;
+	int tmp;
+
+	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
 
 	// adjust scaling
-	*crop_x = ((*crop_width - video_width) * input_width)
-	    / (2 * video_width);
+	tmp = ((*crop_width - video_width) * input_width) / (2 * video_width);
+	// FIXME: round failure?
+	if (tmp > *crop_x) {
+	    *crop_x = tmp;
+	}
 	*crop_width = input_width - *crop_x * 2;
-	// FIXME: round failure?
     } else if (*crop_height > video_height) {
-	*crop_width = input_width;
+	int tmp;
+
+	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
 
 	// adjust scaling
-	*crop_y = ((*crop_height - video_height) * input_height)
+	tmp = ((*crop_height - video_height) * input_height)
 	    / (2 * video_height);
-	*crop_height = input_height - *crop_y * 2;
 	// FIXME: round failure?
+	if (tmp > *crop_y) {
+	    *crop_y = tmp;
+	}
+	*crop_height = input_height - *crop_y * 2;
     } else {
-	*crop_width = input_width;
-	*crop_height = input_height;
+	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
+	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
     }
     Debug(3, "video: aspect crop %dx%d%+d%+d\n", *crop_width, *crop_height,
 	*crop_x, *crop_y);
+    return;
 }
 
 //----------------------------------------------------------------------------
@@ -8164,6 +8182,14 @@ static void VdpauExitOutputQueue(void)
     int i;
     VdpStatus status;
 
+    if (VdpauQueue) {
+	VdpauPresentationQueueDestroy(VdpauQueue);
+	VdpauQueue = 0;
+    }
+    if (VdpauQueueTarget) {
+	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
+	VdpauQueueTarget = 0;
+    }
     //
     //	destroy display output surfaces
     //
@@ -8187,14 +8213,6 @@ static void VdpauExitOutputQueue(void)
 		VdpauGetErrorString(status));
 	}
 	VdpauGrabRenderSurface = VDP_INVALID_HANDLE;
-    }
-    if (VdpauQueue) {
-	VdpauPresentationQueueDestroy(VdpauQueue);
-	VdpauQueue = 0;
-    }
-    if (VdpauQueueTarget) {
-	VdpauPresentationQueueTargetDestroy(VdpauQueueTarget);
-	VdpauQueueTarget = 0;
     }
 }
 
@@ -12400,7 +12418,7 @@ void VideoSetBrightness(int brightness)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.brightness = brightness / 1000;
+	VdpauDecoders[0]->Procamp.brightness = (double)brightness / 1000;
     }
 #endif
 
@@ -12425,7 +12443,7 @@ void VideoSetContrast(int contrast)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.contrast = contrast / 1000;
+	VdpauDecoders[0]->Procamp.contrast = (double)contrast / 1000;
     }
 #endif
 #ifdef USE_VAAPI
@@ -12449,7 +12467,7 @@ void VideoSetSaturation(int saturation)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.saturation = saturation / 1000;
+	VdpauDecoders[0]->Procamp.saturation = (double)saturation / 1000;
     }
 #endif
 #ifdef USE_VAAPI
@@ -12473,7 +12491,7 @@ void VideoSetHue(int hue)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.hue = hue / 1000;
+	VdpauDecoders[0]->Procamp.hue = (double)hue / 1000;
     }
 #endif
 #ifdef USE_VAAPI
