@@ -632,27 +632,37 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width,
 
     // look which side must be cut
     if (*crop_width > video_width) {
-	*crop_height = input_height;
+	int tmp;
+
+	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
 
 	// adjust scaling
-	*crop_x = ((*crop_width - video_width) * input_width)
-	    / (2 * video_width);
+	tmp = ((*crop_width - video_width) * input_width) / (2 * video_width);
+	// FIXME: round failure?
+	if (tmp > *crop_x) {
+	    *crop_x = tmp;
+	}
 	*crop_width = input_width - *crop_x * 2;
-	// FIXME: round failure?
     } else if (*crop_height > video_height) {
-	*crop_width = input_width;
+	int tmp;
+
+	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
 
 	// adjust scaling
-	*crop_y = ((*crop_height - video_height) * input_height)
+	tmp = ((*crop_height - video_height) * input_height)
 	    / (2 * video_height);
-	*crop_height = input_height - *crop_y * 2;
 	// FIXME: round failure?
+	if (tmp > *crop_y) {
+	    *crop_y = tmp;
+	}
+	*crop_height = input_height - *crop_y * 2;
     } else {
-	*crop_width = input_width;
-	*crop_height = input_height;
+	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
+	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
     }
     Debug(3, "video: aspect crop %dx%d%+d%+d\n", *crop_width, *crop_height,
 	*crop_x, *crop_y);
+    return;
 }
 
 //----------------------------------------------------------------------------
