@@ -440,8 +440,8 @@ static int VideoSecondField[VideoResolutionMax];
 
 #ifdef USE_AVFILTER
     /// Video filter strings to pass to libavfiler
-static char* VideoPreAvFilterString[VideoResolutionMax];
-static char* VideoPostAvFilterString[VideoResolutionMax];
+static const char* VideoPreAvFilterString[VideoResolutionMax];
+static const char* VideoPostAvFilterString[VideoResolutionMax];
 #endif
 
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
@@ -1678,7 +1678,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     AVBufferSinkParams *buffersink_params;
     enum AVPixelFormat out_formats[] = { pixfmt, AV_PIX_FMT_NONE };
 
-    if (!filterstring)
+    if (!(filterstring && *filterstring))
 	return;
 
     if (!filter) {
@@ -13278,7 +13278,7 @@ void VideoSetSecondField(int second[VideoResolutionMax])
 ///
 ///	@param filter	filter string to pass to libavfilter
 ///
-void VideoSetPreAvFilter(char* filterstring[VideoResolutionMax])
+void VideoSetPreAvFilter(const char* filterstring[VideoResolutionMax])
 {
     VideoPreAvFilterString[0] = filterstring[0];
     VideoPreAvFilterString[1] = filterstring[1];
@@ -13290,7 +13290,7 @@ void VideoSetPreAvFilter(char* filterstring[VideoResolutionMax])
 ///
 ///	@param filter	filter string to pass to libavfilter
 ///
-void VideoSetPostAvFilter(char* filterstring[VideoResolutionMax])
+void VideoSetPostAvFilter(const char* filterstring[VideoResolutionMax])
 {
     VideoPostAvFilterString[0] = filterstring[0];
     VideoPostAvFilterString[1] = filterstring[1];

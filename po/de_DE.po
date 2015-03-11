@@ -459,6 +459,18 @@ msgstr "Ein Software und GPU emulieres HD-Gerät"
 msgid "SoftHdDevice"
 msgstr "SoftHdDevice"
 
+msgid "none"
+msgstr ""
+
+msgid "user-defined"
+msgstr ""
+
+msgid "Yadif deinterlacer"
+msgstr ""
+
+msgid "Deblocking & Deringing"
+msgstr ""
+
 msgid "[softhddev]: dirty area too big\n"
 msgstr ""
 
@@ -563,6 +575,18 @@ msgstr "Schneide oben und unten ab (Pixel)"
 
 msgid "Cut left and right (pixel)"
 msgstr "Schneide links und rechts ab (Pixel)"
+
+msgid "Prefilter"
+msgstr ""
+
+msgid " User-defined prefilter"
+msgstr ""
+
+msgid "Postfilter"
+msgstr ""
+
+msgid " User-defined postfilter"
+msgstr ""
 
 msgid "First field order (0-2)"
 msgstr ""

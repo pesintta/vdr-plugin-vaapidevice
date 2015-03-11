@@ -77,6 +77,30 @@ static const char *const Resolution[RESOLUTIONS] = {
     "576i", "720p", "1080i_fake", "1080i"
 };
 
+#ifdef USE_AVFILTER
+#define AVFILTERS_USER_MAX_LEN	255
+typedef enum
+{
+    eAvFilterConfigNone = 0,
+    eAvFilterConfigUserDefined,
+    eAvFilterConfigYadif,
+    eAvFilterConfigDeblockDering,
+    eAvFilterConfigCount
+} avfilter_config_t;
+static const char *AvFilterLabels[eAvFilterConfigCount] = {
+    trNOOP("none"),			///< eAvFilterConfigNone
+    trNOOP("user-defined"),		///< eAvFilterConfigUserDefined
+    trNOOP("Yadif deinterlacer"),	///< eAvFilterConfigYadif
+    trNOOP("Deblocking & Deringing"),	///< eAvFilterConfigDeblockDering
+};
+static const char *const AvFilterRules[eAvFilterConfigCount] = {
+    "",					///< eAvFilterConfigNone
+    "",					///< eAvFilterConfigUserDefined
+    "yadif=0:-1:0",			///< eAvFilterConfigYadif
+    "pp=hb/vb/dr",			///< eAvFilterConfigDeblockDering
+};
+#endif
+
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 static char ConfigDetachFromMainMenu;	///< detach from main menu entry instead of suspend
@@ -129,8 +153,10 @@ static int ConfigVideoSecondField[RESOLUTIONS];
 
 #ifdef USE_AVFILTER
     /// config avfilter parameters
-static char* ConfigVideoPreAvFilter[RESOLUTIONS];
-static char* ConfigVideoPostAvFilter[RESOLUTIONS];
+static int ConfigVideoPreAvFilter[RESOLUTIONS];
+static int ConfigVideoPostAvFilter[RESOLUTIONS];
+static char ConfigVideoPreAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+static char ConfigVideoPostAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
 #endif
 
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
@@ -647,6 +673,13 @@ class cMenuSetupSoft:public cMenuSetupPage
     int CutLeftRight[RESOLUTIONS];
     int FirstField[RESOLUTIONS];
     int SecondField[RESOLUTIONS];
+#ifdef USE_AVFILTER
+    const char *LabelAvFilter[eAvFilterConfigCount];
+    int PreAvFilter[RESOLUTIONS];
+    int PostAvFilter[RESOLUTIONS];
+    char PreAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+    char PostAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+#endif
 
     int AutoCropInterval;
     int AutoCropDelay;
@@ -700,6 +733,46 @@ class cMenuSetupSoft:public cMenuSetupPage
      ~cMenuSetupSoft();
     virtual eOSState ProcessKey(eKeys);	// handle input
 };
+
+
+#ifdef USE_AVFILTER
+static void VideoSetAvFilters(void)
+{
+    const char *curPreAvFilter[RESOLUTIONS];
+    const char *curPostAvFilter[RESOLUTIONS];
+    int i;
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	int pre = ConfigVideoPreAvFilter[i];
+	int post = ConfigVideoPostAvFilter[i];
+
+	switch (pre) {
+	    case eAvFilterConfigNone:
+		curPreAvFilter[i] = NULL;
+		break;
+	    case eAvFilterConfigUserDefined:
+		curPreAvFilter[i] = ConfigVideoPreAvFilterUser[i];
+		break;
+	    default:
+		curPreAvFilter[i] = AvFilterRules[pre];
+		break;
+	}
+	switch (post) {
+	    case eAvFilterConfigNone:
+		curPostAvFilter[i] = NULL;
+		break;
+	    case eAvFilterConfigUserDefined:
+		curPostAvFilter[i] = ConfigVideoPostAvFilterUser[i];
+		break;
+	    default:
+		curPostAvFilter[i] = AvFilterRules[post];
+		break;
+	}
+    }
+    VideoSetPreAvFilter(curPreAvFilter);
+    VideoSetPostAvFilter(curPostAvFilter);
+}
+#endif
 
 /**
 **	Create a seperator item.
@@ -888,6 +961,18 @@ void cMenuSetupSoft::Create(void)
 			&CutLeftRight[i], 0, 250));
 
 		if (VideoIsDriverVaapi()) {
+#ifdef USE_AVFILTER
+			Add(new cMenuEditStraItem(tr("Prefilter"), &PreAvFilter[i],
+						  eAvFilterConfigCount, LabelAvFilter));
+			if (PreAvFilter[i] == eAvFilterConfigUserDefined)
+			    Add(new cMenuEditStrItem(tr(" User-defined prefilter"),
+				    PreAvFilterUser[i], sizeof(PreAvFilterUser[i])));
+			Add(new cMenuEditStraItem(tr("Postfilter"), &PostAvFilter[i],
+						  eAvFilterConfigCount, LabelAvFilter));
+			if (PostAvFilter[i] == eAvFilterConfigUserDefined)
+			    Add(new cMenuEditStrItem(tr(" User-defined postfilter"),
+				    PostAvFilterUser[i], sizeof(PostAvFilterUser[i])));
+#endif
 			Add(new cMenuEditIntItem(tr("First field order (0-2)"),
 				&FirstField[i], 0, 2));
 			Add(new cMenuEditIntItem(tr("Second field order (0-2)"),
@@ -1000,6 +1085,8 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_resolution_shown[RESOLUTIONS];
     int old_denoise[RESOLUTIONS];
     int old_sharpen[RESOLUTIONS];
+    int old_preavfilter[RESOLUTIONS];
+    int old_postavfilter[RESOLUTIONS];
     int old_brightness;
     int old_contrast;
     int old_saturation;
@@ -1016,6 +1103,8 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+    memcpy(old_preavfilter, PreAvFilter, sizeof(PreAvFilter));
+    memcpy(old_postavfilter, PostAvFilter, sizeof(PostAvFilter));
     old_brightness = Brightness;
     old_contrast = Contrast;
     old_saturation = Saturation;
@@ -1033,7 +1122,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
-		if (old_resolution_shown[i] != ResolutionShown[i]) {
+		if ((old_resolution_shown[i] != ResolutionShown[i])
+		    || ((old_preavfilter[i] != PreAvFilter[i])
+		    && (old_preavfilter[i] == eAvFilterConfigUserDefined
+		    || PreAvFilter[i] == eAvFilterConfigUserDefined))
+		    || ((old_postavfilter[i] != PostAvFilter[i])
+		    && (old_postavfilter[i] == eAvFilterConfigUserDefined
+		    || PostAvFilter[i] == eAvFilterConfigUserDefined))
+		   ) {
 		    Create();		// update menu
 		    break;
 		}
@@ -1128,10 +1224,22 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
 	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
 
+#ifdef USE_AVFILTER
+	PreAvFilter[i] = ConfigVideoPreAvFilter[i];
+	PostAvFilter[i] = ConfigVideoPostAvFilter[i];
+	strn0cpy(PreAvFilterUser[i], ConfigVideoPreAvFilterUser[i], sizeof(PreAvFilterUser[i]));
+	strn0cpy(PostAvFilterUser[i], ConfigVideoPostAvFilterUser[i], sizeof(PostAvFilterUser[i]));
+#endif
+
 	FirstField[i] = ConfigVideoFirstField[i];
 	SecondField[i] = ConfigVideoSecondField[i];
 
     }
+#ifdef USE_AVFILTER
+    for (i = 0; i < eAvFilterConfigCount; ++i) {
+	LabelAvFilter[i] = tr(AvFilterLabels[i]);
+    }
+#endif
     //
     //	auto-crop
     //
@@ -1288,6 +1396,21 @@ void cMenuSetupSoft::Store(void)
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
 	SetupStore(buf, ConfigVideoCutLeftRight[i] = CutLeftRight[i]);
 
+#ifdef USE_AVFILTER
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilter");
+	SetupStore(buf, ConfigVideoPreAvFilter[i] = PreAvFilter[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilter");
+	SetupStore(buf, ConfigVideoPostAvFilter[i] = PostAvFilter[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilterUser");
+	strn0cpy(ConfigVideoPreAvFilterUser[i], PreAvFilterUser[i],
+		 sizeof(ConfigVideoPreAvFilterUser[i]));
+	SetupStore(buf, ConfigVideoPreAvFilterUser[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilterUser");
+	strn0cpy(ConfigVideoPostAvFilterUser[i], PostAvFilterUser[i],
+		 sizeof(ConfigVideoPostAvFilterUser[i]));
+	SetupStore(buf, ConfigVideoPostAvFilterUser[i]);
+#endif
+
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
 	SetupStore(buf, ConfigVideoFirstField[i] = FirstField[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
@@ -1302,6 +1425,9 @@ void cMenuSetupSoft::Store(void)
     VideoSetSharpen(ConfigVideoSharpen);
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
     VideoSetCutLeftRight(ConfigVideoCutLeftRight);
+#ifdef USE_AVFILTER
+    VideoSetAvFilters();
+#endif
     VideoSetFirstField(ConfigVideoFirstField);
     VideoSetSecondField(ConfigVideoSecondField);
 
@@ -3111,16 +3237,28 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	    return true;
 	}
 #ifdef USE_AVFILTER
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilterUser");
+	if (!strcasecmp(name, buf)) {
+	    strn0cpy(ConfigVideoPreAvFilterUser[i], value, sizeof(ConfigVideoPreAvFilterUser[i]));
+	    VideoSetAvFilters();
+	    return true;
+	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilter");
 	if (!strcasecmp(name, buf)) {
-	    ConfigVideoPreAvFilter[i] = (char*)value;
-	    VideoSetPreAvFilter(ConfigVideoPreAvFilter);
+	    ConfigVideoPreAvFilter[i] = atoi(value);
+	    VideoSetAvFilters();
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilterUser");
+	if (!strcasecmp(name, buf)) {
+	    strn0cpy(ConfigVideoPostAvFilterUser[i], value, sizeof(ConfigVideoPostAvFilterUser[i]));
+	    VideoSetAvFilters();
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilter");
 	if (!strcasecmp(name, buf)) {
-	    ConfigVideoPostAvFilter[i] = (char*)value;
-	    VideoSetPostAvFilter(ConfigVideoPostAvFilter);
+	    ConfigVideoPostAvFilter[i] = atoi(value);
+	    VideoSetAvFilters();
 	    return true;
 	}
 #endif
