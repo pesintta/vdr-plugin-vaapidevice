@@ -297,6 +297,19 @@ typedef struct _video_module_
     void (*const Exit) (void);		///< cleanup video output module
 } VideoModule;
 
+///
+///     Video configuration values typedef.
+///
+typedef struct _video_config_values_
+{
+    int   active;
+    float min_value;
+    float max_value;
+    float def_value;
+    float step;
+    float scale;
+} VideoConfigValues;
+
 //----------------------------------------------------------------------------
 //	Defines
 //----------------------------------------------------------------------------
@@ -320,6 +333,48 @@ typedef struct _video_module_
 //----------------------------------------------------------------------------
 //	Variables
 //----------------------------------------------------------------------------
+
+static VideoConfigValues VdpauConfigBrightness =
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+
+// Brightness (-100.00 - 100.00 ++ 1.00 = 0.00)
+static VideoConfigValues VaapiConfigBrightness =
+{ .active = 0, .min_value = -100.0, .max_value = 100.0, .def_value = 0.0, .step = 1.0, .scale = 1.0 };
+
+static VideoConfigValues VdpauConfigContrast =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001 };
+
+// Contrast (0.00 - 10.00 ++ 0.10 = 1.00)
+static VideoConfigValues VaapiConfigContrast =
+{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSaturation =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001 };
+
+// Saturation (0.00 - 10.00 ++ 0.10 = 1.00)
+static VideoConfigValues VaapiConfigSaturation =
+{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0 };
+
+static VideoConfigValues VdpauConfigHue =
+{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+
+// Hue (-180.00 - 180.00 ++ 1.00 = 0.00)
+static VideoConfigValues VaapiConfigHue =
+{ .active = 0, .min_value = -180.0, .max_value = 180.0, .def_value = 0.0, .step = 1.0, .scale = 1.0 };
+
+static VideoConfigValues VdpauConfigDenoise =
+{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+
+// Denoise (0.00 - 1.00 ++ 0.03 = 0.50)
+static VideoConfigValues VaapiConfigDenoise =
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSharpen =
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+
+// Sharpen (0.00 - 1.00 ++ 0.03 = 0.50)
+static VideoConfigValues VaapiConfigSharpen =
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0 };
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -385,8 +440,8 @@ static int VideoSecondField[VideoResolutionMax];
 
 #ifdef USE_AVFILTER
     /// Video filter strings to pass to libavfiler
-static char* VideoPreAvFilterString[VideoResolutionMax];
-static char* VideoPostAvFilterString[VideoResolutionMax];
+static const char* VideoPreAvFilterString[VideoResolutionMax];
+static const char* VideoPostAvFilterString[VideoResolutionMax];
 #endif
 
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
@@ -1623,7 +1678,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     AVBufferSinkParams *buffersink_params;
     enum AVPixelFormat out_formats[] = { pixfmt, AV_PIX_FMT_NONE };
 
-    if (!filterstring)
+    if (!(filterstring && *filterstring))
 	return;
 
     if (!filter) {
@@ -2235,6 +2290,48 @@ static inline float VaapiScale(float valueIn, float baseMin, float baseMax, floa
 }
 
 ///
+///	Normalize config values for UI
+///
+///	@param config	config struct to normalize
+///	@param valueMin	range min value
+///	@param valueMax	range max value
+///	@param valueDef	range default value
+///	@param step	range step
+///
+static inline void VaapiNormalizeConfig(VideoConfigValues * config, float valueMin, float valueMax, float valueDef, float step)
+{
+    config->min_value = valueMin;
+    config->max_value = valueMax;
+    config->def_value = valueDef;
+    config->step = step;
+    config->scale = 1;
+    // normalize values for UI
+    while (config && config->step < 1) {
+	config->min_value *= 10;
+	config->max_value *= 10;
+	config->def_value *= 10;
+	config->step *= 10;
+	config->scale /= 10;
+    }
+}
+
+///
+///	Clamp given value against config limits
+///
+///	@param config	config struct
+///	@param valueIn	sample value
+///	@return	clamped value
+///
+static inline int VideoConfigClamp(VideoConfigValues * config, float valueIn)
+{
+    if (valueIn < config->min_value)
+	return config->min_value;
+    else if (valueIn > config->max_value)
+	return config->def_value;
+    return valueIn;
+}
+
+///
 ///	Initialize surface flags.
 ///
 ///	@param decoder	video hardware decoder
@@ -2309,7 +2406,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
         if (va_status == VA_STATUS_SUCCESS) {
 
             /* Assuming here that the type is set before and does not need to be modified */
-            denoise_param->value = VaapiScale(VideoDenoise[decoder->Resolution], 0.0, 1000.0, 0.0, 1.0);
+            denoise_param->value = VideoDenoise[decoder->Resolution] * VaapiConfigDenoise.scale;
             vaUnmapBuffer(VaDisplay, *decoder->vpp_denoise_buf);
         }
     }
@@ -2318,7 +2415,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
         VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_sharpen_buf, (void**)&sharpen_param);
         if (va_status == VA_STATUS_SUCCESS) {
             /* Assuming here that the type is set before and does not need to be modified */
-            sharpen_param->value = VaapiScale(VideoSharpen[decoder->Resolution], 0.0, 1000.0, 0.0, 1.0);
+            sharpen_param->value = VideoSharpen[decoder->Resolution] * VaapiConfigSharpen.scale;
             vaUnmapBuffer(VaDisplay, *decoder->vpp_sharpen_buf);
         }
     }
@@ -3847,6 +3944,17 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	 caps->range.step,
 	 caps->range.default_value);
 
+    switch (type) {
+	case VAProcFilterNoiseReduction:
+	    VaapiNormalizeConfig(&VaapiConfigDenoise, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
+	    break;
+	case VAProcFilterSharpening:
+	    VaapiNormalizeConfig(&VaapiConfigSharpen, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
+	    break;
+	default:
+	    break;
+    }
+
     param_buf.type = type;
     param_buf.value = value;
     va_status = vaCreateBuffer(VaDisplay, decoder->vpp_ctx,
@@ -3901,7 +4009,9 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 	switch (filtertypes[u]) {
 	    case VAProcFilterNoiseReduction:
 		Info("video/vaapi: noise reduction supported\n");
-		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.00);
+		VaapiConfigDenoise.active = 1;
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], VaapiConfigDenoise.def_value *
+								    VaapiConfigDenoise.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
 		    Info("Enabling denoise filter (pos = %d)\n", decoder->filter_n);
 		    decoder->vpp_denoise_buf = &decoder->filters[decoder->filter_n];
@@ -3959,8 +4069,10 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		break;
 	    case VAProcFilterSharpening:
 		Info("video/vaapi: sharpening supported\n");
+		VaapiConfigSharpen.active = 1;
 		// Sharpening needs to on a separated pipeline apart from vebox
-		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], VaapiConfigSharpen.def_value *
+								    VaapiConfigSharpen.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
 		    Info("Enabling sharpening filter (pos = %d)\n", decoder->gpe_filter_n);
 		    decoder->vpp_sharpen_buf = &decoder->gpe_filters[decoder->gpe_filter_n];
@@ -3989,27 +4101,39 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
 			    break;
 			case VAProcColorBalanceHue:
+			    VaapiConfigHue.active = 1;
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Hue",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    VaapiNormalizeConfig(&VaapiConfigHue, colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+						 colorbalance_caps[v].range.default_value, colorbalance_caps[v].range.step);
 			    decoder->vpp_hue_idx = v;
 			    break;
 			case VAProcColorBalanceSaturation:
+			    VaapiConfigSaturation.active = 1;
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Saturation",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    VaapiNormalizeConfig(&VaapiConfigSaturation, colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+						 colorbalance_caps[v].range.default_value, colorbalance_caps[v].range.step);
 			    decoder->vpp_saturation_idx = v;
 			    break;
 			case VAProcColorBalanceBrightness:
+			    VaapiConfigBrightness.active = 1;
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Brightness",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    VaapiNormalizeConfig(&VaapiConfigBrightness, colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+						 colorbalance_caps[v].range.default_value, colorbalance_caps[v].range.step);
 			    decoder->vpp_brightness_idx = v;
 			    break;
 			case VAProcColorBalanceContrast:
+			    VaapiConfigContrast.active = 1;
 			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)\n", "Contrast",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value, decoder->filter_n);
+			    VaapiNormalizeConfig(&VaapiConfigContrast, colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
+						 colorbalance_caps[v].range.default_value, colorbalance_caps[v].range.step);
 			    decoder->vpp_contrast_idx = v;
 			    break;
 			case VAProcColorBalanceAutoSaturation:
@@ -4469,7 +4593,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     xcb_flush(Connection);
     status = vaSyncSurface(decoder->VaDisplay, surface);
     if (status != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: vaSyncSurface failed: %s"), vaErrorStr(status));
+	Error(_("video/vaapi: vaSyncSurface failed: %s\n"), vaErrorStr(status));
 	return;
     }
     if ((status = vaPutSurface(decoder->VaDisplay, surface, decoder->Window,
@@ -7746,7 +7870,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    skip_chroma_value ? "enabled" : "disabled");
     }
     if (VdpauNoiseReduction) {
-	noise_reduction_level = VideoDenoise[decoder->Resolution] / 1000.0;
+	noise_reduction_level = VideoDenoise[decoder->Resolution] * VdpauConfigDenoise.scale;
 	attributes[attribute_n]
 	    = VDP_VIDEO_MIXER_ATTRIBUTE_NOISE_REDUCTION_LEVEL;
 	attribute_value_ptrs[attribute_n++] = &noise_reduction_level;
@@ -7754,7 +7878,7 @@ static void VdpauMixerSetup(VdpauDecoder * decoder)
 	    noise_reduction_level);
     }
     if (VdpauSharpness) {
-	sharpness_level = VideoSharpen[decoder->Resolution] / 1000.0;
+	sharpness_level = VideoSharpen[decoder->Resolution] * VdpauConfigSharpen.scale;
 	attributes[attribute_n]
 	    = VDP_VIDEO_MIXER_ATTRIBUTE_SHARPNESS_LEVEL;
 	attribute_value_ptrs[attribute_n++] = &sharpness_level;
@@ -12333,6 +12457,29 @@ const char *VideoGetDriverName(void)
 }
 
 ///
+///     Get used video driver.
+///
+int VideoIsDriverVdpau(void)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	return 1;
+    }
+#endif
+   return 0;
+}
+
+int VideoIsDriverVaapi(void)
+{
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	return 1;
+    }
+#endif
+   return 0;
+}
+
+///
 ///	Set video geometry.
 ///
 ///	@param geometry	 [=][<width>{xX}<height>][{+-}<xoffset>{+-}<yoffset>]
@@ -12410,98 +12557,190 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID* buf, int Index, float valu
 ///
 ///	Set brightness adjustment.
 ///
-///	@param brightness	between -1000 and 1000.
-///				0 represents no modification
+///	@param brightness	between min and max.
 ///
 void VideoSetBrightness(int brightness)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.brightness = (double)brightness / 1000;
+	VdpauDecoders[0]->Procamp.brightness = VideoConfigClamp(&VdpauConfigBrightness, brightness) *
+					       VdpauConfigBrightness.scale;
     }
 #endif
 
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_idx >= 0) {
-        // Scale to match
-        float vaapivalue = VaapiScale(brightness, -1000.0, 1000.0, -100.0, 100.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx, vaapivalue);
+	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx,
+				  VideoConfigClamp(&VaapiConfigBrightness, brightness) *
+				  VaapiConfigBrightness.scale);
     }
 #endif
-    (void)brightness;
+}
+
+///
+///     Get brightness configurations.
+///
+int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*minvalue = VdpauConfigBrightness.min_value;
+	*defvalue = VdpauConfigBrightness.def_value;
+	*maxvalue = VdpauConfigBrightness.max_value;
+	return VdpauConfigBrightness.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*minvalue = VaapiConfigBrightness.min_value;
+	*defvalue = VaapiConfigBrightness.def_value;
+	*maxvalue = VaapiConfigBrightness.max_value;
+	return VaapiConfigBrightness.active;
+    }
+#endif
+    return 0;
 }
 
 ///
 ///	Set contrast adjustment.
 ///
-///	@param contrast		between 0 and 10000.
-///				1000 represents no modification
+///	@param contrast		between min and max.
 ///
 void VideoSetContrast(int contrast)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.contrast = (double)contrast / 1000;
+	VdpauDecoders[0]->Procamp.contrast = VideoConfigClamp(&VdpauConfigContrast, contrast) *
+					     VdpauConfigContrast.scale;
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_idx >= 0) {
-        // Scale to match
-        float vaapivalue = VaapiScale(contrast, 0.0, 10000.0, 0.0, 10.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx, vaapivalue);
+	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx,
+				  VideoConfigClamp(&VaapiConfigContrast, contrast) *
+				  VaapiConfigContrast.scale);
     }
 #endif
-    (void)contrast;
+}
+
+///
+///     Get contrast configurations.
+///
+int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*minvalue = VdpauConfigContrast.min_value;
+	*defvalue = VdpauConfigContrast.def_value;
+	*maxvalue = VdpauConfigContrast.max_value;
+	return VdpauConfigContrast.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*minvalue = VaapiConfigContrast.min_value;
+	*defvalue = VaapiConfigContrast.def_value;
+	*maxvalue = VaapiConfigContrast.max_value;
+	return VaapiConfigContrast.active;
+    }
+#endif
+    return 0;
 }
 
 ///
 ///	Set saturation adjustment.
 ///
-///	@param saturation	between 0 and 10000.
-///				1000 represents no modification
+///	@param saturation	between min and max.
 ///
 void VideoSetSaturation(int saturation)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.saturation = (double)saturation / 1000;
+	VdpauDecoders[0]->Procamp.saturation = VideoConfigClamp(&VdpauConfigSaturation, saturation) *
+					       VdpauConfigSaturation.scale;
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_idx >= 0) {
-        // Scale to match
-        float vaapivalue = VaapiScale(saturation, 0.0, 10000.0, 0.0, 10.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx, vaapivalue);
+	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx,
+				  VideoConfigClamp(&VaapiConfigSaturation, saturation) *
+				  VaapiConfigSaturation.scale);
     }
 #endif
-    (void)saturation;
+}
+
+///
+///     Get saturation configurations.
+///
+int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*minvalue = VdpauConfigSaturation.min_value;
+	*defvalue = VdpauConfigSaturation.def_value;
+	*maxvalue = VdpauConfigSaturation.max_value;
+	return VdpauConfigSaturation.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*minvalue = VaapiConfigSaturation.min_value;
+	*defvalue = VaapiConfigSaturation.def_value;
+	*maxvalue = VaapiConfigSaturation.max_value;
+	return VaapiConfigSaturation.active;
+    }
+#endif
+    return 0;
 }
 
 ///
 ///	Set hue adjustment.
 ///
-///	@param hue	between -PI*1000 and PI*1000.
-///			0 represents no modification
+///	@param hue	between min and max.
 ///
 void VideoSetHue(int hue)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VdpauDecoders[0]->Procamp.hue = (double)hue / 1000;
+	hue = VideoConfigClamp(&VdpauConfigHue, hue);
+	VdpauDecoders[0]->Procamp.hue = VideoConfigClamp(&VdpauConfigHue, hue) *
+					VdpauConfigHue.scale;
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_idx >= 0) {
-        // Scale to match
-        float vaapivalue = VaapiScale(hue, -M_PI * 1000.0, M_PI * 1000.0, -180.0, 180.0);
-        VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx, vaapivalue);
+	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx,
+				  VideoConfigClamp(&VaapiConfigHue, hue) * VaapiConfigHue.scale);
     }
 #endif
-    (void)hue;
+}
+
+///
+///     Get saturation configurations.
+///
+int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*minvalue = VdpauConfigHue.min_value;
+	*defvalue = VdpauConfigHue.def_value;
+	*maxvalue = VdpauConfigHue.max_value;
+	return VdpauConfigHue.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*minvalue = VaapiConfigHue.min_value;
+	*defvalue = VaapiConfigHue.def_value;
+	*maxvalue = VaapiConfigHue.max_value;
+	return VaapiConfigHue.active;
+    }
+#endif
+    return 0;
 }
 
 ///
@@ -12713,10 +12952,124 @@ void VideoSetFullscreen(int onoff)
 }
 
 ///
+///     Get scaling modes.
+///
+static const char *vdpau_scaling[] = {
+    "Normal",      ///< VideoScalingNormal
+    "Fast",        ///< VideoScalingFast
+    "HighQuality", ///< VideoScalingHQ
+    "Anamorphic"   ///< VideoScalingAnamorphic
+};
+
+static const char *vdpau_scaling_short[] = {
+    "N",           ///< VideoScalingNormal
+    "F",           ///< VideoScalingFast
+    "HQ",          ///< VideoScalingHQ
+    "A"            ///< VideoScalingAnamorphic
+};
+
+static const char *vaapi_scaling[] = {
+    "Normal",      ///< VideoScalingNormal
+    "Fast",        ///< VideoScalingFast
+    "HighQuality"  ///< VideoScalingHQ
+};
+
+static const char *vaapi_scaling_short[] = {
+    "N",           ///< VideoScalingNormal
+    "F",           ///< VideoScalingFast
+    "HQ"           ///< VideoScalingHQ
+};
+
+int VideoGetScalingModes(const char* **long_table, const char* **short_table)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*long_table = vdpau_scaling;
+	*short_table = vdpau_scaling_short;
+	return ARRAY_ELEMS(vdpau_scaling);
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	*long_table = vaapi_scaling;
+	*short_table = vaapi_scaling_short;
+	return ARRAY_ELEMS(vaapi_scaling);
+    }
+#endif
+    return 0;
+}
+
+///
+///     Get deinterlace modes.
+///
+static const char *vdpau_deinterlace[] = {
+    "Bob",                ///< VideoDeinterlaceBob
+    "Weave/None",         ///< VideoDeinterlaceWeave
+    "Temporal",           ///< VideoDeinterlaceTemporal
+    "TemporalSpatial",    ///< VideoDeinterlaceTemporalSpatial
+    "Software Bob",       ///< VideoDeinterlaceSoftBob
+    "Software Spatial"    ///< VideoDeinterlaceSoftSpatial
+};
+
+static const char *vdpau_deinterlace_short[] = {
+    "B",                  ///< VideoDeinterlaceBob
+    "W",                  ///< VideoDeinterlaceWeave
+    "T",                  ///< VideoDeinterlaceTemporal
+    "T+S",                ///< VideoDeinterlaceTemporalSpatial
+    "S+B",                ///< VideoDeinterlaceSoftBob
+    "S+S"                 ///< VideoDeinterlaceSoftSpatial
+};
+
+static const char *vaapi_deinterlace[] = {
+    "Bob",                ///< VideoDeinterlaceBob
+    "Weave/None",         ///< VideoDeinterlaceWeave
+    "MotionAdaptive",     ///< VideoDeinterlaceTemporal
+    "MotionCompensated",  ///< VideoDeinterlaceTemporalSpatial
+};
+
+static const char *vaapi_deinterlace_short[] = {
+    "B",                  ///< VideoDeinterlaceBob
+    "W",                  ///< VideoDeinterlaceWeave
+    "MADI",               ///< VideoDeinterlaceTemporal
+    "MCDI"                ///< VideoDeinterlaceTemporalSpatial
+};
+
+int VideoGetDeinterlaceModes(const char* **long_table, const char* **short_table)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	*long_table = vdpau_deinterlace;
+	*short_table = vdpau_deinterlace_short;
+	return ARRAY_ELEMS(vdpau_deinterlace);
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	unsigned int len = VaapiDecoders[0]->MaxSupportedDeinterlacer;
+	*long_table = vaapi_deinterlace;
+	*short_table = vaapi_deinterlace_short;
+	if (len > ARRAY_ELEMS(vaapi_deinterlace))
+	   len = ARRAY_ELEMS(vaapi_deinterlace);
+	return len;
+    }
+#endif
+    return 0;
+}
+
+///
 ///	Set deinterlace mode.
 ///
 void VideoSetDeinterlace(int mode[VideoResolutionMax])
 {
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	int i;
+	for (i = 0; i < VideoResolutionMax; ++i) {
+            if (mode[i] > (int)VaapiDecoders[0]->MaxSupportedDeinterlacer)
+		mode[i] = VaapiDecoders[0]->MaxSupportedDeinterlacer;
+	}
+    }
+#endif
     VideoDeinterlace[0] = mode[0];
     VideoDeinterlace[1] = mode[1];
     VideoDeinterlace[2] = mode[2];
@@ -12749,10 +13102,26 @@ void VideoSetInverseTelecine(int onoff[VideoResolutionMax])
 }
 
 ///
-///	Set denoise level (0 .. 1000).
+///	Set denoise level.
 ///
 void VideoSetDenoise(int level[VideoResolutionMax])
 {
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	int i;
+	for (i = 0; i < VideoResolutionMax; ++i) {
+	    level[i] = VideoConfigClamp(&VdpauConfigDenoise, level[i]);
+	}
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	int i;
+	for (i = 0; i < VideoResolutionMax; ++i) {
+	    level[i] = VideoConfigClamp(&VaapiConfigDenoise, level[i]);
+	}
+    }
+#endif
     VideoDenoise[0] = level[0];
     VideoDenoise[1] = level[1];
     VideoDenoise[2] = level[2];
@@ -12761,15 +13130,79 @@ void VideoSetDenoise(int level[VideoResolutionMax])
 }
 
 ///
-///	Set sharpness level (-1000 .. 1000).
+///     Get denoise configurations.
+///
+int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+        *minvalue = VdpauConfigDenoise.min_value;
+        *defvalue = VdpauConfigDenoise.def_value;
+        *maxvalue = VdpauConfigDenoise.max_value;
+        return VdpauConfigDenoise.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+        *minvalue = VaapiConfigDenoise.min_value;
+        *defvalue = VaapiConfigDenoise.def_value;
+        *maxvalue = VaapiConfigDenoise.max_value;
+        return VaapiConfigDenoise.active;
+    }
+#endif
+    return 0;
+}
+
+///
+///	Set sharpness level.
 ///
 void VideoSetSharpen(int level[VideoResolutionMax])
 {
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	int i;
+	for (i = 0; i < VideoResolutionMax; ++i) {
+	    level[i] = VideoConfigClamp(&VdpauConfigSharpen, level[i]);
+	}
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+	int i;
+	for (i = 0; i < VideoResolutionMax; ++i) {
+	    level[i] = VideoConfigClamp(&VaapiConfigSharpen, level[i]);
+	}
+    }
+#endif
     VideoSharpen[0] = level[0];
     VideoSharpen[1] = level[1];
     VideoSharpen[2] = level[2];
     VideoSharpen[3] = level[3];
     VideoSurfaceModesChanged = 1;
+}
+
+///
+///     Get sharpness configurations.
+///
+int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+        *minvalue = VdpauConfigSharpen.min_value;
+        *defvalue = VdpauConfigSharpen.def_value;
+        *maxvalue = VdpauConfigSharpen.max_value;
+        return VdpauConfigSharpen.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule) {
+        *minvalue = VaapiConfigSharpen.min_value;
+        *defvalue = VaapiConfigSharpen.def_value;
+        *maxvalue = VaapiConfigSharpen.max_value;
+        return VaapiConfigSharpen.active;
+    }
+#endif
+    return 0;
 }
 
 ///
@@ -12845,7 +13278,7 @@ void VideoSetSecondField(int second[VideoResolutionMax])
 ///
 ///	@param filter	filter string to pass to libavfilter
 ///
-void VideoSetPreAvFilter(char* filterstring[VideoResolutionMax])
+void VideoSetPreAvFilter(const char* filterstring[VideoResolutionMax])
 {
     VideoPreAvFilterString[0] = filterstring[0];
     VideoPreAvFilterString[1] = filterstring[1];
@@ -12857,7 +13290,7 @@ void VideoSetPreAvFilter(char* filterstring[VideoResolutionMax])
 ///
 ///	@param filter	filter string to pass to libavfilter
 ///
-void VideoSetPostAvFilter(char* filterstring[VideoResolutionMax])
+void VideoSetPostAvFilter(const char* filterstring[VideoResolutionMax])
 {
     VideoPostAvFilterString[0] = filterstring[0];
     VideoPostAvFilterString[1] = filterstring[1];

@@ -77,6 +77,30 @@ static const char *const Resolution[RESOLUTIONS] = {
     "576i", "720p", "1080i_fake", "1080i"
 };
 
+#ifdef USE_AVFILTER
+#define AVFILTERS_USER_MAX_LEN	255
+typedef enum
+{
+    eAvFilterConfigNone = 0,
+    eAvFilterConfigUserDefined,
+    eAvFilterConfigYadif,
+    eAvFilterConfigDeblockDering,
+    eAvFilterConfigCount
+} avfilter_config_t;
+static const char *AvFilterLabels[eAvFilterConfigCount] = {
+    trNOOP("none"),			///< eAvFilterConfigNone
+    trNOOP("user-defined"),		///< eAvFilterConfigUserDefined
+    trNOOP("Yadif deinterlacer"),	///< eAvFilterConfigYadif
+    trNOOP("Deblocking & Deringing"),	///< eAvFilterConfigDeblockDering
+};
+static const char *const AvFilterRules[eAvFilterConfigCount] = {
+    "",					///< eAvFilterConfigNone
+    "",					///< eAvFilterConfigUserDefined
+    "yadif=0:-1:0",			///< eAvFilterConfigYadif
+    "pp=hb/vb/dr",			///< eAvFilterConfigDeblockDering
+};
+#endif
+
 static char ConfigMakePrimary;		///< config primary wanted
 static char ConfigHideMainMenuEntry;	///< config hide main menu entry
 static char ConfigDetachFromMainMenu;	///< detach from main menu entry instead of suspend
@@ -129,8 +153,10 @@ static int ConfigVideoSecondField[RESOLUTIONS];
 
 #ifdef USE_AVFILTER
     /// config avfilter parameters
-static char* ConfigVideoPreAvFilter[RESOLUTIONS];
-static char* ConfigVideoPostAvFilter[RESOLUTIONS];
+static int ConfigVideoPreAvFilter[RESOLUTIONS];
+static int ConfigVideoPostAvFilter[RESOLUTIONS];
+static char ConfigVideoPreAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+static char ConfigVideoPostAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
 #endif
 
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
@@ -647,6 +673,13 @@ class cMenuSetupSoft:public cMenuSetupPage
     int CutLeftRight[RESOLUTIONS];
     int FirstField[RESOLUTIONS];
     int SecondField[RESOLUTIONS];
+#ifdef USE_AVFILTER
+    const char *LabelAvFilter[eAvFilterConfigCount];
+    int PreAvFilter[RESOLUTIONS];
+    int PostAvFilter[RESOLUTIONS];
+    char PreAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+    char PostAvFilterUser[RESOLUTIONS][AVFILTERS_USER_MAX_LEN];
+#endif
 
     int AutoCropInterval;
     int AutoCropDelay;
@@ -697,8 +730,49 @@ class cMenuSetupSoft:public cMenuSetupPage
      virtual void Store(void);
   public:
      cMenuSetupSoft(void);
+     ~cMenuSetupSoft();
     virtual eOSState ProcessKey(eKeys);	// handle input
 };
+
+
+#ifdef USE_AVFILTER
+static void VideoSetAvFilters(void)
+{
+    const char *curPreAvFilter[RESOLUTIONS];
+    const char *curPostAvFilter[RESOLUTIONS];
+    int i;
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	int pre = ConfigVideoPreAvFilter[i];
+	int post = ConfigVideoPostAvFilter[i];
+
+	switch (pre) {
+	    case eAvFilterConfigNone:
+		curPreAvFilter[i] = NULL;
+		break;
+	    case eAvFilterConfigUserDefined:
+		curPreAvFilter[i] = ConfigVideoPreAvFilterUser[i];
+		break;
+	    default:
+		curPreAvFilter[i] = AvFilterRules[pre];
+		break;
+	}
+	switch (post) {
+	    case eAvFilterConfigNone:
+		curPostAvFilter[i] = NULL;
+		break;
+	    case eAvFilterConfigUserDefined:
+		curPostAvFilter[i] = ConfigVideoPostAvFilterUser[i];
+		break;
+	    default:
+		curPostAvFilter[i] = AvFilterRules[post];
+		break;
+	}
+    }
+    VideoSetPreAvFilter(curPreAvFilter);
+    VideoSetPostAvFilter(curPostAvFilter);
+}
+#endif
 
 /**
 **	Create a seperator item.
@@ -748,29 +822,6 @@ void cMenuSetupSoft::Create(void)
     static const char *const video_display_formats_16_9[] = {
 	"pan&scan", "pillarbox", "center cut-out",
     };
-#ifdef USE_VAAPI
-    static const char *const deinterlace[] = {
-	"Bob", "Weave/None", "MotionAdaptive", "MotionCompensated", "Software Bob",
-	"Software Spatial",
-    };
-    static const char *const deinterlace_short[] = {
-	"B", "W", "MADI", "MCDI", "S+B", "S+S",
-    };
-#else
-    static const char *const deinterlace[] = {
-	"Bob", "Weave/None", "Temporal", "TemporalSpatial", "Software Bob",
-	"Software Spatial",
-    };
-    static const char *const deinterlace_short[] = {
-	"B", "W", "T", "T+S", "S+B", "S+S",
-    };
-#endif
-    static const char *const scaling[] = {
-	"Normal", "Fast", "HQ", "Anamorphic"
-    };
-    static const char *const scaling_short[] = {
-	"N", "F", "HQ", "A"
-    };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
     };
@@ -779,6 +830,24 @@ void cMenuSetupSoft::Create(void)
     };
     int current;
     int i;
+    const char* *scaling;
+    const char* *scaling_short;
+    const char* *deinterlace;
+    const char* *deinterlace_short;
+    int scaling_modes = VideoGetScalingModes(&scaling, &scaling_short);
+    int deinterlace_modes = VideoGetDeinterlaceModes(&deinterlace, &deinterlace_short);
+    int brightness_min, brightness_def, brightness_max;
+    int brightness_active = VideoGetBrightnessConfig(&brightness_min, &brightness_def, &brightness_max);
+    int contrast_min, contrast_def, contrast_max;
+    int contrast_active = VideoGetContrastConfig(&contrast_min, &contrast_def, &contrast_max);
+    int saturation_min, saturation_def, saturation_max;
+    int saturation_active = VideoGetSaturationConfig(&saturation_min, &saturation_def, &saturation_max);
+    int hue_min, hue_def, hue_max;
+    int hue_active = VideoGetHueConfig(&hue_min, &hue_def, &hue_max);
+    int denoise_min, denoise_def, denoise_max;
+    int denoise_active = VideoGetDenoiseConfig(&denoise_min, &denoise_def, &denoise_max);
+    int sharpen_min, sharpen_def, sharpen_max;
+    int sharpen_active = VideoGetSharpenConfig(&sharpen_min, &sharpen_def, &sharpen_max);
 
     current = Current();		// get current menu item index
     Clear();				// clear the menu
@@ -827,8 +896,9 @@ void cMenuSetupSoft::Create(void)
 		(int *)&Background, 0, 0x00FFFFFF));
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"),
 		(int *)&BackgroundAlpha, 0, 0xFF));
-	Add(new cMenuEditBoolItem(tr("Use studio levels (vdpau only)"),
-		&StudioLevels, trVDR("no"), trVDR("yes")));
+	if (VideoIsDriverVdpau())
+		Add(new cMenuEditBoolItem(tr("Use studio levels"),
+			&StudioLevels, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode,
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync,
@@ -838,14 +908,21 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Clear decoder on channel switch"),
 		&ClearOnSwitch, trVDR("no"), trVDR("yes")));
 
-	Add(new cMenuEditIntItem(tr("Brightness (-1000..1000) (vdpau)"),
-		&Brightness, -1000, 1000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Contrast (0..10000) (vdpau)"), &Contrast,
-		0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Saturation (0..10000) (vdpau)"),
-		&Saturation, 0, 10000, tr("min"), tr("max")));
-	Add(new cMenuEditIntItem(tr("Hue (-3141..3141) (vdpau)"), &Hue, -3141,
-		3141, tr("min"), tr("max")));
+	if (brightness_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Brightness (%d..[%d]..%d)"),
+			brightness_min, brightness_def, brightness_max), &Brightness,
+			brightness_min, brightness_max));
+	if (contrast_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Contrast (%d..[%d]..%d)"),
+			contrast_min, contrast_def, contrast_max), &Contrast,
+			contrast_min, contrast_max));
+	if (saturation_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Saturation (%d..[%d]..%d)"),
+			saturation_min, saturation_def, saturation_max), &Saturation,
+			saturation_min, saturation_max));
+	if (hue_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Hue (%d..[%d]..%d)"),
+			hue_min, hue_def, hue_max), &Hue, hue_min, hue_max));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
@@ -859,39 +936,48 @@ void cMenuSetupSoft::Create(void)
 	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
-		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], 4,
-			scaling));
-#ifdef USE_VAAPI
+		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i],
+			scaling_modes, scaling));
 		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
-			4, deinterlace));
-#else
-		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
-			6, deinterlace));
-#endif
-		Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace (vdpau)"),
-			&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
-		Add(new cMenuEditBoolItem(tr("Inverse Telecine (vdpau)"),
-			&InverseTelecine[i], trVDR("no"), trVDR("yes")));
-		Add(new cMenuEditIntItem(tr("Denoise (0..1000)"),
-			&Denoise[i], 0, 1000, tr("off"), tr("max")));
-#ifdef USE_VAAPI
-		Add(new cMenuEditIntItem(tr("Sharpen (0..1000)"),
-			&Sharpen[i], 0, 1000, tr("off"),
-#else
-		Add(new cMenuEditIntItem(tr("Sharpen (-1000..1000)"),
-			&Sharpen[i], -1000, 1000, tr("blur max"),
-#endif
-			tr("sharpen max")));
+			deinterlace_modes, deinterlace));
+		if (VideoIsDriverVdpau()) {
+			Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace"),
+				&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
+			Add(new cMenuEditBoolItem(tr("Inverse Telecine"),
+				&InverseTelecine[i], trVDR("no"), trVDR("yes")));
+		}
+		if (denoise_active)
+			Add(new cMenuEditIntItem(*cString::sprintf(tr("Denoise (%d..[%d]..%d)"),
+				denoise_min, denoise_def, denoise_max), &Denoise[i],
+				denoise_min, denoise_max));
+		if (sharpen_active)
+			Add(new cMenuEditIntItem(*cString::sprintf(tr("Sharpen (%d..[%d]..%d)"),
+				sharpen_min, sharpen_def, sharpen_max), &Sharpen[i],
+				sharpen_min, sharpen_max));
 
 		Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"),
 			&CutTopBottom[i], 0, 250));
 		Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"),
 			&CutLeftRight[i], 0, 250));
 
-		Add(new cMenuEditIntItem(tr("First field order (0-2) (vaapi)"),
-			&FirstField[i], 0, 2));
-		Add(new cMenuEditIntItem(tr("Second field order (0-2) (vaapi)"),
-			&SecondField[i], 0, 2));
+		if (VideoIsDriverVaapi()) {
+#ifdef USE_AVFILTER
+			Add(new cMenuEditStraItem(tr("Prefilter"), &PreAvFilter[i],
+						  eAvFilterConfigCount, LabelAvFilter));
+			if (PreAvFilter[i] == eAvFilterConfigUserDefined)
+			    Add(new cMenuEditStrItem(tr(" User-defined prefilter"),
+				    PreAvFilterUser[i], sizeof(PreAvFilterUser[i])));
+			Add(new cMenuEditStraItem(tr("Postfilter"), &PostAvFilter[i],
+						  eAvFilterConfigCount, LabelAvFilter));
+			if (PostAvFilter[i] == eAvFilterConfigUserDefined)
+			    Add(new cMenuEditStrItem(tr(" User-defined postfilter"),
+				    PostAvFilterUser[i], sizeof(PostAvFilterUser[i])));
+#endif
+			Add(new cMenuEditIntItem(tr("First field order (0-2)"),
+				&FirstField[i], 0, 2));
+			Add(new cMenuEditIntItem(tr("Second field order (0-2)"),
+				&SecondField[i], 0, 2));
+		}
 	    }
 	}
 	//
@@ -997,6 +1083,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 #endif
     int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
+    int old_denoise[RESOLUTIONS];
+    int old_sharpen[RESOLUTIONS];
+    int old_preavfilter[RESOLUTIONS];
+    int old_postavfilter[RESOLUTIONS];
+    int old_brightness;
+    int old_contrast;
+    int old_saturation;
+    int old_hue;
     int i;
 
     old_general = General;
@@ -1007,6 +1101,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 #endif
     old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
+    memcpy(old_denoise, Denoise, sizeof(Denoise));
+    memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+    memcpy(old_preavfilter, PreAvFilter, sizeof(PreAvFilter));
+    memcpy(old_postavfilter, PostAvFilter, sizeof(PostAvFilter));
+    old_brightness = Brightness;
+    old_contrast = Contrast;
+    old_saturation = Saturation;
+    old_hue = Hue;
     state = cMenuSetupPage::ProcessKey(key);
 
     if (key != kNone) {
@@ -1020,11 +1122,34 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	    Create();			// update menu
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
-		if (old_resolution_shown[i] != ResolutionShown[i]) {
+		if ((old_resolution_shown[i] != ResolutionShown[i])
+		    || ((old_preavfilter[i] != PreAvFilter[i])
+		    && (old_preavfilter[i] == eAvFilterConfigUserDefined
+		    || PreAvFilter[i] == eAvFilterConfigUserDefined))
+		    || ((old_postavfilter[i] != PostAvFilter[i])
+		    && (old_postavfilter[i] == eAvFilterConfigUserDefined
+		    || PostAvFilter[i] == eAvFilterConfigUserDefined))
+		   ) {
 		    Create();		// update menu
 		    break;
 		}
+		if (old_denoise[i] != Denoise[i]) {
+		    VideoSetDenoise(Denoise);
+		    break;
+		}
+		if (old_sharpen[i] != Sharpen[i]) {
+		    VideoSetSharpen(Sharpen);
+		    break;
+		}
 	    }
+	    if (old_brightness != Brightness)
+		VideoSetBrightness(Brightness);
+	    if (old_contrast != Contrast)
+		VideoSetContrast(Contrast);
+	    if (old_saturation != Saturation)
+		VideoSetSaturation(Saturation);
+	    if (old_hue != Hue)
+		VideoSetHue(Hue);
 	}
     }
 
@@ -1099,10 +1224,22 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
 	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
 
+#ifdef USE_AVFILTER
+	PreAvFilter[i] = ConfigVideoPreAvFilter[i];
+	PostAvFilter[i] = ConfigVideoPostAvFilter[i];
+	strn0cpy(PreAvFilterUser[i], ConfigVideoPreAvFilterUser[i], sizeof(PreAvFilterUser[i]));
+	strn0cpy(PostAvFilterUser[i], ConfigVideoPostAvFilterUser[i], sizeof(PostAvFilterUser[i]));
+#endif
+
 	FirstField[i] = ConfigVideoFirstField[i];
 	SecondField[i] = ConfigVideoSecondField[i];
 
     }
+#ifdef USE_AVFILTER
+    for (i = 0; i < eAvFilterConfigCount; ++i) {
+	LabelAvFilter[i] = tr(AvFilterLabels[i]);
+    }
+#endif
     //
     //	auto-crop
     //
@@ -1153,6 +1290,20 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     PipAltVideoHeight = ConfigPipAltVideoHeight;
 #endif
     Create();
+}
+
+cMenuSetupSoft::~cMenuSetupSoft()
+{
+    int i;
+
+    for (i = 0; i < RESOLUTIONS; ++i) {
+	VideoSetDenoise(ConfigVideoDenoise);
+	VideoSetSharpen(ConfigVideoSharpen);
+    }
+    VideoSetBrightness(ConfigVideoBrightness);
+    VideoSetContrast(ConfigVideoContrast);
+    VideoSetSaturation(ConfigVideoSaturation);
+    VideoSetHue(ConfigVideoHue);
 }
 
 /**
@@ -1245,6 +1396,21 @@ void cMenuSetupSoft::Store(void)
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
 	SetupStore(buf, ConfigVideoCutLeftRight[i] = CutLeftRight[i]);
 
+#ifdef USE_AVFILTER
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilter");
+	SetupStore(buf, ConfigVideoPreAvFilter[i] = PreAvFilter[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilter");
+	SetupStore(buf, ConfigVideoPostAvFilter[i] = PostAvFilter[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilterUser");
+	strn0cpy(ConfigVideoPreAvFilterUser[i], PreAvFilterUser[i],
+		 sizeof(ConfigVideoPreAvFilterUser[i]));
+	SetupStore(buf, ConfigVideoPreAvFilterUser[i]);
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilterUser");
+	strn0cpy(ConfigVideoPostAvFilterUser[i], PostAvFilterUser[i],
+		 sizeof(ConfigVideoPostAvFilterUser[i]));
+	SetupStore(buf, ConfigVideoPostAvFilterUser[i]);
+#endif
+
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
 	SetupStore(buf, ConfigVideoFirstField[i] = FirstField[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
@@ -1259,6 +1425,9 @@ void cMenuSetupSoft::Store(void)
     VideoSetSharpen(ConfigVideoSharpen);
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
     VideoSetCutLeftRight(ConfigVideoCutLeftRight);
+#ifdef USE_AVFILTER
+    VideoSetAvFilters();
+#endif
     VideoSetFirstField(ConfigVideoFirstField);
     VideoSetSecondField(ConfigVideoSecondField);
 
@@ -3068,16 +3237,28 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	    return true;
 	}
 #ifdef USE_AVFILTER
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilterUser");
+	if (!strcasecmp(name, buf)) {
+	    strn0cpy(ConfigVideoPreAvFilterUser[i], value, sizeof(ConfigVideoPreAvFilterUser[i]));
+	    VideoSetAvFilters();
+	    return true;
+	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PreAvFilter");
 	if (!strcasecmp(name, buf)) {
-	    ConfigVideoPreAvFilter[i] = (char*)value;
-	    VideoSetPreAvFilter(ConfigVideoPreAvFilter);
+	    ConfigVideoPreAvFilter[i] = atoi(value);
+	    VideoSetAvFilters();
+	    return true;
+	}
+	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilterUser");
+	if (!strcasecmp(name, buf)) {
+	    strn0cpy(ConfigVideoPostAvFilterUser[i], value, sizeof(ConfigVideoPostAvFilterUser[i]));
+	    VideoSetAvFilters();
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "PostAvFilter");
 	if (!strcasecmp(name, buf)) {
-	    ConfigVideoPostAvFilter[i] = (char*)value;
-	    VideoSetPostAvFilter(ConfigVideoPostAvFilter);
+	    ConfigVideoPostAvFilter[i] = atoi(value);
+	    VideoSetAvFilters();
 	    return true;
 	}
 #endif
