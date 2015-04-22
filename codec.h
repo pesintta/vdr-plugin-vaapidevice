@@ -1,7 +1,7 @@
 ///
 ///	@file codec.h	@brief Codec module headerfile
 ///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2013, 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -42,6 +42,13 @@ typedef struct _video_decoder_ VideoDecoder;
 
     /// Audio decoder typedef.
 typedef struct _audio_decoder_ AudioDecoder;
+
+//----------------------------------------------------------------------------
+//	Variables
+//----------------------------------------------------------------------------
+
+    /// Flag prefer fast xhannel switch
+extern char CodecUsePossibleDefectFrames;
 
 //----------------------------------------------------------------------------
 //	Prototypes

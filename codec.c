@@ -1,7 +1,7 @@
 ///
 ///	@file codec.c	@brief Codec functions
 ///
-///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -94,6 +94,16 @@
 #include "codec.h"
 
 //----------------------------------------------------------------------------
+
+    // correct is AV_VERSION_INT(56,35,101) but some gentoo i* think
+    // they must change it.
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,26,100)
+    /// ffmpeg 2.6 started to show artifacts after channel switch
+    /// to SDTV channels
+#define FFMPEG_WORKAROUND_ARTIFACTS	1
+#endif
+
+//----------------------------------------------------------------------------
 //	Global
 //----------------------------------------------------------------------------
 
@@ -104,6 +114,9 @@
       ///	this breaks our code, until this is fixed use lock.
       ///
 static pthread_mutex_t CodecLockMutex;
+
+    /// Flag prefer fast xhannel switch
+char CodecUsePossibleDefectFrames;
 
 //----------------------------------------------------------------------------
 //	Video
@@ -126,6 +139,9 @@ struct _video_decoder_
     int GetFormatDone;			///< flag get format called!
     AVCodec *VideoCodec;		///< video codec
     AVCodecContext *VideoCtx;		///< video codec context
+#ifdef FFMPEG_WORKAROUND_ARTIFACTS
+    int FirstKeyFrame;			///< flag first frame
+#endif
     AVFrame *Frame;			///< decoded video frame
 };
 
@@ -525,6 +541,9 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     }
     // reset buggy ffmpeg/libav flag
     decoder->GetFormatDone = 0;
+#ifdef FFMPEG_WORKAROUND_ARTIFACTS
+    decoder->FirstKeyFrame = 1;
+#endif
 }
 
 /**
@@ -611,8 +630,22 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
     }
 
     if (got_frame) {			// frame completed
+#ifdef FFMPEG_WORKAROUND_ARTIFACTS
+	if (!CodecUsePossibleDefectFrames && decoder->FirstKeyFrame) {
+	    decoder->FirstKeyFrame++;
+	    if (frame->key_frame) {
+		Debug((3, "codec: key frame after %d frames\n",
+			decoder->FirstKeyFrame);
+		    decoder->FirstKeyFrame = 0;
+		}
+	    } else {
+		//DisplayPts(video_ctx, frame);
+		VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+	    }
+#else
 	//DisplayPts(video_ctx, frame);
 	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+#endif
     } else {
 	// some frames are needed for references, interlaced frames ...
 	// could happen with h264 dvb streams, just drop data.

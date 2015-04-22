@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.c	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 - 2014 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -2905,6 +2905,7 @@ const char *CommandLineHelp(void)
 	"\talsa-no-close-open\tdisable close open to fix alsa no sound bug\n"
 	"\talsa-close-open-delay\tenable close open delay to fix no sound bug\n"
 	"\tignore-repeat-pict\tdisable repeat pict message\n"
+	"\tuse-possible-defect-frames prefer faster channel switch\n"
 	"  -D\t\tstart in detached mode\n";
 }
 
@@ -2986,6 +2987,8 @@ int ProcessArgs(int argc, char *const argv[])
 		    AudioAlsaCloseOpenDelay = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
 		    VideoIgnoreRepeatPict = 1;
+		} else if (!strcasecmp("use-possible-defect-frames", optarg)) {
+		    CodecUsePossibleDefectFrames = 1;
 		} else {
 		    fprintf(stderr, _("Workaround '%s' unsupported\n"),
 			optarg);
