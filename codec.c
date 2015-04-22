@@ -634,7 +634,7 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	if (!CodecUsePossibleDefectFrames && decoder->FirstKeyFrame) {
 	    decoder->FirstKeyFrame++;
 	    if (frame->key_frame) {
-		Debug((3, "codec: key frame after %d frames\n",
+		Debug(3, "codec: key frame after %d frames\n",
 			decoder->FirstKeyFrame);
 		    decoder->FirstKeyFrame = 0;
 		}
