@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Workaround for ffmpeg 2.6 artifacts.
     Fix bug: brightness and .. are calculated wrong.
     Add automatic frame rate detection for older ffmpeg versions.
     Fix bug: destroyed vdpau surfaces still used in queue.
