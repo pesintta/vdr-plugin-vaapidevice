@@ -635,13 +635,13 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	    decoder->FirstKeyFrame++;
 	    if (frame->key_frame) {
 		Debug(3, "codec: key frame after %d frames\n",
-			decoder->FirstKeyFrame);
-		    decoder->FirstKeyFrame = 0;
-		}
-	    } else {
-		//DisplayPts(video_ctx, frame);
-		VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+		    decoder->FirstKeyFrame);
+		decoder->FirstKeyFrame = 0;
 	    }
+	} else {
+	    //DisplayPts(video_ctx, frame);
+	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+	}
 #else
 	//DisplayPts(video_ctx, frame);
 	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
@@ -714,7 +714,7 @@ struct _audio_decoder_
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
 
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     AVFrame *Frame;			///< decoded audio frame buffer
 #endif
 
@@ -794,7 +794,7 @@ AudioDecoder *CodecAudioNewDecoder(void)
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
 	Fatal(_("codec: can't allocate audio decoder\n"));
     }
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(audio_decoder->Frame = av_frame_alloc())) {
 	Fatal(_("codec: can't allocate audio decoder frame buffer\n"));
     }
@@ -810,7 +810,7 @@ AudioDecoder *CodecAudioNewDecoder(void)
 */
 void CodecAudioDelDecoder(AudioDecoder * decoder)
 {
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_free(&decoder->Frame);	// callee does checks
 #endif
     free(decoder);
@@ -1637,6 +1637,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 */
 static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 {
+#ifdef USE_AUDIO_DRIFT_CORRECTION
     struct timespec nowtime;
     int64_t delay;
     int64_t tim_diff;
@@ -1751,6 +1752,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
 	}
     }
+#else
+    AudioSetClock(pts);
+#endif
 }
 
 /**
@@ -1836,7 +1840,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx;
 
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
     AVFrame frame[1];
 #else
     AVFrame *frame;
@@ -1849,7 +1853,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     // FIXME: don't need to decode pass-through codecs
 
     // new AVFrame API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
     avcodec_get_frame_defaults(frame);
 #else
     frame = audio_decoder->Frame;
