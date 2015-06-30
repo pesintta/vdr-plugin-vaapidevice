@@ -2866,17 +2866,21 @@ void OsdClose(void)
 /**
 **	Draw an OSD pixmap.
 **
+**	@param xi	x-coordinate in argb image
+**	@param yi	y-coordinate in argb image
+**	@paran height	height in pixel in argb image
+**	@paran width	width in pixel in argb image
+**	@param pitch	pitch of argb image
+**	@param argb	32bit ARGB image data
 **	@param x	x-coordinate on screen of argb image
 **	@param y	y-coordinate on screen of argb image
-**	@paran height	height in pixel of argb image
-**	@paran width	width in pixel of argb image
-**	@param argb	height * width 32bit ARGB image data
 */
-void OsdDrawARGB(int x, int y, int height, int width, const uint8_t * argb)
+void OsdDrawARGB(int xi, int yi, int height, int width, int pitch,
+    const uint8_t * argb, int x, int y)
 {
     // wakeup display for showing remote learning dialog
     VideoDisplayWakeup();
-    VideoOsdDrawARGB(x, y, height, width, argb);
+    VideoOsdDrawARGB(xi, yi, height, width, pitch, argb, x, y);
 }
 
 //////////////////////////////////////////////////////////////////////////////

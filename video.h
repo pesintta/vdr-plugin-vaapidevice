@@ -1,7 +1,7 @@
 ///
 ///	@file video.h	@brief Video module header file
 ///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -168,7 +168,8 @@ extern void VideoSetAutoCrop(int, int, int);
 extern void VideoOsdClear(void);
 
     /// Draw an OSD ARGB image.
-extern void VideoOsdDrawARGB(int, int, int, int, const uint8_t *);
+extern void VideoOsdDrawARGB(int, int, int, int, int, const uint8_t *, int,
+    int);
 
     /// Get OSD size.
 extern void VideoGetOsdSize(int *, int *);
