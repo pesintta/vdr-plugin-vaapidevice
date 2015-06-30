@@ -1,7 +1,7 @@
 ///
 ///	@file softhddevice.cpp	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -467,6 +467,8 @@ void cSoftOsd::Flush(void)
 	// draw all bitmaps
 	for (i = 0; (bitmap = GetBitmap(i)); ++i) {
 	    uint8_t *argb;
+	    int xs;
+	    int ys;
 	    int x;
 	    int y;
 	    int w;
@@ -485,22 +487,52 @@ void cSoftOsd::Flush(void)
 	    } else if (!bitmap->Dirty(x1, y1, x2, y2)) {
 		continue;		// nothing dirty continue
 	    }
-	    // convert and upload only dirty areas
+	    // convert and upload only visible dirty areas
+	    xs = bitmap->X0() + Left();
+	    ys = bitmap->Y0() + Top();
+	    // FIXME: negtative position bitmaps
 	    w = x2 - x1 + 1;
 	    h = y2 - y1 + 1;
+	    // clip to screen
 	    if (1) {			// just for the case it makes trouble
 		int width;
 		int height;
 		double video_aspect;
 
-		::GetOsdSize(&width, &height, &video_aspect);
-		if (w > width) {
-		    w = width;
-		    x2 = x1 + width - 1;
+		if (xs < 0) {
+		    if (xs + x1 < 0) {
+			x1 -= xs + x1;
+			w += xs + x1;
+			if (w <= 0) {
+			    continue;
+			}
+		    }
+		    xs = 0;
 		}
-		if (h > height) {
-		    h = height;
-		    y2 = y1 + height - 1;
+		if (ys < 0) {
+		    if (ys + y1 < 0) {
+			y1 -= ys + y1;
+			h += ys + y1;
+			if (h <= 0) {
+			    continue;
+			}
+		    }
+		    ys = 0;
+		}
+		::GetOsdSize(&width, &height, &video_aspect);
+		if (w > width - xs - x1) {
+		    w = width - xs - x1;
+		    if (w <= 0) {
+			continue;
+		    }
+		    x2 = x1 + w - 1;
+		}
+		if (h > height - ys - y1) {
+		    h = height - ys - y1;
+		    if (h <= 0) {
+			continue;
+		    }
+		    y2 = y1 + h - 1;
 		}
 	    }
 #ifdef DEBUG
@@ -518,10 +550,10 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef OSD_DEBUG
 	    dsyslog("[softhddev]%s: draw %dx%d%+d%+d bm\n", __FUNCTION__, w, h,
-		Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1);
+		xs + x1, ys + y1);
 #endif
-	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
-		w, h, argb);
+	    OsdDrawARGB(0, 0, w, h, w * sizeof(uint32_t), argb, xs + x1,
+		ys + y1);
 
 	    bitmap->Clean();
 	    // FIXME: reuse argb
@@ -533,21 +565,76 @@ void cSoftOsd::Flush(void)
 
     LOCK_PIXMAPS;
     while ((pm = (dynamic_cast < cPixmapMemory * >(RenderPixmaps())))) {
+	int xp;
+	int yp;
+	int stride;
 	int x;
 	int y;
 	int w;
 	int h;
 
-	x = Left() + pm->ViewPort().X();
-	y = Top() + pm->ViewPort().Y();
+	x = pm->ViewPort().X();
+	y = pm->ViewPort().Y();
 	w = pm->ViewPort().Width();
 	h = pm->ViewPort().Height();
+	stride = w * sizeof(tColor);
 
+	// clip to osd
+	xp = 0;
+	if (x < 0) {
+	    xp = -x;
+	    w -= xp;
+	    x = 0;
+	}
+
+	yp = 0;
+	if (y < 0) {
+	    yp = -y;
+	    h -= yp;
+	    y = 0;
+	}
+
+	if (w > Width() - x) {
+	    w = Width() - x;
+	}
+	if (h > Height() - y) {
+	    h = Height() - y;
+	}
+
+	x += Left();
+	y += Top();
+
+	// clip to screen
+	if (1) {			// just for the case it makes trouble
+	    // and it can happen!
+	    int width;
+	    int height;
+	    double video_aspect;
+
+	    if (x < 0) {
+		w += x;
+		xp += -x;
+		x = 0;
+	    }
+	    if (y < 0) {
+		h += y;
+		yp += -y;
+		y = 0;
+	    }
+
+	    ::GetOsdSize(&width, &height, &video_aspect);
+	    if (w > width - x) {
+		w = width - x;
+	    }
+	    if (h > height - y) {
+		h = height - y;
+	    }
+	}
 #ifdef OSD_DEBUG
-	dsyslog("[softhddev]%s: draw %dx%d%+d%+d %p\n", __FUNCTION__, w, h, x,
-	    y, pm->Data());
+	dsyslog("[softhddev]%s: draw %dx%d%+d%+d*%d -> %+d%+d %p\n",
+	    __FUNCTION__, w, h, xp, yp, stride, x, y, pm->Data());
 #endif
-	OsdDrawARGB(x, y, w, h, pm->Data());
+	OsdDrawARGB(xp, yp, w, h, stride, pm->Data(), x, y);
 
 #if APIVERSNUM >= 20110
 	DestroyPixmap(pm);

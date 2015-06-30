@@ -1,7 +1,7 @@
 ///
 ///	@file video.c	@brief Video module
 ///
-///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
+///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -289,7 +289,8 @@ typedef struct _video_module_
 
     void (*const OsdClear) (void);	///< clear OSD
     /// draw OSD ARGB area
-    void (*const OsdDrawARGB) (int, int, int, int, const uint8_t *);
+    void (*const OsdDrawARGB) (int, int, int, int, int, const uint8_t *, int,
+	int);
     void (*const OsdInit) (int, int);	///< initialize OSD
     void (*const OsdExit) (void);	///< cleanup OSD
 
@@ -972,17 +973,22 @@ static void GlxOsdExit(void)
 ///
 ///	Upload ARGB image to texture.
 ///
-///	@param x	x coordinate of image in osd texture
-///	@param y	y coordinate of image in osd texture
-///	@param width	width of image
-///	@param height	height of image
-///	@param argb	argb image
+///	@param xi	x-coordinate in argb image
+///	@param yi	y-coordinate in argb image
+///	@paran height	height in pixel in argb image
+///	@paran width	width in pixel in argb image
+///	@param pitch	pitch of argb image
+///	@param argb	32bit ARGB image data
+///	@param x	x-coordinate on screen of argb image
+///	@param y	y-coordinate on screen of argb image
 ///
 ///	@note looked by caller
 ///
-static void GlxOsdDrawARGB(int x, int y, int width, int height,
-    const uint8_t * argb)
+static void GlxOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
+    const uint8_t * argb, int x, int y)
 {
+    uint8_t *tmp;
+
 #ifdef DEBUG
     uint32_t start;
     uint32_t end;
@@ -1019,9 +1025,21 @@ static void GlxOsdDrawARGB(int x, int y, int width, int height,
 	Error(_("video/glx: can't make glx context current\n"));
 	return;
     }
-    GlxUploadOsdTexture(x, y, copywidth, copyheight, argb);
-    glXMakeCurrent(XlibDisplay, None, NULL);
+    // FIXME: faster way
+    tmp = malloc(copywidth * copyheight * 4);
+    if (tmp) {
+	int i;
 
+	for (i = 0; i < copyheight; ++i) {
+	    memcpy(tmp + i * copywidth * 4, argb + xi * 4 + (i + yi) * pitch,
+		copywidth * 4);
+	}
+
+	GlxUploadOsdTexture(x, y, copywidth, copyheight, tmp);
+	glXMakeCurrent(XlibDisplay, None, NULL);
+
+	free(tmp);
+    }
 #ifdef DEBUG
     end = GetMsTicks();
 
@@ -1448,11 +1466,11 @@ static int AutoCropTolerance;		///< auto-crop tolerance
 ///
 ///	@param data	Y plane pixel data
 ///	@param length	number of pixel to check
-///	@param stride	offset of pixels
+///	@param pitch	offset of pixels
 ///
 ///	@note 8 pixel are checked at once, all values must be 8 aligned
 ///
-static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
+static int AutoCropIsBlackLineY(const uint8_t * data, int length, int pitch)
 {
     int n;
     int o;
@@ -1460,13 +1478,13 @@ static int AutoCropIsBlackLineY(const uint8_t * data, int length, int stride)
     const uint64_t *p;
 
 #ifdef DEBUG
-    if ((size_t) data & 0x7 || stride & 0x7) {
+    if ((size_t) data & 0x7 || pitch & 0x7) {
 	abort();
     }
 #endif
     p = (const uint64_t *)data;
     n = length;				// FIXME: can remove n
-    o = stride / 8;
+    o = pitch / 8;
 
     r = 0UL;
     while (--n >= 0) {
@@ -7072,16 +7090,19 @@ static void VaapiOsdClear(void)
 ///
 ///	Upload ARGB to subpicture image.
 ///
-///	@param x	x position of image in osd
-///	@param y	y position of image in osd
-///	@param width	width of image
-///	@param height	height of image
-///	@param argb	argb image
+///	@param xi	x-coordinate in argb image
+///	@param yi	y-coordinate in argb image
+///	@paran height	height in pixel in argb image
+///	@paran width	width in pixel in argb image
+///	@param pitch	pitch of argb image
+///	@param argb	32bit ARGB image data
+///	@param x	x-coordinate on screen of argb image
+///	@param y	y-coordinate on screen of argb image
 ///
 ///	@note looked by caller
 ///
-static void VaapiOsdDrawARGB(int x, int y, int width, int height,
-    const uint8_t * argb)
+static void VaapiOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
+    const uint8_t * argb, int x, int y)
 {
 #ifdef DEBUG
     uint32_t start;
@@ -7124,7 +7145,7 @@ static void VaapiOsdDrawARGB(int x, int y, int width, int height,
     // copy argb to image
     for (o = 0; o < copyheight; ++o) {
 	memcpy(image_buffer + (x + (y + o) * VaOsdImage.width) * 4,
-	    argb + o * width * 4, copywidth * 4);
+	    argb + xi * 4 + (o + yi) * pitch, copywidth * 4);
     }
 
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
@@ -10890,16 +10911,19 @@ static void VdpauOsdClear(void)
 ///
 ///	Upload ARGB to subpicture image.
 ///
-///	@param x	x position of image in osd
-///	@param y	y position of image in osd
-///	@param width	width of image
-///	@param height	height of image
-///	@param argb	argb image
+///	@param xi	x-coordinate in argb image
+///	@param yi	y-coordinate in argb image
+///	@paran height	height in pixel in argb image
+///	@paran width	width in pixel in argb image
+///	@param pitch	pitch of argb image
+///	@param argb	32bit ARGB image data
+///	@param x	x-coordinate on screen of argb image
+///	@param y	y-coordinate on screen of argb image
 ///
 ///	@note looked by caller
 ///
-static void VdpauOsdDrawARGB(int x, int y, int width, int height,
-    const uint8_t * argb)
+static void VdpauOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
+    const uint8_t * argb, int x, int y)
 {
     VdpStatus status;
     void const *data[1];
@@ -10933,8 +10957,8 @@ static void VdpauOsdDrawARGB(int x, int y, int width, int height,
     dst_rect.y0 = y;
     dst_rect.x1 = dst_rect.x0 + width;
     dst_rect.y1 = dst_rect.y0 + height;
-    data[0] = argb;
-    pitches[0] = width * 4;
+    data[0] = argb + xi * 4 + yi * pitch;
+    pitches[0] = pitch;
 
 #ifdef USE_BITMAP
     status =
@@ -11149,20 +11173,26 @@ static void NoopOsdInit( __attribute__ ((unused))
 ///
 ///	Draw OSD ARGB image.
 ///
-///	@param x	x position of image in osd
-///	@param y	y position of image in osd
-///	@param width	width of image
-///	@param height	height of image
-///	@param argb	argb image
+///	@param xi	x-coordinate in argb image
+///	@param yi	y-coordinate in argb image
+///	@paran height	height in pixel in argb image
+///	@paran width	width in pixel in argb image
+///	@param pitch	pitch of argb image
+///	@param argb	32bit ARGB image data
+///	@param x	x-coordinate on screen of argb image
+///	@param y	y-coordinate on screen of argb image
 ///
 ///	@note looked by caller
 ///
 static void NoopOsdDrawARGB( __attribute__ ((unused))
-    int x, __attribute__ ((unused))
-    int y, __attribute__ ((unused))
+    int xi, __attribute__ ((unused))
+    int yi, __attribute__ ((unused))
     int width, __attribute__ ((unused))
     int height, __attribute__ ((unused))
-    const uint8_t * argb)
+    int pitch, __attribute__ ((unused))
+    const uint8_t * argb, __attribute__ ((unused))
+    int x, __attribute__ ((unused))
+    int y)
 {
 }
 
@@ -11281,14 +11311,17 @@ void VideoOsdClear(void)
 ///
 ///	Draw an OSD ARGB image.
 ///
-///	@param x	x position of image in osd
-///	@param y	y position of image in osd
-///	@param width	width of image
-///	@param height	height of image
-///	@param argb	argb image
+///	@param xi	x-coordinate in argb image
+///	@param yi	y-coordinate in argb image
+///	@paran height	height in pixel in argb image
+///	@paran width	width in pixel in argb image
+///	@param pitch	pitch of argb image
+///	@param argb	32bit ARGB image data
+///	@param x	x-coordinate on screen of argb image
+///	@param y	y-coordinate on screen of argb image
 ///
-void VideoOsdDrawARGB(int x, int y, int width, int height,
-    const uint8_t * argb)
+void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
+    const uint8_t * argb, int x, int y)
 {
     VideoThreadLock();
     // update dirty area
@@ -11313,7 +11346,7 @@ void VideoOsdDrawARGB(int x, int y, int width, int height,
     Debug(4, "video: osd dirty %dx%d%+d%+d -> %dx%d%+d%+d\n", width, height, x,
 	y, OsdDirtyWidth, OsdDirtyHeight, OsdDirtyX, OsdDirtyY);
 
-    VideoUsedModule->OsdDrawARGB(x, y, width, height, argb);
+    VideoUsedModule->OsdDrawARGB(xi, yi, width, height, pitch, argb, x, y);
     OsdShown = 1;
 
     VideoThreadUnlock();
