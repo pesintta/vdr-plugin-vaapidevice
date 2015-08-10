@@ -222,7 +222,10 @@ extern int VideoDecodeInput(VideoStream *);
     /// Get number of input buffers.
 extern int VideoGetBuffers(const VideoStream *);
 
-       /// Raise the frontend window
-extern int VideoRaiseWindow();
+    /// Set DPMS at Blackscreen switch
+extern void SetDPMSatBlackScreen(int);
+
+    /// Raise the frontend window
+extern int VideoRaiseWindow(void);
 
 /// @}

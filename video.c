@@ -430,6 +430,11 @@ static int OsdDirtyHeight;		///< osd dirty area height
 
 static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
+#ifdef USE_SCREENSAVER
+static char DPMSDisabled;		///< flag we have disabled dpms
+static char EnableDPMSatBlackScreen;	///< flag we should enable dpms at black screen
+#endif
+
 //----------------------------------------------------------------------------
 //	Common Functions
 //----------------------------------------------------------------------------
@@ -437,6 +442,13 @@ static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 static void VideoThreadExit(void);	///< exit/kill video thread
+
+#ifdef USE_SCREENSAVER
+static void X11SuspendScreenSaver(xcb_connection_t *, int);
+static int X11HaveDPMS(xcb_connection_t *);
+static void X11DPMSReenable(xcb_connection_t *);
+static void X11DPMSDisable(xcb_connection_t *);
+#endif
 
 ///
 ///	Update video pts.
@@ -4909,7 +4921,20 @@ static void VaapiDisplayFrame(void)
 	    decoder->LastSurface = decoder->BlackSurface;
 #endif
 	    VaapiMessage(3, "video/vaapi: black surface displayed\n");
+#ifdef USE_SCREENSAVER
+	    if (EnableDPMSatBlackScreen && DPMSDisabled) {
+		Debug(3, "Black surface, DPMS enabled");
+		X11DPMSReenable(Connection);
+		X11SuspendScreenSaver(Connection, 1);
+	    }
+#endif
 	    continue;
+#ifdef USE_SCREENSAVER
+	} else if (!DPMSDisabled) {	// always disable
+	    Debug(3, "DPMS disabled");
+	    X11DPMSDisable(Connection);
+	    X11SuspendScreenSaver(Connection, 0);
+#endif
 	}
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
@@ -8605,8 +8630,21 @@ static void VdpauDisplayFrame(void)
 		|| decoder->Closing < -300) {
 		VdpauBlackSurface(decoder);
 		VdpauMessage(3, "video/vdpau: black surface displayed\n");
+#ifdef USE_SCREENSAVER
+		if (EnableDPMSatBlackScreen && DPMSDisabled) {
+		    VdpauMessage(3, "Black surface, DPMS enabled\n");
+		    X11DPMSReenable(Connection);
+		    X11SuspendScreenSaver(Connection, 1);
+		}
+#endif
 	    }
 	    continue;
+#ifdef USE_SCREENSAVER
+	} else if (!DPMSDisabled) {	// always disable
+	    VdpauMessage(3, "DPMS disabled\n");
+	    X11DPMSDisable(Connection);
+	    X11SuspendScreenSaver(Connection, 0);
+#endif
 	}
 
 	VdpauMixVideo(decoder, i);
@@ -10572,8 +10610,6 @@ void VideoGetVideoSize(VideoHwDecoder * hw_decoder, int *width, int *height,
 //	DPMS / Screensaver
 //----------------------------------------------------------------------------
 
-static char DPMSDisabled;		///< flag we have disabled dpms
-
 ///
 ///	Suspend X11 screen saver.
 ///
@@ -10664,11 +10700,11 @@ static void X11DPMSDisable(xcb_connection_t * connection)
 	if (reply) {
 	    if (reply->state) {
 		Debug(3, "video: dpms was enabled\n");
-		DPMSDisabled = 1;
 		xcb_dpms_disable(connection);	// monitor powersave off
 	    }
 	    free(reply);
 	}
+	DPMSDisabled = 1;
     }
 }
 
@@ -11301,6 +11337,16 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
     (void)delay;
     (void)tolerance;
 #endif
+}
+
+///
+///	Set EnableDPMSatBlackScreen
+///
+///	Currently this only choose the driver.
+///
+void SetDPMSatBlackScreen(int enable)
+{
+    EnableDPMSatBlackScreen = enable;
 }
 
 ///

@@ -165,6 +165,10 @@ static int ConfigPipAltVideoWidth;	///< config pip alt. video width in %
 static int ConfigPipAltVideoHeight = 50;	///< config pip alt. video height in %
 #endif
 
+#ifdef USE_SCREENSAVER
+static char ConfigEnableDPMSatBlackScreen;	///< Enable DPMS(Screensaver) while displaying black screen(radio)
+#endif
+
 static volatile int DoMakePrimary;	///< switch primary device to this
 
 #define SUSPEND_EXTERNAL	-1	///< play external suspend mode
@@ -764,6 +768,9 @@ class cMenuSetupSoft:public cMenuSetupPage
     int PipAltVideoHeight;
 #endif
 
+#ifdef USE_SCREENSAVER
+    int EnableDPMSatBlackScreen;
+#endif
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
@@ -882,6 +889,11 @@ void cMenuSetupSoft::Create(void)
     //
     Add(CollapsedItem(tr("Video"), Video));
     if (Video) {
+#ifdef USE_SCREENSAVER
+	Add(new
+	    cMenuEditBoolItem(tr("Enable Screensaver(DPMS) at black screen"),
+		&EnableDPMSatBlackScreen, trVDR("no"), trVDR("yes")));
+#endif
 	Add(new cMenuEditStraItem(trVDR("4:3 video display format"),
 		&Video4to3DisplayFormat, 3, video_display_formats_4_3));
 	Add(new cMenuEditStraItem(trVDR("16:9+other video display format"),
@@ -1198,6 +1210,11 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     PipAltVideoWidth = ConfigPipAltVideoWidth;
     PipAltVideoHeight = ConfigPipAltVideoHeight;
 #endif
+
+#ifdef USE_SCREENSAVER
+    EnableDPMSatBlackScreen = ConfigEnableDPMSatBlackScreen;
+#endif
+
     Create();
 }
 
@@ -1361,6 +1378,12 @@ void cMenuSetupSoft::Store(void)
 	PipAltVideoWidth);
     SetupStore("pip.Alt.VideoHeight", ConfigPipAltVideoHeight =
 	PipAltVideoHeight);
+#endif
+
+#ifdef USE_SCREENSAVER
+    SetupStore("EnableDPMSatBlackScreen", ConfigEnableDPMSatBlackScreen =
+	EnableDPMSatBlackScreen);
+    SetDPMSatBlackScreen(ConfigEnableDPMSatBlackScreen);
 #endif
 }
 
@@ -3241,6 +3264,15 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
 #endif
+
+#ifdef USE_SCREENSAVER
+    if (!strcasecmp(name, "EnableDPMSatBlackScreen")) {
+	ConfigEnableDPMSatBlackScreen = atoi(value);
+	SetDPMSatBlackScreen(ConfigEnableDPMSatBlackScreen);
+	return true;
+    }
+#endif
+
     return false;
 }
 
