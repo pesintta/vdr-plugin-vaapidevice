@@ -1,5 +1,10 @@
+User 	master_red
+Date:	Mon Aug 10 15:29:33 CEST 2015
+
+    Configurable enable DPMS, while black screen is displayed.
+
 User johns
-Date:
+Date:	Tue Jun 30 10:12:09 CET 2015
 
     Fix bug: wrong and crash, if vdr draws pixmaps outside OSD.
     Fix bug: wrong version number check for av_frame_alloc(), ...
