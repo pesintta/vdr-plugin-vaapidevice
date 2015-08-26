@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Fix bug: EnableDPMSatBlackScreen only available with USE_SCREENSAVER.
     - H264_EOS_TRICKSPEED and USE_MPEG_COMPLETE enabled as default.
 
 User 	master_red
