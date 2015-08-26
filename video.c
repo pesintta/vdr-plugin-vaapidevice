@@ -13426,7 +13426,9 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
 ///
 void SetDPMSatBlackScreen(int enable)
 {
+#ifdef USE_SCREENSAVER
     EnableDPMSatBlackScreen = enable;
+#endif
 }
 
 ///
