@@ -1103,8 +1103,10 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+#ifdef USE_AVFILTER
     memcpy(old_preavfilter, PreAvFilter, sizeof(PreAvFilter));
     memcpy(old_postavfilter, PostAvFilter, sizeof(PostAvFilter));
+#endif
     old_brightness = Brightness;
     old_contrast = Contrast;
     old_saturation = Saturation;
@@ -1123,12 +1125,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
 		if ((old_resolution_shown[i] != ResolutionShown[i])
+#ifdef USE_AVFILTER
 		    || ((old_preavfilter[i] != PreAvFilter[i])
 		    && (old_preavfilter[i] == eAvFilterConfigUserDefined
 		    || PreAvFilter[i] == eAvFilterConfigUserDefined))
 		    || ((old_postavfilter[i] != PostAvFilter[i])
 		    && (old_postavfilter[i] == eAvFilterConfigUserDefined
 		    || PostAvFilter[i] == eAvFilterConfigUserDefined))
+#endif
 		   ) {
 		    Create();		// update menu
 		    break;
