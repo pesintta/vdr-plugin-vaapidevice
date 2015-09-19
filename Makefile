@@ -32,7 +32,7 @@ endif
     # use libav/ffmpeg filters
 AVFILTER ?= $(shell pkg-config --exists libavfilter && echo 1)
 
-CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
+#CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
 
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
