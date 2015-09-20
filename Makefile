@@ -32,7 +32,7 @@ endif
     # use libav/ffmpeg filters
 AVFILTER ?= $(shell pkg-config --exists libavfilter && echo 1)
 
-CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
+#CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
 
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
@@ -40,8 +40,8 @@ CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
 #CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 #CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
-#CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
-#CONFIG += -DH264_EOS_TRICKSPEED	# insert seq end packets for trickspeed
+CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
+CONFIG += -DH264_EOS_TRICKSPEED		# insert seq end packets for trickspeed
 #CONDIF += -DDUMP_TRICKSPEED		# dump trickspeed packets
 #CONFIG += -DUSE_BITMAP			# VDPAU, use bitmap surface for OSD
 CONFIG += -DUSE_VDR_SPU			# use VDR SPU decoder.

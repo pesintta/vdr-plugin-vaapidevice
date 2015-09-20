@@ -1,7 +1,7 @@
 ///
 ///	@file softhddevice.cpp	@brief A software HD device plugin for VDR.
 ///
-///	Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -199,6 +199,10 @@ static int ConfigPipAltVideoX;		///< config pip alt. video x in %
 static int ConfigPipAltVideoY;		///< config pip alt. video y in %
 static int ConfigPipAltVideoWidth;	///< config pip alt. video width in %
 static int ConfigPipAltVideoHeight = 50;	///< config pip alt. video height in %
+#endif
+
+#ifdef USE_SCREENSAVER
+static char ConfigEnableDPMSatBlackScreen;	///< Enable DPMS(Screensaver) while displaying black screen(radio)
 #endif
 
 static volatile int DoMakePrimary;	///< switch primary device to this
@@ -467,6 +471,8 @@ void cSoftOsd::Flush(void)
 	// draw all bitmaps
 	for (i = 0; (bitmap = GetBitmap(i)); ++i) {
 	    uint8_t *argb;
+	    int xs;
+	    int ys;
 	    int x;
 	    int y;
 	    int w;
@@ -485,22 +491,52 @@ void cSoftOsd::Flush(void)
 	    } else if (!bitmap->Dirty(x1, y1, x2, y2)) {
 		continue;		// nothing dirty continue
 	    }
-	    // convert and upload only dirty areas
+	    // convert and upload only visible dirty areas
+	    xs = bitmap->X0() + Left();
+	    ys = bitmap->Y0() + Top();
+	    // FIXME: negtative position bitmaps
 	    w = x2 - x1 + 1;
 	    h = y2 - y1 + 1;
+	    // clip to screen
 	    if (1) {			// just for the case it makes trouble
 		int width;
 		int height;
 		double video_aspect;
 
-		::GetOsdSize(&width, &height, &video_aspect);
-		if (w > width) {
-		    w = width;
-		    x2 = x1 + width - 1;
+		if (xs < 0) {
+		    if (xs + x1 < 0) {
+			x1 -= xs + x1;
+			w += xs + x1;
+			if (w <= 0) {
+			    continue;
+			}
+		    }
+		    xs = 0;
 		}
-		if (h > height) {
-		    h = height;
-		    y2 = y1 + height - 1;
+		if (ys < 0) {
+		    if (ys + y1 < 0) {
+			y1 -= ys + y1;
+			h += ys + y1;
+			if (h <= 0) {
+			    continue;
+			}
+		    }
+		    ys = 0;
+		}
+		::GetOsdSize(&width, &height, &video_aspect);
+		if (w > width - xs - x1) {
+		    w = width - xs - x1;
+		    if (w <= 0) {
+			continue;
+		    }
+		    x2 = x1 + w - 1;
+		}
+		if (h > height - ys - y1) {
+		    h = height - ys - y1;
+		    if (h <= 0) {
+			continue;
+		    }
+		    y2 = y1 + h - 1;
 		}
 	    }
 #ifdef DEBUG
@@ -518,10 +554,10 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef OSD_DEBUG
 	    dsyslog("[softhddev]%s: draw %dx%d%+d%+d bm\n", __FUNCTION__, w, h,
-		Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1);
+		xs + x1, ys + y1);
 #endif
-	    OsdDrawARGB(Left() + bitmap->X0() + x1, Top() + bitmap->Y0() + y1,
-		w, h, argb);
+	    OsdDrawARGB(0, 0, w, h, w * sizeof(uint32_t), argb, xs + x1,
+		ys + y1);
 
 	    bitmap->Clean();
 	    // FIXME: reuse argb
@@ -533,21 +569,76 @@ void cSoftOsd::Flush(void)
 
     LOCK_PIXMAPS;
     while ((pm = (dynamic_cast < cPixmapMemory * >(RenderPixmaps())))) {
+	int xp;
+	int yp;
+	int stride;
 	int x;
 	int y;
 	int w;
 	int h;
 
-	x = Left() + pm->ViewPort().X();
-	y = Top() + pm->ViewPort().Y();
+	x = pm->ViewPort().X();
+	y = pm->ViewPort().Y();
 	w = pm->ViewPort().Width();
 	h = pm->ViewPort().Height();
+	stride = w * sizeof(tColor);
 
+	// clip to osd
+	xp = 0;
+	if (x < 0) {
+	    xp = -x;
+	    w -= xp;
+	    x = 0;
+	}
+
+	yp = 0;
+	if (y < 0) {
+	    yp = -y;
+	    h -= yp;
+	    y = 0;
+	}
+
+	if (w > Width() - x) {
+	    w = Width() - x;
+	}
+	if (h > Height() - y) {
+	    h = Height() - y;
+	}
+
+	x += Left();
+	y += Top();
+
+	// clip to screen
+	if (1) {			// just for the case it makes trouble
+	    // and it can happen!
+	    int width;
+	    int height;
+	    double video_aspect;
+
+	    if (x < 0) {
+		w += x;
+		xp += -x;
+		x = 0;
+	    }
+	    if (y < 0) {
+		h += y;
+		yp += -y;
+		y = 0;
+	    }
+
+	    ::GetOsdSize(&width, &height, &video_aspect);
+	    if (w > width - x) {
+		w = width - x;
+	    }
+	    if (h > height - y) {
+		h = height - y;
+	    }
+	}
 #ifdef OSD_DEBUG
-	dsyslog("[softhddev]%s: draw %dx%d%+d%+d %p\n", __FUNCTION__, w, h, x,
-	    y, pm->Data());
+	dsyslog("[softhddev]%s: draw %dx%d%+d%+d*%d -> %+d%+d %p\n",
+	    __FUNCTION__, w, h, xp, yp, stride, x, y, pm->Data());
 #endif
-	OsdDrawARGB(x, y, w, h, pm->Data());
+	OsdDrawARGB(xp, yp, w, h, stride, pm->Data(), x, y);
 
 #if APIVERSNUM >= 20110
 	DestroyPixmap(pm);
@@ -722,6 +813,9 @@ class cMenuSetupSoft:public cMenuSetupPage
     int PipAltVideoHeight;
 #endif
 
+#ifdef USE_SCREENSAVER
+    int EnableDPMSatBlackScreen;
+#endif
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
@@ -886,6 +980,11 @@ void cMenuSetupSoft::Create(void)
     //
     Add(CollapsedItem(tr("Video"), Video));
     if (Video) {
+#ifdef USE_SCREENSAVER
+	Add(new
+	    cMenuEditBoolItem(tr("Enable Screensaver(DPMS) at black screen"),
+		&EnableDPMSatBlackScreen, trVDR("no"), trVDR("yes")));
+#endif
 	Add(new cMenuEditStraItem(trVDR("4:3 video display format"),
 		&Video4to3DisplayFormat, 3, video_display_formats_4_3));
 	Add(new cMenuEditStraItem(trVDR("16:9+other video display format"),
@@ -1103,8 +1202,10 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+#ifdef USE_AVFILTER
     memcpy(old_preavfilter, PreAvFilter, sizeof(PreAvFilter));
     memcpy(old_postavfilter, PostAvFilter, sizeof(PostAvFilter));
+#endif
     old_brightness = Brightness;
     old_contrast = Contrast;
     old_saturation = Saturation;
@@ -1123,12 +1224,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	} else {
 	    for (i = 0; i < RESOLUTIONS; ++i) {
 		if ((old_resolution_shown[i] != ResolutionShown[i])
+#ifdef USE_AVFILTER
 		    || ((old_preavfilter[i] != PreAvFilter[i])
 		    && (old_preavfilter[i] == eAvFilterConfigUserDefined
 		    || PreAvFilter[i] == eAvFilterConfigUserDefined))
 		    || ((old_postavfilter[i] != PostAvFilter[i])
 		    && (old_postavfilter[i] == eAvFilterConfigUserDefined
 		    || PostAvFilter[i] == eAvFilterConfigUserDefined))
+#endif
 		   ) {
 		    Create();		// update menu
 		    break;
@@ -1289,6 +1392,11 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     PipAltVideoWidth = ConfigPipAltVideoWidth;
     PipAltVideoHeight = ConfigPipAltVideoHeight;
 #endif
+
+#ifdef USE_SCREENSAVER
+    EnableDPMSatBlackScreen = ConfigEnableDPMSatBlackScreen;
+#endif
+
     Create();
 }
 
@@ -1493,6 +1601,12 @@ void cMenuSetupSoft::Store(void)
     SetupStore("pip.Alt.VideoHeight", ConfigPipAltVideoHeight =
 	PipAltVideoHeight);
 #endif
+
+#ifdef USE_SCREENSAVER
+    SetupStore("EnableDPMSatBlackScreen", ConfigEnableDPMSatBlackScreen =
+	EnableDPMSatBlackScreen);
+    SetDPMSatBlackScreen(ConfigEnableDPMSatBlackScreen);
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1608,7 +1722,11 @@ class cSoftReceiver:public cReceiver
 {
   protected:
     virtual void Activate(bool);
+#if APIVERSNUM >= 20301
+    virtual void Receive(const uchar *, int);
+#else
     virtual void Receive(uchar *, int);
+#endif
   public:
      cSoftReceiver(const cChannel *);	///< receiver constructor
      virtual ~ cSoftReceiver();		///< receiver destructor
@@ -1742,7 +1860,11 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 **	@param data	ts packet
 **	@param size	size (#TS_PACKET_SIZE=188) of tes packet
 */
+#if APIVERSNUM >= 20301
+void cSoftReceiver::Receive(const uchar * data, int size)
+#else
 void cSoftReceiver::Receive(uchar * data, int size)
+#endif
 {
     const uint8_t *p;
 
@@ -1834,7 +1956,12 @@ static void NewPip(int channel_nr)
     if (!channel_nr) {
 	channel_nr = cDevice::CurrentChannel();
     }
+#if APIVERSNUM >= 20301
+    LOCK_CHANNELS_READ;
+    if (channel_nr && (channel = Channels->GetByNumber(channel_nr))
+#else
     if (channel_nr && (channel = Channels.GetByNumber(channel_nr))
+#endif
 	&& (device = cDevice::GetDevice(channel, 0, false, false))) {
 
 	DelPip();
@@ -1884,10 +2011,18 @@ static void PipNextAvailableChannel(int direction)
 	bool ndr;
 	cDevice *device;
 
-	channel = direction > 0 ? Channels.Next(channel)
-	    : Channels.Prev(channel);
+#if APIVERSNUM >= 20301
+	LOCK_CHANNELS_READ;
+	channel = direction > 0 ? Channels->Next(channel) : Channels->Prev(channel);
+#else
+	channel = direction > 0 ? Channels.Next(channel) : Channels.Prev(channel);
+#endif
 	if (!channel && Setup.ChannelsWrap) {
+#if APIVERSNUM >= 20301
+	    channel = direction > 0 ? Channels->First() : Channels->Last();
+#else
 	    channel = direction > 0 ? Channels.First() : Channels.Last();
+#endif
 	}
 	if (channel && !channel->GroupSep()
 	    && (device = cDevice::GetDevice(channel, 0, false, true))
@@ -1916,7 +2051,12 @@ static void SwapPipChannels(void)
     NewPip(0);
 
     if (channel) {
+#if APIVERSNUM >= 20301
+	LOCK_CHANNELS_READ;
+	Channels->SwitchTo(channel->Number());
+#else
 	Channels.SwitchTo(channel->Number());
+#endif
     }
 }
 
@@ -3410,6 +3550,15 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	return true;
     }
 #endif
+
+#ifdef USE_SCREENSAVER
+    if (!strcasecmp(name, "EnableDPMSatBlackScreen")) {
+	ConfigEnableDPMSatBlackScreen = atoi(value);
+	SetDPMSatBlackScreen(ConfigEnableDPMSatBlackScreen);
+	return true;
+    }
+#endif
+
     return false;
 }
 

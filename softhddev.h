@@ -1,7 +1,7 @@
 ///
 ///	@file softhddev.h	@brief software HD device plugin header file.
 ///
-///	Copyright (c) 2011 - 2014 by Johns.  All Rights Reserved.
+///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
 ///	Contributor(s):
 ///
@@ -34,7 +34,8 @@ extern "C"
     /// C plugin close osd
     extern void OsdClose(void);
     /// C plugin draw osd pixmap
-    extern void OsdDrawARGB(int, int, int, int, const uint8_t *);
+    extern void OsdDrawARGB(int, int, int, int, int, const uint8_t *, int,
+	int);
 
     /// C plugin play audio packet
     extern int PlayAudio(const uint8_t *, int, uint8_t);
