@@ -47,6 +47,13 @@ extern "C"
 #include "codec.h"
 }
 
+#if APIVERSNUM >= 20301
+#define MURKS ->
+#else
+#define MURKS .
+#define LOCK_CHANNELS_READ	do { } while (0)
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 
     /// vdr-plugin version number.
@@ -1500,7 +1507,11 @@ class cSoftReceiver:public cReceiver
 {
   protected:
     virtual void Activate(bool);
+#if APIVERSNUM >= 20301
+    virtual void Receive(const uchar *, int);
+#else
     virtual void Receive(uchar *, int);
+#endif
   public:
      cSoftReceiver(const cChannel *);	///< receiver constructor
      virtual ~ cSoftReceiver();		///< receiver destructor
@@ -1634,7 +1645,11 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 **	@param data	ts packet
 **	@param size	size (#TS_PACKET_SIZE=188) of tes packet
 */
+#if APIVERSNUM >= 20301
+void cSoftReceiver::Receive(const uchar * data, int size)
+#else
 void cSoftReceiver::Receive(uchar * data, int size)
+#endif
 {
     const uint8_t *p;
 
@@ -1726,7 +1741,8 @@ static void NewPip(int channel_nr)
     if (!channel_nr) {
 	channel_nr = cDevice::CurrentChannel();
     }
-    if (channel_nr && (channel = Channels.GetByNumber(channel_nr))
+    LOCK_CHANNELS_READ;
+    if (channel_nr && (channel = Channels MURKS GetByNumber(channel_nr))
 	&& (device = cDevice::GetDevice(channel, 0, false, false))) {
 
 	DelPip();
@@ -1772,14 +1788,16 @@ static void PipNextAvailableChannel(int direction)
 
     DelPip();				// disable PIP to free the device
 
+    LOCK_CHANNELS_READ;
     while (channel) {
 	bool ndr;
 	cDevice *device;
 
-	channel = direction > 0 ? Channels.Next(channel)
-	    : Channels.Prev(channel);
+	channel = direction > 0 ? Channels MURKS Next(channel)
+	    : Channels MURKS Prev(channel);
 	if (!channel && Setup.ChannelsWrap) {
-	    channel = direction > 0 ? Channels.First() : Channels.Last();
+	    channel =
+		direction > 0 ? Channels MURKS First() : Channels MURKS Last();
 	}
 	if (channel && !channel->GroupSep()
 	    && (device = cDevice::GetDevice(channel, 0, false, true))
@@ -1808,7 +1826,9 @@ static void SwapPipChannels(void)
     NewPip(0);
 
     if (channel) {
-	Channels.SwitchTo(channel->Number());
+	LOCK_CHANNELS_READ;
+
+	Channels MURKS SwitchTo(channel->Number());
     }
 }
 
