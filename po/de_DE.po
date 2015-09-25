@@ -553,6 +553,9 @@ msgstr "Sättigung (%d..[%d]..%d)"
 msgid "Hue (%d..[%d]..%d)"
 msgstr "Farbton (%d..[%d]..%d)"
 
+msgid "Skin Tone Enhancement"
+msgstr ""
+
 msgid "Scaling"
 msgstr "Skalierung"
 
