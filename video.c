@@ -12858,7 +12858,7 @@ void VideoSetSkinToneEnhancement(int onoff)
     }
 #endif
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
+    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 	VideoSkinToneEnhancement = !!onoff;
     }
 #endif
@@ -12875,7 +12875,7 @@ int VideoGetSkinToneEnhancementConfig(void)
     }
 #endif
 #ifdef USE_VAAPI
-    if (VideoUsedModule == &VaapiModule) {
+    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
         return VaapiConfigStde.active;
     }
 #endif
