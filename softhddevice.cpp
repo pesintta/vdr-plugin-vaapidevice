@@ -122,6 +122,7 @@ static int ConfigVideoBrightness;	///< config video brightness
 static int ConfigVideoContrast = 1000;	///< config video contrast
 static int ConfigVideoSaturation = 1000;	///< config video saturation
 static int ConfigVideoHue;		///< config video hue
+static int ConfigVideoStde = 0;		///< config video skin tone enhancement
 
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
@@ -752,6 +753,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Contrast;
     int Saturation;
     int Hue;
+    int Stde;
 
     int ResolutionShown[RESOLUTIONS];
     int Scaling[RESOLUTIONS];
@@ -938,6 +940,8 @@ void cMenuSetupSoft::Create(void)
     int saturation_active = VideoGetSaturationConfig(&saturation_min, &saturation_def, &saturation_max);
     int hue_min, hue_def, hue_max;
     int hue_active = VideoGetHueConfig(&hue_min, &hue_def, &hue_max);
+    int stde_min, stde_def, stde_max;
+    int stde_active = VideoGetSkinToneEnhancementConfig(&stde_min, &stde_def, & stde_max);
     int denoise_min, denoise_def, denoise_max;
     int denoise_active = VideoGetDenoiseConfig(&denoise_min, &denoise_def, &denoise_max);
     int sharpen_min, sharpen_def, sharpen_max;
@@ -1022,6 +1026,9 @@ void cMenuSetupSoft::Create(void)
 	if (hue_active)
 		Add(new cMenuEditIntItem(*cString::sprintf(tr("Hue (%d..[%d]..%d)"),
 			hue_min, hue_def, hue_max), &Hue, hue_min, hue_max));
+	if (stde_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Skin Tone Enhancement (%d..[%d]..%d)"),
+			stde_min, stde_def, stde_max), &Stde, stde_min, stde_max));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
@@ -1190,6 +1197,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_contrast;
     int old_saturation;
     int old_hue;
+    int old_stde;
     int i;
 
     old_general = General;
@@ -1210,6 +1218,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_contrast = Contrast;
     old_saturation = Saturation;
     old_hue = Hue;
+    old_stde = Stde;
     state = cMenuSetupPage::ProcessKey(key);
 
     if (key != kNone) {
@@ -1253,6 +1262,8 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 		VideoSetSaturation(Saturation);
 	    if (old_hue != Hue)
 		VideoSetHue(Hue);
+	    if (old_stde != Stde)
+		VideoSetSkinToneEnhancement(Stde);
 	}
     }
 
@@ -1314,6 +1325,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Contrast = ConfigVideoContrast;
     Saturation = ConfigVideoSaturation;
     Hue = ConfigVideoHue;
+    Stde = ConfigVideoStde;
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	ResolutionShown[i] = 0;
@@ -1412,6 +1424,7 @@ cMenuSetupSoft::~cMenuSetupSoft()
     VideoSetContrast(ConfigVideoContrast);
     VideoSetSaturation(ConfigVideoSaturation);
     VideoSetHue(ConfigVideoHue);
+    VideoSetSkinToneEnhancement(ConfigVideoStde);
 }
 
 /**
@@ -1480,6 +1493,8 @@ void cMenuSetupSoft::Store(void)
     VideoSetSaturation(ConfigVideoSaturation);
     SetupStore("Hue", ConfigVideoHue = Hue);
     VideoSetHue(ConfigVideoHue);
+    SetupStore("SkinToneEnhancement", ConfigVideoStde = Stde);
+    VideoSetSkinToneEnhancement(ConfigVideoStde);
 
     for (i = 0; i < RESOLUTIONS; ++i) {
 	char buf[128];
@@ -3309,6 +3324,10 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "Hue")) {
 	VideoSetHue(ConfigVideoHue = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "SkinToneEnhancement")) {
+	VideoSetSkinToneEnhancement(ConfigVideoStde = atoi(value));
 	return true;
     }
     for (i = 0; i < RESOLUTIONS; ++i) {

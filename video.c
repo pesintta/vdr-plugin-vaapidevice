@@ -377,6 +377,12 @@ static VideoConfigValues VdpauConfigSharpen =
 static VideoConfigValues VaapiConfigSharpen =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0 };
 
+static VideoConfigValues VdpauConfigStde =
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0 };
+
+static VideoConfigValues VaapiConfigStde =
+{ .active = 1, .min_value = 0.0, .max_value = 3.0, .def_value = 0.0, .step = 1.0, .scale = 3.0 };
+
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
 static const char *VideoDriverName;	///< video output device
@@ -408,6 +414,9 @@ static const char VideoTransparentOsd = 1;
 
 static uint32_t VideoBackground;	///< video background color
 static char VideoStudioLevels;		///< flag use studio levels
+
+    /// Default skin tone enhancement mode.
+static int VideoSkinToneEnhancement = 0;
 
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
@@ -1978,6 +1987,7 @@ struct _vaapi_decoder_
     VABufferID* vpp_denoise_buf;	///< video postprocessing denoise buffer
     VABufferID* vpp_cbal_buf;           ///< video color balance filters via vpp
     VABufferID* vpp_sharpen_buf;	///< video postprocessing sharpen buffer
+    VABufferID* vpp_stde_buf;		///< video postprocessing skin tone enhancement buffer
     int vpp_brightness_idx;		///< video postprocessing brightness buffer index
     int vpp_contrast_idx;		///< video postprocessing contrast buffer index
     int vpp_hue_idx;			///< video postprocessing hue buffer index
@@ -2449,6 +2459,15 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
             vaUnmapBuffer(VaDisplay, *decoder->vpp_sharpen_buf);
         }
     }
+    if (decoder->vpp_stde_buf) {
+        VAProcFilterParameterBuffer *stde_param;
+        VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_stde_buf, (void**)&stde_param);
+        if (va_status == VA_STATUS_SUCCESS) {
+            /* Assuming here that the type is set before and does not need to be modified */
+            stde_param->value = VideoSkinToneEnhancement * VaapiConfigStde.scale;
+            vaUnmapBuffer(VaDisplay, *decoder->vpp_stde_buf);
+        }
+    }
 }
 
 ///
@@ -2531,6 +2550,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
     decoder->vpp_sharpen_buf = NULL;
+    decoder->vpp_stde_buf = NULL;
     decoder->vpp_brightness_idx = -1;
     decoder->vpp_contrast_idx = -1;
     decoder->vpp_saturation_idx = -1;
@@ -3524,6 +3544,13 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
                     continue;
             }
 
+            /* Skip skin tone enhancement if value is set to 0 ("off") */
+            if (decoder->vpp_stde_buf &&
+                decoder->filters[i] == *decoder->vpp_stde_buf) {
+                if (!VideoSkinToneEnhancement)
+                    continue;
+            }
+
             filters_to_run[filter_count++] = decoder->filters[i];
         }
 
@@ -3963,6 +3990,13 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
         Error("Failed to query filter #%02x capabilities: %s\n", type, vaErrorStr(va_status));
         return VA_INVALID_ID;
     }
+    if (type == VAProcFilterSkinToneEnhancement && cap_n == 0) { // Intel driver doesn't return caps
+       cap_n = 1;
+       caps->range.min_value = VaapiConfigStde.min_value;
+       caps->range.max_value = VaapiConfigStde.max_value;
+       caps->range.step = VaapiConfigStde.step;
+       caps->range.default_value = VaapiConfigStde.def_value;
+    }
     if (cap_n != 1) {
         Error("Wrong number of capabilities (%d) for filter %#010x\n", cap_n, type);
         return VA_INVALID_ID;
@@ -3980,6 +4014,9 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	    break;
 	case VAProcFilterSharpening:
 	    VaapiNormalizeConfig(&VaapiConfigSharpen, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
+	    break;
+	case VAProcFilterSkinToneEnhancement:
+	    VaapiNormalizeConfig(&VaapiConfigStde, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
 	    break;
 	default:
 	    break;
@@ -4204,10 +4241,13 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		decoder->filters[decoder->filter_n++] = filter_buf_id;
 		break;
 	    case VAProcFilterSkinToneEnhancement:
+		VaapiConfigStde.active = 1;
 		Info("video/vaapi: skin tone enhancement supported\n");
-		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], 0.3);
+		filter_buf_id = VaapiSetupParameterBufferProcessing(decoder, filtertypes[u], VaapiConfigStde.def_value *
+                                                                    VaapiConfigStde.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
 		    Info("Enabling skin tone filter (pos = %d)\n", decoder->filter_n);
+		    decoder->vpp_stde_buf = &decoder->filters[decoder->filter_n];
 		    decoder->filters[decoder->filter_n++] = filter_buf_id;
 		}
 		break;
@@ -12789,7 +12829,7 @@ void VideoSetHue(int hue)
 }
 
 ///
-///     Get saturation configurations.
+///     Get hue configurations.
 ///
 int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
@@ -12807,6 +12847,50 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*defvalue = VaapiConfigHue.def_value;
 	*maxvalue = VaapiConfigHue.max_value;
 	return VaapiConfigHue.active;
+    }
+#endif
+    return 0;
+}
+
+///
+///     Set skin tone enhancement.
+///
+///     @param stde    between min and max.
+///
+void VideoSetSkinToneEnhancement(int stde)
+{
+    // FIXME: test to check if working, than make module function
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
+	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
+    }
+#endif
+}
+
+///
+///     Get skin tone enhancement configurations.
+///
+int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue)
+{
+#ifdef USE_VDPAU
+    if (VideoUsedModule == &VdpauModule) {
+        *minvalue = VdpauConfigStde.min_value;
+        *defvalue = VdpauConfigStde.def_value;
+        *maxvalue = VdpauConfigStde.max_value;
+        return VdpauConfigStde.active;
+    }
+#endif
+#ifdef USE_VAAPI
+    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
+        *minvalue = VaapiConfigStde.min_value;
+        *defvalue = VaapiConfigStde.def_value;
+        *maxvalue = VaapiConfigStde.max_value;
+        return VaapiConfigStde.active;
     }
 #endif
     return 0;
