@@ -940,7 +940,8 @@ void cMenuSetupSoft::Create(void)
     int saturation_active = VideoGetSaturationConfig(&saturation_min, &saturation_def, &saturation_max);
     int hue_min, hue_def, hue_max;
     int hue_active = VideoGetHueConfig(&hue_min, &hue_def, &hue_max);
-    int stde_active = VideoGetSkinToneEnhancementConfig();
+    int stde_min, stde_def, stde_max;
+    int stde_active = VideoGetSkinToneEnhancementConfig(&stde_min, &stde_def, & stde_max);
     int denoise_min, denoise_def, denoise_max;
     int denoise_active = VideoGetDenoiseConfig(&denoise_min, &denoise_def, &denoise_max);
     int sharpen_min, sharpen_def, sharpen_max;
@@ -1026,8 +1027,8 @@ void cMenuSetupSoft::Create(void)
 		Add(new cMenuEditIntItem(*cString::sprintf(tr("Hue (%d..[%d]..%d)"),
 			hue_min, hue_def, hue_max), &Hue, hue_min, hue_max));
 	if (stde_active)
-		Add(new cMenuEditBoolItem(tr("Skin Tone Enhancement"),
-			&Stde, trVDR("no"), trVDR("yes")));
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("Skin Tone Enhancement (%d..[%d]..%d)"),
+			stde_min, stde_def, stde_max), &Stde, stde_min, stde_max));
 
 	for (i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;

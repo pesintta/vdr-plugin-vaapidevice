@@ -381,7 +381,7 @@ static VideoConfigValues VdpauConfigStde =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0 };
 
 static VideoConfigValues VaapiConfigStde =
-{ .active = 1, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0 };
+{ .active = 1, .min_value = 0.0, .max_value = 3.0, .def_value = 0.0, .step = 1.0, .scale = 3.0 };
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -2464,7 +2464,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
         VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_stde_buf, (void**)&stde_param);
         if (va_status == VA_STATUS_SUCCESS) {
             /* Assuming here that the type is set before and does not need to be modified */
-            stde_param->value = 1;
+            stde_param->value = VideoSkinToneEnhancement * VaapiConfigStde.scale;
             vaUnmapBuffer(VaDisplay, *decoder->vpp_stde_buf);
         }
     }
@@ -3990,18 +3990,23 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
         Error("Failed to query filter #%02x capabilities: %s\n", type, vaErrorStr(va_status));
         return VA_INVALID_ID;
     }
-    if (type != VAProcFilterSkinToneEnhancement) {
-	if (cap_n != 1) {
-	    Error("Wrong number of capabilities (%d) for filter %#010x\n", cap_n, type);
-	    return VA_INVALID_ID;
-	} else {
-	    Info("video/vaapi: %.2f - %.2f ++ %.2f = %.2f\n",
-		caps->range.min_value,
-		caps->range.max_value,
-		caps->range.step,
-		caps->range.default_value);
-	}
+    if (type == VAProcFilterSkinToneEnhancement && cap_n == 0) { // Intel driver doesn't return caps
+       cap_n = 1;
+       caps->range.min_value = VaapiConfigStde.min_value;
+       caps->range.max_value = VaapiConfigStde.max_value;
+       caps->range.step = VaapiConfigStde.step;
+       caps->range.default_value = VaapiConfigStde.def_value;
     }
+    if (cap_n != 1) {
+        Error("Wrong number of capabilities (%d) for filter %#010x\n", cap_n, type);
+        return VA_INVALID_ID;
+    }
+
+    Info("video/vaapi: %.2f - %.2f ++ %.2f = %.2f\n",
+	 caps->range.min_value,
+	 caps->range.max_value,
+	 caps->range.step,
+	 caps->range.default_value);
 
     switch (type) {
 	case VAProcFilterNoiseReduction:
@@ -4009,6 +4014,9 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	    break;
 	case VAProcFilterSharpening:
 	    VaapiNormalizeConfig(&VaapiConfigSharpen, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
+	    break;
+	case VAProcFilterSkinToneEnhancement:
+	    VaapiNormalizeConfig(&VaapiConfigStde, caps->range.min_value, caps->range.max_value, caps->range.default_value, caps->range.step);
 	    break;
 	default:
 	    break;
@@ -12847,19 +12855,19 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 ///
 ///     Set skin tone enhancement.
 ///
-///     @param onoff    boolean.
+///     @param stde    between min and max.
 ///
-void VideoSetSkinToneEnhancement(int onoff)
+void VideoSetSkinToneEnhancement(int stde)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VideoSkinToneEnhancement = !!onoff;
+	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-	VideoSkinToneEnhancement = !!onoff;
+	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
 #endif
 }
@@ -12867,15 +12875,21 @@ void VideoSetSkinToneEnhancement(int onoff)
 ///
 ///     Get skin tone enhancement configurations.
 ///
-int VideoGetSkinToneEnhancementConfig(void)
+int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
+        *minvalue = VdpauConfigStde.min_value;
+        *defvalue = VdpauConfigStde.def_value;
+        *maxvalue = VdpauConfigStde.max_value;
         return VdpauConfigStde.active;
     }
 #endif
 #ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
+        *minvalue = VaapiConfigStde.min_value;
+        *defvalue = VaapiConfigStde.def_value;
+        *maxvalue = VaapiConfigStde.max_value;
         return VaapiConfigStde.active;
     }
 #endif

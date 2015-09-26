@@ -133,7 +133,7 @@ extern int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue);
 extern void VideoSetSkinToneEnhancement(int);
 
     /// Get skin tone enhancement configurations.
-extern int VideoGetSkinToneEnhancementConfig(void);
+extern int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set video output position.
 extern void VideoSetOutputPosition(VideoHwDecoder *, int, int, int, int);
