@@ -941,7 +941,7 @@ void cMenuSetupSoft::Create(void)
     int hue_min, hue_def, hue_max;
     int hue_active = VideoGetHueConfig(&hue_min, &hue_def, &hue_max);
     int stde_min, stde_def, stde_max;
-    int stde_active = VideoGetSkinToneEnhancementConfig(&stde_min, &stde_def, & stde_max);
+    int stde_active = VideoGetSkinToneEnhancementConfig(&stde_min, &stde_def, &stde_max);
     int denoise_min, denoise_def, denoise_max;
     int denoise_active = VideoGetDenoiseConfig(&denoise_min, &denoise_def, &denoise_max);
     int sharpen_min, sharpen_def, sharpen_max;

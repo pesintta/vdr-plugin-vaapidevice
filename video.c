@@ -12817,7 +12817,6 @@ void VideoSetHue(int hue)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	hue = VideoConfigClamp(&VdpauConfigHue, hue);
 	VdpauDecoders[0]->Procamp.hue = VideoConfigClamp(&VdpauConfigHue, hue) *
 					VdpauConfigHue.scale;
     }
@@ -12864,7 +12863,7 @@ void VideoSetSkinToneEnhancement(int stde)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
+	VideoSkinToneEnhancement = VideoConfigClamp(&VdpauConfigStde, stde);
     }
 #endif
 #ifdef USE_VAAPI
