@@ -308,7 +308,8 @@ typedef struct _video_config_values_
     float max_value;
     float def_value;
     float step;
-    float scale;
+    float scale;     // scale is normalized to match UI requirements
+    float drv_scale; // re-normalizing requires the original scale required for latching data to the driver
 } VideoConfigValues;
 
 //----------------------------------------------------------------------------
@@ -336,52 +337,52 @@ typedef struct _video_config_values_
 //----------------------------------------------------------------------------
 
 static VideoConfigValues VdpauConfigBrightness =
-{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Brightness (-100.00 - 100.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigBrightness =
-{ .active = 0, .min_value = -100.0, .max_value = 100.0, .def_value = 0.0, .step = 1.0, .scale = 1.0 };
+{ .active = 0, .min_value = -100.0, .max_value = 100.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigContrast =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Contrast (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigContrast =
-{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0 };
+{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigSaturation =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Saturation (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigSaturation =
-{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0 };
+{ .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigHue =
-{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Hue (-180.00 - 180.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigHue =
-{ .active = 0, .min_value = -180.0, .max_value = 180.0, .def_value = 0.0, .step = 1.0, .scale = 1.0 };
+{ .active = 0, .min_value = -180.0, .max_value = 180.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigDenoise =
-{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Denoise (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigDenoise =
-{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0 };
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigSharpen =
-{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001 };
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Sharpen (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigSharpen =
-{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0 };
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VdpauConfigStde =
-{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0 };
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VaapiConfigStde =
-{ .active = 1, .min_value = 0.0, .max_value = 3.0, .def_value = 0.0, .step = 1.0, .scale = 3.0 };
+{ .active = 1, .min_value = 0.0, .max_value = 4.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -2344,7 +2345,7 @@ static inline void VaapiNormalizeConfig(VideoConfigValues * config, float valueM
     config->max_value = valueMax;
     config->def_value = valueDef;
     config->step = step;
-    config->scale = 1;
+    config->scale = config->drv_scale;
     // normalize values for UI
     while (config && config->step < 1) {
 	config->min_value *= 10;
@@ -3992,10 +3993,11 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     }
     if (type == VAProcFilterSkinToneEnhancement && cap_n == 0) { // Intel driver doesn't return caps
        cap_n = 1;
-       caps->range.min_value = VaapiConfigStde.min_value;
-       caps->range.max_value = VaapiConfigStde.max_value;
-       caps->range.step = VaapiConfigStde.step;
-       caps->range.default_value = VaapiConfigStde.def_value;
+       caps->range.min_value = 0.0;
+       caps->range.max_value = 4.0;
+       caps->range.default_value = 0.0;
+       caps->range.step = 1.0;
+       VaapiConfigStde.drv_scale = 3.0;
     }
     if (cap_n != 1) {
         Error("Wrong number of capabilities (%d) for filter %#010x\n", cap_n, type);
@@ -12815,7 +12817,6 @@ void VideoSetHue(int hue)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	hue = VideoConfigClamp(&VdpauConfigHue, hue);
 	VdpauDecoders[0]->Procamp.hue = VideoConfigClamp(&VdpauConfigHue, hue) *
 					VdpauConfigHue.scale;
     }
@@ -12862,7 +12863,7 @@ void VideoSetSkinToneEnhancement(int stde)
     // FIXME: test to check if working, than make module function
 #ifdef USE_VDPAU
     if (VideoUsedModule == &VdpauModule) {
-	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
+	VideoSkinToneEnhancement = VideoConfigClamp(&VdpauConfigStde, stde);
     }
 #endif
 #ifdef USE_VAAPI
@@ -12870,6 +12871,7 @@ void VideoSetSkinToneEnhancement(int stde)
 	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
 #endif
+    VideoSurfaceModesChanged = 1;
 }
 
 ///
