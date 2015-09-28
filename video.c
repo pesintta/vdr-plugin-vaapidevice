@@ -382,7 +382,7 @@ static VideoConfigValues VdpauConfigStde =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 static VideoConfigValues VaapiConfigStde =
-{ .active = 1, .min_value = 0.0, .max_value = 3.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
+{ .active = 1, .min_value = 0.0, .max_value = 4.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -3994,7 +3994,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     if (type == VAProcFilterSkinToneEnhancement && cap_n == 0) { // Intel driver doesn't return caps
        cap_n = 1;
        caps->range.min_value = 0.0;
-       caps->range.max_value = 3.0;
+       caps->range.max_value = 4.0;
        caps->range.default_value = 0.0;
        caps->range.step = 1.0;
        VaapiConfigStde.drv_scale = 3.0;
