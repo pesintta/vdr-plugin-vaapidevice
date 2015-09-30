@@ -5862,6 +5862,7 @@ static VdpChromaType VdpauChromaType;	///< best video surface chroma format
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
 static int VdpauSurfaceIndex;		///< current display surface
+static int VdpauSurfaceQueued;		///< number of display surfaces queued
 static struct timespec VdpauFrameTime;	///< time of last display
 
 #ifdef USE_BITMAP
@@ -8586,7 +8587,29 @@ static void VdpauDisplayFrame(void)
 	}
     }
     //
-    //	wait for surface visible (blocks max ~5ms)
+    //	check how many surfaces are queued
+    //
+    VdpauSurfaceQueued = 0;
+    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	VdpPresentationQueueStatus qstatus;
+
+	status =
+	    VdpauPresentationQueueQuerySurfaceStatus(VdpauQueue,
+	    VdpauSurfacesRb[(VdpauSurfaceIndex + i) % OUTPUT_SURFACES_MAX],
+	    &qstatus, &first_time);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't query status: %s\n"),
+		VdpauGetErrorString(status));
+	    break;
+	}
+	if (qstatus == VDP_PRESENTATION_QUEUE_STATUS_IDLE) {
+	    continue;
+	}
+	// STATUS_QUEUED | STATUS_VISIBLE
+	VdpauSurfaceQueued++;
+    }
+    //
+    //	wait for surface no longer visible (blocks max ~5ms)
     //
     status =
 	VdpauPresentationQueueBlockUntilSurfaceIdle(VdpauQueue,
@@ -8912,14 +8935,15 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	if (!err) {
 	    VdpauMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d%+d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
 	    VideoGetBuffers(decoder->Stream),
-	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
-	    - decoder->SurfaceField);
+	    decoder->Interlaced ? 2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField : atomic_read(&decoder->SurfacesFilled),
+	    VdpauSurfaceQueued);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VdpauPrintFrames(decoder);
 	}
