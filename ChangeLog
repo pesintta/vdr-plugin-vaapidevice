@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Handle change of audio ac3 downmix direct.
     Speedup queuing output surface, when decoder buffers are full.
     Fix bug: info shows wrong decoded video surfaces.
     Calculate queued output surfaces and show them in info message.

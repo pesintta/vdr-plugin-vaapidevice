@@ -1336,6 +1336,12 @@ void cMenuSetupSoft::Store(void)
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioDrift", ConfigAudioDrift = AudioDrift);
     CodecSetAudioDrift(ConfigAudioDrift);
+
+    // FIXME: can handle more audio state changes here
+    // downmix changed reset audio, to get change direct
+    if (ConfigAudioDownmix != AudioDownmix) {
+	ResetChannelId();
+    }
     ConfigAudioPassthrough = (AudioPassthroughPCM ? CodecPCM : 0)
 	| (AudioPassthroughAC3 ? CodecAC3 : 0)
 	| (AudioPassthroughEAC3 ? CodecEAC3 : 0);
