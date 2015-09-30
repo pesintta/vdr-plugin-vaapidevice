@@ -9153,10 +9153,12 @@ static void VdpauDisplayHandlerThread(void)
 {
     int i;
     int err;
+    int allfull;
     int decoded;
     struct timespec nowtime;
     VdpauDecoder *decoder;
 
+    allfull = 1;
     decoded = 0;
     pthread_mutex_lock(&VideoLockMutex);
     for (i = 0; i < VdpauDecoderN; ++i) {
@@ -9171,6 +9173,7 @@ static void VdpauDisplayHandlerThread(void)
 	if (filled < VIDEO_SURFACES_MAX) {
 	    // FIXME: hot polling
 	    // fetch+decode or reopen
+	    allfull = 0;
 	    err = VideoDecodeInput(decoder->Stream);
 	} else {
 	    err = VideoPollInput(decoder->Stream);
@@ -9193,14 +9196,18 @@ static void VdpauDisplayHandlerThread(void)
 
     if (!decoded) {			// nothing decoded, sleep
 	// FIXME: sleep on wakeup
-	usleep(5 * 1000);
+	usleep(1 * 1000);
     }
-
-    clock_gettime(CLOCK_MONOTONIC, &nowtime);
-    // time for one frame over?
-    if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
-	(nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
-	return;
+    // all decoder buffers are full
+    // and display is not preempted
+    // speed up filling display queue, wait on display queue empty
+    if (!allfull || VdpauPreemption) {
+	clock_gettime(CLOCK_MONOTONIC, &nowtime);
+	// time for one frame over?
+	if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
+	    (nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
+	    return;
+	}
     }
 
     if (VdpauPreemption) {		// display preempted
