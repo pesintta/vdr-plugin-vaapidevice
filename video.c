@@ -9003,16 +9003,20 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	}
 	return;
     }
+#if 1
     // if video output buffer is full, wait and display surface.
     // loop for interlace
-    // FIXME: wrong for multiple streams
-#ifdef DEBUG
     if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
-	Debug(3, "video/vdpau: this code part shouldn't be used\n");
-    }
+#ifdef DEBUG
+	Fatal("video/vdpau: this code part shouldn't be used\n");
+#else
+	Info("video/vdpau: this code part shouldn't be used\n");
 #endif
-
-#if 1
+	return;
+    }
+#else
+    // FIXME: disabled for remove
+    // FIXME: wrong for multiple streams
     // FIXME: this part code should be no longer be needed with new mpeg fix
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
