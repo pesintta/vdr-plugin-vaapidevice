@@ -167,7 +167,8 @@ typedef enum
 #include <libavcodec/vaapi.h>
 #include <libavutil/pixdesc.h>
 
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,86,100)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,86,100) && \
+    LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,60,100)
     ///
     /// ffmpeg version 1.1.1 calls get_format with zero width and height
     /// for H264 codecs.
