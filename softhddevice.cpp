@@ -47,6 +47,13 @@ extern "C"
 #include "codec.h"
 }
 
+#if APIVERSNUM >= 20301
+#define MURKS ->
+#else
+#define MURKS .
+#define LOCK_CHANNELS_READ	do { } while (0)
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 
     /// vdr-plugin version number.
@@ -1566,6 +1573,12 @@ void cMenuSetupSoft::Store(void)
     VideoSetAudioDelay(ConfigVideoAudioDelay);
     SetupStore("AudioDrift", ConfigAudioDrift = AudioDrift);
     CodecSetAudioDrift(ConfigAudioDrift);
+
+    // FIXME: can handle more audio state changes here
+    // downmix changed reset audio, to get change direct
+    if (ConfigAudioDownmix != AudioDownmix) {
+	ResetChannelId();
+    }
     ConfigAudioPassthrough = (AudioPassthroughPCM ? CodecPCM : 0)
 	| (AudioPassthroughAC3 ? CodecAC3 : 0)
 	| (AudioPassthroughEAC3 ? CodecEAC3 : 0);
@@ -1971,12 +1984,8 @@ static void NewPip(int channel_nr)
     if (!channel_nr) {
 	channel_nr = cDevice::CurrentChannel();
     }
-#if APIVERSNUM >= 20301
     LOCK_CHANNELS_READ;
-    if (channel_nr && (channel = Channels->GetByNumber(channel_nr))
-#else
-    if (channel_nr && (channel = Channels.GetByNumber(channel_nr))
-#endif
+    if (channel_nr && (channel = Channels MURKS GetByNumber(channel_nr))
 	&& (device = cDevice::GetDevice(channel, 0, false, false))) {
 
 	DelPip();
@@ -2022,22 +2031,16 @@ static void PipNextAvailableChannel(int direction)
 
     DelPip();				// disable PIP to free the device
 
+    LOCK_CHANNELS_READ;
     while (channel) {
 	bool ndr;
 	cDevice *device;
 
-#if APIVERSNUM >= 20301
-	LOCK_CHANNELS_READ;
-	channel = direction > 0 ? Channels->Next(channel) : Channels->Prev(channel);
-#else
-	channel = direction > 0 ? Channels.Next(channel) : Channels.Prev(channel);
-#endif
+	channel = direction > 0 ? Channels MURKS Next(channel)
+	    : Channels MURKS Prev(channel);
 	if (!channel && Setup.ChannelsWrap) {
-#if APIVERSNUM >= 20301
-	    channel = direction > 0 ? Channels->First() : Channels->Last();
-#else
-	    channel = direction > 0 ? Channels.First() : Channels.Last();
-#endif
+	    channel =
+		direction > 0 ? Channels MURKS First() : Channels MURKS Last();
 	}
 	if (channel && !channel->GroupSep()
 	    && (device = cDevice::GetDevice(channel, 0, false, true))
@@ -2066,12 +2069,9 @@ static void SwapPipChannels(void)
     NewPip(0);
 
     if (channel) {
-#if APIVERSNUM >= 20301
 	LOCK_CHANNELS_READ;
-	Channels->SwitchTo(channel->Number());
-#else
-	Channels.SwitchTo(channel->Number());
-#endif
+
+	Channels MURKS SwitchTo(channel->Number());
     }
 }
 

@@ -115,7 +115,7 @@
       ///
 static pthread_mutex_t CodecLockMutex;
 
-    /// Flag prefer fast xhannel switch
+    /// Flag prefer fast channel switch
 char CodecUsePossibleDefectFrames;
 
 //----------------------------------------------------------------------------

@@ -7571,6 +7571,7 @@ static VdpChromaType VdpauChromaType;	///< best video surface chroma format
     /// display surface ring buffer
 static VdpOutputSurface VdpauSurfacesRb[OUTPUT_SURFACES_MAX];
 static int VdpauSurfaceIndex;		///< current display surface
+static int VdpauSurfaceQueued;		///< number of display surfaces queued
 static struct timespec VdpauFrameTime;	///< time of last display
 
 #ifdef USE_BITMAP
@@ -10295,7 +10296,29 @@ static void VdpauDisplayFrame(void)
 	}
     }
     //
-    //	wait for surface visible (blocks max ~5ms)
+    //	check how many surfaces are queued
+    //
+    VdpauSurfaceQueued = 0;
+    for (i = 0; i < OUTPUT_SURFACES_MAX; ++i) {
+	VdpPresentationQueueStatus qstatus;
+
+	status =
+	    VdpauPresentationQueueQuerySurfaceStatus(VdpauQueue,
+	    VdpauSurfacesRb[(VdpauSurfaceIndex + i) % OUTPUT_SURFACES_MAX],
+	    &qstatus, &first_time);
+	if (status != VDP_STATUS_OK) {
+	    Error(_("video/vdpau: can't query status: %s\n"),
+		VdpauGetErrorString(status));
+	    break;
+	}
+	if (qstatus == VDP_PRESENTATION_QUEUE_STATUS_IDLE) {
+	    continue;
+	}
+	// STATUS_QUEUED | STATUS_VISIBLE
+	VdpauSurfaceQueued++;
+    }
+    //
+    //	wait for surface no longer visible (blocks max ~5ms)
     //
     status =
 	VdpauPresentationQueueBlockUntilSurfaceIdle(VdpauQueue,
@@ -10621,14 +10644,15 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	if (!err) {
 	    VdpauMessage(0, NULL);
 	}
-	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf\n",
+	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d%+d v-buf\n",
 	    Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) <
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
 	    VideoGetBuffers(decoder->Stream),
-	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
-	    - decoder->SurfaceField);
+	    decoder->Interlaced ? 2 * atomic_read(&decoder->SurfacesFilled)
+	    - decoder->SurfaceField : atomic_read(&decoder->SurfacesFilled),
+	    VdpauSurfaceQueued);
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VdpauPrintFrames(decoder);
 	}
@@ -10688,16 +10712,20 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	}
 	return;
     }
+#if 1
     // if video output buffer is full, wait and display surface.
     // loop for interlace
-    // FIXME: wrong for multiple streams
-#ifdef DEBUG
     if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
-	Debug(3, "video/vdpau: this code part shouldn't be used\n");
-    }
+#ifdef DEBUG
+	Fatal("video/vdpau: this code part shouldn't be used\n");
+#else
+	Info("video/vdpau: this code part shouldn't be used\n");
 #endif
-
-#if 1
+	return;
+    }
+#else
+    // FIXME: disabled for remove
+    // FIXME: wrong for multiple streams
     // FIXME: this part code should be no longer be needed with new mpeg fix
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
 	struct timespec abstime;
@@ -10838,10 +10866,12 @@ static void VdpauDisplayHandlerThread(void)
 {
     int i;
     int err;
+    int allfull;
     int decoded;
     struct timespec nowtime;
     VdpauDecoder *decoder;
 
+    allfull = 1;
     decoded = 0;
     pthread_mutex_lock(&VideoLockMutex);
     for (i = 0; i < VdpauDecoderN; ++i) {
@@ -10856,6 +10886,7 @@ static void VdpauDisplayHandlerThread(void)
 	if (filled < VIDEO_SURFACES_MAX) {
 	    // FIXME: hot polling
 	    // fetch+decode or reopen
+	    allfull = 0;
 	    err = VideoDecodeInput(decoder->Stream);
 	} else {
 	    err = VideoPollInput(decoder->Stream);
@@ -10878,14 +10909,18 @@ static void VdpauDisplayHandlerThread(void)
 
     if (!decoded) {			// nothing decoded, sleep
 	// FIXME: sleep on wakeup
-	usleep(5 * 1000);
+	usleep(1 * 1000);
     }
-
-    clock_gettime(CLOCK_MONOTONIC, &nowtime);
-    // time for one frame over?
-    if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
-	(nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
-	return;
+    // all decoder buffers are full
+    // and display is not preempted
+    // speed up filling display queue, wait on display queue empty
+    if (!allfull || VdpauPreemption) {
+	clock_gettime(CLOCK_MONOTONIC, &nowtime);
+	// time for one frame over?
+	if ((nowtime.tv_sec - VdpauFrameTime.tv_sec) * 1000 * 1000 * 1000 +
+	    (nowtime.tv_nsec - VdpauFrameTime.tv_nsec) < 15 * 1000 * 1000) {
+	    return;
+	}
     }
 
     if (VdpauPreemption) {		// display preempted
