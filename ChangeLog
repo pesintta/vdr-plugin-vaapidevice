@@ -1,6 +1,13 @@
 User johns
 Date:
 
+    Fix comment spelling.
+    Disabled old code before removement.
+    Handle change of audio ac3 downmix direct.
+    Speedup queuing output surface, when decoder buffers are full.
+    Fix bug: info shows wrong decoded video surfaces.
+    Calculate queued output surfaces and show them in info message.
+    Add support for new API of vdr 2.3.1.
     Fix bug: EnableDPMSatBlackScreen only available with USE_SCREENSAVER.
     - H264_EOS_TRICKSPEED and USE_MPEG_COMPLETE enabled as default.
 
