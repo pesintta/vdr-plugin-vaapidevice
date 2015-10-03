@@ -4594,6 +4594,23 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	    Error(_("codec: can't create context '%s'\n"), vaErrorStr(status));
 	    goto slow_path;
 	}
+
+	status = vaCreateConfig(decoder->VaDisplay, VAProfileNone,
+				decoder->VppEntrypoint, NULL, 0,
+				&decoder->VppConfig);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create config '%s'\n"),
+		  vaErrorStr(status));
+	}
+	status = vaCreateContext(decoder->VaDisplay, decoder->VppConfig,
+				 video_ctx->width, video_ctx->height,
+				 VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX,
+				 &decoder->vpp_ctx);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error(_("video/vaapi: can't create context '%s'\n"),
+		  vaErrorStr(status));
+	}
+
 	VaapiSetupVideoProcessing(decoder);
 
 	VaapiSetupVideoFilters(decoder);
