@@ -3042,7 +3042,6 @@ static int VaapiInit(const char *display_name)
 		&entrypoint_n)) {
 
 	    for (i = 0; i < entrypoint_n; i++) {
-		fprintf(stderr, "oops %d\n", i);
 		if (entrypoints[i] == VAEntrypointVideoProc) {
 		    Info("video/vaapi: supports video processing\n");
 		    VaapiVideoProcessing = 1;
@@ -5097,7 +5096,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     ++decoder->FrameCounter;
 
     if (1) {				// can't wait for output queue empty
-	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	    ++decoder->FramesDropped;
 	    Warning(_("video: output buffer full, dropping frame (%d/%d)\n"),
 		decoder->FramesDropped, decoder->FrameCounter);
@@ -5111,7 +5110,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	}
 #if 0
     } else {				// wait for output queue empty
-	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	    VideoDisplayHandler();
 	}
 #endif
@@ -6918,8 +6917,9 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
 	    VideoGetBuffers(decoder->Stream),
-	    (1 + decoder->Interlaced) * atomic_read(&decoder->SurfacesFilled)
-	    - decoder->SurfaceField);
+	    decoder->Interlaced ? (2 * atomic_read(&decoder->SurfacesFilled)
+		- decoder->SurfaceField)
+	    : atomic_read(&decoder->SurfacesFilled));
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VaapiPrintFrames(decoder);
 	}
@@ -6968,8 +6968,22 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     }
 #endif
 
+#if 1
+#ifndef USE_PIP
+#error	"-DUSE_PIP or #define USE_PIP is needed,"
+#endif
     // if video output buffer is full, wait and display surface.
     // loop for interlace
+    if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
+#ifdef DEBUG
+	Fatal("video/vaapi: this code part shouldn't be used\n");
+#else
+	Info("video/vaapi: this code part shouldn't be used\n");
+#endif
+	return;
+    }
+#else
+    // FIXME: this part code should be no longer be needed with new mpeg fix
     while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	struct timespec abstime;
 
@@ -6998,6 +7012,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 
 	VaapiSyncDisplayFrame();
     }
+#endif
 
     if (!decoder->Closing) {
 	VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);
@@ -7060,49 +7075,66 @@ static void VaapiSetOutputPosition(VaapiDecoder * decoder, int x, int y,
 ///
 ///	Handle a va-api display.
 ///
-///	@todo FIXME: only a single decoder supported.
-///
 static void VaapiDisplayHandlerThread(void)
 {
+    int i;
     int err;
-    int filled;
+    int allfull;
+    int decoded;
     struct timespec nowtime;
     VaapiDecoder *decoder;
 
-    if (!(decoder = VaapiDecoders[0])) {	// no stream available
-	return;
-    }
-    //
-    // fill frame output ring buffer
-    //
-    filled = atomic_read(&decoder->SurfacesFilled);
-    if (filled < VIDEO_SURFACES_MAX - 1) {
-	// FIXME: hot polling
-	pthread_mutex_lock(&VideoLockMutex);
-	// fetch+decode or reopen
-	err = VideoDecodeInput(decoder->Stream);
-	pthread_mutex_unlock(&VideoLockMutex);
-    } else {
-	err = VideoPollInput(decoder->Stream);
-    }
-    if (err) {
-	// FIXME: sleep on wakeup
-	usleep(5 * 1000);		// nothing buffered
-	if (err == -1 && decoder->Closing) {
-	    decoder->Closing--;
-	    if (!decoder->Closing) {
-		Debug(3, "video/vaapi: closing eof\n");
-		decoder->Closing = -1;
-	    }
-	}
-    }
+    allfull = 1;
+    decoded = 0;
+    pthread_mutex_lock(&VideoLockMutex);
+    for (i = 0; i < VaapiDecoderN; ++i) {
+	int filled;
 
-    clock_gettime(CLOCK_MONOTONIC, &nowtime);
-    // time for one frame over?
-    if ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
-	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec) <
-	15 * 1000 * 1000) {
-	return;
+	decoder = VaapiDecoders[i];
+
+	//
+	// fill frame output ring buffer
+	//
+	filled = atomic_read(&decoder->SurfacesFilled);
+	if (filled < VIDEO_SURFACES_MAX - 1) {
+	    // FIXME: hot polling
+	    // fetch+decode or reopen
+	    allfull = 0;
+	    err = VideoDecodeInput(decoder->Stream);
+	} else {
+	    err = VideoPollInput(decoder->Stream);
+	}
+	// decoder can be invalid here
+	if (err) {
+	    // nothing buffered?
+	    if (err == -1 && decoder->Closing) {
+		decoder->Closing--;
+		if (!decoder->Closing) {
+		    Debug(3, "video/vdpau: closing eof\n");
+		    decoder->Closing = -1;
+		}
+	    }
+	    continue;
+	}
+	decoded = 1;
+    }
+    pthread_mutex_unlock(&VideoLockMutex);
+
+    if (!decoded) {			// nothing decoded, sleep
+	// FIXME: sleep on wakeup
+	usleep(1 * 1000);
+    }
+    // all decoder buffers are full
+    // speed up filling display queue, wait on display queue empty
+    if (!allfull) {
+	clock_gettime(CLOCK_MONOTONIC, &nowtime);
+	// time for one frame over?
+	if ((nowtime.tv_sec -
+		VaapiDecoders[0]->FrameTime.tv_sec) * 1000 * 1000 * 1000 +
+	    (nowtime.tv_nsec - VaapiDecoders[0]->FrameTime.tv_nsec) <
+	    15 * 1000 * 1000) {
+	    return;
+	}
     }
 
     pthread_mutex_lock(&VideoLockMutex);
@@ -10714,6 +10746,9 @@ static void VdpauSyncRenderFrame(VdpauDecoder * decoder,
 	return;
     }
 #if 1
+#ifndef USE_PIP
+#error	"-DUSE_PIP or #define USE_PIP is needed,"
+#endif
     // if video output buffer is full, wait and display surface.
     // loop for interlace
     if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
@@ -10860,8 +10895,6 @@ static void VdpauSetVideoMode(void)
 
 ///
 ///	Handle a VDPAU display.
-///
-///	@todo FIXME: only a single decoder supported.
 ///
 static void VdpauDisplayHandlerThread(void)
 {

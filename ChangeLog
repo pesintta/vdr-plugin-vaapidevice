@@ -1,6 +1,9 @@
 User johns
 Date:
 
+    Added VDPAU multi decoder loop changes to VA-API code.
+    Reenabled VA-API auto detection.
+    Check and enforce USE_PIP is defined, for new code.
     Fix comment spelling.
     Disabled old code before removement.
     Handle change of audio ac3 downmix direct.
