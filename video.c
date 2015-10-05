@@ -5096,7 +5096,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     ++decoder->FrameCounter;
 
     if (1) {				// can't wait for output queue empty
-	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	    ++decoder->FramesDropped;
 	    Warning(_("video: output buffer full, dropping frame (%d/%d)\n"),
 		decoder->FramesDropped, decoder->FrameCounter);
@@ -5110,7 +5110,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
 	}
 #if 0
     } else {				// wait for output queue empty
-	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+	while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	    VideoDisplayHandler();
 	}
 #endif
@@ -6974,11 +6974,11 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 #endif
     // if video output buffer is full, wait and display surface.
     // loop for interlace
-    if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX) {
+    if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 #ifdef DEBUG
-	Fatal("video/vdpau: this code part shouldn't be used\n");
+	Fatal("video/vaapi: this code part shouldn't be used\n");
 #else
-	Info("video/vdpau: this code part shouldn't be used\n");
+	Info("video/vaapi: this code part shouldn't be used\n");
 #endif
 	return;
     }
@@ -7096,7 +7096,7 @@ static void VaapiDisplayHandlerThread(void)
 	// fill frame output ring buffer
 	//
 	filled = atomic_read(&decoder->SurfacesFilled);
-	if (filled < VIDEO_SURFACES_MAX) {
+	if (filled < VIDEO_SURFACES_MAX - 1) {
 	    // FIXME: hot polling
 	    // fetch+decode or reopen
 	    allfull = 0;
