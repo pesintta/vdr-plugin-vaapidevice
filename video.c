@@ -10196,7 +10196,9 @@ static const VideoModule *VideoModules[] = {
     &VaapiModule,
 #endif
 #ifdef USE_GLX
+#ifdef USE_VAAPI
     &VaapiGlxModule,			// FIXME: if working, prefer this
+#endif
 #endif
     &NoopModule
 };
