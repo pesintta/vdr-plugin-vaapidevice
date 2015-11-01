@@ -8,7 +8,7 @@ inherit vdr-plugin-2 git-2
 
 RESTRICT="test"
 
-EGIT_REPO_URI="git://projects.vdr-developer.org/vdr-plugin-softhddevice.git"
+EGIT_REPO_URI="https://github.com/pesintta/vdr-plugin-softhddevice.git"
 KEYWORDS=""
 
 DESCRIPTION="VDR Plugin: Software and GPU emulated HD output device"
