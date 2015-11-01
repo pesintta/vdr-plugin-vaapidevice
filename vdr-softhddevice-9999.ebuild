@@ -25,7 +25,8 @@ RDEPEND=">=media-video/vdr-2
 	x11-libs/xcb-util-keysyms
 	x11-libs/xcb-util-renderutil
 	alsa? ( media-libs/alsa-lib )
-	opengl? ( virtual/opengl )
+	opengl? ( virtual/opengl
+		virtual/glu )
 	vaapi? ( x11-libs/libva
 		virtual/ffmpeg[vaapi] )
 	vdpau? ( x11-libs/libvdpau
