@@ -3558,6 +3558,8 @@ static VASurfaceID* VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
         vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
+    if (!filter_count)
+	return NULL; /* no postprocessing if no filters applied */
 
     va_status = VaapiPostprocessSurface(decoder->vpp_ctx, decoder->PlaybackSurface, *surface,
 		    filters_to_run, filter_count,
