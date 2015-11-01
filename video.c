@@ -1740,8 +1740,11 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
 	VideoAvFilterClear(*filter);
     }
 
+    inputs = avfilter_inout_alloc();
+    outputs = avfilter_inout_alloc();
+
     (*filter)->filterGraph = avfilter_graph_alloc();
-    if (!(*filter)->filterGraph) {
+    if (!(*filter)->filterGraph || !inputs || !outputs) {
 	Error(_("Out of memory allocating Video AV Filter graph\n"));
 	goto error;
     }
@@ -1755,7 +1758,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
 	    NULL, (*filter)->filterGraph) < 0) {
 	Error(_("Failed to create avfilter source: %s\n"), srcformat);
-	goto error;
+	goto error_inout;
     }
 
     Info("AV Filter source configured as: %s\n", srcformat);
@@ -1763,7 +1766,7 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     buffersink_params = av_buffersink_params_alloc();
     if (!buffersink_params) {
 	printf("Could not allocate buffersink params\n");
-	goto error;
+	goto error_buffersink;
     }
 
     buffersink_params->pixel_fmts = out_formats;
@@ -1773,17 +1776,11 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
 	Error(_("Failed to create avfilter sink\n"));
 	goto error_buffersink;
     }
-    // FIXME: ffmpeg > 2.0
-#if 0
     if (av_opt_set_int_list((*filter)->outFilter, "pix_fmts", out_formats,
 	    AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN) < 0) {
 	Error(_("Failed to set output pixel formats\n"));
 	goto error_buffersink;
     }
-#endif
-
-    inputs = avfilter_inout_alloc();
-    outputs = avfilter_inout_alloc();
 
     outputs->name       = av_strdup("in"); // hmm???
     outputs->filter_ctx = (*filter)->srcFilter;
@@ -1795,14 +1792,10 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     inputs->pad_idx     = 0;
     inputs->next        = NULL;
 
-    // FIXME: ffmpeg > 2.0 = avfilter_graph_parse_ptr
-    if (avfilter_graph_parse((*filter)->filterGraph, filterstring, &inputs, &outputs, NULL) < 0) {
+    if (avfilter_graph_parse_ptr((*filter)->filterGraph, filterstring, &inputs, &outputs, NULL) < 0) {
 	Error(_("Failed to parse avfilter string: %s\n"), filterstring);
-	goto error_inout;
+	goto error_buffersink;
     }
-
-    avfilter_inout_free(&inputs);
-    avfilter_inout_free(&outputs);
 
     if (avfilter_graph_config((*filter)->filterGraph, NULL) < 0) {
 	Error(_("Failed to query config for filter graph\n"));
@@ -1813,14 +1806,17 @@ static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int p
     Info(_("Successfully initialized filter: %s\n"), avfilter_graph_dump((*filter)->filterGraph, NULL));
     printf("%s\n", avfilter_graph_dump((*filter)->filterGraph, NULL));
 #endif
+
+    avfilter_inout_free(&inputs);
+    avfilter_inout_free(&outputs);
     return;
+
+error_buffersink:
+    av_free(buffersink_params);
 
 error_inout:
     avfilter_inout_free(&inputs);
     avfilter_inout_free(&outputs);
-
-error_buffersink:
-    av_free(buffersink_params);
 
 error:
    VideoAvFilterClear((*filter));
