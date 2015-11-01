@@ -4259,6 +4259,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		Info("video/vaapi: unsupported filter #%02x\n", filtertypes[u]);
 		break;
 	}
+	VaapiInitSurfaceFlags(decoder);
     }
     //
     //	query pipeline caps
