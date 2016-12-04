@@ -33,6 +33,50 @@
 #define CodecEAC3 0x08			///< E-AC-3 bit mask
 #define CodecDTS 0x10			///< DTS bit mask (planned)
 
+#define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
+
+enum HWAccelID {
+     HWACCEL_NONE = 0,
+     HWACCEL_AUTO,
+     HWACCEL_VDPAU,
+     HWACCEL_DXVA2,
+     HWACCEL_VDA,
+     HWACCEL_VIDEOTOOLBOX,
+     HWACCEL_QSV,
+     HWACCEL_VAAPI,
+     HWACCEL_CUVID,
+};
+
+AVBufferRef *hw_device_ctx;
+///
+///     Video decoder structure.
+///
+struct _video_decoder_
+{
+     VideoHwDecoder *HwDecoder;          ///< video hardware decoder
+
+     int GetFormatDone;                  ///< flag get format called!
+     AVCodec *VideoCodec;                ///< video codec
+     AVCodecContext *VideoCtx;           ///< video codec context
+     int FirstKeyFrame;                  ///< flag first frame
+     AVFrame *Frame;                     ///< decoded video frame
+
+     /* hwaccel options */
+     enum HWAccelID hwaccel_id;
+     char  *hwaccel_device;
+     enum AVPixelFormat hwaccel_output_format;
+
+     /* hwaccel context */
+     enum HWAccelID active_hwaccel_id;
+     void  *hwaccel_ctx;
+     void (*hwaccel_uninit)(AVCodecContext *s);
+     int  (*hwaccel_get_buffer)(AVCodecContext *s, AVFrame *frame, int flags);
+     int  (*hwaccel_retrieve_data)(AVCodecContext *s, AVFrame *frame);
+     enum AVPixelFormat hwaccel_pix_fmt;
+     enum AVPixelFormat hwaccel_retrieved_pix_fmt;
+     AVBufferRef *hw_frames_ctx;
+};
+
 //----------------------------------------------------------------------------
 //	Typedefs
 //----------------------------------------------------------------------------
@@ -61,7 +105,7 @@ extern VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder *);
 extern void CodecVideoDelDecoder(VideoDecoder *);
 
     /// Open video codec.
-extern void CodecVideoOpen(VideoDecoder *, const char *, int);
+extern void CodecVideoOpen(VideoDecoder *, int);
 
     /// Close video codec.
 extern void CodecVideoClose(VideoDecoder *);

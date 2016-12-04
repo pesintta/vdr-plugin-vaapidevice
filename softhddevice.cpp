@@ -77,11 +77,11 @@ static class cSoftHdDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
 
-#define RESOLUTIONS 4			///< number of resolutions
+#define RESOLUTIONS 5			///< number of resolutions
 
     /// resolutions names
 static const char *const Resolution[RESOLUTIONS] = {
-    "576i", "720p", "1080i_fake", "1080i"
+    "576i", "720p", "1080i_fake", "1080i", "UHD"
 };
 
 static char ConfigMakePrimary;		///< config primary wanted
@@ -850,7 +850,7 @@ void cMenuSetupSoft::Create(void)
 	"None", "PCM", "AC-3", "PCM + AC-3"
     };
     static const char *const resolution[RESOLUTIONS] = {
-	"576i", "720p", "fake 1080i", "1080i"
+	"576i", "720p", "fake 1080i", "1080i", "UHD"
     };
     int current;
     int i;

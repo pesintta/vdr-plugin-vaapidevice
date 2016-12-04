@@ -1379,6 +1379,9 @@ msgstr ""
 msgid "video/vdpau: pixel format %d not supported\n"
 msgstr ""
 
+msgid "Cannot initialize the conversion context!\n"
+msgstr ""
+
 #, c-format
 msgid "video/vdpau: can't put video surface bits: %s\n"
 msgstr ""
