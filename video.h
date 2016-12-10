@@ -60,8 +60,8 @@ extern unsigned VideoGetSurface(VideoHwDecoder *, const AVCodecContext *);
 extern void VideoReleaseSurface(VideoHwDecoder *, unsigned);
 
     /// Callback to negotiate the PixelFormat.
-extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
-    const enum PixelFormat *);
+extern enum AVPixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
+    const enum AVPixelFormat *);
 
     /// Render a ffmpeg frame.
 extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *,

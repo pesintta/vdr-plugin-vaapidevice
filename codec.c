@@ -158,8 +158,8 @@ struct _video_decoder_
 **				valid format, the formats are ordered by
 **				quality.
 */
-static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
-    const enum PixelFormat *fmt)
+static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx,
+    const enum AVPixelFormat *fmt)
 {
     VideoDecoder *decoder;
 
@@ -204,7 +204,7 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
     // libav 0.8.5 53.35.0 still needs this
 #endif
     if (!decoder->GetFormatDone) {	// get_format missing
-	enum PixelFormat fmts[2];
+	enum AVPixelFormat fmts[2];
 
 	fprintf(stderr, "codec: buggy libav, use ffmpeg\n");
 	Warning(_("codec: buggy libav, use ffmpeg\n"));
