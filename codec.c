@@ -186,6 +186,8 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx,
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
 
+static void Codec_free_buffer(void *opaque, uint8_t *data);
+
 /**
 **	Video buffer management, get buffer for frame.
 **
@@ -194,7 +196,7 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx,
 **	@param video_ctx	Codec context
 **	@param frame		Get buffer for this frame
 */
-static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
+static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int flags)
 {
     VideoDecoder *decoder;
 
@@ -233,7 +235,8 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	frame->age = 256 * 256 * 256 * 64;
 #endif
 	// render
-	frame->data[0] = (void *)vrs;
+	frame->buf[0] = av_buffer_create((uint8_t*)vrs, 0, Codec_free_buffer, video_ctx, 0);
+	frame->data[0] = frame->buf[0]->data;
 	frame->data[1] = NULL;
 	frame->data[2] = NULL;
 	frame->data[3] = NULL;
@@ -264,8 +267,9 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	frame->age = 256 * 256 * 256 * 64;
 #endif
 	// vaapi needs both fields set
-	frame->data[0] = (void *)(size_t) surface;
-	frame->data[3] = (void *)(size_t) surface;
+	frame->buf[0] = av_buffer_create((uint8_t*)(size_t)surface, 0, Codec_free_buffer, video_ctx, 0);
+	frame->data[0] = frame->buf[0]->data;
+	frame->data[3] = frame->data[0];
 
 #if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
 	// reordered frames
@@ -278,18 +282,19 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	return 0;
     }
     //Debug(3, "codec: fallback to default get_buffer\n");
-    return avcodec_default_get_buffer(video_ctx, frame);
+    return avcodec_default_get_buffer2(video_ctx, frame, flags);
 }
 
 /**
 **	Video buffer management, release buffer for frame.
 **	Called to release buffers which were allocated with get_buffer.
 **
-**	@param video_ctx	Codec context
-**	@param frame		Release buffer for this frame
+**	@param opaque	opaque data
+**	@param data		buffer data
 */
-static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
+static void Codec_free_buffer(void *opaque, uint8_t *data)
 {
+    AVCodecContext *video_ctx = (AVCodecContext *)opaque;
 #ifdef USE_VDPAU
     // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
     if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
@@ -300,7 +305,7 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	unsigned surface;
 
 	decoder = video_ctx->opaque;
-	vrs = (struct vdpau_render_state *)frame->data[0];
+	vrs = (struct vdpau_render_state *)data;
 	surface = vrs->surface;
 
 	//Debug(3, "codec: release surface %#010x\n", surface);
@@ -308,7 +313,7 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 
 	av_freep(&vrs->bitstream_buffers);
 	vrs->bitstream_buffers_allocated = 0;
-	av_freep(&frame->data[0]);
+	av_freep(&data);
 
 	return;
     }
@@ -319,18 +324,13 @@ static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	unsigned surface;
 
 	decoder = video_ctx->opaque;
-	surface = (unsigned)(size_t) frame->data[3];
+	surface = (unsigned)(size_t) data;
 
 	//Debug(3, "codec: release surface %#010x\n", surface);
 	VideoReleaseSurface(decoder->HwDecoder, surface);
 
-	frame->data[0] = NULL;
-	frame->data[3] = NULL;
-
 	return;
     }
-    //Debug(3, "codec: fallback to default release_buffer\n");
-    return avcodec_default_release_buffer(video_ctx, frame);
 }
 
 /// libav: compatibility hack
@@ -505,9 +505,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
 	// FIXME: get_format never called.
 	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer = Codec_get_buffer;
-	decoder->VideoCtx->release_buffer = Codec_release_buffer;
-	decoder->VideoCtx->reget_buffer = Codec_get_buffer;
+	decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
 	decoder->VideoCtx->draw_horiz_band = Codec_draw_horiz_band;
 	decoder->VideoCtx->slice_flags =
 	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
@@ -522,9 +520,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     // our pixel format video hardware decoder hook
     if (decoder->VideoCtx->hwaccel_context) {
 	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer = Codec_get_buffer;
-	decoder->VideoCtx->release_buffer = Codec_release_buffer;
-	decoder->VideoCtx->reget_buffer = Codec_get_buffer;
+	decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
 #if 0
 	decoder->VideoCtx->thread_count = 1;
 	decoder->VideoCtx->draw_horiz_band = NULL;
