@@ -209,14 +209,14 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	fprintf(stderr, "codec: buggy libav, use ffmpeg\n");
 	Warning(_("codec: buggy libav, use ffmpeg\n"));
 	fmts[0] = video_ctx->pix_fmt;
-	fmts[1] = PIX_FMT_NONE;
+	fmts[1] = AV_PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
     }
 #ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
+    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	unsigned surface;
 	struct vdpau_render_state *vrs;
 
@@ -291,10 +291,10 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 {
 #ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
+    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	VideoDecoder *decoder;
 	struct vdpau_render_state *vrs;
 	unsigned surface;
@@ -357,10 +357,10 @@ static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
     int height)
 {
 #ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
+    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	VideoDecoder *decoder;
 	struct vdpau_render_state *vrs;
 

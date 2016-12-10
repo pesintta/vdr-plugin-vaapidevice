@@ -2354,7 +2354,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->Stream = stream;
     if (!VaapiDecoderN) {		// FIXME: hack sync on audio
@@ -2905,18 +2905,18 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 	    // NV12, YV12, I420, BGRA
 	    // intel: I420 is native format for MPEG-2 decoded surfaces
 	    // intel: NV12 is native format for H.264 decoded surfaces
-	case PIX_FMT_YUV420P:
-	case PIX_FMT_YUVJ420P:
+	case AV_PIX_FMT_YUV420P:
+	case AV_PIX_FMT_YUVJ420P:
 	    // fourcc = VA_FOURCC_YV12; // YVU
 	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
 	    break;
-	case PIX_FMT_NV12:
+	case AV_PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
 	    break;
-	case PIX_FMT_BGRA:
+	case AV_PIX_FMT_BGRA:
 	    fourcc = VA_FOURCC_BGRX;
 	    break;
-	case PIX_FMT_RGBA:
+	case AV_PIX_FMT_RGBA:
 	    fourcc = VA_FOURCC_RGBX;
 	    break;
 	default:
@@ -3553,7 +3553,7 @@ static void VaapiSetup(VaapiDecoder * decoder,
 #endif
     // FIXME: PixFmt not set!
     //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 
     // FIXME: this image is only needed for software decoder and auto-crop
     if (decoder->GetPutImage
@@ -4155,16 +4155,16 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     }
     Debug(3, "codec: %d entrypoints\n", entrypoint_n);
     //	look through formats
-    for (fmt_idx = fmt; *fmt_idx != PIX_FMT_NONE; fmt_idx++) {
+    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
 	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
-	    case PIX_FMT_VAAPI_VLD:
+	    case AV_PIX_FMT_VAAPI_VLD:
 		e = VaapiFindEntrypoint(entrypoints, entrypoint_n,
 		    VAEntrypointVLD);
 		break;
-	    case PIX_FMT_VAAPI_MOCO:
-	    case PIX_FMT_VAAPI_IDCT:
+	    case AV_PIX_FMT_VAAPI_MOCO:
+	    case AV_PIX_FMT_VAAPI_IDCT:
 		Debug(3, "codec: this VA-API pixel format is not supported\n");
 	    default:
 		continue;
@@ -4283,7 +4283,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     decoder->VppConfig = VA_INVALID_ID;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
@@ -4490,8 +4490,8 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
 	// FIXME: PixFmt not set!
 	//VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-	//VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+	VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
+	//VaapiFindImageFormat(decoder, AV_PIX_FMT_YUV420P, format);
 	if (vaCreateImage(VaDisplay, format, width, height,
 		decoder->Image) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create image!\n"));
@@ -4935,7 +4935,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	if (decoder->Image->image_id == VA_INVALID_ID) {
 	    VAImageFormat format[1];
 
-	    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 	    status =
 		vaCreateImage(VaDisplay, format, VideoWindowWidth,
 		VideoWindowHeight, decoder->Image);
@@ -5580,8 +5580,8 @@ static void VaapiCreateDeinterlaceImages(VaapiDecoder * decoder)
     // I420 Y U V 2x2
 
     // Intel needs NV12
-    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-    //VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
+    //VaapiFindImageFormat(decoder, AV_PIX_FMT_YUV420P, format);
     for (i = 0; i < 5; ++i) {
 	if (vaCreateImage(decoder->VaDisplay, format, decoder->InputWidth,
 		decoder->InputHeight,
@@ -5653,7 +5653,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     if (decoder->Image->image_id == VA_INVALID_ID) {
 	VAImageFormat format[1];
 
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 	if (vaCreateImage(VaDisplay, format, decoder->InputWidth,
 		decoder->InputHeight, decoder->Image) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create image!\n"));
@@ -7881,7 +7881,7 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
 #ifdef USE_AUTOCROP
     //decoder->AutoCropBuffer = NULL;	// done by calloc
@@ -8749,16 +8749,16 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     //	look through formats
     //
     Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
-    for (fmt_idx = fmt; *fmt_idx != PIX_FMT_NONE; fmt_idx++) {
+    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
 	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
-	    case PIX_FMT_VDPAU_H264:
-	    case PIX_FMT_VDPAU_MPEG1:
-	    case PIX_FMT_VDPAU_MPEG2:
-	    case PIX_FMT_VDPAU_WMV3:
-	    case PIX_FMT_VDPAU_VC1:
-	    case PIX_FMT_VDPAU_MPEG4:
+	    case AV_PIX_FMT_VDPAU_H264:
+	    case AV_PIX_FMT_VDPAU_MPEG1:
+	    case AV_PIX_FMT_VDPAU_MPEG2:
+	    case AV_PIX_FMT_VDPAU_WMV3:
+	    case AV_PIX_FMT_VDPAU_VC1:
+	    case AV_PIX_FMT_VDPAU_MPEG4:
 		break;
 	    default:
 		continue;
@@ -8766,7 +8766,7 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	break;
     }
 
-    if (*fmt_idx == PIX_FMT_NONE) {
+    if (*fmt_idx == AV_PIX_FMT_NONE) {
 	Error(_("video/vdpau: no valid vdpau pixfmt found\n"));
 	goto slow_path;
     }
@@ -8880,7 +8880,7 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     // no accelerated format found
     decoder->Profile = VDP_INVALID_HANDLE;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
@@ -9466,10 +9466,10 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     //
     // Hardware render
     //
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
+    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	struct vdpau_render_state *vrs;
 
 	vrs = (struct vdpau_render_state *)frame->data[0];
@@ -9512,11 +9512,11 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	//	Copy data from frame to image
 	//
 	switch (video_ctx->pix_fmt) {
-	    case PIX_FMT_YUV420P:
-	    case PIX_FMT_YUVJ420P:	// some streams produce this
+	    case AV_PIX_FMT_YUV420P:
+	    case AV_PIX_FMT_YUVJ420P:	// some streams produce this
 		break;
-	    case PIX_FMT_YUV422P:
-	    case PIX_FMT_YUV444P:
+	    case AV_PIX_FMT_YUV422P:
+	    case AV_PIX_FMT_YUV444P:
 	    default:
 		Fatal(_("video/vdpau: pixel format %d not supported\n"),
 		    video_ctx->pix_fmt);
