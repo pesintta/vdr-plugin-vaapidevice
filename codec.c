@@ -532,7 +532,7 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
     //
     //	Prepare frame buffer for decoder
     //
-    if (!(decoder->Frame = avcodec_alloc_frame())) {
+    if (!(decoder->Frame = av_frame_alloc())) {
 	Fatal(_("codec: can't allocate decoder frame\n"));
     }
     // reset buggy ffmpeg/libav flag
