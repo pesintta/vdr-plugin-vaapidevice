@@ -3304,7 +3304,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
 	    return NULL;
 	}
 
-	if (!VaapiFindImageFormat(decoder, PIX_FMT_NV12, format)) {
+	if (!VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format)) {
 	    Error(_("video/vaapi: Image format suitable for grab not supported\n"));
 	    return NULL;
 	}
@@ -3410,7 +3410,7 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder,
 	return NULL;
     }
 
-    if (!VaapiFindImageFormat(decoder, PIX_FMT_BGRA, format)) {
+    if (!VaapiFindImageFormat(decoder, AV_PIX_FMT_BGRA, format)) {
         Error(_("video/vaapi: Image format suitable for grab not supported\n"));
         return NULL;
     }
