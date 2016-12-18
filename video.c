@@ -178,15 +178,6 @@ typedef enum
 #define FFMPEG_BUG1_WORKAROUND		///< get_format bug workaround
 #endif
 
-#ifdef USE_AVFILTER
-#include <libavfilter/avfiltergraph.h>
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
-#include <libavutil/avutil.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/opt.h>
-#endif
-
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
 #include "video.h"
@@ -269,8 +260,8 @@ typedef struct _video_module_
     void (*const DelHwDecoder) (VideoHwDecoder *);
     unsigned (*const GetSurface) (VideoHwDecoder *, const AVCodecContext *);
     void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
-    enum PixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *,
-	const enum PixelFormat *);
+    enum AVPixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *,
+	const enum AVPixelFormat *);
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *,
 	const AVFrame *);
     void *(*const GetHwAccelContext)(VideoHwDecoder *);
@@ -449,12 +440,6 @@ static int VideoFirstField[VideoResolutionMax];
 
     /// Default field ordering for second field
 static int VideoSecondField[VideoResolutionMax];
-
-#ifdef USE_AVFILTER
-    /// Video filter strings to pass to libavfiler
-static const char* VideoPreAvFilterString[VideoResolutionMax];
-static const char* VideoPostAvFilterString[VideoResolutionMax];
-#endif
 
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
 static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
@@ -1626,210 +1611,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
 
 #endif
 
-#ifdef USE_AVFILTER
-
-struct _video_avfilter_ {
-    AVFilterContext* srcFilter;
-    AVFilterContext* outFilter;
-    AVFilterGraph* filterGraph;
-};
-
-typedef struct _video_avfilter_ VideoAvFilter;
-
-static inline int VideoAvFilterIsEnabled(VideoAvFilter const * const filter)
-{
-    return (filter && filter->filterGraph && filter->srcFilter && filter->outFilter);
-}
-
-static void VideoAvFilterClear(VideoAvFilter * filter)
-{
-    if (!filter)
-       return;
-
-    avfilter_graph_free(&filter->filterGraph);
-}
-
-static void VideoFilterFreeBufCB(__attribute__ ((unused)) AVFilterBuffer *buf)
-{
-    // Not freeing buffer because it was allocated via VA-API and will be
-    // mapped/unmapped via those mechanisms
-
-    // The filters have already pushed their data to the backing store buffer
-    // so the only thing to do is to put it to surface
-}
-
-static void VideoFilterProcessInput(VideoAvFilter *filter,
-	unsigned int width, unsigned int height, uint8_t* data[4],
-	unsigned int pitches[4], int interlaced, int top_field_first)
-{
-    AVFilterBufferRef* picref;
-
-    if (!filter) {
-	printf("Filter context not properly allocated\n");
-	return;
-    }
-
-    picref = avfilter_get_video_buffer_ref_from_arrays(data, (const int *)pitches,
-		AV_PERM_READ | AV_PERM_WRITE | AV_PERM_PRESERVE | AV_PERM_ALIGN,
-		width, height, AV_PIX_FMT_YUV420P);
-    picref->buf->priv = filter; // Should store something more meaningful here
-    picref->buf->free = VideoFilterFreeBufCB;
-
-    picref->pts = AV_NOPTS_VALUE; // Should try to figure PTS?
-
-    picref->video->interlaced = interlaced;
-    picref->video->top_field_first = top_field_first;
-
-    if (av_buffersrc_add_ref(filter->srcFilter, picref,
-	AV_BUFFERSRC_FLAG_PUSH | AV_BUFFERSRC_FLAG_NO_COPY) < 0)
-	printf("av_buffersrc_add_ref failed\n");
-}
-
-
-static void VideoFilterObtainOutput(VideoAvFilter * filter,
-	uint8_t* planeptrs[4], unsigned int pitches[4],
-	int width, int height)
-{
-    AVFilterBufferRef* bufref = NULL;
-
-    if (!VideoAvFilterIsEnabled(filter)) {
-	printf("Filters are not properly allocated\n");
-	return;
-    }
-
-    //printf("avail: %d\n", av_buffersink_poll_frame(filter->outFilter));
-
-    if (av_buffersink_get_buffer_ref(filter->outFilter, &bufref, 0) < 0)
-	printf("av_buffersink_get_buffer_ref failed\n");
-
-    if (!bufref) {
-	return;
-    }
-
-    avfilter_unref_bufferp(&bufref);
-}
-
-
-static void VideoFilterInit(VideoAvFilter **filter, int width, int height, int pixfmt,
-	const char * const filterstring)
-{
-    char srcformat[1024];
-    AVFilter *inbuffer, *outbuffer;
-    AVFilterInOut *inputs, *outputs;
-    AVBufferSinkParams *buffersink_params;
-    enum AVPixelFormat out_formats[] = { pixfmt, AV_PIX_FMT_NONE };
-
-    if (!(filterstring && *filterstring))
-	return;
-
-    if (!filter) {
-	Error(_("Invalid initialization to Video AV Filters\n"));
-	abort();
-    }
-
-    avfilter_register_all();
-
-    if (!*filter) {
-	*filter = malloc(sizeof(VideoAvFilter));
-	if (!*filter) {
-	    Error(_("Out of memory allocating Video AV Filters\n"));
-	    return;
-	}
-	memset(*filter, '\0', sizeof(VideoAvFilter));
-    } else {
-	VideoAvFilterClear(*filter);
-    }
-
-    inputs = avfilter_inout_alloc();
-    outputs = avfilter_inout_alloc();
-
-    (*filter)->filterGraph = avfilter_graph_alloc();
-    if (!(*filter)->filterGraph || !inputs || !outputs) {
-	Error(_("Out of memory allocating Video AV Filter graph\n"));
-	goto error;
-    }
-    inbuffer = avfilter_get_by_name("buffer");
-    outbuffer = avfilter_get_by_name("buffersink");
-
-    snprintf(srcformat, sizeof(srcformat),
-	"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-	width, height, pixfmt, 1, 1, 1, 1);
-
-    if (avfilter_graph_create_filter(&(*filter)->srcFilter, inbuffer, "src", srcformat,
-	    NULL, (*filter)->filterGraph) < 0) {
-	Error(_("Failed to create avfilter source: %s\n"), srcformat);
-	goto error_inout;
-    }
-
-    Info("AV Filter source configured as: %s\n", srcformat);
-
-    buffersink_params = av_buffersink_params_alloc();
-    if (!buffersink_params) {
-	printf("Could not allocate buffersink params\n");
-	goto error_buffersink;
-    }
-
-    buffersink_params->pixel_fmts = out_formats;
-
-    if (avfilter_graph_create_filter(&(*filter)->outFilter, outbuffer, "out", NULL,
-	    buffersink_params, (*filter)->filterGraph) < 0) {
-	Error(_("Failed to create avfilter sink\n"));
-	goto error_buffersink;
-    }
-    if (av_opt_set_int_list((*filter)->outFilter, "pix_fmts", out_formats,
-	    AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN) < 0) {
-	Error(_("Failed to set output pixel formats\n"));
-	goto error_buffersink;
-    }
-
-    outputs->name       = av_strdup("in"); // hmm???
-    outputs->filter_ctx = (*filter)->srcFilter;
-    outputs->pad_idx    = 0;
-    outputs->next       = NULL;
-
-    inputs->name        = av_strdup("out"); // hmm???
-    inputs->filter_ctx  = (*filter)->outFilter;
-    inputs->pad_idx     = 0;
-    inputs->next        = NULL;
-
-    if (avfilter_graph_parse_ptr((*filter)->filterGraph, filterstring, &inputs, &outputs, NULL) < 0) {
-	Error(_("Failed to parse avfilter string: %s\n"), filterstring);
-	goto error_buffersink;
-    }
-
-    if (avfilter_graph_config((*filter)->filterGraph, NULL) < 0) {
-	Error(_("Failed to query config for filter graph\n"));
-	goto error_buffersink;
-    }
-
-#ifdef DEBUG
-    Info(_("Successfully initialized filter: %s\n"), avfilter_graph_dump((*filter)->filterGraph, NULL));
-    printf("%s\n", avfilter_graph_dump((*filter)->filterGraph, NULL));
-#endif
-
-    avfilter_inout_free(&inputs);
-    avfilter_inout_free(&outputs);
-    return;
-
-error_buffersink:
-    av_free(buffersink_params);
-
-error_inout:
-    avfilter_inout_free(&inputs);
-    avfilter_inout_free(&outputs);
-
-error:
-   VideoAvFilterClear((*filter));
-   free(*filter);
-   *filter = NULL;
-}
-
-#else
-typedef void* VideoAvFilter;
-
-#endif // USE_AVFILTER
-
-
 //----------------------------------------------------------------------------
 //	software - deinterlace
 //----------------------------------------------------------------------------
@@ -1851,12 +1632,6 @@ static VADisplay *VaDisplay;		///< VA-API display
 static VAImage VaOsdImage = {
     .image_id = VA_INVALID_ID
 };					///< osd VA-API image
-
-#ifdef USE_AVFILTER
-static VAImage VaAvImage = {
-    .image_id = VA_INVALID_ID
-};					///< libavfilter VA-API backing-store image
-#endif
 
 static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
@@ -1891,7 +1666,7 @@ struct _vaapi_decoder_
     unsigned SurfaceFlagsTable[VideoResolutionMax];
     unsigned SurfaceDeintTable[VideoResolutionMax];
 
-    enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
+    enum AVPixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
     int Interlaced;			///< ffmpeg interlaced flag
     int Deinterlaced;			///< vpp deinterlace was run / not run
@@ -1990,10 +1765,6 @@ struct _vaapi_decoder_
     int vpp_contrast_idx;		///< video postprocessing contrast buffer index
     int vpp_hue_idx;			///< video postprocessing hue buffer index
     int vpp_saturation_idx;		///< video postprocessing saturation buffer index
-#ifdef USE_AVFILTER
-    VideoAvFilter* preavfilter;		///< video avfilter processing context before VPP
-    VideoAvFilter* postavfilter;	///< video avfilter processing context after vpp
-#endif
 };
 
 static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
@@ -2583,7 +2354,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->Stream = stream;
     if (!VaapiDecoderN) {		// FIXME: hack sync on audio
@@ -2731,15 +2502,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     if (decoder->DeintImages[0].image_id != VA_INVALID_ID) {
 	VaapiDestroyDeinterlaceImages(decoder);
     }
-
-#ifdef USE_AVFILTER
-    vaDestroyImage(VaDisplay, VaAvImage.image_id);
-    VaAvImage.image_id = VA_INVALID_ID;
-    VideoAvFilterClear(decoder->preavfilter);
-    VideoAvFilterClear(decoder->postavfilter);
-    decoder->preavfilter = NULL;
-    decoder->postavfilter = NULL;
-#endif
 
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
@@ -3132,7 +2894,7 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 ///	FIXME: must check if put/get with this format is supported (see intel)
 ///
 static int VaapiFindImageFormat(VaapiDecoder * decoder,
-    enum PixelFormat pix_fmt, VAImageFormat * format)
+    enum AVPixelFormat pix_fmt, VAImageFormat * format)
 {
     VAImageFormat *imgfrmts;
     int imgfrmt_n;
@@ -3143,18 +2905,18 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 	    // NV12, YV12, I420, BGRA
 	    // intel: I420 is native format for MPEG-2 decoded surfaces
 	    // intel: NV12 is native format for H.264 decoded surfaces
-	case PIX_FMT_YUV420P:
-	case PIX_FMT_YUVJ420P:
+	case AV_PIX_FMT_YUV420P:
+	case AV_PIX_FMT_YUVJ420P:
 	    // fourcc = VA_FOURCC_YV12; // YVU
 	    fourcc = VA_FOURCC('I', '4', '2', '0');	// YUV
 	    break;
-	case PIX_FMT_NV12:
+	case AV_PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
 	    break;
-	case PIX_FMT_BGRA:
+	case AV_PIX_FMT_BGRA:
 	    fourcc = VA_FOURCC_BGRX;
 	    break;
-	case PIX_FMT_RGBA:
+	case AV_PIX_FMT_RGBA:
 	    fourcc = VA_FOURCC_RGBX;
 	    break;
 	default:
@@ -3195,108 +2957,6 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 
     return 0;
 }
-
-
-#ifdef USE_AVFILTER
-static void VaapiProcessSurfaceWithAvFilter(VideoAvFilter * filter,
-	VASurfaceID surface, int interlaced, int top_field_first)
-{
-    VAStatus va_status;
-    uint8_t* buf;
-    uint8_t* planeptrs[4];
-    unsigned int pitches[4];
-
-    // Not set-up yet?
-    if (VaAvImage.image_id == VA_INVALID_ID)
-	return;
-
-    if (!VideoAvFilterIsEnabled(filter))
-	return;
-
-    va_status = vaSyncSurface(VaDisplay, surface);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could not sync surface for libavfilter: %s\n", vaErrorStr(va_status));
-	return;
-    }
-
-    va_status = vaGetImage(VaDisplay, surface, 0, 0,
-	VaAvImage.width, VaAvImage.height, VaAvImage.image_id);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could get image data to libavfilter backing store: %s\n", vaErrorStr(va_status));
-	return;
-    }
-
-    va_status = vaMapBuffer(VaDisplay, VaAvImage.buf, (void**)&buf);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could not map libavfilter backing store: %s\n", vaErrorStr(va_status));
-	return;
-    }
-
-    planeptrs[0] = buf + VaAvImage.offsets[0];
-    planeptrs[1] = buf + VaAvImage.offsets[1];
-    planeptrs[2] = buf + VaAvImage.offsets[2];
-    planeptrs[3] = NULL; // No plane 4 for VA-API
-
-    pitches[0] = VaAvImage.pitches[0];
-    pitches[1] = VaAvImage.pitches[1];
-    pitches[2] = VaAvImage.pitches[2];
-    pitches[3] = 0; // No plane 4 for VA-API
-
-    // Put new data in
-    VideoFilterProcessInput(filter, VaAvImage.width, VaAvImage.height,
-	planeptrs, pitches, interlaced, top_field_first);
-
-    // Get processed data to surface
-    VideoFilterObtainOutput(filter, planeptrs, VaAvImage.pitches,
-	VaAvImage.width, VaAvImage.height);
-
-    vaUnmapBuffer(VaDisplay, VaAvImage.buf);
-
-    va_status = vaPutImage(VaDisplay, surface, VaAvImage.image_id,
-	0, 0, VaAvImage.width, VaAvImage.height,
-	0, 0, VaAvImage.width, VaAvImage.height);
-    if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could not write libavfilter backing store contents to surface: %s\n",
-		vaErrorStr(va_status));
-	return;
-    }
-}
-
-
-static void VaapiSetupVideoFilters(VaapiDecoder * decoder)
-{
-    VAStatus va_status;
-    VAImageFormat format;
-
-    // Image already setup?
-    if (VaAvImage.image_id == VA_INVALID_ID) {
-
-	if (!VaapiFindImageFormat(VaapiDecoders[0], PIX_FMT_YUV420P, &format)) {
-	    Error(_("Implementation does not support YUV420P image format needed for libavfilters\n"));
-	    return;
-	}
-
-	va_status = vaCreateImage(VaDisplay, &format,
-	    decoder->InputWidth, decoder->InputHeight, &VaAvImage);
-	if (va_status != VA_STATUS_SUCCESS) {
-	    Error(_("Could not create backing store for libavfilters: %s\n"), vaErrorStr(va_status));
-	    return;
-	}
-    }
-
-    // Initialize filter(s)
-    VideoFilterInit(&(decoder->preavfilter), decoder->InputWidth, decoder->InputHeight,
-	AV_PIX_FMT_YUV420P, VideoPreAvFilterString[decoder->Resolution]);
-    VideoFilterInit(&(decoder->postavfilter), decoder->InputWidth, decoder->InputHeight,
-	AV_PIX_FMT_YUV420P, VideoPostAvFilterString[decoder->Resolution]);
-}
-#else
-
-#define VaapiSetupVideoFilters(...)
-#define VaapiProcessSurfaceWithAvFilter(...)
-
-#endif // USE_AVFILTER
-
 
 #define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
@@ -3644,7 +3304,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
 	    return NULL;
 	}
 
-	if (!VaapiFindImageFormat(decoder, PIX_FMT_NV12, format)) {
+	if (!VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format)) {
 	    Error(_("video/vaapi: Image format suitable for grab not supported\n"));
 	    return NULL;
 	}
@@ -3750,7 +3410,7 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder,
 	return NULL;
     }
 
-    if (!VaapiFindImageFormat(decoder, PIX_FMT_BGRA, format)) {
+    if (!VaapiFindImageFormat(decoder, AV_PIX_FMT_BGRA, format)) {
         Error(_("video/vaapi: Image format suitable for grab not supported\n"));
         return NULL;
     }
@@ -3893,7 +3553,7 @@ static void VaapiSetup(VaapiDecoder * decoder,
 #endif
     // FIXME: PixFmt not set!
     //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 
     // FIXME: this image is only needed for software decoder and auto-crop
     if (decoder->GetPutImage
@@ -4343,8 +4003,6 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder,
 
 	// FIXME: too late to switch to software rending on failures
 	VaapiSetupVideoProcessing(decoder);
-
-	VaapiSetupVideoFilters(decoder);
     }
 #else
     (void)video_ctx;
@@ -4409,10 +4067,10 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints,
 ///
 ///	@note + 2 surface for software deinterlace
 ///
-static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
-    AVCodecContext * video_ctx, const enum PixelFormat *fmt)
+static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder,
+    AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
-    const enum PixelFormat *fmt_idx;
+    const enum AVPixelFormat *fmt_idx;
     VAProfile profiles[vaMaxNumProfiles(VaDisplay)];
     int profile_n;
     VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
@@ -4497,16 +4155,16 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     }
     Debug(3, "codec: %d entrypoints\n", entrypoint_n);
     //	look through formats
-    for (fmt_idx = fmt; *fmt_idx != PIX_FMT_NONE; fmt_idx++) {
+    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
 	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
-	    case PIX_FMT_VAAPI_VLD:
+	    case AV_PIX_FMT_VAAPI_VLD:
 		e = VaapiFindEntrypoint(entrypoints, entrypoint_n,
 		    VAEntrypointVLD);
 		break;
-	    case PIX_FMT_VAAPI_MOCO:
-	    case PIX_FMT_VAAPI_IDCT:
+	    case AV_PIX_FMT_VAAPI_MOCO:
+	    case AV_PIX_FMT_VAAPI_IDCT:
 		Debug(3, "codec: this VA-API pixel format is not supported\n");
 	    default:
 		continue;
@@ -4611,8 +4269,6 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 	}
 
 	VaapiSetupVideoProcessing(decoder);
-
-	VaapiSetupVideoFilters(decoder);
     }
 #endif
 
@@ -4627,7 +4283,7 @@ static enum PixelFormat Vaapi_get_format(VaapiDecoder * decoder,
     decoder->VppConfig = VA_INVALID_ID;
     decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
@@ -4834,8 +4490,8 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 
 	// FIXME: PixFmt not set!
 	//VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-	//VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+	VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
+	//VaapiFindImageFormat(decoder, AV_PIX_FMT_YUV420P, format);
 	if (vaCreateImage(VaDisplay, format, width, height,
 		decoder->Image) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create image!\n"));
@@ -5181,10 +4837,6 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
     if (pthread_mutex_trylock(&VideoMutex))
         return;
 
-    /* Apply pre-gpu-processing ffmpeg filters */
-    VaapiProcessSurfaceWithAvFilter(decoder->preavfilter, surface,
-	decoder->Interlaced, decoder->TopFieldFirst);
-
     /* Queue new surface and run postprocessing filters */
     VaapiQueueSurfaceNew(decoder, surface);
     firstfield = VaapiApplyFilters(decoder, decoder->TopFieldFirst ? 1 : 0);
@@ -5192,16 +4844,9 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
         /* Use unprocessed surface if postprocessing fails */
         decoder->Deinterlaced = 0;
 
-	/* Apply post-gpu-processing ffmpeg filters */
-	VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, surface,
-	    decoder->Deinterlaced, decoder->TopFieldFirst);
-
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, surface);
     } else {
         decoder->Deinterlaced = 1;
-
-	VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *firstfield,
-		decoder->Deinterlaced, decoder->TopFieldFirst);
 
         VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
     }
@@ -5219,16 +4864,9 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface,
             /* Use unprocessed surface if postprocessing fails */
             decoder->Deinterlaced = 0;
 
-	    /* Apply post-gpu-processing ffmpeg filters */
-	    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, surface,
-		decoder->Deinterlaced, decoder->TopFieldFirst);
-
             VaapiAddToHistoryQueue(decoder->SecondFieldHistory, surface);
         } else {
             decoder->Deinterlaced = 1;
-
-	    VaapiProcessSurfaceWithAvFilter(decoder->postavfilter, *secondfield,
-		decoder->Deinterlaced, decoder->TopFieldFirst);
 
             VaapiAddToHistoryQueue(decoder->SecondFieldHistory, *secondfield);
         }
@@ -5297,7 +4935,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	if (decoder->Image->image_id == VA_INVALID_ID) {
 	    VAImageFormat format[1];
 
-	    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 	    status =
 		vaCreateImage(VaDisplay, format, VideoWindowWidth,
 		VideoWindowHeight, decoder->Image);
@@ -5942,8 +5580,8 @@ static void VaapiCreateDeinterlaceImages(VaapiDecoder * decoder)
     // I420 Y U V 2x2
 
     // Intel needs NV12
-    VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
-    //VaapiFindImageFormat(decoder, PIX_FMT_YUV420P, format);
+    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
+    //VaapiFindImageFormat(decoder, AV_PIX_FMT_YUV420P, format);
     for (i = 0; i < 5; ++i) {
 	if (vaCreateImage(decoder->VaDisplay, format, decoder->InputWidth,
 		decoder->InputHeight,
@@ -6015,7 +5653,7 @@ static void VaapiCpuDerive(VaapiDecoder * decoder, VASurfaceID surface)
     if (decoder->Image->image_id == VA_INVALID_ID) {
 	VAImageFormat format[1];
 
-	VaapiFindImageFormat(decoder, PIX_FMT_NV12, format);
+	VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 	if (vaCreateImage(VaDisplay, format, decoder->InputWidth,
 		decoder->InputHeight, decoder->Image) != VA_STATUS_SUCCESS) {
 	    Error(_("video/vaapi: can't create image!\n"));
@@ -7415,8 +7053,8 @@ static const VideoModule VaapiModule = {
 	    const AVCodecContext *))VaapiGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
-    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
+    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
     .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
@@ -7457,8 +7095,8 @@ static const VideoModule VaapiGlxModule = {
 	    const AVCodecContext *))VaapiGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
-    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum PixelFormat *))Vaapi_get_format,
+    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
     .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
@@ -7513,7 +7151,7 @@ typedef struct _vdpau_decoder_
     int OutputWidth;			///< real video output width
     int OutputHeight;			///< real video output height
 
-    enum PixelFormat PixFmt;		///< ffmpeg frame pixfmt
+    enum AVPixelFormat PixFmt;		///< ffmpeg frame pixfmt
     int WrongInterlacedWarned;		///< warning about interlace flag issued
     int Interlaced;			///< ffmpeg interlaced flag
     int TopFieldFirst;			///< ffmpeg top field displayed first
@@ -8243,7 +7881,7 @@ static VdpauDecoder *VdpauNewHwDecoder(VideoStream * stream)
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
 #ifdef USE_AUTOCROP
     //decoder->AutoCropBuffer = NULL;	// done by calloc
@@ -9094,10 +8732,10 @@ static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
 ///			it is terminated by -1 as 0 is a valid format, the
 ///			formats are ordered by quality.
 ///
-static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
-    AVCodecContext * video_ctx, const enum PixelFormat *fmt)
+static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
+    AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
-    const enum PixelFormat *fmt_idx;
+    const enum AVPixelFormat *fmt_idx;
     VdpDecoderProfile profile;
     int max_refs;
 
@@ -9111,16 +8749,16 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     //	look through formats
     //
     Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
-    for (fmt_idx = fmt; *fmt_idx != PIX_FMT_NONE; fmt_idx++) {
+    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
 	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
-	    case PIX_FMT_VDPAU_H264:
-	    case PIX_FMT_VDPAU_MPEG1:
-	    case PIX_FMT_VDPAU_MPEG2:
-	    case PIX_FMT_VDPAU_WMV3:
-	    case PIX_FMT_VDPAU_VC1:
-	    case PIX_FMT_VDPAU_MPEG4:
+	    case AV_PIX_FMT_VDPAU_H264:
+	    case AV_PIX_FMT_VDPAU_MPEG1:
+	    case AV_PIX_FMT_VDPAU_MPEG2:
+	    case AV_PIX_FMT_VDPAU_WMV3:
+	    case AV_PIX_FMT_VDPAU_VC1:
+	    case AV_PIX_FMT_VDPAU_MPEG4:
 		break;
 	    default:
 		continue;
@@ -9128,7 +8766,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	break;
     }
 
-    if (*fmt_idx == PIX_FMT_NONE) {
+    if (*fmt_idx == AV_PIX_FMT_NONE) {
 	Error(_("video/vdpau: no valid vdpau pixfmt found\n"));
 	goto slow_path;
     }
@@ -9242,7 +8880,7 @@ static enum PixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     // no accelerated format found
     decoder->Profile = VDP_INVALID_HANDLE;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = PIX_FMT_NONE;
+    decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
@@ -9828,10 +9466,10 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     //
     // Hardware render
     //
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
+    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
+    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
+	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	struct vdpau_render_state *vrs;
 
 	vrs = (struct vdpau_render_state *)frame->data[0];
@@ -9874,11 +9512,11 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	//	Copy data from frame to image
 	//
 	switch (video_ctx->pix_fmt) {
-	    case PIX_FMT_YUV420P:
-	    case PIX_FMT_YUVJ420P:	// some streams produce this
+	    case AV_PIX_FMT_YUV420P:
+	    case AV_PIX_FMT_YUVJ420P:	// some streams produce this
 		break;
-	    case PIX_FMT_YUV422P:
-	    case PIX_FMT_YUV444P:
+	    case AV_PIX_FMT_YUV422P:
+	    case AV_PIX_FMT_YUV444P:
 	    default:
 		Fatal(_("video/vdpau: pixel format %d not supported\n"),
 		    video_ctx->pix_fmt);
@@ -11254,8 +10892,8 @@ static const VideoModule VdpauModule = {
 	    const AVCodecContext *))VdpauGetSurface,
     .ReleaseSurface =
 	(void (*const) (VideoHwDecoder *, unsigned))VdpauReleaseSurface,
-    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum PixelFormat *))Vdpau_get_format,
+    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum AVPixelFormat *))Vdpau_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VdpauSyncRenderFrame,
     .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
@@ -11421,8 +11059,8 @@ static const VideoModule NoopModule = {
 #endif
     .ReleaseSurface = NoopReleaseSurface,
 #if 0
-    .get_format = (enum PixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum PixelFormat *))Noop_get_format,
+    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
+	    AVCodecContext *, const enum AVPixelFormat *))Noop_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))NoopSyncRenderFrame,
     .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
@@ -12001,8 +11639,8 @@ void VideoReleaseSurface(VideoHwDecoder * hw_decoder, unsigned surface)
 ///				valid format, the formats are ordered by
 ///				quality.
 ///
-enum PixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
-    AVCodecContext * video_ctx, const enum PixelFormat *fmt)
+enum AVPixelFormat Video_get_format(VideoHwDecoder * hw_decoder,
+    AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
 #ifdef DEBUG
     int ms_delay;
@@ -13583,33 +13221,6 @@ void VideoSetSecondField(int second[VideoResolutionMax])
     VideoSecondField[2] = second[2];
     VideoSecondField[3] = second[3];
 }
-
-#ifdef USE_AVFILTER
-///
-///	Set video avfilter before gpu processing
-///
-///	@param filter	filter string to pass to libavfilter
-///
-void VideoSetPreAvFilter(const char* filterstring[VideoResolutionMax])
-{
-    VideoPreAvFilterString[0] = filterstring[0];
-    VideoPreAvFilterString[1] = filterstring[1];
-    VideoPreAvFilterString[2] = filterstring[2];
-    VideoPreAvFilterString[3] = filterstring[3];
-}
-///
-///	Set video avfilter after gpu processing
-///
-///	@param filter	filter string to pass to libavfilter
-///
-void VideoSetPostAvFilter(const char* filterstring[VideoResolutionMax])
-{
-    VideoPostAvFilterString[0] = filterstring[0];
-    VideoPostAvFilterString[1] = filterstring[1];
-    VideoPostAvFilterString[2] = filterstring[2];
-    VideoPostAvFilterString[3] = filterstring[3];
-}
-#endif
 
 ///
 ///	Set studio levels.

@@ -459,18 +459,6 @@ msgstr "Ein Software und GPU emulieres HD-Gerät"
 msgid "SoftHdDevice"
 msgstr "SoftHdDevice"
 
-msgid "none"
-msgstr ""
-
-msgid "user-defined"
-msgstr ""
-
-msgid "Yadif deinterlacer"
-msgstr ""
-
-msgid "Deblocking & Deringing"
-msgstr ""
-
 msgid "[softhddev]: dirty area too big\n"
 msgstr ""
 
@@ -582,18 +570,6 @@ msgstr "Schneide oben und unten ab (Pixel)"
 
 msgid "Cut left and right (pixel)"
 msgstr "Schneide links und rechts ab (Pixel)"
-
-msgid "Prefilter"
-msgstr ""
-
-msgid " User-defined prefilter"
-msgstr ""
-
-msgid "Postfilter"
-msgstr ""
-
-msgid " User-defined postfilter"
-msgstr ""
 
 msgid "First field order (0-2)"
 msgstr ""
@@ -846,36 +822,6 @@ msgstr ""
 msgid "video/glx: v-sync enabled\n"
 msgstr ""
 
-msgid "Invalid initialization to Video AV Filters\n"
-msgstr ""
-
-msgid "Out of memory allocating Video AV Filters\n"
-msgstr ""
-
-msgid "Out of memory allocating Video AV Filter graph\n"
-msgstr ""
-
-#, c-format
-msgid "Failed to create avfilter source: %s\n"
-msgstr ""
-
-msgid "Failed to create avfilter sink\n"
-msgstr ""
-
-msgid "Failed to set output pixel formats\n"
-msgstr ""
-
-#, c-format
-msgid "Failed to parse avfilter string: %s\n"
-msgstr ""
-
-msgid "Failed to query config for filter graph\n"
-msgstr ""
-
-#, c-format
-msgid "Successfully initialized filter: %s\n"
-msgstr ""
-
 msgid "video/vaapi: no osd subpicture yet\n"
 msgstr ""
 
@@ -1008,13 +954,6 @@ msgid "video/vaapi: unsupported pixel format %d\n"
 msgstr ""
 
 msgid "video/vaapi: vaQueryImageFormats failed\n"
-msgstr ""
-
-msgid "Implementation does not support YUV420P image format needed for libavfilters\n"
-msgstr ""
-
-#, c-format
-msgid "Could not create backing store for libavfilters: %s\n"
 msgstr ""
 
 #, c-format
