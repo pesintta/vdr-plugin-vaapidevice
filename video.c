@@ -190,6 +190,8 @@ typedef enum
 #include "audio.h"
 #include "codec.h"
 
+#define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
+
 #ifdef USE_XLIB_XCB
 
 //----------------------------------------------------------------------------
@@ -336,53 +338,57 @@ typedef struct _video_config_values_
 //	Variables
 //----------------------------------------------------------------------------
 
+#ifdef USE_VDPAU
 static VideoConfigValues VdpauConfigBrightness =
 { .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
+static VideoConfigValues VdpauConfigContrast =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSaturation =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigHue =
+{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigDenoise =
+{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSharpen =
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigStde =
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
+#endif
+
+#ifdef USE_VAAPI
 // Brightness (-100.00 - 100.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigBrightness =
 { .active = 0, .min_value = -100.0, .max_value = 100.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigContrast =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Contrast (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigContrast =
 { .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigSaturation =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
-
 // Saturation (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigSaturation =
 { .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigHue =
-{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Hue (-180.00 - 180.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigHue =
 { .active = 0, .min_value = -180.0, .max_value = 180.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigDenoise =
-{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
-
 // Denoise (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigDenoise =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigSharpen =
-{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Sharpen (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigSharpen =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigStde =
-{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
-
 static VideoConfigValues VaapiConfigStde =
 { .active = 1, .min_value = 0.0, .max_value = 4.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
+#endif
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -1449,6 +1455,22 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
     return VideoResolution1080i;
 }
 
+///
+///     Clamp given value against config limits
+///
+///     @param config   config struct
+///     @param valueIn  sample value
+///     @return clamped value
+///
+static inline int VideoConfigClamp(VideoConfigValues * config, float valueIn)
+{
+    if (valueIn < config->min_value)
+        return config->min_value;
+    else if (valueIn > config->max_value)
+        return config->def_value;
+    return valueIn;
+}
+
 //----------------------------------------------------------------------------
 //	auto-crop
 //----------------------------------------------------------------------------
@@ -2133,22 +2155,6 @@ static inline void VaapiNormalizeConfig(VideoConfigValues * config, float valueM
 	config->step *= 10;
 	config->scale /= 10;
     }
-}
-
-///
-///	Clamp given value against config limits
-///
-///	@param config	config struct
-///	@param valueIn	sample value
-///	@return	clamped value
-///
-static inline int VideoConfigClamp(VideoConfigValues * config, float valueIn)
-{
-    if (valueIn < config->min_value)
-	return config->min_value;
-    else if (valueIn > config->max_value)
-	return config->def_value;
-    return valueIn;
 }
 
 ///
@@ -2974,8 +2980,6 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 
     return 0;
 }
-
-#define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 ///
 ///	Verify & Run arbitrary VPP processing on src/dst surface(s)
@@ -11834,9 +11838,9 @@ static const VideoModule *VideoModules[] = {
 #endif
 #ifdef USE_VAAPI
     &VaapiModule,
-#endif
 #ifdef USE_GLX
     &VaapiGlxModule,			// FIXME: if working, prefer this
+#endif
 #endif
     &NoopModule
 };
@@ -13168,6 +13172,7 @@ void VideoSetFullscreen(int onoff)
 ///
 ///     Get scaling modes.
 ///
+#ifdef USE_VDPAU
 static const char *vdpau_scaling[] = {
     "Normal",      ///< VideoScalingNormal
     "Fast",        ///< VideoScalingFast
@@ -13181,7 +13186,9 @@ static const char *vdpau_scaling_short[] = {
     "HQ",          ///< VideoScalingHQ
     "A"            ///< VideoScalingAnamorphic
 };
+#endif
 
+#ifdef USE_VAAPI
 static const char *vaapi_scaling[] = {
     "Normal",      ///< VideoScalingNormal
     "Fast",        ///< VideoScalingFast
@@ -13193,6 +13200,7 @@ static const char *vaapi_scaling_short[] = {
     "F",           ///< VideoScalingFast
     "HQ"           ///< VideoScalingHQ
 };
+#endif
 
 int VideoGetScalingModes(const char* **long_table, const char* **short_table)
 {
@@ -13220,6 +13228,7 @@ int VideoGetScalingModes(const char* **long_table, const char* **short_table)
 ///
 ///     Get deinterlace modes.
 ///
+#ifdef USE_VDPAU
 static const char *vdpau_deinterlace[] = {
     "Bob",                ///< VideoDeinterlaceBob
     "Weave/None",         ///< VideoDeinterlaceWeave
@@ -13237,7 +13246,9 @@ static const char *vdpau_deinterlace_short[] = {
     "S+B",                ///< VideoDeinterlaceSoftBob
     "S+S"                 ///< VideoDeinterlaceSoftSpatial
 };
+#endif
 
+#ifdef USE_VAAPI
 static const char *vaapi_deinterlace[] = {
     "Bob",                ///< VideoDeinterlaceBob
     "Weave/None",         ///< VideoDeinterlaceWeave
@@ -13251,6 +13262,7 @@ static const char *vaapi_deinterlace_short[] = {
     "MADI",               ///< VideoDeinterlaceTemporal
     "MCDI"                ///< VideoDeinterlaceTemporalSpatial
 };
+#endif
 
 int VideoGetDeinterlaceModes(const char* **long_table, const char* **short_table)
 {
