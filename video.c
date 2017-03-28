@@ -2710,9 +2710,11 @@ static void Vaapi1080i(void)
 	    Error(_("video/vaapi: vaPutSurface failed\n"));
 	}
 	tick = GetMsTicks();
+#ifdef DEBUG
 	if (!(n % 10)) {
 	    fprintf(stderr, "%dms / frame\n", (tick - start_tick) / n);
 	}
+#endif
     }
 
     // destory the stuff.
@@ -2725,7 +2727,9 @@ static void Vaapi1080i(void)
     if (vaDestroyConfig(VaDisplay, config_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't destroy config!\n"));
     }
+#ifdef DEBUG
     fprintf(stderr, "done\n");
+#endif
 }
 
 #endif
@@ -2763,6 +2767,12 @@ static int VaapiInit(const char *display_name)
     // XvBA needs this:
     setenv("DISPLAY", display_name, 1);
 
+#ifndef DEBUG
+#if VA_CHECK_VERSION(0,40,0)
+    vaSetErrorCallback(NULL);
+    vaSetInfoCallback(NULL);
+#endif
+#endif
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: Can't inititialize VA-API on '%s'\n"),
 	    display_name);
@@ -4400,8 +4410,10 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     if (e - s > 2000) {
 	Error(_("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
+#ifdef DEBUG
 	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
+#endif
     }
 
     if (0) {
@@ -5063,8 +5075,10 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     if (put1 - sync > 2000) {
 	Error(_("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
+#ifdef DEBUG
 	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
+#endif
     }
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
 
