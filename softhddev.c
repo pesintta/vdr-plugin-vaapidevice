@@ -80,12 +80,6 @@ static void DumpMpeg(const uint8_t * data, int size);
 //	Variables
 //////////////////////////////////////////////////////////////////////////////
 
-#ifdef USE_VDPAU
-static char VdpauDecoder = 1;		///< vdpau decoder used
-#else
-#define	VdpauDecoder 0			///< no vdpau decoder configured
-#endif
-
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
 extern int ConfigVideoClearOnSwitch;	//<  clear decoder on channel switch
 char ConfigStartX11Server;		///< flag start the x11 server
@@ -707,7 +701,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			    Debug(3, "pesdemux: new codec %#06x -> %#06x\n",
 				AudioCodecID, codec_id);
 			    CodecAudioClose(MyAudioDecoder);
-			    CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+			    CodecAudioOpen(MyAudioDecoder, codec_id);
 			    AudioCodecID = codec_id;
 			}
 			av_init_packet(avpkt);
@@ -880,7 +874,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 				(q[5] & 0x7) + 1);
 			    // FIXME: support resample
 			}
-			//CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+			//CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
 			AudioCodecID = AV_CODEC_ID_PCM_DVD;
 		    }
 		    pesdx->State = PES_LPCM_PAYLOAD;
@@ -1143,7 +1137,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		    (p[5] & 0x7) + 1);
 		// FIXME: support resample
 	    }
-	    //CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+	    //CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
 	    AudioCodecID = AV_CODEC_ID_PCM_DVD;
 	}
 
@@ -1216,7 +1210,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    // new codec id, close and open new
 	    if (AudioCodecID != codec_id) {
 		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+		CodecAudioOpen(MyAudioDecoder, codec_id);
 		AudioCodecID = codec_id;
 	    }
 	    av_init_packet(avpkt);
@@ -2017,9 +2011,6 @@ int VideoGetBuffers(const VideoStream * stream)
 static void StartVideo(void)
 {
     VideoInit(X11DisplayName);
-#ifdef USE_VDPAU
-    VdpauDecoder = !strcasecmp(VideoGetDriverName(), "vdpau");
-#endif
 
     if (ConfigFullscreen) {
 	// FIXME: not good looking, mapped and then resized.

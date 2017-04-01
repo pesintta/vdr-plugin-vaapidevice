@@ -65,6 +65,7 @@
 #define AVCodecID CodecID
 #define AV_CODEC_ID_AC3 CODEC_ID_AC3
 #define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
+#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
 #define AV_CODEC_ID_H264 CODEC_ID_H264
 #endif
 #include <libavcodec/vaapi.h>
@@ -386,14 +387,15 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 **	Open video decoder.
 **
 **	@param decoder	private video decoder
-**	@param codec_id	video codec id, used if name == NULL
+**	@param codec_id	video codec id
 */
 void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
     const char *name;
 
-    Debug(3, "codec: using video codec %s or ID %#06x\n", name, codec_id);
+    Debug(3, "codec: using video codec ID %#06x (%s)\n", codec_id,
+	avcodec_get_name(codec_id));
 
     if (decoder->VideoCtx) {
 	Error(_("codec: missing close\n"));
@@ -453,7 +455,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 
     decoder->VideoCtx->opaque = decoder;	// our structure
 
-    Debug(3, "codec: video '%s'\n", decoder->VideoCtx->codec_name);
+    Debug(3, "codec: video '%s'\n", decoder->VideoCodec->long_name);
     if (codec_id == AV_CODEC_ID_H264) {
 	// 2.53 Ghz CPU is too slow for this codec at 1080i
 	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_ALL;
@@ -516,9 +518,15 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     //
     //	Prepare frame buffer for decoder
     //
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(decoder->Frame = av_frame_alloc())) {
-	Fatal(_("codec: can't allocate decoder frame\n"));
+	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
     }
+#else
+    if (!(decoder->Frame = avcodec_alloc_frame())) {
+	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
+    }
+#endif
     // reset buggy ffmpeg/libav flag
     decoder->GetFormatDone = 0;
 #ifdef FFMPEG_WORKAROUND_ARTIFACTS
@@ -534,7 +542,12 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 void CodecVideoClose(VideoDecoder * video_decoder)
 {
     // FIXME: play buffered data
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
+    av_frame_free(&video_decoder->Frame);	// callee does checks
+#else
     av_freep(&video_decoder->Frame);
+#endif
+
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(video_decoder->VideoCtx);
@@ -804,17 +817,16 @@ void CodecAudioDelDecoder(AudioDecoder * decoder)
 **	Open audio decoder.
 **
 **	@param audio_decoder	private audio decoder
-**	@param name	audio codec name
-**	@param codec_id	audio codec id, used if name == NULL
+**	@param codec_id	audio	codec id
 */
-void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
-    int codec_id)
+void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 {
     AVCodec *audio_codec;
 
-    Debug(3, "codec: using audio codec ID %#06x (%s)\n", codec_id, avcodec_get_name(codec_id));
+    Debug(3, "codec: using audio codec ID %#06x (%s)\n", codec_id,
+	avcodec_get_name(codec_id));
 
-    if (!(audio_codec = avcodec_find_decoder_by_name(avcodec_get_name(codec_id)))) {
+    if (!(audio_codec = avcodec_find_decoder(codec_id))) {
 	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
 	// FIXME: errors aren't fatal
     }
@@ -825,7 +837,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 
     if (CodecDownmix) {
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100) || FF_API_REQUEST_CHANNELS
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100)
 	audio_decoder->AudioCtx->request_channels = 2;
 #endif
 	audio_decoder->AudioCtx->request_channel_layout =
@@ -859,7 +871,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
-    Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCtx->codec_name);
+    Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCodec->long_name);
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: audio can use truncated packets\n");

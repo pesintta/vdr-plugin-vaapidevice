@@ -123,7 +123,7 @@ extern AudioDecoder *CodecAudioNewDecoder(void);
 extern void CodecAudioDelDecoder(AudioDecoder *);
 
     /// Open audio codec.
-extern void CodecAudioOpen(AudioDecoder *, const char *, int);
+extern void CodecAudioOpen(AudioDecoder *, int);
 
     /// Close audio codec.
 extern void CodecAudioClose(AudioDecoder *);
