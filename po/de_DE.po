@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2015-09-30 10:48+0200\n"
+"POT-Creation-Date: 2015-10-20 14:39+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -270,7 +270,7 @@ msgstr ""
 msgid "codec: can't open video codec!\n"
 msgstr ""
 
-msgid "codec: can't allocate decoder frame\n"
+msgid "codec: can't allocate video decoder frame buffer\n"
 msgstr ""
 
 msgid "codec: can't allocate audio decoder\n"
@@ -1377,6 +1377,9 @@ msgstr ""
 
 #, c-format
 msgid "video/vdpau: pixel format %d not supported\n"
+msgstr ""
+
+msgid "Cannot initialize the conversion context!\n"
 msgstr ""
 
 #, c-format

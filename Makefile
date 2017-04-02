@@ -23,6 +23,8 @@ VAAPI ?= $(shell pkg-config --exists libva && echo 1)
 OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
     # screensaver disable/enable
 SCREENSAVER ?= 1
+    # use ffmpeg libswscale
+SWSCALE ?= $(shell pkg-config --exists libswscale && echo 1)
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
     # use libav libavresample
@@ -122,6 +124,11 @@ ifeq ($(SCREENSAVER),1)
 CONFIG += -DUSE_SCREENSAVER
 _CFLAGS += $(shell pkg-config --cflags xcb-screensaver xcb-dpms)
 LIBS += $(shell pkg-config --libs xcb-screensaver xcb-dpms)
+endif
+ifeq ($(SWSCALE),1)
+CONFIG += -DUSE_SWSCALE
+_CFLAGS += $(shell pkg-config --cflags libswscale)
+LIBS += $(shell pkg-config --libs libswscale)
 endif
 ifeq ($(SWRESAMPLE),1)
 CONFIG += -DUSE_SWRESAMPLE

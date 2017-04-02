@@ -150,9 +150,14 @@ typedef enum
 #ifdef USE_VDPAU
 #include <vdpau/vdpau_x11.h>
 #include <libavcodec/vdpau.h>
+#include <libavutil/hwcontext_vdpau.h>
 #endif
 
 #include <libavcodec/avcodec.h>
+#ifdef USE_SWSCALE
+#include <libswscale/swscale.h>
+#endif
+
 // support old ffmpeg versions <1.0
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
 #define AVCodecID CodecID
@@ -166,6 +171,7 @@ typedef enum
 #endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/hwcontext.h>
 
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,86,100) && \
     LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,60,100)
@@ -182,6 +188,9 @@ typedef enum
 #include "misc.h"
 #include "video.h"
 #include "audio.h"
+#include "codec.h"
+
+#define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 #ifdef USE_XLIB_XCB
 
@@ -198,6 +207,7 @@ typedef enum _video_resolutions_
     VideoResolution720p,		///< ...x720 progressive
     VideoResolutionFake1080i,		///< 1280x1080 1440x1080 interlaced
     VideoResolution1080i,		///< 1920x1080 interlaced
+    VideoResolutionUHD,			///< UHD progressive
     VideoResolutionMax			///< number of resolution indexs
 } VideoResolutions;
 
@@ -328,53 +338,57 @@ typedef struct _video_config_values_
 //	Variables
 //----------------------------------------------------------------------------
 
+#ifdef USE_VDPAU
 static VideoConfigValues VdpauConfigBrightness =
 { .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
+static VideoConfigValues VdpauConfigContrast =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSaturation =
+{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigHue =
+{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigDenoise =
+{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigSharpen =
+{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
+
+static VideoConfigValues VdpauConfigStde =
+{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
+#endif
+
+#ifdef USE_VAAPI
 // Brightness (-100.00 - 100.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigBrightness =
 { .active = 0, .min_value = -100.0, .max_value = 100.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigContrast =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Contrast (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigContrast =
 { .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigSaturation =
-{ .active = 1, .min_value = 0.0, .max_value = 10000.0, .def_value = 1000.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
-
 // Saturation (0.00 - 10.00 ++ 0.10 = 1.00)
 static VideoConfigValues VaapiConfigSaturation =
 { .active = 0, .min_value = 0.0, .max_value = 10.0, .def_value = 1.0, .step = 0.1, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigHue =
-{ .active = 1, .min_value = -1000.0 * M_PI, .max_value = 1000.0 * M_PI, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Hue (-180.00 - 180.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigHue =
 { .active = 0, .min_value = -180.0, .max_value = 180.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigDenoise =
-{ .active = 1, .min_value = 0.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
-
 // Denoise (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigDenoise =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
-
-static VideoConfigValues VdpauConfigSharpen =
-{ .active = 1, .min_value = -1000.0, .max_value = 1000.0, .def_value = 0.0, .step = 1.0, .scale = 0.001, .drv_scale = 1.0 };
 
 // Sharpen (0.00 - 1.00 ++ 0.03 = 0.50)
 static VideoConfigValues VaapiConfigSharpen =
 { .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 0.5, .step = 0.03, .scale = 1.0, .drv_scale = 1.0 };
 
-static VideoConfigValues VdpauConfigStde =
-{ .active = 0, .min_value = 0.0, .max_value = 1.0, .def_value = 1.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
-
 static VideoConfigValues VaapiConfigStde =
 { .active = 1, .min_value = 0.0, .max_value = 4.0, .def_value = 0.0, .step = 1.0, .scale = 1.0, .drv_scale = 1.0 };
+#endif
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -444,7 +458,7 @@ static int VideoSecondField[VideoResolutionMax];
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
 static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
     VideoColorSpaceBt601, VideoColorSpaceBt709, VideoColorSpaceBt709,
-    VideoColorSpaceBt709
+    VideoColorSpaceBt709, VideoColorSpaceBt709
 };
 
     /// Default scaling mode
@@ -1423,6 +1437,9 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
     __attribute__ ((unused))
     int interlace)
 {
+    if (height == 2160) {
+	return VideoResolutionUHD;
+    }
     if (height <= 576) {
 	return VideoResolution576i;
     }
@@ -1436,6 +1453,22 @@ static VideoResolutions VideoResolutionGroup(int width, int height,
 	return VideoResolutionFake1080i;
     }
     return VideoResolution1080i;
+}
+
+///
+///     Clamp given value against config limits
+///
+///     @param config   config struct
+///     @param valueIn  sample value
+///     @return clamped value
+///
+static inline int VideoConfigClamp(VideoConfigValues * config, float valueIn)
+{
+    if (valueIn < config->min_value)
+        return config->min_value;
+    else if (valueIn > config->max_value)
+        return config->def_value;
+    return valueIn;
 }
 
 //----------------------------------------------------------------------------
@@ -2125,22 +2158,6 @@ static inline void VaapiNormalizeConfig(VideoConfigValues * config, float valueM
 }
 
 ///
-///	Clamp given value against config limits
-///
-///	@param config	config struct
-///	@param valueIn	sample value
-///	@return	clamped value
-///
-static inline int VideoConfigClamp(VideoConfigValues * config, float valueIn)
-{
-    if (valueIn < config->min_value)
-	return config->min_value;
-    else if (valueIn > config->max_value)
-	return config->def_value;
-    return valueIn;
-}
-
-///
 ///	Initialize surface flags.
 ///
 ///	@param decoder	video hardware decoder
@@ -2617,6 +2634,12 @@ static void Vaapi1080i(void)
     // check profile
     p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
     if (p == -1) {
+	p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
+    }
+    if (p == -1) {
+	p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
+    }
+    if (p == -1) {
 	Debug(3, "\tno profile found\n");
 	return;
     }
@@ -2687,9 +2710,11 @@ static void Vaapi1080i(void)
 	    Error(_("video/vaapi: vaPutSurface failed\n"));
 	}
 	tick = GetMsTicks();
+#ifdef DEBUG
 	if (!(n % 10)) {
 	    fprintf(stderr, "%dms / frame\n", (tick - start_tick) / n);
 	}
+#endif
     }
 
     // destory the stuff.
@@ -2702,7 +2727,9 @@ static void Vaapi1080i(void)
     if (vaDestroyConfig(VaDisplay, config_id) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: can't destroy config!\n"));
     }
+#ifdef DEBUG
     fprintf(stderr, "done\n");
+#endif
 }
 
 #endif
@@ -2740,6 +2767,12 @@ static int VaapiInit(const char *display_name)
     // XvBA needs this:
     setenv("DISPLAY", display_name, 1);
 
+#ifndef DEBUG
+#if VA_CHECK_VERSION(0,40,0)
+    vaSetErrorCallback(NULL);
+    vaSetInfoCallback(NULL);
+#endif
+#endif
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
 	Error(_("video/vaapi: Can't inititialize VA-API on '%s'\n"),
 	    display_name);
@@ -2957,8 +2990,6 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder,
 
     return 0;
 }
-
-#define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 ///
 ///	Verify & Run arbitrary VPP processing on src/dst surface(s)
@@ -3325,6 +3356,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder,
 	    goto out_destroy;
 	}
     }
+    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 
     // Sanity check for image format
     if (image.format.fourcc != VA_FOURCC_NV12 &&
@@ -4129,6 +4161,24 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder,
 		p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
 	    }
 	    break;
+       case AV_CODEC_ID_HEVC:
+            decoder->SurfacesNeeded =
+               CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
+            // try more simple formats, fallback to better
+            if (video_ctx->profile == FF_PROFILE_HEVC_MAIN_10) {
+               p = VaapiFindProfile(profiles, profile_n,
+                   VAProfileHEVCMain10);
+               if (p == -1) {
+                   p = VaapiFindProfile(profiles, profile_n,
+                       VAProfileHEVCMain);
+               }
+            } else if (video_ctx->profile == FF_PROFILE_HEVC_MAIN) {
+               p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
+            }
+            if (p == -1) {
+                p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
+            }
+           break;
 	case AV_CODEC_ID_WMV3:
 	    decoder->SurfacesNeeded =
 		CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
@@ -4360,8 +4410,10 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface,
     if (e - s > 2000) {
 	Error(_("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
+#ifdef DEBUG
 	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), e - s,
 	    decoder->FrameCounter);
+#endif
     }
 
     if (0) {
@@ -5023,8 +5075,10 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     if (put1 - sync > 2000) {
 	Error(_("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
+#ifdef DEBUG
 	fprintf(stderr, _("video/vaapi: gpu hung %dms %d\n"), put1 - sync,
 	    decoder->FrameCounter);
+#endif
     }
     Debug(4, "video/vaapi: sync %2u put1 %2u\n", sync - start, put1 - sync);
 
@@ -8725,6 +8779,153 @@ static VdpDecoderProfile VdpauCheckProfile(VdpauDecoder * decoder,
     return is_supported ? profile : VDP_INVALID_HANDLE;
 }
 
+typedef struct VDPAUContext {
+    AVBufferRef *hw_frames_ctx;
+    AVFrame *tmp_frame;
+} VDPAUContext;
+
+void vdpau_uninit(AVCodecContext *s)
+{
+    VideoDecoder *ist = s->opaque;
+    VDPAUContext *ctx = ist->hwaccel_ctx;
+
+    ist->hwaccel_uninit = NULL;
+    ist->hwaccel_get_buffer = NULL;
+    ist->hwaccel_retrieve_data = NULL;
+
+    av_buffer_unref(&ctx->hw_frames_ctx);
+    av_frame_free(&ctx->tmp_frame);
+
+    av_freep(&ist->hwaccel_ctx);
+    av_freep(&s->hwaccel_context);
+}
+
+static int vdpau_get_buffer(AVCodecContext *s, AVFrame *frame, int flags)
+{
+    VideoDecoder *ist = s->opaque;
+    VDPAUContext *ctx = ist->hwaccel_ctx;
+    int ret;
+
+    ret = av_hwframe_get_buffer(ctx->hw_frames_ctx, frame, 0);
+    Debug(4, "hwframe got buffer %#08x \n", frame->data[3]);
+    return ret;
+}
+
+static int vdpau_retrieve_data(AVCodecContext *s, AVFrame *frame)
+{
+    VideoDecoder *ist = s->opaque;
+    VDPAUContext *ctx = ist->hwaccel_ctx;
+    int ret;
+
+    Debug(3, "vdpau_retrieve data\n");
+
+    ret = av_hwframe_transfer_data(ctx->tmp_frame, frame, 0);
+    Debug(3, "vdpau_retrieve data %d\n", ret);
+    if (ret < 0)
+	return ret;
+
+    ret = av_frame_copy_props(ctx->tmp_frame, frame);
+    Debug(3, "vdpau_retrieve data %d\n", ret);
+    if (ret < 0) {
+	av_frame_unref(ctx->tmp_frame);
+	return ret;
+    }
+
+    av_frame_unref(frame);
+    av_frame_move_ref(frame, ctx->tmp_frame);
+
+    return 0;
+}
+
+static int vdpau_alloc(AVCodecContext *s)
+{
+    VideoDecoder *ist = s->opaque;
+    VDPAUContext *ctx;
+    int ret;
+
+    AVHWDeviceContext *device_ctx;
+    AVVDPAUDeviceContext *device_hwctx;
+    AVHWFramesContext *frames_ctx;
+    hw_device_ctx = NULL;
+    Debug(3, "vdpau_alloc\n");
+
+    ctx = av_mallocz(sizeof(*ctx));
+    if (!ctx) {
+	Debug(3, "VDPAU init failed for av_malloccz\n");
+	return AVERROR(ENOMEM);
+    }
+
+    ist->hwaccel_ctx = ctx;
+    ist->hwaccel_uninit = vdpau_uninit;
+    ist->hwaccel_get_buffer = vdpau_get_buffer;
+    ist->hwaccel_retrieve_data = vdpau_retrieve_data;
+
+    ctx->tmp_frame = av_frame_alloc();
+    if (!ctx->tmp_frame) {
+	Debug(3, "VDPAU init failed for av_frame_alloc\n");
+	goto fail;
+    }
+
+    AVBufferRef *hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VDPAU);
+    if (!hw_device_ctx) {
+	Debug(3, "VDPAU init failed for av_hwdevice_ctx_alloc\n");
+	goto fail;
+    }
+    device_ctx = (AVHWDeviceContext*)hw_device_ctx->data;
+    device_hwctx = device_ctx->hwctx;
+    device_hwctx->device  = VdpauDevice;
+    device_hwctx->get_proc_address = VdpauGetProcAddress;
+
+    ret = av_hwdevice_ctx_init(hw_device_ctx);
+    if (ret < 0) {
+	Debug(3, "VDPAU init failed for av_hwdevice_ctx_init\n");
+	goto fail;
+    }
+
+    ctx->hw_frames_ctx = av_hwframe_ctx_alloc(hw_device_ctx);
+    if (!ctx->hw_frames_ctx) {
+	Debug(3, "VDPAU init failed for av_hwframe_ctx_alloc\n");
+	goto fail;
+    }
+
+    frames_ctx = (AVHWFramesContext*)ctx->hw_frames_ctx->data;
+    frames_ctx->format = AV_PIX_FMT_VDPAU;
+    frames_ctx->sw_format = s->sw_pix_fmt;
+    frames_ctx->width = s->coded_width;
+    frames_ctx->height = s->coded_height;
+    frames_ctx->initial_pool_size = 16;
+
+    ret = av_hwframe_ctx_init(ctx->hw_frames_ctx);
+    if (ret < 0) {
+	Debug(3, "VDPAU init failed for av_hwframe_ctx_init\n");
+	goto fail;
+    }
+
+    if (av_vdpau_bind_context(s, VdpauDevice, VdpauGetProcAddress, AV_HWACCEL_FLAG_ALLOW_HIGH_DEPTH | AV_HWACCEL_FLAG_IGNORE_LEVEL)) {
+	Debug(3, "VDPAU init failed for av_bind_context\n");
+	goto fail;
+    }
+    return 0;
+fail:
+    Debug(3, "VDPAU init failed for stream #\n");
+    vdpau_uninit(s);
+    return AVERROR(EINVAL);
+}
+
+int vdpau_init(AVCodecContext *s)
+{
+    VideoDecoder *ist = s->opaque;
+
+    if (ist->hwaccel_ctx)
+	vdpau_uninit(s);
+    if (!ist->hwaccel_ctx) {
+	int ret = vdpau_alloc(s);
+	if (ret < 0)
+	    return ret;
+    }
+    return 0;
+}
+
 ///
 ///	Callback to negotiate the PixelFormat.
 ///
@@ -8738,6 +8939,7 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     const enum AVPixelFormat *fmt_idx;
     VdpDecoderProfile profile;
     int max_refs;
+    VideoDecoder *ist = video_ctx->opaque;
 
     if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO
 	    && VideoHardwareDecoder == 1)
@@ -8750,6 +8952,11 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     //
     Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
     for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
+        Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
+    }
+
+    Debug(3, "%s: codec %d fmts:\n", __FUNCTION__, video_ctx->codec_id);
+    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
 	Debug(3, "\t%#010x %s\n", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
@@ -8759,6 +8966,7 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	    case AV_PIX_FMT_VDPAU_WMV3:
 	    case AV_PIX_FMT_VDPAU_VC1:
 	    case AV_PIX_FMT_VDPAU_MPEG4:
+	    case AV_PIX_FMT_VDPAU:
 		break;
 	    default:
 		continue;
@@ -8822,6 +9030,25 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 		    VdpauCheckProfile(decoder, VDP_DECODER_PROFILE_H264_MAIN);
 	    }
 	    break;
+        case AV_CODEC_ID_HEVC:
+            max_refs = 16;
+            if (video_ctx->profile == FF_PROFILE_HEVC_MAIN_10) {
+                Debug(3,"HEVC Profile Main 10 detected\n");
+                profile =
+                    VdpauCheckProfile(decoder,
+                    VDP_DECODER_PROFILE_HEVC_MAIN_10);
+            }
+            else if (video_ctx->profile == FF_PROFILE_HEVC_MAIN) {
+                Debug(3,"HEVC Profile Main detected\n");
+                profile =
+                    VdpauCheckProfile(decoder,
+                    VDP_DECODER_PROFILE_HEVC_MAIN);
+            }
+            else {
+                goto slow_path;
+            }
+
+            break;
 	case AV_CODEC_ID_WMV3:
 	    /*
 	       p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
@@ -8849,6 +9076,52 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->PixFmt = *fmt_idx;
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
+    if (*fmt_idx == AV_PIX_FMT_VDPAU) { // HWACCEL used
+	int ret;
+	VdpStatus status;
+
+	decoder->PixFmt = AV_PIX_FMT_VDPAU;
+	ist->active_hwaccel_id = HWACCEL_VDPAU;
+	ist->hwaccel_pix_fmt = AV_PIX_FMT_VDPAU;
+	ist->hwaccel_output_format = AV_PIX_FMT_VDPAU;
+
+	VdpauChromaType = VDP_CHROMA_TYPE_420;
+	ist->active_hwaccel_id = HWACCEL_VDPAU;
+
+	video_ctx->draw_horiz_band = NULL;
+	video_ctx->slice_flags = 0;
+	if (video_ctx->width && video_ctx->height) {
+	    VdpStatus status;
+
+	    VdpauCleanup(decoder);
+	    status =
+		VdpauDecoderCreate(VdpauDevice, profile, video_ctx->width,
+		video_ctx->height, max_refs, &decoder->VideoDecoder);
+	    if (status != VDP_STATUS_OK) {
+		Error(_("video/vdpau: can't create decoder: %s\n"),
+		    VdpauGetErrorString(status));
+		goto slow_path;
+	    }
+	    ret = vdpau_init(video_ctx);  // init HWACCEL
+	    if (ret < 0) {
+		Debug(3, "vdpu_init failed\n");
+		goto slow_path;
+	    }
+	    decoder->InputWidth = video_ctx->width;
+	    decoder->InputHeight = video_ctx->height;
+	    decoder->InputAspect = video_ctx->sample_aspect_ratio;
+	    VdpauSetupOutput(decoder);
+	}
+
+	Debug(3, "HWACCEL init ok\n");
+	return AV_PIX_FMT_VDPAU;
+    }
+    else {
+	VdpauChromaType = VDP_CHROMA_TYPE_420;
+	ist->hwaccel_pix_fmt = 0;
+	ist->hwaccel_get_buffer = NULL;
+	ist->hwaccel_uninit = NULL;
+	ist->hwaccel_retrieve_data = NULL;
 
 #ifndef FFMPEG_BUG1_WORKAROUND
     if (video_ctx->width && video_ctx->height) {
@@ -8872,12 +9145,14 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
 	VdpauSetupOutput(decoder);
     }
 #endif
+    }
 
     Debug(3, "\t%#010x %s\n", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
     return *fmt_idx;
 
   slow_path:
     // no accelerated format found
+    ist->hwaccel_get_buffer = NULL;
     decoder->Profile = VDP_INVALID_HANDLE;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
     decoder->PixFmt = AV_PIX_FMT_NONE;
@@ -9419,6 +9694,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     // FIXME: some tv-stations toggle interlace on/off
     // frame->interlaced_frame isn't always correct set
     interlaced = frame->interlaced_frame;
+#if 0
     if (video_ctx->height == 720) {
 	if (interlaced && !decoder->WrongInterlacedWarned) {
 	    Debug(3, "video/vdpau: wrong interlace flag fixed\n");
@@ -9432,6 +9708,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	}
 	interlaced = 1;
     }
+#endif
 
     // FIXME: should be done by init video_ctx->field_order
     if (decoder->Interlaced != interlaced
@@ -9469,12 +9746,18 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
     // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
     if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
 	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
+	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU
 	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
 	struct vdpau_render_state *vrs;
 
-	vrs = (struct vdpau_render_state *)frame->data[0];
-	surface = vrs->surface;
-	Debug(4, "video/vdpau: hw render hw surface %#08x\n", surface);
+	if (video_ctx->pix_fmt == AV_PIX_FMT_VDPAU) {
+	    surface = (VdpVideoSurface *)frame->data[3];
+	    Debug(4, "video/vdpau: hw render VDPAU surface from frame %#08x\n", surface);
+	} else {
+	    vrs = (struct vdpau_render_state *)frame->data[0];
+	    surface = vrs->surface;
+	    Debug(4, "video/vdpau: hw render hw surface from frame %#08x from buf%#08x\n", surface, vrs->surface);
+	}
 
 	if (interlaced
 	    && VideoDeinterlace[decoder->Resolution] >=
@@ -9514,6 +9797,7 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	switch (video_ctx->pix_fmt) {
 	    case AV_PIX_FMT_YUV420P:
 	    case AV_PIX_FMT_YUVJ420P:	// some streams produce this
+	    case AV_PIX_FMT_YUV420P10LE:  // for softdecode of HEVC 10 Bit
 		break;
 	    case AV_PIX_FMT_YUV422P:
 	    case AV_PIX_FMT_YUV444P:
@@ -9531,6 +9815,30 @@ static void VdpauRenderFrame(VdpauDecoder * decoder,
 	pitches[1] = frame->linesize[2];
 	pitches[2] = frame->linesize[1];
 
+#ifdef USE_SWSCALE
+	// Convert the image into YUV420 format
+	if (video_ctx->pix_fmt == AV_PIX_FMT_YUV420P10LE) {
+	    struct SwsContext *img_convert_ctx;
+	    int w = video_ctx->width;
+	    int h = video_ctx->height;
+	    data[1] = frame->data[1];
+	    data[2] = frame->data[2];
+	    img_convert_ctx = sws_getContext(w, h,
+		video_ctx->pix_fmt,
+		w, h,  AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR,
+		NULL, NULL, NULL);
+	    if (img_convert_ctx == NULL) {
+		Fatal(_("Cannot initialize the conversion context!\n"));
+		exit(1);
+	    }
+	    sws_scale(img_convert_ctx, frame->data,
+		frame->linesize, 0,
+		h,
+		data, pitches);
+	    data[1] = frame->data[2];
+	    data[2] = frame->data[1];
+	}
+#endif
 	surface = VdpauGetSurface0(decoder);
 	status =
 	    VdpauVideoSurfacePutBitsYCbCr(surface, VDP_YCBCR_FORMAT_YV12, data,
@@ -9827,6 +10135,7 @@ static void VdpauMixVideo(VdpauDecoder * decoder, int level)
 	    cps == VDP_VIDEO_MIXER_PICTURE_STRUCTURE_TOP_FIELD ? 'T' : 'B',
 	    current, future[0], future[1]);
 
+	// Render complex interlaced
 	status =
 	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
 	    NULL, cps, past_n, past, current, future_n, future,
@@ -9840,6 +10149,7 @@ static void VdpauMixVideo(VdpauDecoder * decoder, int level)
 	    current = decoder->SurfacesRb[decoder->SurfaceRead];
 	}
 
+	// Render Progressive frame and simple interlaced
 	status =
 	    VdpauVideoMixerRender(decoder->VideoMixer, VDP_INVALID_HANDLE,
 	    NULL, VDP_VIDEO_MIXER_PICTURE_STRUCTURE_FRAME, 0, NULL, current, 0,
@@ -9929,7 +10239,7 @@ static void VdpauAdvanceDecoderFrame(VdpauDecoder * decoder)
 	// need 2 frames for progressive
 	// need 4 frames for interlaced
 	filled = atomic_read(&decoder->SurfacesFilled);
-	if (filled <= 1 + 2 * decoder->Interlaced) {
+	if (filled <  1 + 2 * decoder->Interlaced) {
 	    // keep use of last surface
 	    ++decoder->FramesDuped;
 	    // FIXME: don't warn after stream start, don't warn during pause
@@ -10554,7 +10864,7 @@ static void VdpauDisplayHandlerThread(void)
 	// fill frame output ring buffer
 	//
 	filled = atomic_read(&decoder->SurfacesFilled);
-	if (filled < VIDEO_SURFACES_MAX) {
+	if (filled <= 1 + 2 * decoder->Interlaced) {
 	    // FIXME: hot polling
 	    // fetch+decode or reopen
 	    allfull = 0;
@@ -11542,9 +11852,9 @@ static const VideoModule *VideoModules[] = {
 #endif
 #ifdef USE_VAAPI
     &VaapiModule,
-#endif
 #ifdef USE_GLX
     &VaapiGlxModule,			// FIXME: if working, prefer this
+#endif
 #endif
     &NoopModule
 };
@@ -12876,6 +13186,7 @@ void VideoSetFullscreen(int onoff)
 ///
 ///     Get scaling modes.
 ///
+#ifdef USE_VDPAU
 static const char *vdpau_scaling[] = {
     "Normal",      ///< VideoScalingNormal
     "Fast",        ///< VideoScalingFast
@@ -12889,7 +13200,9 @@ static const char *vdpau_scaling_short[] = {
     "HQ",          ///< VideoScalingHQ
     "A"            ///< VideoScalingAnamorphic
 };
+#endif
 
+#ifdef USE_VAAPI
 static const char *vaapi_scaling[] = {
     "Normal",      ///< VideoScalingNormal
     "Fast",        ///< VideoScalingFast
@@ -12901,6 +13214,7 @@ static const char *vaapi_scaling_short[] = {
     "F",           ///< VideoScalingFast
     "HQ"           ///< VideoScalingHQ
 };
+#endif
 
 int VideoGetScalingModes(const char* **long_table, const char* **short_table)
 {
@@ -12928,6 +13242,7 @@ int VideoGetScalingModes(const char* **long_table, const char* **short_table)
 ///
 ///     Get deinterlace modes.
 ///
+#ifdef USE_VDPAU
 static const char *vdpau_deinterlace[] = {
     "Bob",                ///< VideoDeinterlaceBob
     "Weave/None",         ///< VideoDeinterlaceWeave
@@ -12945,7 +13260,9 @@ static const char *vdpau_deinterlace_short[] = {
     "S+B",                ///< VideoDeinterlaceSoftBob
     "S+S"                 ///< VideoDeinterlaceSoftSpatial
 };
+#endif
 
+#ifdef USE_VAAPI
 static const char *vaapi_deinterlace[] = {
     "Bob",                ///< VideoDeinterlaceBob
     "Weave/None",         ///< VideoDeinterlaceWeave
@@ -12959,6 +13276,7 @@ static const char *vaapi_deinterlace_short[] = {
     "MADI",               ///< VideoDeinterlaceTemporal
     "MCDI"                ///< VideoDeinterlaceTemporalSpatial
 };
+#endif
 
 int VideoGetDeinterlaceModes(const char* **long_table, const char* **short_table)
 {
@@ -13008,6 +13326,7 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
     VideoDeinterlace[1] = mode[1];
     VideoDeinterlace[2] = mode[2];
     VideoDeinterlace[3] = mode[3];
+    VideoDeinterlace[4] = mode[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13020,6 +13339,7 @@ void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
     VideoSkipChromaDeinterlace[1] = onoff[1];
     VideoSkipChromaDeinterlace[2] = onoff[2];
     VideoSkipChromaDeinterlace[3] = onoff[3];
+    VideoSkipChromaDeinterlace[4] = onoff[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13032,6 +13352,7 @@ void VideoSetInverseTelecine(int onoff[VideoResolutionMax])
     VideoInverseTelecine[1] = onoff[1];
     VideoInverseTelecine[2] = onoff[2];
     VideoInverseTelecine[3] = onoff[3];
+    VideoInverseTelecine[4] = onoff[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13064,6 +13385,7 @@ void VideoSetDenoise(int level[VideoResolutionMax])
     VideoDenoise[1] = level[1];
     VideoDenoise[2] = level[2];
     VideoDenoise[3] = level[3];
+    VideoDenoise[4] = level[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13124,6 +13446,7 @@ void VideoSetSharpen(int level[VideoResolutionMax])
     VideoSharpen[1] = level[1];
     VideoSharpen[2] = level[2];
     VideoSharpen[3] = level[3];
+    VideoSharpen[4] = level[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13166,6 +13489,7 @@ void VideoSetScaling(int mode[VideoResolutionMax])
     VideoScaling[1] = mode[1];
     VideoScaling[2] = mode[2];
     VideoScaling[3] = mode[3];
+    VideoScaling[4] = mode[4];
     VideoSurfaceModesChanged = 1;
 }
 
@@ -13180,6 +13504,7 @@ void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
     VideoCutTopBottom[1] = pixels[1];
     VideoCutTopBottom[2] = pixels[2];
     VideoCutTopBottom[3] = pixels[3];
+    VideoCutTopBottom[4] = pixels[4];
     // FIXME: update output
 }
 
@@ -13194,6 +13519,7 @@ void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
     VideoCutLeftRight[1] = pixels[1];
     VideoCutLeftRight[2] = pixels[2];
     VideoCutLeftRight[3] = pixels[3];
+    VideoCutLeftRight[4] = pixels[4];
     // FIXME: update output
 }
 

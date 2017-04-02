@@ -1,6 +1,7 @@
 User johns
 Date:
 
+    Preparations for new ffmpeg VDPAU API.
     Added VDPAU multi decoder loop changes to VA-API code.
     Reenabled VA-API auto detection.
     Check and enforce USE_PIP is defined, for new code.

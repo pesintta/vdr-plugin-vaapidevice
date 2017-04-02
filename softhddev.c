@@ -80,12 +80,6 @@ static void DumpMpeg(const uint8_t * data, int size);
 //	Variables
 //////////////////////////////////////////////////////////////////////////////
 
-#ifdef USE_VDPAU
-static char VdpauDecoder = 1;		///< vdpau decoder used
-#else
-#define	VdpauDecoder 0			///< no vdpau decoder configured
-#endif
-
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
 extern int ConfigVideoClearOnSwitch;	//<  clear decoder on channel switch
 char ConfigStartX11Server;		///< flag start the x11 server
@@ -707,7 +701,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			    Debug(3, "pesdemux: new codec %#06x -> %#06x\n",
 				AudioCodecID, codec_id);
 			    CodecAudioClose(MyAudioDecoder);
-			    CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+			    CodecAudioOpen(MyAudioDecoder, codec_id);
 			    AudioCodecID = codec_id;
 			}
 			av_init_packet(avpkt);
@@ -880,7 +874,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 				(q[5] & 0x7) + 1);
 			    // FIXME: support resample
 			}
-			//CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+			//CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
 			AudioCodecID = AV_CODEC_ID_PCM_DVD;
 		    }
 		    pesdx->State = PES_LPCM_PAYLOAD;
@@ -1143,7 +1137,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 		    (p[5] & 0x7) + 1);
 		// FIXME: support resample
 	    }
-	    //CodecAudioOpen(MyAudioDecoder, NULL, AV_CODEC_ID_PCM_DVD);
+	    //CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
 	    AudioCodecID = AV_CODEC_ID_PCM_DVD;
 	}
 
@@ -1216,7 +1210,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    // new codec id, close and open new
 	    if (AudioCodecID != codec_id) {
 		CodecAudioClose(MyAudioDecoder);
-		CodecAudioOpen(MyAudioDecoder, NULL, codec_id);
+		CodecAudioOpen(MyAudioDecoder, codec_id);
 		AudioCodecID = codec_id;
 	    }
 	    av_init_packet(avpkt);
@@ -1940,18 +1934,22 @@ int VideoDecodeInput(VideoStream * stream)
 	case AV_CODEC_ID_MPEG2VIDEO:
 	    if (stream->LastCodecID != AV_CODEC_ID_MPEG2VIDEO) {
 		stream->LastCodecID = AV_CODEC_ID_MPEG2VIDEO;
-		CodecVideoOpen(stream->Decoder, VideoHardwareDecoder < 0
-		    && VdpauDecoder ? "mpegvideo_vdpau" : NULL,
-		    AV_CODEC_ID_MPEG2VIDEO);
+		CodecVideoOpen(stream->Decoder, AV_CODEC_ID_MPEG2VIDEO);
 	    }
 	    break;
 	case AV_CODEC_ID_H264:
 	    if (stream->LastCodecID != AV_CODEC_ID_H264) {
 		stream->LastCodecID = AV_CODEC_ID_H264;
-		CodecVideoOpen(stream->Decoder, VideoHardwareDecoder
-		    && VdpauDecoder ? "h264_vdpau" : NULL, AV_CODEC_ID_H264);
+		CodecVideoOpen(stream->Decoder, AV_CODEC_ID_H264);
 	    }
 	    break;
+        case AV_CODEC_ID_HEVC:
+            if (stream->LastCodecID != AV_CODEC_ID_HEVC) {
+                stream->LastCodecID = AV_CODEC_ID_HEVC;
+                CodecVideoOpen(stream->Decoder, AV_CODEC_ID_HEVC);
+            }
+            break;
+
 	default:
 	    break;
     }
@@ -2013,9 +2011,6 @@ int VideoGetBuffers(const VideoStream * stream)
 static void StartVideo(void)
 {
     VideoInit(X11DisplayName);
-#ifdef USE_VDPAU
-    VdpauDecoder = !strcasecmp(VideoGetDriverName(), "vdpau");
-#endif
 
     if (ConfigFullscreen) {
 	// FIXME: not good looking, mapped and then resized.
@@ -2300,6 +2295,20 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	VideoEnqueue(stream, pts, check - 2, l + 2);
 	return size;
     }
+    // HEVC Codec
+    if ((data[6] & 0xC0) == 0x80 && z >= 2 && check[0] == 0x01 && check[1] == 0x46) {
+	// old PES HDTV recording z == 2 -> stronger check!
+	if (stream->CodecID == AV_CODEC_ID_HEVC) {
+            VideoNextPacket(stream, AV_CODEC_ID_HEVC);
+	} else {
+            Debug(3, "video: hvec detected\n");
+            stream->CodecID = AV_CODEC_ID_HEVC;
+	}
+	// SKIP PES header (ffmpeg supports short start code)
+	VideoEnqueue(stream, pts, check - 2, l + 2);
+	return size;
+    }
+
     // PES start code 0x00 0x00 0x01 0x00|0xb3
     if (z > 1 && check[0] == 0x01 && (!check[1] || check[1] == 0xb3)) {
 	if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
@@ -2659,6 +2668,8 @@ void StillPicture(const uint8_t * data, int size)
     static uint8_t seq_end_mpeg[] = { 0x00, 0x00, 0x01, 0xB7 };
     // H264 NAL End of Sequence
     static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
+    // H265 NAL End of Sequence
+    static uint8_t seq_end_h265[] = { 0x00, 0x00, 0x00, 0x01, 0x48, 0x01 }; //0x48 = end of seq   0x4a = end of stream
     int i;
     int old_video_hardware_decoder;
 
@@ -2692,7 +2703,7 @@ void StillPicture(const uint8_t * data, int size)
 #ifdef STILL_DEBUG
     fprintf(stderr, "still-picture\n");
 #endif
-    for (i = 0; i < (MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO ? 4 : 4);
+    for (i = 0; i < (MyVideoStream->CodecID == AV_CODEC_ID_HEVC ? 3 : 4);
 	++i) {
 	const uint8_t *split;
 	int n;
@@ -2741,6 +2752,9 @@ void StillPicture(const uint8_t * data, int size)
 	if (MyVideoStream->CodecID == AV_CODEC_ID_H264) {
 	    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, seq_end_h264,
 		sizeof(seq_end_h264));
+	} else if (MyVideoStream->CodecID == AV_CODEC_ID_HEVC) {
+	    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, seq_end_h265,
+		sizeof(seq_end_h265));
 	} else {
 	    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, seq_end_mpeg,
 		sizeof(seq_end_mpeg));
