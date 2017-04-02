@@ -45,6 +45,7 @@ extern "C"
 #include "audio.h"
 #include "video.h"
 #include "codec.h"
+#include "misc.h"
 }
 
 #if APIVERSNUM >= 20301
@@ -251,12 +252,12 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
     if (remote) {
 	csoft = (cSoftRemote *) remote;
     } else {
-	dsyslog("[softhddev]%s: remote '%s' not found\n", __FUNCTION__,
+	if (LogLevel >= 3) dsyslog("[softhddev]%s: remote '%s' not found\n", __FUNCTION__,
 	    keymap);
 	csoft = new cSoftRemote(keymap);
     }
 
-    //dsyslog("[softhddev]%s %s, %s, %s\n", __FUNCTION__, keymap, key, letter);
+    //if (LogLevel >= 3) dsyslog("[softhddev]%s %s, %s, %s\n", __FUNCTION__, keymap, key, letter);
     if (key[1]) {			// no single character
 	if (!csoft->Put(key, repeat, release) && letter
 	    && !cRemote::IsLearning()) {
@@ -517,7 +518,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		esyslog(tr("[softhddev]: dirty area too big\n"));
+		if (LogLevel >= 1) esyslog(tr("[softhddev]: dirty area too big\n"));
 		abort();
 	    }
 #endif
@@ -1589,7 +1590,7 @@ cSoftHdControl::~cSoftHdControl()
 	SuspendMode = NOT_SUSPENDED;
     }
 
-    dsyslog("[softhddev]%s: dummy player stopped\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: dummy player stopped\n", __FUNCTION__);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1716,7 +1717,7 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
 	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
 		// FIXME: first should always fail
-		esyslog(tr("[softhddev]pip: invalid PES packet %d\n"),
+		if (LogLevel >= 1) esyslog(tr("[softhddev]pip: invalid PES packet %d\n"),
 		    pes_index);
 	    } else {
 		PipPlayVideo(pes_buf, pes_index);
@@ -1727,7 +1728,7 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     }
 
     if (pes_index + size > pes_size) {
-	esyslog(tr("[softhddev]pip: pes buffer too small\n"));
+	if (LogLevel >= 1) esyslog(tr("[softhddev]pip: pes buffer too small\n"));
 	pes_size *= 2;
 	if (pes_index + size > pes_size) {
 	    pes_size = (pes_index + size) * 2;
@@ -1765,12 +1766,12 @@ void cSoftReceiver::Receive(uchar * data, int size)
 	int payload;
 
 	if (p[0] != TS_PACKET_SYNC) {
-	    esyslog(tr("[softhddev]tsdemux: transport stream out of sync\n"));
+	    if (LogLevel >= 1) esyslog(tr("[softhddev]tsdemux: transport stream out of sync\n"));
 	    // FIXME: kill all buffers
 	    return;
 	}
 	if (p[1] & 0x80) {		// error indicatord
-	    dsyslog("[softhddev]tsdemux: transport error\n");
+	    if (LogLevel >= 3) dsyslog("[softhddev]tsdemux: transport error\n");
 	    // FIXME: kill all buffers
 	    goto next_packet;
 	}
@@ -1794,7 +1795,7 @@ void cSoftReceiver::Receive(uchar * data, int size)
 		payload = 5 + p[4];
 		// illegal length, ignore packet
 		if (payload >= TS_PACKET_SIZE) {
-		    dsyslog
+		    if (LogLevel >= 3) dsyslog
 			("[softhddev]tsdemux: illegal adaption field length\n");
 		    goto next_packet;
 		}
@@ -1840,7 +1841,7 @@ static void NewPip(int channel_nr)
 #ifdef DEBUG
     // is device replaying?
     if (cDevice::PrimaryDevice()->Replaying() && cControl::Control()) {
-	dsyslog("[softhddev]%s: replay active\n", __FUNCTION__);
+	if (LogLevel >= 3) dsyslog("[softhddev]%s: replay active\n", __FUNCTION__);
 	// FIXME: need to find PID
     }
 #endif
@@ -2214,7 +2215,7 @@ static void HandleHotkey(int code)
 #endif
 
 	default:
-	    esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
+	    if (LogLevel >= 1) esyslog(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
     }
 }
@@ -2254,14 +2255,14 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		HotkeyCode *= 10;
 		HotkeyCode += key - k0;
 		HotkeyState = HksInitial;
-		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
+		if (LogLevel >= 3) dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
 		    HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
 	    }
 	    if (key == kOk) {
 		HotkeyState = HksInitial;
-		dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
+		if (LogLevel >= 3) dsyslog("[softhddev]%s: hot-key %d\n", __FUNCTION__,
 		    HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
@@ -2296,7 +2297,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		    SuspendMode = SUSPEND_NORMAL;
 		}
 		if (ShutdownHandler.GetUserInactiveTime()) {
-		    dsyslog("[softhddev]%s: set user inactive\n",
+		    if (LogLevel >= 3) dsyslog("[softhddev]%s: set user inactive\n",
 			__FUNCTION__);
 		    ShutdownHandler.SetUserInactive();
 		}
@@ -2424,7 +2425,7 @@ cSoftHdDevice::~cSoftHdDevice(void)
 */
 void cSoftHdDevice::MakePrimaryDevice(bool on)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, on);
 
     cDevice::MakePrimaryDevice(on);
     if (on) {
@@ -2450,7 +2451,7 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
 */
 cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     if (!spuDecoder && IsPrimaryDevice()) {
 	spuDecoder = new cDvbSpuDecoder();
@@ -2483,7 +2484,7 @@ bool cSoftHdDevice::CanReplay(void) const
 */
 bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, play_mode);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, play_mode);
 
     switch (play_mode) {
 	case pmAudioVideo:
@@ -2496,13 +2497,13 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 	case pmNone:
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
-	    dsyslog("[softhddev] play mode external\n");
+	    if (LogLevel >= 3) dsyslog("[softhddev] play mode external\n");
 	    // FIXME: what if already suspended?
 	    Suspend(1, 1, 0);
 	    SuspendMode = SUSPEND_EXTERNAL;
 	    return true;
 	default:
-	    dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
+	    if (LogLevel >= 3) dsyslog("[softhddev] playmode not implemented... %d\n", play_mode);
 	    break;
     }
 
@@ -2540,14 +2541,14 @@ int64_t cSoftHdDevice::GetSTC(void)
 #if APIVERSNUM >= 20103
 void cSoftHdDevice::TrickSpeed(int speed, bool forward)
 {
-    dsyslog("[softhddev]%s: %d %d\n", __FUNCTION__, speed, forward);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d %d\n", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
 #else
 void cSoftHdDevice::TrickSpeed(int speed)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, speed);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, speed);
 
     ::TrickSpeed(speed);
 }
@@ -2558,7 +2559,7 @@ void cSoftHdDevice::TrickSpeed(int speed)
 */
 void cSoftHdDevice::Clear(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Clear();
     ::Clear();
@@ -2569,7 +2570,7 @@ void cSoftHdDevice::Clear(void)
 */
 void cSoftHdDevice::Play(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Play();
     ::Play();
@@ -2580,7 +2581,7 @@ void cSoftHdDevice::Play(void)
 */
 void cSoftHdDevice::Freeze(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Freeze();
     ::Freeze();
@@ -2591,7 +2592,7 @@ void cSoftHdDevice::Freeze(void)
 */
 void cSoftHdDevice::Mute(void)
 {
-    dsyslog("[softhddev]%s:\n", __FUNCTION__);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     cDevice::Mute();
     ::Mute();
@@ -2605,7 +2606,7 @@ void cSoftHdDevice::Mute(void)
 */
 void cSoftHdDevice::StillPicture(const uchar * data, int length)
 {
-    dsyslog("[softhddev]%s: %s %p %d\n", __FUNCTION__,
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %s %p %d\n", __FUNCTION__,
 	data[0] == 0x47 ? "ts" : "pes", data, length);
 
     if (data[0] == 0x47) {		// ts sync
@@ -2640,7 +2641,7 @@ bool cSoftHdDevice::Poll(
 */
 bool cSoftHdDevice::Flush(int timeout_ms)
 {
-    dsyslog("[softhddev]%s: %d ms\n", __FUNCTION__, timeout_ms);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d ms\n", __FUNCTION__, timeout_ms);
 
     return::Flush(timeout_ms);
 }
@@ -2654,7 +2655,7 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
     video_display_format)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
 
     cDevice::SetVideoDisplayFormat(video_display_format);
 #if 0
@@ -2680,7 +2681,7 @@ void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
 */
 void cSoftHdDevice::SetVideoFormat(bool video_format16_9)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_format16_9);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, video_format16_9);
 
     // FIXME: 4:3 / 16:9 video format not supported.
 
@@ -2754,7 +2755,7 @@ int cSoftHdDevice::GetAudioChannelDevice(void)
 */
 void cSoftHdDevice::SetVolumeDevice(int volume)
 {
-    dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d\n", __FUNCTION__, volume);
 
     ::SetVolumeDevice(volume);
 }
@@ -2820,7 +2821,7 @@ int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
     int height)
 {
-    dsyslog("[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
+    if (LogLevel >= 3) dsyslog("[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
 	quality, width, height);
 
     if (SuspendMode != NOT_SUSPENDED) {
@@ -2988,11 +2989,11 @@ bool cPluginSoftHdDevice::Start(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     if (!MyDevice->IsPrimaryDevice()) {
-	isyslog("[softhddev] softhddevice %d is not the primary device!",
+	if (LogLevel >= 2) isyslog("[softhddev] softhddevice %d is not the primary device!",
 	    MyDevice->DeviceNumber());
 	if (ConfigMakePrimary) {
 	    // Must be done in the main thread
-	    dsyslog("[softhddev] makeing softhddevice %d the primary device!",
+	    if (LogLevel >= 3) dsyslog("[softhddev] makeing softhddevice %d the primary device!",
 		MyDevice->DeviceNumber());
 	    DoMakePrimary = MyDevice->DeviceNumber() + 1;
 	}
@@ -3076,7 +3077,7 @@ void cPluginSoftHdDevice::MainThreadHook(void)
     //dsyslog("[softhddev]%s:\n", __FUNCTION__);
 
     if (DoMakePrimary) {
-	dsyslog("[softhddev]%s: switching primary device to %d\n",
+	if (LogLevel >= 3) dsyslog("[softhddev]%s: switching primary device to %d\n",
 	    __FUNCTION__, DoMakePrimary);
 	cDevice::SetPrimaryDevice(DoMakePrimary);
 	DoMakePrimary = 0;
@@ -3722,7 +3723,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	if (!primary && MyDevice) {
 	    primary = MyDevice->DeviceNumber() + 1;
 	}
-	dsyslog("[softhddev] switching primary device to %d\n", primary);
+	if (LogLevel >= 3) dsyslog("[softhddev] switching primary device to %d\n", primary);
 	DoMakePrimary = primary;
 	return "switching primary device requested";
     }

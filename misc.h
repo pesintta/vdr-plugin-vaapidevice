@@ -40,7 +40,7 @@
 //	Variables
 //////////////////////////////////////////////////////////////////////////////
 
-extern int SysLogLevel;			///< how much information wanted
+extern int LogLevel;			///< how much information wanted
 
 //////////////////////////////////////////////////////////////////////////////
 //	Prototypes
@@ -69,7 +69,7 @@ static inline void Syslog(const int, const char *format, ...)
 */
 static inline void Syslog(const int level, const char *format, ...)
 {
-    if (SysLogLevel > level || DebugLevel > level) {
+    if (LogLevel > level || DebugLevel > level) {
 	va_list ap;
 
 	va_start(ap, format);
