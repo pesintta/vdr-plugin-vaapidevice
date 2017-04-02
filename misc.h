@@ -71,9 +71,16 @@ static inline void Syslog(const int level, const char *format, ...)
 {
     if (LogLevel > level || DebugLevel > level) {
 	va_list ap;
+	int priority = LOG_DEBUG;
+	switch (level) {
+	    case 0:  priority = LOG_ERR;     break;
+	    case 1:  priority = LOG_WARNING; break;
+	    case 2:  priority = LOG_INFO;    break;
+	    default: priority = LOG_DEBUG;   break;
+	}
 
 	va_start(ap, format);
-	vsyslog(LOG_ERR, format, ap);
+	vsyslog(priority, format, ap);
 	va_end(ap);
     }
 }
