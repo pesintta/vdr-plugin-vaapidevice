@@ -40,7 +40,7 @@
 //	Variables
 //////////////////////////////////////////////////////////////////////////////
 
-extern int SysLogLevel;			///< how much information wanted
+extern int LogLevel;			///< how much information wanted
 
 //////////////////////////////////////////////////////////////////////////////
 //	Prototypes
@@ -69,11 +69,18 @@ static inline void Syslog(const int, const char *format, ...)
 */
 static inline void Syslog(const int level, const char *format, ...)
 {
-    if (SysLogLevel > level || DebugLevel > level) {
+    if (LogLevel > level || DebugLevel > level) {
 	va_list ap;
+	int priority = LOG_DEBUG;
+	switch (level) {
+	    case 0:  priority = LOG_ERR;     break;
+	    case 1:  priority = LOG_WARNING; break;
+	    case 2:  priority = LOG_INFO;    break;
+	    default: priority = LOG_DEBUG;   break;
+	}
 
 	va_start(ap, format);
-	vsyslog(LOG_ERR, format, ap);
+	vsyslog(priority, format, ap);
 	va_end(ap);
     }
 }

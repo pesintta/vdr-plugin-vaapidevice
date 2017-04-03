@@ -1833,7 +1833,7 @@ static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 ///
 static int VaapiMessage(int level, const char *format, ...)
 {
-    if (SysLogLevel > level || DebugLevel > level) {
+    if (LogLevel > level || DebugLevel > level) {
 	static const char *last_format;
 	static char buf[256];
 	va_list ap;
@@ -7401,7 +7401,7 @@ static void VdpauOsdInit(int, int);	///< forward definition
 ///
 static int VdpauMessage(int level, const char *format, ...)
 {
-    if (SysLogLevel > level || DebugLevel > level) {
+    if (LogLevel > level || DebugLevel > level) {
 	static const char *last_format;
 	static char buf[256];
 	va_list ap;
@@ -13844,7 +13844,6 @@ void VideoExit(void)
 
 #include <getopt.h>
 
-int SysLogLevel;			///< show additional debug informations
 uint32_t VideoSwitch;			///< required
 
 int64_t AudioGetDelay(void)		///< required
@@ -13910,7 +13909,7 @@ int main(int argc, char *const argv[])
     int n;
     VideoHwDecoder *video_hw_decoder;
 
-    SysLogLevel = 0;
+    LogLevel = 0;
 
     //
     //	Parse command line arguments
@@ -13918,7 +13917,7 @@ int main(int argc, char *const argv[])
     for (;;) {
 	switch (getopt(argc, argv, "hv?-c:dg:")) {
 	    case 'd':			// enabled debug
-		++SysLogLevel;
+		++LogLevel;
 		continue;
 	    case 'g':			// geometry
 		if (VideoSetGeometry(optarg) < 0) {

@@ -81,7 +81,7 @@ static void DumpMpeg(const uint8_t * data, int size);
 //////////////////////////////////////////////////////////////////////////////
 
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
-extern int ConfigVideoClearOnSwitch;	//<  clear decoder on channel switch
+extern int ConfigVideoClearOnSwitch;	///< clear decoder on channel switch
 char ConfigStartX11Server;		///< flag start the x11 server
 static signed char ConfigStartSuspended;	///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
@@ -91,6 +91,9 @@ static char ConfigStillDecoder;		///< hw/sw decoder for still picture
 static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
 static volatile char StreamFreezed;	///< stream freezed
+
+extern SysLogLevel;			///< VDR's global log level
+int LogLevel = 0;			///< our local log level
 
 //////////////////////////////////////////////////////////////////////////////
 //	Audio
@@ -2910,6 +2913,7 @@ const char *CommandLineHelp(void)
 	"  -d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
 	"  -g geometry\tx11 window geometry wxh+x+y\n"
+	"  -l loglevel\tset the log level (0=none, 1=errors, 2=info, 3=debug)\n"
 	"  -v device\tvideo driver device (va-api, vdpau, noop)\n"
 	"  -s\t\tstart in suspended mode\n"
 	"  -x\t\tstart x11 server, with -xx try to connect, if this fails\n"
@@ -2945,8 +2949,10 @@ int ProcessArgs(int argc, char *const argv[])
     }
 #endif
 
+    LogLevel = SysLogLevel; // default is the global log level
+
     for (;;) {
-	switch (getopt(argc, argv, "-a:c:d:fg:p:sv:w:xDX:")) {
+	switch (getopt(argc, argv, "-a:c:d:fg:l:p:sv:w:xDX:")) {
 	    case 'a':			// audio device for pcm
 		AudioSetDevice(optarg);
 		continue;
@@ -2969,6 +2975,9 @@ int ProcessArgs(int argc, char *const argv[])
 			("Bad formated geometry please use: [=][<width>{xX}<height>][{+-}<xoffset>{+-}<yoffset>]\n"));
 		    return 0;
 		}
+		continue;
+	    case 'l':			// logging
+		LogLevel = atoi(optarg);
 		continue;
 	    case 'v':			// video driver
 		VideoSetDevice(optarg);

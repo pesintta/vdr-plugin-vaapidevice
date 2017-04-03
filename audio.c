@@ -3062,8 +3062,6 @@ void AudioTest(void)
 
 #include <getopt.h>
 
-int SysLogLevel;			///< show additional debug informations
-
 /**
 **	Print version.
 */
@@ -3098,7 +3096,7 @@ static void PrintUsage(void)
 */
 int main(int argc, char *const argv[])
 {
-    SysLogLevel = 0;
+    LogLevel = 0;
 
     //
     //	Parse command line arguments
@@ -3106,7 +3104,7 @@ int main(int argc, char *const argv[])
     for (;;) {
 	switch (getopt(argc, argv, "hv?-c:d")) {
 	    case 'd':			// enabled debug
-		++SysLogLevel;
+		++LogLevel;
 		continue;
 
 	    case EOF:
