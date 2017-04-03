@@ -8846,7 +8846,7 @@ static int vdpau_alloc(AVCodecContext *s)
     AVHWDeviceContext *device_ctx;
     AVVDPAUDeviceContext *device_hwctx;
     AVHWFramesContext *frames_ctx;
-    hw_device_ctx = NULL;
+    AVBufferRef *hw_device_ctx;
     Debug(3, "vdpau_alloc\n");
 
     ctx = av_mallocz(sizeof(*ctx));
@@ -8866,7 +8866,7 @@ static int vdpau_alloc(AVCodecContext *s)
 	goto fail;
     }
 
-    AVBufferRef *hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VDPAU);
+    hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VDPAU);
     if (!hw_device_ctx) {
 	Debug(3, "VDPAU init failed for av_hwdevice_ctx_alloc\n");
 	goto fail;
@@ -9078,7 +9078,6 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->InputHeight = 0;
     if (*fmt_idx == AV_PIX_FMT_VDPAU) { // HWACCEL used
 	int ret;
-	VdpStatus status;
 
 	decoder->PixFmt = AV_PIX_FMT_VDPAU;
 	ist->active_hwaccel_id = HWACCEL_VDPAU;

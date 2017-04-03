@@ -92,7 +92,7 @@ static pthread_mutex_t SuspendLockMutex;	///< suspend lock mutex
 
 static volatile char StreamFreezed;	///< stream freezed
 
-extern SysLogLevel;			///< VDR's global log level
+extern int SysLogLevel;			///< VDR's global log level
 int LogLevel = 0;			///< our local log level
 
 //////////////////////////////////////////////////////////////////////////////
