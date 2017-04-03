@@ -9078,7 +9078,6 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     decoder->InputHeight = 0;
     if (*fmt_idx == AV_PIX_FMT_VDPAU) { // HWACCEL used
 	int ret;
-	VdpStatus status;
 
 	decoder->PixFmt = AV_PIX_FMT_VDPAU;
 	ist->active_hwaccel_id = HWACCEL_VDPAU;
