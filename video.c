@@ -8846,7 +8846,7 @@ static int vdpau_alloc(AVCodecContext *s)
     AVHWDeviceContext *device_ctx;
     AVVDPAUDeviceContext *device_hwctx;
     AVHWFramesContext *frames_ctx;
-    hw_device_ctx = NULL;
+    AVBufferRef *hw_device_ctx;
     Debug(3, "vdpau_alloc\n");
 
     ctx = av_mallocz(sizeof(*ctx));
@@ -8866,7 +8866,7 @@ static int vdpau_alloc(AVCodecContext *s)
 	goto fail;
     }
 
-    AVBufferRef *hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VDPAU);
+    hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VDPAU);
     if (!hw_device_ctx) {
 	Debug(3, "VDPAU init failed for av_hwdevice_ctx_alloc\n");
 	goto fail;
