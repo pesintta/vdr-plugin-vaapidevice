@@ -1,0 +1,203 @@
+From a3ad88a447703506a034a5745b570ee6d6de630c Mon Sep 17 00:00:00 2001
+From: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+Date: Mon, 13 Oct 2014 15:49:08 +0200
+Subject: [PATCH 2/8] vpp: fix AVS coefficients for Broadwell.
+
+Fix AVS filter coefficients for Broadwell. At least, we now address
+the expected entry in the table but the actual value is still not
+viable enough.
+
+Signed-off-by: Gwenole Beauchesne <gwenole.beauchesne@intel.com>
+---
+ src/gen8_post_processing.c | 83 ++++++++++++++++++++++------------------------
+ src/i965_structs.h         | 57 ++++++++++++++++++++++++++++++-
+ 2 files changed, 96 insertions(+), 44 deletions(-)
+
+diff --git a/src/gen8_post_processing.c b/src/gen8_post_processing.c
+index 1e6068d..eeae32f 100644
+--- a/src/gen8_post_processing.c
++++ b/src/gen8_post_processing.c
+@@ -751,7 +751,6 @@ gen8_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     struct pp_avs_context *pp_avs_context = (struct pp_avs_context *)&pp_context->pp_avs_context;
+     struct gen7_pp_static_parameter *pp_static_parameter = pp_context->pp_static_parameter;
+     struct gen8_sampler_8x8_avs *sampler_8x8;
+-    struct i965_sampler_8x8_coefficient *sampler_8x8_state;
+     int i;
+     int width[3], height[3], pitch[3], offset[3];
+     int src_width, src_height;
+@@ -869,57 +868,55 @@ gen8_pp_plx_avs_initialize(VADriverContextP ctx, struct i965_post_processing_con
+     sampler_8x8->dw15.s1u = 113; /* s1u = 0 */
+     sampler_8x8->dw15.s2u = 1203; /* s2u = 0 */
+ 
+-    sampler_8x8_state = sampler_8x8->coefficients;
+-
+     for (i = 0; i < 17; i++) {
++        struct gen8_sampler_8x8_avs_coefficients * const sampler_8x8_state =
++            &sampler_8x8->coefficients[i];
++
+ 	float coff;
+ 	coff = i;
+ 	coff = coff / 16;
+ 
+-        memset(sampler_8x8_state, 0, sizeof(*sampler_8x8_state));
+-        /* for Y channel, currently ignore */
+-        sampler_8x8_state->dw0.table_0x_filter_c0 = 0x0;
+-        sampler_8x8_state->dw0.table_0x_filter_c1 = 0x0;
+-        sampler_8x8_state->dw0.table_0x_filter_c2 = 0x0;
+-        sampler_8x8_state->dw0.table_0x_filter_c3 =
+-				intel_format_convert(1 - coff, 1, 6, 0);
+-        sampler_8x8_state->dw1.table_0x_filter_c4 =
+-				intel_format_convert(coff, 1, 6, 0);
+-        sampler_8x8_state->dw1.table_0x_filter_c5 = 0x0;
+-        sampler_8x8_state->dw1.table_0x_filter_c6 = 0x0;
+-        sampler_8x8_state->dw1.table_0x_filter_c7 = 0x0;
+-        sampler_8x8_state->dw2.table_0y_filter_c0 = 0x0;
+-        sampler_8x8_state->dw2.table_0y_filter_c1 = 0x0;
+-        sampler_8x8_state->dw2.table_0y_filter_c2 = 0x0;
+-        sampler_8x8_state->dw2.table_0y_filter_c3 =
+-                                intel_format_convert(1 - coff, 1, 6, 0);
+-        sampler_8x8_state->dw3.table_0y_filter_c4 =
+-                                intel_format_convert(coff, 1, 6, 0);
+-        sampler_8x8_state->dw3.table_0y_filter_c5 = 0x0;
+-        sampler_8x8_state->dw3.table_0y_filter_c6 = 0x0;
+-        sampler_8x8_state->dw3.table_0y_filter_c7 = 0x0;
+-        /* for U/V channel, 0.25 */
+-        sampler_8x8_state->dw4.table_1x_filter_c0 = 0x0;
+-        sampler_8x8_state->dw4.table_1x_filter_c1 = 0x0;
+-        sampler_8x8_state->dw4.table_1x_filter_c2 = 0x0;
++        sampler_8x8_state->dw0.table_0x_filter_c0 = 0;
++        sampler_8x8_state->dw0.table_0y_filter_c0 = 0;
++        sampler_8x8_state->dw0.table_0x_filter_c1 = 0;
++        sampler_8x8_state->dw0.table_0y_filter_c1 = 0;
++
++        sampler_8x8_state->dw1.table_0x_filter_c2 = 0;
++        sampler_8x8_state->dw1.table_0y_filter_c2 = 0;
++        sampler_8x8_state->dw1.table_0x_filter_c3 =
++            intel_format_convert(1 - coff, 1, 6, 0);
++        sampler_8x8_state->dw1.table_0y_filter_c3 =
++            intel_format_convert(1 - coff, 1, 6, 0);
++
++        sampler_8x8_state->dw2.table_0x_filter_c4 =
++            intel_format_convert(coff, 1, 6, 0);
++        sampler_8x8_state->dw2.table_0y_filter_c4 =
++            intel_format_convert(coff, 1, 6, 0);
++        sampler_8x8_state->dw2.table_0x_filter_c5 = 0;
++        sampler_8x8_state->dw2.table_0y_filter_c5 = 0;
++
++        sampler_8x8_state->dw3.table_0x_filter_c6 = 0;
++        sampler_8x8_state->dw3.table_0y_filter_c6 = 0;
++        sampler_8x8_state->dw3.table_0x_filter_c7 = 0;
++        sampler_8x8_state->dw3.table_0y_filter_c7 = 0;
++
++        sampler_8x8_state->dw4.pad0 = 0;
++        sampler_8x8_state->dw5.pad0 = 0;
++        sampler_8x8_state->dw4.table_1x_filter_c2 = 0;
+         sampler_8x8_state->dw4.table_1x_filter_c3 =
+-				intel_format_convert(1 - coff, 1, 6, 0);
++            intel_format_convert(1 - coff, 1, 6, 0);
+         sampler_8x8_state->dw5.table_1x_filter_c4 =
+-                                intel_format_convert(coff, 1, 6, 0);
+-        sampler_8x8_state->dw5.table_1x_filter_c5 = 0x00;
+-        sampler_8x8_state->dw5.table_1x_filter_c6 = 0x0;
+-        sampler_8x8_state->dw5.table_1x_filter_c7 = 0x0;
+-        sampler_8x8_state->dw6.table_1y_filter_c0 = 0x0;
+-        sampler_8x8_state->dw6.table_1y_filter_c1 = 0x0;
+-        sampler_8x8_state->dw6.table_1y_filter_c2 = 0x0;
++            intel_format_convert(coff, 1, 6, 0);
++        sampler_8x8_state->dw5.table_1x_filter_c5 = 0;
++
++        sampler_8x8_state->dw6.pad0 = 0;
++        sampler_8x8_state->dw7.pad0 = 0;
++        sampler_8x8_state->dw6.table_1y_filter_c2 = 0;
+         sampler_8x8_state->dw6.table_1y_filter_c3 =
+-				intel_format_convert(1 - coff, 1, 6, 0);
++            intel_format_convert(1 - coff, 1, 6, 0);
+         sampler_8x8_state->dw7.table_1y_filter_c4 =
+-				intel_format_convert(coff, 1, 6,0);
+-        sampler_8x8_state->dw7.table_1y_filter_c5 = 0x0;
+-        sampler_8x8_state->dw7.table_1y_filter_c6 = 0x0;
+-        sampler_8x8_state->dw7.table_1y_filter_c7 = 0x0;
+-        sampler_8x8_state++;
++            intel_format_convert(coff, 1, 6, 0);
++        sampler_8x8_state->dw7.table_1y_filter_c5 = 0;
+     }
+ 
+     sampler_8x8->dw152.default_sharpness_level = 0;
+diff --git a/src/i965_structs.h b/src/i965_structs.h
+index 07e9197..a1dce64 100644
+--- a/src/i965_structs.h
++++ b/src/i965_structs.h
+@@ -1811,6 +1811,61 @@ struct gen7_sampler_dndi
+     } dw7;
+ };
+ 
++struct gen8_sampler_8x8_avs_coefficients
++{
++    struct {
++        unsigned int table_0x_filter_c0:8;
++        unsigned int table_0y_filter_c0:8;
++        unsigned int table_0x_filter_c1:8;
++        unsigned int table_0y_filter_c1:8;
++    } dw0;
++
++    struct {
++        unsigned int table_0x_filter_c2:8;
++        unsigned int table_0y_filter_c2:8;
++        unsigned int table_0x_filter_c3:8;
++        unsigned int table_0y_filter_c3:8;
++    } dw1;
++
++    struct {
++        unsigned int table_0x_filter_c4:8;
++        unsigned int table_0y_filter_c4:8;
++        unsigned int table_0x_filter_c5:8;
++        unsigned int table_0y_filter_c5:8;
++    } dw2;
++
++    struct {
++        unsigned int table_0x_filter_c6:8;
++        unsigned int table_0y_filter_c6:8;
++        unsigned int table_0x_filter_c7:8;
++        unsigned int table_0y_filter_c7:8;
++    } dw3;
++
++    struct {
++        unsigned int pad0:16;
++        unsigned int table_1x_filter_c2:8;
++        unsigned int table_1x_filter_c3:8;
++    } dw4;
++
++    struct {
++        unsigned int table_1x_filter_c4:8;
++        unsigned int table_1x_filter_c5:8;
++        unsigned int pad0:16;
++    } dw5;
++
++    struct {
++        unsigned int pad0:16;
++        unsigned int table_1y_filter_c2:8;
++        unsigned int table_1y_filter_c3:8;
++    } dw6;
++
++    struct {
++        unsigned int table_1y_filter_c4:8;
++        unsigned int table_1y_filter_c5:8;
++        unsigned int pad0:16;
++    } dw7;
++};
++
+ struct gen8_sampler_8x8_avs {
+     struct {
+         unsigned int gain_factor:6;
+@@ -1931,7 +1986,7 @@ struct gen8_sampler_8x8_avs {
+     } dw15;
+ 
+     /* DW16-DW151 */
+-    struct i965_sampler_8x8_coefficient coefficients[17];
++    struct gen8_sampler_8x8_avs_coefficients coefficients[17];
+     
+     struct {
+         unsigned int transition_area_with_8_pixels:3;
+-- 
+2.0.4
+
