@@ -3676,7 +3676,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     VAProcFilterCap caps[cap_n];
 
     VAStatus va_status = vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
-						    type, caps, &cap_n);
+						    type, &caps, &cap_n);
     if (va_status != VA_STATUS_SUCCESS) {
         Error("Failed to query filter #%02x capabilities: %s\n", type, vaErrorStr(va_status));
         return VA_INVALID_ID;
@@ -3783,7 +3783,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		deinterlacing_cap_n = VAProcDeinterlacingCount;
 		vaQueryVideoProcFilterCaps(VaDisplay,
 		    decoder->vpp_ctx,
-		    VAProcFilterDeinterlacing, deinterlacing_caps,
+		    VAProcFilterDeinterlacing, &deinterlacing_caps,
 		    &deinterlacing_cap_n);
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
 
@@ -3842,7 +3842,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		Info("video/vaapi: enabling color balance filters\n");
 		colorbalance_cap_n = VAProcColorBalanceCount;
 		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
-		     VAProcFilterColorBalance, colorbalance_caps,
+		     VAProcFilterColorBalance, &colorbalance_caps,
 		     &colorbalance_cap_n);
 
 		Info("video/vaapi: Supported color balance filter count: %d\n", colorbalance_cap_n);
