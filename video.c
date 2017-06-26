@@ -5948,6 +5948,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
     // FIXME: some tv-stations toggle interlace on/off
     // frame->interlaced_frame isn't always correct set
     interlaced = frame->interlaced_frame;
+#if 0
     if (video_ctx->height == 720) {
 	if (interlaced && !decoder->WrongInterlacedWarned) {
 	    Debug(3, "video/vaapi: wrong interlace flag fixed\n");
@@ -5961,6 +5962,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder,
 	}
 	interlaced = 1;
     }
+#endif
 
     // FIXME: should be done by init video_ctx->field_order
     if (decoder->Interlaced != interlaced
