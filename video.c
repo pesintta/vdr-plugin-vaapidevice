@@ -3132,6 +3132,7 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx,
         return va_status;
     }
     vaEndPicture(VaDisplay, ctx);
+    vaDestroyBuffer(VaDisplay, pipeline_buf);
     return VA_STATUS_SUCCESS;
 }
 
