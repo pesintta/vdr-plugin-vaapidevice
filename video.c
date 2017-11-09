@@ -2768,7 +2768,10 @@ static int VaapiInit(const char *display_name)
     setenv("DISPLAY", display_name, 1);
 
 #ifndef DEBUG
-#if VA_CHECK_VERSION(0,40,0)
+#if VA_CHECK_VERSION(1,0,0)
+    vaSetErrorCallback(VaDisplay, NULL, NULL);
+    vaSetInfoCallback(VaDisplay, NULL, NULL);
+#elif VA_CHECK_VERSION(0,40,0)
     vaSetErrorCallback(NULL);
     vaSetInfoCallback(NULL);
 #endif
