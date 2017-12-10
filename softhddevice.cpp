@@ -839,7 +839,7 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag,
 void cMenuSetupSoft::Create(void)
 {
     static const char *const osd_size[] = {
-	"auto", "1920x1080", "1280x720", "custom",
+	"auto", "3840x2160", "1920x1080", "1280x720", "custom",
     };
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
@@ -892,8 +892,8 @@ void cMenuSetupSoft::Create(void)
 	//
 	//	osd
 	//
-	Add(new cMenuEditStraItem(tr("Osd size"), &OsdSize, 4, osd_size));
-	if (OsdSize == 3) {
+	Add(new cMenuEditStraItem(tr("Osd size"), &OsdSize, 5, osd_size));
+	if (OsdSize == 4) {
 	    Add(new cMenuEditIntItem(tr("Osd width"), &OsdWidth, 0, 4096));
 	    Add(new cMenuEditIntItem(tr("Osd height"), &OsdHeight, 0, 4096));
 	}
@@ -1195,12 +1195,14 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     OsdHeight = ConfigOsdHeight;
     if (!OsdWidth && !OsdHeight) {
 	OsdSize = 0;
-    } else if (OsdWidth == 1920 && OsdHeight == 1080) {
+    } else if (OsdWidth == 3840 && OsdHeight == 2160) {
 	OsdSize = 1;
-    } else if (OsdWidth == 1280 && OsdHeight == 720) {
+    } else if (OsdWidth == 1920 && OsdHeight == 1080) {
 	OsdSize = 2;
-    } else {
+    } else if (OsdWidth == 1280 && OsdHeight == 720) {
 	OsdSize = 3;
+    } else {
+	OsdSize = 4;
     }
     //
     //	suspend
@@ -1335,10 +1337,14 @@ void cMenuSetupSoft::Store(void)
 	    OsdHeight = 0;
 	    break;
 	case 1:
+	    OsdWidth = 3840;
+	    OsdHeight = 2160;
+	    break;
+	case 2:
 	    OsdWidth = 1920;
 	    OsdHeight = 1080;
 	    break;
-	case 2:
+	case 3:
 	    OsdWidth = 1280;
 	    OsdHeight = 720;
 	default:

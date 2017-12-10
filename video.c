@@ -10957,7 +10957,7 @@ static void VdpauSetOutputPosition(VdpauDecoder * decoder, int x, int y,
 //	VDPAU OSD
 //----------------------------------------------------------------------------
 
-static const uint8_t OsdZeros[1920 * 1200 * 4];	///< 0 for clear osd
+static const uint8_t OsdZeros[4096 * 2160 * 4];	///< 0 for clear osd
 
 ///
 ///	Clear subpicture image.
@@ -10985,7 +10985,7 @@ static void VdpauOsdClear(void)
     }
 #endif
 
-    if (OsdWidth * OsdHeight > 1920 * 1200) {
+    if (OsdWidth * OsdHeight > 4096 * 2160) {
 	Error(_("video/vdpau: osd too big: unsupported\n"));
 	return;
     }
