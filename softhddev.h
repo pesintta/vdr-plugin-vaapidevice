@@ -49,7 +49,7 @@ extern "C"
     /// C plugin play video packet
     extern int PlayVideo(const uint8_t *, int);
     /// C plugin play TS video packet
-    extern void PlayTsVideo(const uint8_t *, int);
+    extern int PlayTsVideo(const uint8_t *, int);
     /// C plugin grab an image
     extern uint8_t *GrabImage(int *, int, int, int, int);
 

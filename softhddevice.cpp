@@ -2790,6 +2790,7 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 */
 int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
+    return::PlayTsVideo(data, length);
 }
 
 #endif
