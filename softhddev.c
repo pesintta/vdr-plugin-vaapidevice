@@ -554,7 +554,6 @@ static VideoStream PipVideoStream[1];	///< pip video stream
 uint32_t VideoSwitch;			///< debug video switch ticks
 static int VideoMaxPacketSize;		///< biggest used packet buffer
 #endif
-//#define STILL_DEBUG 2
 #ifdef STILL_DEBUG
 static char InStillPicture;		///< flag still picture
 #endif

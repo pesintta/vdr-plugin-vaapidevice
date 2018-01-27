@@ -324,6 +324,19 @@ msgstr ""
 msgid "codec/audio: no frame\n"
 msgstr ""
 
+msgid "[softhddev] out of memory\n"
+msgstr ""
+
+#, c-format
+msgid "video: packet buffer too small for %d\n"
+msgstr ""
+
+msgid "video: no empty slot in packet ringbuffer\n"
+msgstr ""
+
+msgid "[softhddev] too short PES video packet\n"
+msgstr ""
+
 msgid "pesdemux: out of memory\n"
 msgstr ""
 
@@ -372,19 +385,6 @@ msgstr ""
 
 #, c-format
 msgid "[softhddev] LPCM %d channels are unsupported\n"
-msgstr ""
-
-msgid "[softhddev] out of memory\n"
-msgstr ""
-
-#, c-format
-msgid "video: packet buffer too small for %d\n"
-msgstr ""
-
-msgid "video: no empty slot in packet ringbuffer\n"
-msgstr ""
-
-msgid "[softhddev] too short PES video packet\n"
 msgstr ""
 
 msgid "[softhddev] invalid PES video packet\n"

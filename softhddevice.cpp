@@ -60,7 +60,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.6.1rc1"
+static const char *const VERSION = "0.7.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -2781,7 +2781,6 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 }
 
 #ifdef USE_TS_VIDEO
-
 /**
 **	Play a TS video packet.
 **
@@ -2792,7 +2791,6 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
     return::PlayTsVideo(data, length);
 }
-
 #endif
 
 #if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
