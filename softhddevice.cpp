@@ -189,6 +189,7 @@ static volatile int DoMakePrimary;	///< switch primary device to this
 #define SUSPEND_NORMAL		1	///< normal suspend mode
 #define SUSPEND_DETACHED	2	///< detached suspend mode
 static signed char SuspendMode;		///< suspend mode
+volatile char SoftIsPlayingVideo;       ///< stream contains video data
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -2804,6 +2805,11 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
 #ifndef NO_TS_AUDIO
+    if (SoftIsPlayingVideo != cDevice::IsPlayingVideo()) {
+	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
+	Debug(3, "[softhddev]%s: SoftIsPlayingVideo: %d\n", __FUNCTION__, SoftIsPlayingVideo);
+    }
+
     return::PlayTsAudio(data, length);
 #else
     AudioPoller();
