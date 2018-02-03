@@ -51,7 +51,6 @@ src_prepare() {
 	BUILD_PARAMS+=" OPENGL=$(usex opengl 1 0)"
 	BUILD_PARAMS+=" OSS=$(usex oss 1 0)"
 	BUILD_PARAMS+=" VAAPI=$(usex vaapi 1 0)"
-	BUILD_PARAMS+=" SCREENSAVER=$(usex xscreensaver 1 0)"
 
 	if has_version ">=media-video/ffmpeg-0.8"; then
 		BUILD_PARAMS+=" SWRESAMPLE=1"

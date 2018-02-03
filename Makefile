@@ -19,8 +19,6 @@ OSS ?= 1
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
 OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
-    # screensaver disable/enable
-SCREENSAVER ?= 1
     # use ffmpeg libswscale
 SWSCALE ?= $(shell pkg-config --exists libswscale && echo 1)
     # use ffmpeg libswresample
@@ -101,11 +99,6 @@ ifeq ($(OPENGL),1)
 CONFIG += -DUSE_GLX
 _CFLAGS += $(shell pkg-config --cflags gl glu)
 LIBS += $(shell pkg-config --libs gl glu)
-endif
-ifeq ($(SCREENSAVER),1)
-CONFIG += -DUSE_SCREENSAVER
-_CFLAGS += $(shell pkg-config --cflags xcb-screensaver xcb-dpms)
-LIBS += $(shell pkg-config --libs xcb-screensaver xcb-dpms)
 endif
 ifeq ($(SWSCALE),1)
 CONFIG += -DUSE_SWSCALE

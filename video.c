@@ -82,10 +82,6 @@
 #include <xcb/glx.h>
 #endif
 //#include <xcb/randr.h>
-#ifdef USE_SCREENSAVER
-#include <xcb/screensaver.h>
-#include <xcb/dpms.h>
-#endif
 //#include <xcb/shm.h>
 //#include <xcb/xv.h>
 
@@ -479,11 +475,6 @@ static int OsdDirtyHeight;		///< osd dirty area height
 
 static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
-#ifdef USE_SCREENSAVER
-static char DPMSDisabled;		///< flag we have disabled dpms
-static char EnableDPMSatBlackScreen;	///< flag we should enable dpms at black screen
-#endif
-
 uint32_t mutex_start_time;
 int max_mutex_delay;
 max_mutex_delay = 1;
@@ -495,13 +486,6 @@ max_mutex_delay = 1;
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 static void VideoThreadExit(void);	///< exit/kill video thread
-
-#ifdef USE_SCREENSAVER
-static void X11SuspendScreenSaver(xcb_connection_t *, int);
-static int X11HaveDPMS(xcb_connection_t *);
-static void X11DPMSReenable(xcb_connection_t *);
-static void X11DPMSDisable(xcb_connection_t *);
-#endif
 
 ///
 ///	Update video pts.
@@ -5911,20 +5895,7 @@ static void VaapiDisplayFrame(void)
 	    decoder->LastSurface = decoder->BlackSurface;
 #endif
 	    VaapiMessage(3, "video/vaapi: black surface displayed\n");
-#ifdef USE_SCREENSAVER
-	    if (EnableDPMSatBlackScreen && DPMSDisabled) {
-		Debug(3, "Black surface, DPMS enabled");
-		X11DPMSReenable(Connection);
-		X11SuspendScreenSaver(Connection, 1);
-	    }
-#endif
 	    continue;
-#ifdef USE_SCREENSAVER
-	} else if (!DPMSDisabled) {	// always disable
-	    Debug(3, "DPMS disabled");
-	    X11DPMSDisable(Connection);
-	    X11SuspendScreenSaver(Connection, 0);
-#endif
 	}
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
@@ -7773,135 +7744,6 @@ void VideoGetVideoSize(VideoHwDecoder * hw_decoder, int *width, int *height,
 
 }
 
-#ifdef USE_SCREENSAVER
-
-//----------------------------------------------------------------------------
-//	DPMS / Screensaver
-//----------------------------------------------------------------------------
-
-///
-///	Suspend X11 screen saver.
-///
-///	@param connection	X11 connection to enable/disable screensaver
-///	@param suspend		True suspend screensaver,
-///				false enable screensaver
-///
-static void X11SuspendScreenSaver(xcb_connection_t * connection, int suspend)
-{
-    const xcb_query_extension_reply_t *query_extension_reply;
-
-    query_extension_reply =
-	xcb_get_extension_data(connection, &xcb_screensaver_id);
-    if (query_extension_reply && query_extension_reply->present) {
-	xcb_screensaver_query_version_cookie_t cookie;
-	xcb_screensaver_query_version_reply_t *reply;
-
-	Debug(3, "video: screen saver extension present\n");
-
-	cookie =
-	    xcb_screensaver_query_version_unchecked(connection,
-	    XCB_SCREENSAVER_MAJOR_VERSION, XCB_SCREENSAVER_MINOR_VERSION);
-	reply = xcb_screensaver_query_version_reply(connection, cookie, NULL);
-	if (reply
-	    && (reply->server_major_version >= XCB_SCREENSAVER_MAJOR_VERSION)
-	    && (reply->server_minor_version >= XCB_SCREENSAVER_MINOR_VERSION)
-	    ) {
-	    xcb_screensaver_suspend(connection, suspend);
-	}
-	free(reply);
-    }
-}
-
-///
-///	DPMS (Display Power Management Signaling) extension available.
-///
-///	@param connection	X11 connection to check for DPMS
-///
-static int X11HaveDPMS(xcb_connection_t * connection)
-{
-    static int have_dpms = -1;
-    const xcb_query_extension_reply_t *query_extension_reply;
-
-    if (have_dpms != -1) {		// already checked
-	return have_dpms;
-    }
-
-    have_dpms = 0;
-    query_extension_reply = xcb_get_extension_data(connection, &xcb_dpms_id);
-    if (query_extension_reply && query_extension_reply->present) {
-	xcb_dpms_get_version_cookie_t cookie;
-	xcb_dpms_get_version_reply_t *reply;
-	int major;
-	int minor;
-
-	Debug(3, "video: dpms extension present\n");
-
-	cookie =
-	    xcb_dpms_get_version_unchecked(connection, XCB_DPMS_MAJOR_VERSION,
-	    XCB_DPMS_MINOR_VERSION);
-	reply = xcb_dpms_get_version_reply(connection, cookie, NULL);
-	// use locals to avoid gcc warning
-	major = XCB_DPMS_MAJOR_VERSION;
-	minor = XCB_DPMS_MINOR_VERSION;
-	if (reply && (reply->server_major_version >= major)
-	    && (reply->server_minor_version >= minor)
-	    ) {
-	    have_dpms = 1;
-	}
-	free(reply);
-    }
-    return have_dpms;
-}
-
-///
-///	Disable DPMS (Display Power Management Signaling)
-///
-///	@param connection	X11 connection to disable DPMS
-///
-static void X11DPMSDisable(xcb_connection_t * connection)
-{
-    if (X11HaveDPMS(connection)) {
-	xcb_dpms_info_cookie_t cookie;
-	xcb_dpms_info_reply_t *reply;
-
-	cookie = xcb_dpms_info_unchecked(connection);
-	reply = xcb_dpms_info_reply(connection, cookie, NULL);
-	if (reply) {
-	    if (reply->state) {
-		Debug(3, "video: dpms was enabled\n");
-		xcb_dpms_disable(connection);	// monitor powersave off
-	    }
-	    free(reply);
-	}
-	DPMSDisabled = 1;
-    }
-}
-
-///
-///	Reenable DPMS (Display Power Management Signaling)
-///
-///	@param connection	X11 connection to enable DPMS
-///
-static void X11DPMSReenable(xcb_connection_t * connection)
-{
-    if (DPMSDisabled && X11HaveDPMS(connection)) {
-	xcb_dpms_enable(connection);	// monitor powersave on
-	xcb_dpms_force_level(connection, XCB_DPMS_DPMS_MODE_ON);
-	DPMSDisabled = 0;
-    }
-}
-
-#else
-
-    /// dummy function: Suspend X11 screen saver.
-#define X11SuspendScreenSaver(connection, suspend)
-    /// dummy function: Disable X11 DPMS.
-#define X11DPMSDisable(connection)
-    /// dummy function: Reenable X11 DPMS.
-#define X11DPMSReenable(connection)
-
-#endif
-
 //----------------------------------------------------------------------------
 //	Setup
 //----------------------------------------------------------------------------
@@ -8855,18 +8697,6 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
 }
 
 ///
-///	Set EnableDPMSatBlackScreen
-///
-///	Currently this only choose the driver.
-///
-void SetDPMSatBlackScreen(int enable)
-{
-#ifdef USE_SCREENSAVER
-    EnableDPMSatBlackScreen = enable;
-#endif
-}
-
-///
 ///	Raise video window.
 ///
 int VideoRaiseWindow(void)
@@ -8927,10 +8757,6 @@ void VideoInit(const char *display_name)
     xcb_prefetch_extension_data(Connection, &xcb_glx_id);
 #endif
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
-#ifdef USE_SCREENSAVER
-    xcb_prefetch_extension_data(Connection, &xcb_screensaver_id);
-    xcb_prefetch_extension_data(Connection, &xcb_dpms_id);
-#endif
     //xcb_prefetch_extension_data(Connection, &xcb_shm_id);
     //xcb_prefetch_extension_data(Connection, &xcb_xv_id);
 
@@ -8994,9 +8820,6 @@ void VideoInit(const char *display_name)
     if (getenv("NO_HW")) {
 	VideoHardwareDecoder = 0;
     }
-    // disable x11 screensaver
-    X11SuspendScreenSaver(Connection, 1);
-    X11DPMSDisable(Connection);
 
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
@@ -9017,11 +8840,6 @@ void VideoExit(void)
     if (!XlibDisplay) {			// no init or failed
 	return;
     }
-    //
-    //	Reenable screensaver / DPMS.
-    //
-    X11DPMSReenable(Connection);
-    X11SuspendScreenSaver(Connection, 0);
 
 #ifdef USE_VIDEO_THREAD
     VideoThreadExit();
