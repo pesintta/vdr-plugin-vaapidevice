@@ -39,7 +39,6 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
-#define USE_AUTOCROP			///< compile auto-crop support
 #define USE_DOUBLEBUFFER		///< use GLX double buffers
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
@@ -1453,8 +1452,6 @@ typedef struct _auto_crop_ctx_
 
 } AutoCropCtx;
 
-#ifdef USE_AUTOCROP
-
 #define YBLACK 0x20			///< below is black
 #define UVBLACK 0x80			///< around is black
 #define M64 UINT64_C(0x0101010101010101)	///< 64bit multiplicator
@@ -1600,8 +1597,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height,
     autocrop->Y2 = y2;
 }
 
-#endif
-
 //----------------------------------------------------------------------------
 //	software - deinterlace
 //----------------------------------------------------------------------------
@@ -1693,9 +1688,7 @@ struct _vaapi_decoder_
     int CropY;				///< video crop y
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
-#ifdef USE_AUTOCROP
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
-#endif
 #ifdef USE_GLX
     GLuint GlTextures[2];		///< gl texture for VA-API
     void *GlxSurfaces[2];		///< VA-API/GLX surface
@@ -2842,10 +2835,8 @@ static void VaapiUpdateOutput(VaapiDecoder * decoder)
 	&decoder->OutputX, &decoder->OutputY, &decoder->OutputWidth,
 	&decoder->OutputHeight, &decoder->CropX, &decoder->CropY,
 	&decoder->CropWidth, &decoder->CropHeight);
-#ifdef USE_AUTOCROP
     decoder->AutoCrop->State = 0;
     decoder->AutoCrop->Count = AutoCropDelay;
-#endif
 }
 
 ///
@@ -4410,8 +4401,6 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface,
 
 #endif
 
-#ifdef USE_AUTOCROP
-
 ///
 ///	VA-API auto-crop support.
 ///
@@ -4631,9 +4620,6 @@ static void VaapiResetAutoCrop(void)
 	VaapiDecoders[i]->AutoCrop->Count = 0;
     }
 }
-
-#endif
-
 
 ///
 ///	Queue output surface.
@@ -6389,9 +6375,7 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
 	VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);
     }
     VaapiRenderFrame(decoder, video_ctx, frame);
-#ifdef USE_AUTOCROP
     VaapiCheckAutoCrop(decoder);
-#endif
 }
 
 ///
@@ -8907,7 +8891,6 @@ void VideoSetAudioDelay(int ms)
 ///
 void VideoSetAutoCrop(int interval, int delay, int tolerance)
 {
-#ifdef USE_AUTOCROP
     AutoCropInterval = interval;
     AutoCropDelay = delay;
     AutoCropTolerance = tolerance;
@@ -8915,11 +8898,6 @@ void VideoSetAutoCrop(int interval, int delay, int tolerance)
     VideoThreadLock();
     VideoUsedModule->ResetAutoCrop();
     VideoThreadUnlock();
-#else
-    (void)interval;
-    (void)delay;
-    (void)tolerance;
-#endif
 }
 
 ///
