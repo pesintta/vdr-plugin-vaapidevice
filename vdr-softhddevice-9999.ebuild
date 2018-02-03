@@ -45,8 +45,6 @@ REQUIRED_USE="opengl? ( vaapi )
 pkg_setup() {
 	vdr-plugin-2_pkg_setup
 
-	append-cppflags -DHAVE_PTHREAD_NAME
-
 	use debug && append-cppflags -DDEBUG -DOSD_DEBUG
 }
 src_prepare() {
