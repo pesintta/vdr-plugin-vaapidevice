@@ -1704,32 +1704,12 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 #ifdef USE_PIP
 			if (MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
 			    VideoMpegEnqueue(MyVideoStream, pesdx->PTS, q, n);
-#ifndef USE_MPEG_COMPLETE
-			    if (MyVideoStream->PacketRb[MyVideoStream->PacketWrite].stream_index < 65526) {
-				// mpeg codec supports incomplete packets
-				// waiting for a full complete packages, increases needed delays
-				// PES recordings sends incomplete packets
-				// incomplete packets  breaks the decoder for some stations
-				// for the new USE_PIP code, this is only a very little improvement
-				VideoNextPacket(MyVideoStream, MyVideoStream->CodecID);
-			    }
-#endif
 			} else {
 			    VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
 			}
 #else
 			// SKIP PES header
 			VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
-#ifndef USE_MPEG_COMPLETE
-			// incomplete packets produce artefacts after channel switch
-			// packet < 65526 is the last split packet, detect it here for
-			// better latency
-			if ( MyVideoStream->PacketRb[MyVideoStream->PacketWrite].stream_index < 65526 && MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
-			    // mpeg codec supports incomplete packets
-			    // waiting for a full complete packages, increases needed delays
-			    VideoNextPacket(MyVideoStream, AV_CODEC_ID_MPEG2VIDEO);
-			}
-#endif
 #endif
 			pesdx->Skip += n;
 		}
@@ -2479,16 +2459,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
 	// SKIP PES header
 	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
-#ifndef USE_MPEG_COMPLETE
-	if (size < 65526) {
-	    // mpeg codec supports incomplete packets
-	    // waiting for a full complete packages, increases needed delays
-	    // PES recordings sends incomplete packets
-	    // incomplete packets  breaks the decoder for some stations
-	    // for the new USE_PIP code, this is only a very little improvement
-	    VideoNextPacket(stream, stream->CodecID);
-	}
-#endif
     } else {
 	// SKIP PES header
 	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);

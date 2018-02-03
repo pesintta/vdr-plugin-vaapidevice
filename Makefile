@@ -38,7 +38,6 @@ endif
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 CONFIG += -DUSE_PIP			# PIP support
 CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
-CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
 
 ### The version number of this plugin (taken from the main source file):
 
