@@ -2389,13 +2389,11 @@ class cSoftHdDevice:public cDevice
 
     virtual uchar *GrabImage(int &, bool, int, int, int);
 
-#ifdef USE_VDR_SPU
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
   public:
     virtual cSpuDecoder * GetSpuDecoder(void);
-#endif
 
   protected:
     virtual void MakePrimaryDevice(bool);
@@ -2407,10 +2405,7 @@ class cSoftHdDevice:public cDevice
 cSoftHdDevice::cSoftHdDevice(void)
 {
     //Debug(3, "[softhddev]%s\n", __FUNCTION__);
-
-#ifdef USE_VDR_SPU
     spuDecoder = NULL;
-#endif
 }
 
 /**
@@ -2419,9 +2414,7 @@ cSoftHdDevice::cSoftHdDevice(void)
 cSoftHdDevice::~cSoftHdDevice(void)
 {
     //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-#ifdef USE_VDR_SPU
     delete spuDecoder;
-#endif
 }
 
 /**
@@ -2447,8 +2440,6 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
     }
 }
 
-#ifdef USE_VDR_SPU
-
 /**
 **	Get the device SPU decoder.
 **
@@ -2464,8 +2455,6 @@ cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
     }
     return spuDecoder;
 }
-
-#endif
 
 /**
 **	Tells whether this device has a MPEG decoder.
