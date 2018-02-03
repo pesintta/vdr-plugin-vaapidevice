@@ -1631,7 +1631,6 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 					}
 				}
 #endif
-#ifdef H264_EOS_TRICKSPEED
 				// this should improve ffwd+frew, but produce crash in ffmpeg
 				// with some streams
 				if (MyVideoStream->TrickSpeed && pesdx->PTS != (int64_t) AV_NOPTS_VALUE) {
@@ -1647,7 +1646,6 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 					sizeof(seq_end_h264));
 				    }
 				}
-#endif
 				VideoNextPacket(MyVideoStream, AV_CODEC_ID_H264);
 			    } else {
 				Debug(3, "video: h264 detected\n");
@@ -2413,7 +2411,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 		}
 	    }
 #endif
-#ifdef H264_EOS_TRICKSPEED
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
 	    // with some streams
 	    if (stream->TrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
@@ -2429,7 +2426,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 			sizeof(seq_end_h264));
 		}
 	    }
-#endif
 	    VideoNextPacket(stream, AV_CODEC_ID_H264);
 	} else {
 	    Debug(3, "video: h264 detected\n");
