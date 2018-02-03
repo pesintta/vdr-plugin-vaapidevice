@@ -1363,8 +1363,6 @@ enum
     PES_PROG_STREAM_DIR = 0xFF,
 };
 
-#ifndef NO_TS_AUDIO
-
 ///
 ///	PES parser state.
 ///
@@ -2031,7 +2029,6 @@ static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size, int av)
     return p - data;
 }
 
-#endif
 
 //////////////////////////////////////////////////////////////////////////////
 //	Play audio video
@@ -2258,7 +2255,6 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     return size;
 }
 
-#ifndef NO_TS_AUDIO
 /**
 **	Play transport stream audio packet.
 **
@@ -2298,7 +2294,6 @@ int PlayTsAudio(const uint8_t * data, int size)
 
     return TsDemuxer(tsdx, data, size, TS_PES_AUDIO);
 }
-#endif
 
 /**
 **	Play video packet.
@@ -3452,9 +3447,7 @@ int Start(void)
 #ifdef USE_TS_VIDEO
     PesInit(&PesDemuxer[TS_PES_VIDEO]);
 #endif
-#ifndef NO_TS_AUDIO
     PesInit(&PesDemuxer[TS_PES_AUDIO]);
-#endif
     Info(_("[softhddev] ready%s\n"),
 	ConfigStartSuspended ? ConfigStartSuspended ==
 	-1 ? " detached" : " suspended" : "");

@@ -37,7 +37,6 @@ endif
 
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 CONFIG += -DUSE_PIP			# PIP support
-#CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
 CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
 CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
 CONFIG += -DH264_EOS_TRICKSPEED		# insert seq end packets for trickspeed

@@ -2376,9 +2376,7 @@ class cSoftHdDevice:public cDevice
 #ifdef USE_TS_VIDEO
     virtual int PlayTsVideo(const uchar *, int);
 #endif
-#if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
     virtual int PlayTsAudio(const uchar *, int);
-#endif
     virtual void SetAudioChannelDevice(int);
     virtual int GetAudioChannelDevice(void);
     virtual void SetDigitalAudioDevice(bool);
@@ -2782,8 +2780,6 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 }
 #endif
 
-#if !defined(USE_AUDIO_THREAD) || !defined(NO_TS_AUDIO)
-
 /**
 **	Play a TS audio packet.
 **
@@ -2792,21 +2788,13 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 */
 int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 {
-#ifndef NO_TS_AUDIO
     if (SoftIsPlayingVideo != cDevice::IsPlayingVideo()) {
 	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
 	Debug(3, "[softhddev]%s: SoftIsPlayingVideo: %d\n", __FUNCTION__, SoftIsPlayingVideo);
     }
 
     return::PlayTsAudio(data, length);
-#else
-    AudioPoller();
-
-    return cDevice::PlayTsAudio(data, length);
-#endif
 }
-
-#endif
 
 /**
 **	Grabs the currently visible screen image.
