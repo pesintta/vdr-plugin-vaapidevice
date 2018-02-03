@@ -237,37 +237,6 @@ static void Codec_free_buffer(void *opaque, uint8_t *data)
     }
 }
 
-/// libav: compatibility hack
-#ifndef AV_NUM_DATA_POINTERS
-#define AV_NUM_DATA_POINTERS	4
-#endif
-
-/**
-**	Draw a horizontal band.
-**
-**	@param video_ctx	Codec context
-**	@param frame		draw this frame
-**	@param y		y position of slice
-**	@param type		1->top field, 2->bottom field, 3->frame
-**	@param offset		offset into AVFrame.data from which slice
-**				should be read
-**	@param height		height of slice
-*/
-static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
-    const AVFrame * frame, __attribute__ ((unused))
-    int offset[AV_NUM_DATA_POINTERS], __attribute__ ((unused))
-    int y, __attribute__ ((unused))
-    int type, __attribute__ ((unused))
-    int height)
-{
-    (void)video_ctx;
-    (void)frame;
-}
-
-//----------------------------------------------------------------------------
-//	Test
-//----------------------------------------------------------------------------
-
 /**
 **	Allocate a new video decoder context.
 **
@@ -306,7 +275,6 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
-    const char *name;
 
     Debug(3, "codec: using video codec ID %#06x (%s)\n", codec_id,
 	avcodec_get_name(codec_id));
@@ -659,9 +627,9 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #else
-    AVDictionary *av_dict;
+    {
+    AVDictionary *av_dict = NULL;
 
-    av_dict = NULL;
     // FIXME: import settings
     //av_dict_set(&av_dict, "dmix_mode", "0", 0);
     //av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
@@ -671,6 +639,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	Fatal(_("codec: can't open audio codec\n"));
     }
     av_dict_free(&av_dict);
+    }
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCodec->long_name);

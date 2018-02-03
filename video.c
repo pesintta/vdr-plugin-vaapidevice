@@ -77,17 +77,10 @@
 #include <X11/keysym.h>
 
 #include <xcb/xcb.h>
-//#include <xcb/bigreq.h>
 #ifdef xcb_USE_GLX
 #include <xcb/glx.h>
 #endif
-//#include <xcb/randr.h>
-//#include <xcb/shm.h>
-//#include <xcb/xv.h>
 
-//#include <xcb/xcb_image.h>
-//#include <xcb/xcb_event.h>
-//#include <xcb/xcb_atom.h>
 #include <xcb/xcb_icccm.h>
 #ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 #include <xcb/xcb_ewmh.h>
@@ -370,9 +363,6 @@ signed char VideoHardwareDecoder = -1;	///< flag use hardware decoder
 
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
-    /// flag use transparent OSD.
-static const char VideoTransparentOsd = 1;
-
 static uint32_t VideoBackground;	///< video background color
 static char VideoStudioLevels;		///< flag use studio levels
 
@@ -381,9 +371,6 @@ static int VideoSkinToneEnhancement = 0;
 
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
-
-    /// Default number of deinterlace surfaces
-static const int VideoDeinterlaceSurfaces = 4;
 
     /// Default skip chroma deinterlace flag
 static char VideoSkipChromaDeinterlace[VideoResolutionMax];
@@ -476,8 +463,7 @@ static int OsdDirtyHeight;		///< osd dirty area height
 static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
 uint32_t mutex_start_time;
-int max_mutex_delay;
-max_mutex_delay = 1;
+uint32_t max_mutex_delay = 1;
 
 //----------------------------------------------------------------------------
 //	Common Functions
@@ -2727,6 +2713,7 @@ static int VaapiInit(const char *display_name)
     //
     //	check vpp support
     //
+    {
     VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
     int entrypoint_n;
     int i;
@@ -2740,6 +2727,7 @@ static int VaapiInit(const char *display_name)
 		break;
 	    }
 	}
+    }
     }
 #endif
     return 1;
@@ -5238,6 +5226,7 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
     void *dst2_base;
     unsigned y;
     unsigned p;
+    uint8_t *tmp;
 
 #ifdef DEBUG
     tick1 = GetMsTicks();
@@ -5265,8 +5254,6 @@ static void VaapiBob(VaapiDecoder * decoder, VAImage * src, VAImage * dst1,
 #endif
 
     // use tmp copy
-    uint8_t *tmp;
-
     tmp = malloc(src->data_size);
     memcpy(tmp, src_base, src->data_size);
 
