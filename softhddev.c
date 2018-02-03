@@ -20,7 +20,6 @@
 ///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
-#define noUSE_SOFTLIMIT			///< add soft buffer limits to Play..
 #define noUSE_PIP			///< include PIP support + new API
 #define noDUMP_TRICKSPEED		///< dump raw trickspeed packets
 
@@ -2071,13 +2070,6 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
-#ifdef USE_SOFTLIMIT
-    // soft limit buffer full
-    if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
-	return 0;
-    }
-#endif
     // PES header 0x00 0x00 0x01 ID
     // ID 0xBD 0xC0-0xCF
 
@@ -2303,13 +2295,6 @@ int PlayTsAudio(const uint8_t * data, int size)
     if (AudioFreeBytes() < AUDIO_MIN_BUFFER_FREE) {
 	return 0;
     }
-#ifdef USE_SOFTLIMIT
-    // soft limit buffer full
-    if (AudioSyncStream && VideoGetBuffers(AudioSyncStream) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
-	return 0;
-    }
-#endif
 
     return TsDemuxer(tsdx, data, size, TS_PES_AUDIO);
 }
@@ -2387,13 +2372,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     if (atomic_read(&stream->PacketsFilled) >= VIDEO_PACKET_MAX - 10) {
 	return 0;
     }
-#ifdef USE_SOFTLIMIT
-    // soft limit buffer full
-    if (AudioSyncStream == stream && atomic_read(&stream->PacketsFilled) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
-	return 0;
-    }
-#endif
     // get pts/dts
     pts = AV_NOPTS_VALUE;
     if (data[7] & 0x80) {
@@ -2604,13 +2582,6 @@ int PlayTsVideo(const uint8_t * data, int size)
     if (atomic_read(&MyVideoStream->PacketsFilled) >= VIDEO_PACKET_MAX - 10) {
 	return 0;
     }
-#ifdef USE_SOFTLIMIT
-    // soft limit buffer full
-    if (AudioSyncStream == MyVideoStream && atomic_read(&MyVideoStream->PacketsFilled) > 3
-	&& AudioUsedBytes() > AUDIO_MIN_BUFFER_FREE * 2) {
-	return 0;
-    }
-#endif
     return TsDemuxer(tsdx, data, size, TS_PES_VIDEO);
 }
 #endif

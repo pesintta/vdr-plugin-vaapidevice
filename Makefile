@@ -45,7 +45,6 @@ CONFIG += -DH264_EOS_TRICKSPEED		# insert seq end packets for trickspeed
 #CONDIF += -DDUMP_TRICKSPEED		# dump trickspeed packets
 #CONFIG += -DUSE_BITMAP			# VDPAU, use bitmap surface for OSD
 CONFIG += -DUSE_VDR_SPU			# use VDR SPU decoder.
-#CONFIG += -DUSE_SOFTLIMIT		# (tobe removed) limit the buffer fill
 
 ### The version number of this plugin (taken from the main source file):
 
