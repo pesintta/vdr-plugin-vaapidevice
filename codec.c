@@ -30,8 +30,6 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// compile AC-3 audio drift correction support (very experimental)
-#define USE_AC3_DRIFT_CORRECTION
     /// use ffmpeg libswresample API (autodected, Makefile)
 #define noUSE_SWRESAMPLE
     /// use libav libavresample API (autodected, Makefile)
@@ -1098,7 +1096,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	spdif = audio_decoder->Spdif;
 	spdif_sz = 6144;
 
-#ifdef USE_AC3_DRIFT_CORRECTION
 	// FIXME: this works with some TVs/AVReceivers
 	// FIXME: write burst size drift correction, which should work with all
 	if (CodecAudioDrift & CORRECT_AC3) {
@@ -1120,7 +1117,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	    }
 	    spdif_sz += x;
 	}
-#endif
 
 	// build SPDIF header and append A52 audio to it
 	// avpkt is the original data
