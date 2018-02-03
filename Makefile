@@ -15,8 +15,6 @@ PLUGIN = softhddevice
 ALSA ?= $(shell pkg-config --exists alsa && echo 1)
     # support OSS audio output module
 OSS ?= 1
-    # support VDPAU video output module
-VDPAU ?= $(shell pkg-config --exists vdpau && echo 1)
     # support VA-API video output module (deprecated)
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
@@ -91,11 +89,6 @@ LIBS += $(shell pkg-config --libs alsa)
 endif
 ifeq ($(OSS),1)
 CONFIG += -DUSE_OSS
-endif
-ifeq ($(VDPAU),1)
-CONFIG += -DUSE_VDPAU
-_CFLAGS += $(shell pkg-config --cflags vdpau)
-LIBS += $(shell pkg-config --libs vdpau)
 endif
 ifeq ($(VAAPI),1)
 CONFIG += -DUSE_VAAPI

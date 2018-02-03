@@ -69,12 +69,6 @@ extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *,
 
     /// Get hwaccel context for ffmpeg.
 extern void *VideoGetHwAccelContext(VideoHwDecoder *);
-
-#ifdef AVCODEC_VDPAU_H
-    /// Draw vdpau render state.
-extern void VideoDrawRenderState(VideoHwDecoder *,
-    struct vdpau_render_state *);
-#endif
 #endif
 
     /// Poll video events.
@@ -90,7 +84,6 @@ extern void VideoSetDevice(const char *);
 extern const char *VideoGetDriverName(void);
 
     /// Get used video driver.
-extern int VideoIsDriverVdpau(void);
 extern int VideoIsDriverVaapi(void);
 
     /// Set video geometry.

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-03 16:38+0200\n"
+"POT-Creation-Date: 2018-02-03 21:41+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -510,9 +510,6 @@ msgstr "Video Hintergrundfrabe (RGB)"
 msgid "Video background color (Alpha)"
 msgstr "Video Hintergrundfarbe (Alpha)"
 
-msgid "Use studio levels"
-msgstr "Benutze Studio Levels"
-
 msgid "60hz display mode"
 msgstr "60Hz Anzeigemodus"
 
@@ -550,12 +547,6 @@ msgstr "Skalierung"
 
 msgid "Deinterlace"
 msgstr "Deinterlace"
-
-msgid "SkipChromaDeinterlace"
-msgstr ""
-
-msgid "Inverse Telecine"
-msgstr "Inverse Filmübertragung"
 
 #, c-format
 msgid "Denoise (%d..[%d]..%d)"
@@ -1048,10 +1039,6 @@ msgstr ""
 msgid "video/vaapi: gpu hung %dms %d\n"
 msgstr ""
 
-#, c-format
-msgid "video/vaapi: surface %#010x not ready: still displayed %d\n"
-msgstr ""
-
 msgid "video/glx: vaCopySurfaceGLX failed\n"
 msgstr ""
 
@@ -1067,6 +1054,10 @@ msgstr ""
 
 #, c-format
 msgid "video: output buffer full, dropping frame (%d/%d)\n"
+msgstr ""
+
+#, c-format
+msgid "video/vaapi: surface %#010x not ready: still displayed %d\n"
 msgstr ""
 
 #, c-format
@@ -1154,272 +1145,6 @@ msgstr ""
 msgid "video/vaapi: can't destroy subpicture\n"
 msgstr ""
 
-msgid "video/vdpau: surface needed not set\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create video surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video surface: %s\n"
-msgstr ""
-
-msgid "video/vdpau: out of surfaces\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: release surface %#08x, which is not in use\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't set mixer feature enables: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't generate CSC matrix: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't set mixer attribute values: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create video mixer: %s\n"
-msgstr ""
-
-msgid "video/vdpau: out of decoders\n"
-msgstr ""
-
-msgid "video/vdpau: out of memory\n"
-msgstr ""
-
-msgid "video/vdpau: need 1 future, 1 current, 1 back and 1 work surface\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video decoder: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video mixer: %s\n"
-msgstr ""
-
-msgid "video/vdpau: decoder not in decoder list.\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: Can't get function address of '%s': %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create presentation queue target: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create presentation queue: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create grab render output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy grab render output surface: %s\n"
-msgstr ""
-
-msgid "video/vdpau preemption device not our device\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: Can't create vdp device on display '%s'\n"
-msgstr ""
-
-msgid "video/vdpau: Can't get function address of 'GetErrorString'\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: VDPAU API version: %u\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: VDPAU information: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't register preemption callback: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query feature '%s': %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: highest supported high quality scaling %d\n"
-msgstr ""
-
-msgid "video/vdpau: high quality scaling unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: feature deinterlace temporal %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: feature deinterlace temporal spatial %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: attribute skip chroma deinterlace %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query video surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:2:0 chroma format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:2:2 chroma format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:4:4 chroma format with %dx%d supported\n"
-msgstr ""
-
-msgid "video/vdpau: doesn't support yuvy video surface\n"
-msgstr ""
-
-msgid "video/vdpau: doesn't support yv12 video surface\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit BGRA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit RGBA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 10bit RGBA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit BRGA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface parameters: %s\n"
-msgstr ""
-
-msgid "video/vdpau: video surface chroma type mismatch\n"
-msgstr ""
-
-msgid "video/vdpau: video surface size mismatch\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create decoder: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query decoder capabilities: %s\n"
-msgstr ""
-
-msgid "video/vdpau: no valid vdpau pixfmt found\n"
-msgstr ""
-
-msgid "video/vdpau: no valid profile found\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: unsupported chroma type %d\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface bits: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get output surface parameters: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't render output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: unsupported rgba format %d\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface bits native: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: output buffer full, dropping frame (%d/%d)\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: pixel format %d not supported\n"
-msgstr ""
-
-msgid "Cannot initialize the conversion context!\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't put video surface bits: %s\n"
-msgstr ""
-
-msgid "video: get hwaccel context, not supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: %d surface deinterlace unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't render mixer: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query status: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't block queue: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: missed frame (%d/%d)\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't queue display: %s\n"
-msgstr ""
-
-msgid "video/vdpau: osd too big: unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: output surface put bits failed: %s\n"
-msgstr ""
-
 msgid "video: fatal i/o error\n"
 msgstr ""
 
@@ -1441,17 +1166,6 @@ msgstr ""
 
 #, c-format
 msgid "video: repeated pict %d found, but not handled\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: decoder rendering failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: %s: decoder render too slow %ums\n"
-msgstr ""
-
-msgid "video/vdpau: draw render state, without vdpau enabled\n"
 msgstr ""
 
 msgid "video: out of memory\n"

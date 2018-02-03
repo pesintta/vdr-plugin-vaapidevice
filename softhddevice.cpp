@@ -929,9 +929,6 @@ void cMenuSetupSoft::Create(void)
 		(int *)&Background, 0, 0x00FFFFFF));
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"),
 		(int *)&BackgroundAlpha, 0, 0xFF));
-	if (VideoIsDriverVdpau())
-		Add(new cMenuEditBoolItem(tr("Use studio levels"),
-			&StudioLevels, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode,
 		trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync,
@@ -976,12 +973,6 @@ void cMenuSetupSoft::Create(void)
 			scaling_modes, scaling));
 		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i],
 			deinterlace_modes, deinterlace));
-		if (VideoIsDriverVdpau()) {
-			Add(new cMenuEditBoolItem(tr("SkipChromaDeinterlace"),
-				&SkipChromaDeinterlace[i], trVDR("no"), trVDR("yes")));
-			Add(new cMenuEditBoolItem(tr("Inverse Telecine"),
-				&InverseTelecine[i], trVDR("no"), trVDR("yes")));
-		}
 		if (denoise_active)
 			Add(new cMenuEditIntItem(*cString::sprintf(tr("Denoise (%d..[%d]..%d)"),
 				denoise_min, denoise_def, denoise_max), &Denoise[i],

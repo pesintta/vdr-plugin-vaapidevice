@@ -58,9 +58,6 @@
 #define AV_CODEC_ID_H264 CODEC_ID_H264
 #endif
 #include <libavcodec/vaapi.h>
-#ifdef USE_VDPAU
-#include <libavcodec/vdpau.h>
-#endif
 #ifdef USE_SWRESAMPLE
 #include <libswresample/swresample.h>
 #endif
@@ -168,9 +165,6 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
     VideoDecoder *decoder;
 
     decoder = video_ctx->opaque;
-    if (decoder->hwaccel_get_buffer && AV_PIX_FMT_VDPAU == decoder->hwaccel_pix_fmt) {
-	return decoder->hwaccel_get_buffer(video_ctx, frame, flags);
-    }
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(54,86,100)
     // ffmpeg has this already fixed
@@ -185,30 +179,6 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 	fmts[1] = AV_PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
     }
-#ifdef USE_VDPAU
-    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
-    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
-	unsigned surface;
-	struct vdpau_render_state *vrs;
-
-	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
-	vrs = av_mallocz(sizeof(struct vdpau_render_state));
-	vrs->surface = surface;
-
-	//Debug(3, "codec: use surface %#010x\n", surface);
-
-	// render
-	frame->buf[0] = av_buffer_create((uint8_t*)vrs, 0, Codec_free_buffer, video_ctx, 0);
-	frame->data[0] = frame->buf[0]->data;
-	frame->data[1] = NULL;
-	frame->data[2] = NULL;
-	frame->data[3] = NULL;
-
-	return 0;
-    }
-#endif
     // VA-API:
     if (video_ctx->hwaccel_context) {
 	unsigned surface;
@@ -252,29 +222,6 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 static void Codec_free_buffer(void *opaque, uint8_t *data)
 {
     AVCodecContext *video_ctx = (AVCodecContext *)opaque;
-#ifdef USE_VDPAU
-    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
-    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
-	VideoDecoder *decoder;
-	struct vdpau_render_state *vrs;
-	unsigned surface;
-
-	decoder = video_ctx->opaque;
-	vrs = (struct vdpau_render_state *)data;
-	surface = vrs->surface;
-
-	//Debug(3, "codec: release surface %#010x\n", surface);
-	VideoReleaseSurface(decoder->HwDecoder, surface);
-
-	av_freep(&vrs->bitstream_buffers);
-	vrs->bitstream_buffers_allocated = 0;
-	av_freep(&data);
-
-	return;
-    }
-#endif
     // VA-API
     if (video_ctx->hwaccel_context) {
 	VideoDecoder *decoder;
@@ -313,30 +260,8 @@ static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
     int type, __attribute__ ((unused))
     int height)
 {
-#ifdef USE_VDPAU
-    // VDPAU: AV_PIX_FMT_VDPAU_H264 .. AV_PIX_FMT_VDPAU_VC1 AV_PIX_FMT_VDPAU_MPEG4
-    if ((AV_PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= AV_PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG4) {
-	VideoDecoder *decoder;
-	struct vdpau_render_state *vrs;
-
-	//unsigned surface;
-
-	decoder = video_ctx->opaque;
-	vrs = (struct vdpau_render_state *)frame->data[0];
-	//surface = vrs->surface;
-
-	//Debug(3, "codec: draw slice surface %#010x\n", surface);
-	//Debug(3, "codec: %d references\n", vrs->info.h264.num_ref_frames);
-
-	VideoDrawRenderState(decoder->HwDecoder, vrs);
-	return;
-    }
-#else
     (void)video_ctx;
     (void)frame;
-#endif
 }
 
 //----------------------------------------------------------------------------
@@ -390,22 +315,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	Error(_("codec: missing close\n"));
     }
 
-    // FIXME: old vdpau API: should be updated to new API
-    name = NULL;
-    if (!strcasecmp(VideoGetDriverName(), "vdpau")) {
-	switch (codec_id) {
-	    case AV_CODEC_ID_MPEG2VIDEO:
-		name = VideoHardwareDecoder < 0 ? "mpegvideo_vdpau" : NULL;
-		break;
-	    case AV_CODEC_ID_H264:
-		name = VideoHardwareDecoder ? "h264_vdpau" : NULL;
-		break;
-	}
-    }
-
-    if (name && (video_codec = avcodec_find_decoder_by_name(name))) {
-	Debug(3, "codec: vdpau decoder found\n");
-    } else if (!(video_codec = avcodec_find_decoder(codec_id))) {
+    if (!(video_codec = avcodec_find_decoder(codec_id))) {
 	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
 	// FIXME: none fatal
     }
@@ -424,8 +334,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	Fatal(_("codec: can't open video codec!\n"));
     }
 #else
-    if (video_codec->capabilities & (CODEC_CAP_HWACCEL_VDPAU |
-	    CODEC_CAP_HWACCEL)) {
+    if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
 	Debug(3, "codec: video mpeg hack active\n");
 	// HACK around badly placed checks in mpeg_mc_decode_init
 	// taken from mplayer vd_ffmpeg.c
@@ -445,11 +354,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->opaque = decoder;	// our structure
 
     Debug(3, "codec: video '%s'\n", decoder->VideoCodec->long_name);
-    if (codec_id == AV_CODEC_ID_H264) {
-	// 2.53 Ghz CPU is too slow for this codec at 1080i
-	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_ALL;
-	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_BIDIR;
-    }
     if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets\n");
     }
@@ -457,48 +361,18 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     if (video_codec->capabilities & CODEC_CAP_DR1) {
 	Debug(3, "codec: can use own buffer management\n");
     }
-    if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
-	Debug(3, "codec: can export data for HW decoding (VDPAU)\n");
-    }
 #ifdef CODEC_CAP_FRAME_THREADS
     if (video_codec->capabilities & CODEC_CAP_FRAME_THREADS) {
 	Debug(3, "codec: codec supports frame threads\n");
     }
 #endif
-    //decoder->VideoCtx->debug = FF_DEBUG_STARTCODE;
-    //decoder->VideoCtx->err_recognition |= AV_EF_EXPLODE;
+    decoder->VideoCtx->get_format = Codec_get_format;
+    decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
+    decoder->VideoCtx->thread_count = 1;
+    decoder->VideoCtx->active_thread_type = 0;
+    decoder->VideoCtx->draw_horiz_band = NULL;
+    decoder->VideoCtx->hwaccel_context = VideoGetHwAccelContext(decoder->HwDecoder);
 
-    if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
-	// FIXME: get_format never called.
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
-	decoder->VideoCtx->draw_horiz_band = Codec_draw_horiz_band;
-	decoder->VideoCtx->slice_flags =
-	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->active_thread_type = 0;
-    } else {
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->active_thread_type = 0;
-	decoder->VideoCtx->draw_horiz_band = NULL;
-	decoder->VideoCtx->hwaccel_context =
-	    VideoGetHwAccelContext(decoder->HwDecoder);
-    }
-
-#if 0
-    // our pixel format video hardware decoder hook
-    if (decoder->VideoCtx->hwaccel_context) {
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->draw_horiz_band = NULL;
-	decoder->VideoCtx->slice_flags =
-	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	//decoder->VideoCtx->flags |= CODEC_FLAG_EMU_EDGE;
-    }
-#endif
     //
     //	Prepare frame buffer for decoder
     //

@@ -41,17 +41,11 @@ video:
     starting with radio and own X11 server, shows no video
     some low-bandwidth tv channels have hiccups.
     check start with 24Hz display rate
-    crash with ffmpeg without vaapi and vdpau.
+    crash with ffmpeg without vaapi.
     still-picture of PES recordings should use VideoMpegEnqueue.
     convert PIX_FMT_... PixelFormat to new names AV_PIX_FMT_..., AVPixelFormat.
     atmo service support 3D grab
     no warnings during still picture
-
-vdpau:
-    software deinterlace path not working.
-    OSD looses transparency, during channel switch.
-    OSD looses transparency, while moving cut marks.
-    ffmpeg >=1.2 supports same API like VA-API.
 
 libva:
     yaepghd (VaapiSetOutputPosition) support
@@ -126,8 +120,6 @@ setup:
 unsorted:
     stoping vdr while plugin is suspended opens and closes a window.
     svdrp prim: support plugin names for device numbers.
-    Workaround exists: hangup PipVideoStream -> Vdpau_get_format -> xcb -> poll
-	+ lock DecoderLockMutex
     check compiletime and runtime ffmpeg/libav version during init.
 
 future features (not planed for 1.0 - 1.5)

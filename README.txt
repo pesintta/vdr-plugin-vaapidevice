@@ -20,27 +20,23 @@ $Id$
 
 A software and GPU emulated HD output device plugin for VDR.
 
-    o Video decoder CPU / VDPAU
-    o Video output VDPAU
+    o Video decoder CPU / VAAPI
+    o Video output VAAPI
     o Audio FFMpeg / Alsa / Analog
     o Audio FFMpeg / Alsa / Digital
     o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
     o Software volume, compression, normalize and channel resample
     o VDR ScaleVideo API
-    o Software deinterlacer Bob (VA-API only)
+    o Software deinterlacer Bob
     o Autocrop
-    o Grab image (VDPAU only)
+    o Grab image
     o Suspend / Dettach
     o Letterbox, Stretch and Center cut-out video display modes
     o atmo light support with plugin http://github.com/durchflieger/DFAtmo
-    o PIP (Picture-in-Picture) (VDPAU only)
+    o PIP (Picture-in-Picture)
 
-    o planned: Remove VA-API decoder and output support
-    o planned: Video decoder OpenMax
-    o planned: Video output Opengl / Xv
     o planned: Improved software deinterlacer (yadif or/and ffmpeg filters)
-    o XvBa support is no longer planned (use future Radeon UVD VDPAU)
 
 To compile you must have the 'requires' installed.
 
@@ -71,7 +67,7 @@ Install:
 	make
 	make install
 
-	You can edit Makefile to enable/disable VDPAU / VA-API / Alsa / OSS
+	You can edit Makefile to enable/disable Alsa / OSS
 	support.  The default is to autodetect as much as possible.
 
 Setup:	environment
@@ -209,10 +205,6 @@ Setup: /etc/vdr/setup.conf
 	grey 127 * 16777216 + 127 * 65536 + 127 * 256 => 2139062016
 	in the setup menu this is entered as (24bit RGB and 8bit Alpha)
 	(Red * 65536 +  Green * 256 + Blue)
-
-	softhddevice.StudioLevels = 0
-		0 use PC levels (0-255) with vdpau.
-		1 use studio levels (16-235) with vdpau.
 
 	softhddevice.Suspend.Close = 0
 	1 suspend closes x11 window, connection and audio device.
@@ -365,24 +357,12 @@ Requires:
     or
 	kernel support for oss/oss4 or alsa oss emulation
 
-	x11-libs/libva (deprecated)
+	x11-libs/libva
 		Video Acceleration (VA) API for Linux
 		http://www.freedesktop.org/wiki/Software/vaapi
 	x11-libs/libva-intel-driver
 		HW video decode support for Intel integrated graphics
 		http://www.freedesktop.org/wiki/Software/vaapi
-    or
-	x11-libs/vdpau-video
-		VDPAU Backend for Video Acceleration (VA) API
-		http://www.freedesktop.org/wiki/Software/vaapi
-    or
-	x11-libs/xvba-video
-		XVBA Backend for Video Acceleration (VA) API
-		http://www.freedesktop.org/wiki/Software/vaapi
-
-	x11-libs/libvdpau
-		VDPAU wrapper and trace libraries
-		http://www.freedesktop.org/wiki/Software/VDPAU
 
 	x11-libs/libxcb,
 		X C-language Bindings library
