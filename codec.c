@@ -30,8 +30,6 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// compile with pass-through support (stable, AC-3, E-AC-3 only)
-#define USE_PASSTHROUGH
     /// compile audio drift correction support (very experimental)
 #define USE_AUDIO_DRIFT_CORRECTION
     /// compile AC-3 audio drift correction support (very experimental)
@@ -764,14 +762,10 @@ static char CodecAudioDrift;		///< flag: enable audio-drift correction
 #else
 static const int CodecAudioDrift = 0;
 #endif
-#ifdef USE_PASSTHROUGH
     ///
     /// Pass-through flags: CodecPCM, CodecAC3, CodecEAC3, ...
     ///
 static char CodecPassthrough;
-#else
-static const int CodecPassthrough = 0;
-#endif
 static char CodecDownmix;		///< enable AC-3 decoder downmix
 
 /**
@@ -947,10 +941,7 @@ void CodecSetAudioDrift(int mask)
 */
 void CodecSetAudioPassthrough(int mask)
 {
-#ifdef USE_PASSTHROUGH
     CodecPassthrough = mask & (CodecPCM | CodecAC3 | CodecEAC3);
-#endif
-    (void)mask;
 }
 
 /**
@@ -1105,7 +1096,6 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
     const AVPacket * avpkt)
 {
-#ifdef USE_PASSTHROUGH
     const AVCodecContext *audio_ctx;
 
     audio_ctx = audio_decoder->AudioCtx;
@@ -1210,7 +1200,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	audio_decoder->SpdifCount = 0;
 	return 1;
     }
-#endif
     return 0;
 }
 
