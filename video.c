@@ -41,7 +41,6 @@
 #define USE_XLIB_XCB			///< use xlib/xcb backend
 #define noUSE_SCREENSAVER		///< support disable screensaver
 #define USE_AUTOCROP			///< compile auto-crop support
-#define USE_GRAB			///< experimental grab code
 #define noUSE_GLX			///< outdated GLX code
 #define USE_DOUBLEBUFFER		///< use GLX double buffers
 //#define USE_VAAPI				///< enable vaapi support
@@ -9183,8 +9182,6 @@ static enum AVPixelFormat Vdpau_get_format(VdpauDecoder * decoder,
     return avcodec_default_get_format(video_ctx, fmt);
 }
 
-#ifdef USE_GRAB
-
 #ifdef DEBUG				// function not used
 
 ///
@@ -9429,8 +9426,6 @@ static uint8_t *VdpauGrabOutputSurface(int *ret_size, int *ret_width,
     pthread_mutex_unlock(&VdpauGrabMutex);
     return img;
 }
-
-#endif
 
 #ifdef USE_AUTOCROP
 
@@ -12073,7 +12068,6 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 {
     Debug(3, "video: grab\n");
 
-#ifdef USE_GRAB
     if (VideoUsedModule->GrabOutput) {
 	uint8_t *data;
 	uint8_t *rgb;
@@ -12168,9 +12162,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	free(data);
 
 	return rgb;
-    } else
-#endif
-    {
+    } else {
 	Warning(_("softhddev: grab unsupported\n"));
     }
 
@@ -12192,12 +12184,9 @@ uint8_t *VideoGrabService(int *size, int *width, int *height)
 {
     Debug(3, "video: grab service\n");
 
-#ifdef USE_GRAB
     if (VideoUsedModule->GrabOutput) {
 	return VideoUsedModule->GrabOutput(size, width, height);
-    } else
-#endif
-    {
+    } else {
 	Warning(_("softhddev: grab unsupported\n"));
     }
 
