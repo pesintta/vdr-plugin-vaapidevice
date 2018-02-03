@@ -48,6 +48,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <math.h>
+#include <sched.h>
 
 #include <libintl.h>
 #define _(str) gettext(str)		///< gettext shortcut
@@ -1592,7 +1593,7 @@ static int OssThread(void)
 	if (err < 0) {			// underrun error
 	    return -1;
 	}
-	pthread_yield();
+	sched_yield();
 	usleep(OssFragmentTime * 1000);	// let fill/empty the buffers
 	return 0;
     }
