@@ -414,43 +414,6 @@ void CodecVideoClose(VideoDecoder * video_decoder)
     }
 }
 
-#if 0
-
-/**
-**	Display pts...
-**
-**	ffmpeg-0.9 pts always AV_NOPTS_VALUE
-**	ffmpeg-0.9 pkt_pts nice monotonic (only with HD)
-**	ffmpeg-0.9 pkt_dts wild jumping -160 - 340 ms
-**
-**	libav 0.8_pre20111116 pts always AV_NOPTS_VALUE
-**	libav 0.8_pre20111116 pkt_pts always 0 (could be fixed?)
-**	libav 0.8_pre20111116 pkt_dts wild jumping -160 - 340 ms
-*/
-void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
-{
-    int ms_delay;
-    int64_t pts;
-    static int64_t last_pts;
-
-    pts = frame->pkt_pts;
-    if (pts == (int64_t) AV_NOPTS_VALUE) {
-	printf("*");
-    }
-    ms_delay = (1000 * video_ctx->time_base.num) / video_ctx->time_base.den;
-    ms_delay += frame->repeat_pict * ms_delay / 2;
-    printf("codec: PTS %s%s %" PRId64 " %d %d/%d %dms\n",
-	frame->repeat_pict ? "r" : " ", frame->interlaced_frame ? "I" : " ",
-	pts, (int)(pts - last_pts) / 90, video_ctx->time_base.num,
-	video_ctx->time_base.den, ms_delay);
-
-    if (pts != (int64_t) AV_NOPTS_VALUE) {
-	last_pts = pts;
-    }
-}
-
-#endif
-
 /**
 **	Decode a video packet.
 **
@@ -505,7 +468,6 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	    video_ctx->frame_number, used);
     }
 
-#if 1
     // old code to support truncated or multi frame packets
     if (used != pkt->size) {
 	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
@@ -524,7 +486,6 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	    goto next_part;
 	}
     }
-#endif
     // new AVFrame API
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_unref(frame);
@@ -546,13 +507,6 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
 //----------------------------------------------------------------------------
 //	Audio
 //----------------------------------------------------------------------------
-
-#if 0
-///
-///	Audio decoder typedef.
-///
-typedef struct _audio_decoder_ AudioDecoder;
-#endif
 
 ///
 ///	Audio decoder structure.
@@ -705,20 +659,18 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #else
-    if (1) {
-	AVDictionary *av_dict;
+    AVDictionary *av_dict;
 
-	av_dict = NULL;
-	// FIXME: import settings
-	//av_dict_set(&av_dict, "dmix_mode", "0", 0);
-	//av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
-	//av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
-	if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &av_dict) < 0) {
-	    pthread_mutex_unlock(&CodecLockMutex);
-	    Fatal(_("codec: can't open audio codec\n"));
-	}
-	av_dict_free(&av_dict);
+    av_dict = NULL;
+    // FIXME: import settings
+    //av_dict_set(&av_dict, "dmix_mode", "0", 0);
+    //av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
+    //av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
+    if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &av_dict) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
+	Fatal(_("codec: can't open audio codec\n"));
     }
+    av_dict_free(&av_dict);
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCodec->long_name);
@@ -1075,6 +1027,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t pts_diff;
     int drift;
     int corr;
+    static int c;
 
     AudioSetClock(pts);
 
@@ -1113,12 +1066,6 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     audio_decoder->LastPTS = pts;
     audio_decoder->LastDelay = delay;
 
-    if (0) {
-	Debug(3,
-	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
-	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
-	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
-    }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
@@ -1160,13 +1107,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	av_resample_compensate(audio_decoder->AvResample,
 	    audio_decoder->DriftCorr / 10, distance);
     }
-    if (1) {
-	static int c;
 
-	if (!(c++ % 10)) {
-	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
-		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
-	}
+    if (!(c++ % 10)) {
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
+	    audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1429,57 +1373,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
 		return;
 	    }
-#if 0
-	    //
-	    //	old experimental code
-	    //
-	    if (1) {
-		// FIXME: need to detect dts
-		// copy original data for output
-		// FIXME: buf is sint
-		buf[0] = 0x72;
-		buf[1] = 0xF8;
-		buf[2] = 0x1F;
-		buf[3] = 0x4E;
-		buf[4] = 0x00;
-		switch (avpkt->size) {
-		    case 512:
-			buf[5] = 0x0B;
-			break;
-		    case 1024:
-			buf[5] = 0x0C;
-			break;
-		    case 2048:
-			buf[5] = 0x0D;
-			break;
-		    default:
-			Debug(3,
-			    "codec/audio: dts sample burst not supported\n");
-			buf[5] = 0x00;
-			break;
-		}
-		buf[6] = (avpkt->size * 8);
-		buf[7] = (avpkt->size * 8) >> 8;
-		//buf[8] = 0x0B;
-		//buf[9] = 0x77;
-		//printf("%x %x\n", avpkt->data[0],avpkt->data[1]);
-		// swab?
-		memcpy(buf + 8, avpkt->data, avpkt->size);
-		memset(buf + 8 + avpkt->size, 0, buf_sz - 8 - avpkt->size);
-	    } else if (1) {
-		// FIXME: need to detect mp2
-		// FIXME: mp2 passthrough
-		// see softhddev.c version/layer
-		// 0x04 mpeg1 layer1
-		// 0x05 mpeg1 layer23
-		// 0x06 mpeg2 ext
-		// 0x07 mpeg2.5 layer 1
-		// 0x08 mpeg2.5 layer 2
-		// 0x09 mpeg2.5 layer 3
-	    }
-	    // DTS HD?
-	    // True HD?
-#endif
 	    CodecAudioEnqueue(audio_decoder, buf, buf_sz);
 	}
     }
@@ -1503,6 +1396,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t pts_diff;
     int drift;
     int corr;
+    static int c;
 
     AudioSetClock(pts);
 
@@ -1541,12 +1435,6 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     audio_decoder->LastPTS = pts;
     audio_decoder->LastDelay = delay;
 
-    if (0) {
-	Debug(3,
-	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
-	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
-	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
-    }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
@@ -1603,13 +1491,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	}
     }
 #endif
-    if (1) {
-	static int c;
-
-	if (!(c++ % 10)) {
-	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
-		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
-	}
+    if (!(c++ % 10)) {
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
+	    audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1754,23 +1638,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	return;
     }
 
-    if (0) {
-	char strbuf[32];
-	int data_sz;
-	int plane_sz;
-
-	data_sz =
-	    av_samples_get_buffer_size(&plane_sz, audio_ctx->channels,
-	    frame->nb_samples, audio_ctx->sample_fmt, 1);
-	fprintf(stderr, "codec/audio: sample_fmt %s\n",
-	    av_get_sample_fmt_name(audio_ctx->sample_fmt));
-	av_get_channel_layout_string(strbuf, 32, audio_ctx->channels,
-	    audio_ctx->channel_layout);
-	fprintf(stderr, "codec/audio: layout %s\n", strbuf);
-	fprintf(stderr,
-	    "codec/audio: channels %d samples %d plane %d data %d\n",
-	    audio_ctx->channels, frame->nb_samples, plane_sz, data_sz);
-    }
 #ifdef USE_SWRESAMPLE
     if (audio_decoder->Resample) {
 	uint8_t outbuf[8192 * 2 * 8];

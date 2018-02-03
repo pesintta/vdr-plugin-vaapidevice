@@ -459,6 +459,9 @@ void cSoftOsd::Flush(void)
 	    int y1;
 	    int x2;
 	    int y2;
+	    int width;
+	    int height;
+	    double video_aspect;
 
 	    // get dirty bounding box
 	    if (Dirty) {		// forced complete update
@@ -476,46 +479,40 @@ void cSoftOsd::Flush(void)
 	    w = x2 - x1 + 1;
 	    h = y2 - y1 + 1;
 	    // clip to screen
-	    if (1) {			// just for the case it makes trouble
-		int width;
-		int height;
-		double video_aspect;
-
-		if (xs < 0) {
-		    if (xs + x1 < 0) {
-			x1 -= xs + x1;
-			w += xs + x1;
-			if (w <= 0) {
-			    continue;
-			}
-		    }
-		    xs = 0;
-		}
-		if (ys < 0) {
-		    if (ys + y1 < 0) {
-			y1 -= ys + y1;
-			h += ys + y1;
-			if (h <= 0) {
-			    continue;
-			}
-		    }
-		    ys = 0;
-		}
-		::GetOsdSize(&width, &height, &video_aspect);
-		if (w > width - xs - x1) {
-		    w = width - xs - x1;
+	    if (xs < 0) {
+	 	if (xs + x1 < 0) {
+		    x1 -= xs + x1;
+		    w += xs + x1;
 		    if (w <= 0) {
 			continue;
 		    }
-		    x2 = x1 + w - 1;
 		}
-		if (h > height - ys - y1) {
-		    h = height - ys - y1;
+		xs = 0;
+	    }
+	    if (ys < 0) {
+		if (ys + y1 < 0) {
+		    y1 -= ys + y1;
+		    h += ys + y1;
 		    if (h <= 0) {
 			continue;
 		    }
-		    y2 = y1 + h - 1;
 		}
+		ys = 0;
+	    }
+	    ::GetOsdSize(&width, &height, &video_aspect);
+	    if (w > width - xs - x1) {
+		w = width - xs - x1;
+		if (w <= 0) {
+		    continue;
+		}
+		x2 = x1 + w - 1;
+	    }
+	    if (h > height - ys - y1) {
+		h = height - ys - y1;
+		if (h <= 0) {
+		    continue;
+		}
+		y2 = y1 + h - 1;
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
@@ -554,6 +551,9 @@ void cSoftOsd::Flush(void)
 	int y;
 	int w;
 	int h;
+	int width;
+	int height;
+	double video_aspect;
 
 	x = pm->ViewPort().X();
 	y = pm->ViewPort().Y();
@@ -587,30 +587,22 @@ void cSoftOsd::Flush(void)
 	y += Top();
 
 	// clip to screen
-	if (1) {			// just for the case it makes trouble
-	    // and it can happen!
-	    int width;
-	    int height;
-	    double video_aspect;
-
-	    if (x < 0) {
-		w += x;
-		xp += -x;
-		x = 0;
-	    }
-	    if (y < 0) {
-		h += y;
-		yp += -y;
-		y = 0;
-	    }
-
-	    ::GetOsdSize(&width, &height, &video_aspect);
-	    if (w > width - x) {
-		w = width - x;
-	    }
-	    if (h > height - y) {
-		h = height - y;
-	    }
+	if (x < 0) {
+	    w += x;
+	    xp += -x;
+	    x = 0;
+	}
+	if (y < 0) {
+	    h += y;
+	    yp += -y;
+	    y = 0;
+	}
+	::GetOsdSize(&width, &height, &video_aspect);
+	if (w > width - x) {
+	    w = width - x;
+	}
+	if (h > height - y) {
+	    h = height - y;
 	}
 #ifdef OSD_DEBUG
 	Debug(3, "[softhddev]%s: draw %dx%d%+d%+d*%d -> %+d%+d %p\n",
@@ -1709,10 +1701,6 @@ static void PipPesParse(const uint8_t * data, int size, int is_start)
     }
     if (is_start) {			// start of pes packet
 	if (pes_index) {
-	    if (0) {
-		fprintf(stderr, "pip: PES packet %8d %02x%02x\n", pes_index,
-		    pes_buf[2], pes_buf[3]);
-	    }
 	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
 		// FIXME: first should always fail
 		Error(tr("[softhddev]pip: invalid PES packet %d\n"),
@@ -1772,13 +1760,6 @@ void cSoftReceiver::Receive(uchar * data, int size)
 	    Debug(3, "[softhddev]tsdemux: transport error\n");
 	    // FIXME: kill all buffers
 	    goto next_packet;
-	}
-	if (0) {
-	    int pid;
-
-	    pid = (p[1] & 0x1F) << 8 | p[2];
-	    fprintf(stderr, "tsdemux: PID: %#04x%s%s\n", pid,
-		p[1] & 0x40 ? " start" : "", p[3] & 0x10 ? " payload" : "");
 	}
 	// skip adaptation field
 	switch (p[3] & 0x30) {		// adaption field
@@ -2640,17 +2621,6 @@ void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
 
     cDevice::SetVideoDisplayFormat(video_display_format);
-#if 0
-    static int last = -1;
-
-    // called on every channel switch, no need to kill osd...
-    if (last != video_display_format) {
-	last = video_display_format;
-
-	::VideoSetDisplayFormat(video_display_format);
-	cSoftOsd::Dirty = 1;
-    }
-#endif
 }
 
 /**
@@ -3008,16 +2978,6 @@ void cPluginSoftHdDevice::Stop(void)
 void cPluginSoftHdDevice::Housekeeping(void)
 {
     //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
-    // check if user is inactive, automatic enter suspend mode
-    // FIXME: cControl prevents shutdown, disable this until fixed
-    if (0 && SuspendMode == NOT_SUSPENDED && ShutdownHandler.IsUserInactive()) {
-	// don't overwrite already suspended suspend mode
-	cControl::Launch(new cSoftHdControl);
-	cControl::Attach();
-	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
-	SuspendMode = SUSPEND_NORMAL;
-    }
 
     ::Housekeeping();
 }

@@ -245,12 +245,6 @@ static int MpegCheck(const uint8_t * data, int size)
 	    frame_size = frame_size + padding;
 	    break;
     }
-    if (0) {
-	Debug(3,
-	    "pesdemux: mpeg%s layer%d bitrate=%d samplerate=%d %d bytes\n",
-	    mpeg25 ? "2.5" : mpeg2 ? "2" : "1", layer, bit_rate, sample_rate,
-	    frame_size);
-    }
 
     if (frame_size + 4 > size) {
 	return -frame_size - 4;
@@ -805,9 +799,6 @@ static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
     // b3 b4 b8 00 b5 ... 00 b5 ...
 
     while (n > 3) {
-	if (0 && !p[0] && !p[1] && p[2] == 0x01) {
-	    fprintf(stderr, " %02x", p[3]);
-	}
 	// scan for picture header 0x00000100
 	// FIXME: not perfect, must split at 0xb3 also
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
@@ -1085,30 +1076,6 @@ int VideoDecodeInput(VideoStream * stream)
     if (!filled) {
 	return -1;
     }
-#if 0
-    // clearing for normal channel switch has no advantage
-    if (stream->ClearClose /*|| stream->ClosingStream */ ) {
-	int f;
-
-	// FIXME: during replay all packets are always checked
-
-	// flush buffers, if close is in the queue
-	for (f = 0; f < filled; ++f) {
-	    if (stream->CodecIDRb[(stream->PacketRead + f) % VIDEO_PACKET_MAX]
-		== AV_CODEC_ID_NONE) {
-		if (f) {
-		    Debug(3, "video: cleared upto close\n");
-		    atomic_sub(f, &stream->PacketsFilled);
-		    stream->PacketRead =
-			(stream->PacketRead + f) % VIDEO_PACKET_MAX;
-		    stream->ClearClose = 0;
-		}
-		break;
-	    }
-	}
-	stream->ClosingStream = 0;
-    }
-#endif
 
     //
     //	handle queued commands
@@ -1225,31 +1192,8 @@ static void StopVideo(void)
     VideoOsdExit();
     VideoExit();
     AudioSyncStream = NULL;
-#if 1
     // FIXME: done by exit: VideoDelHwDecoder(MyVideoStream->HwDecoder);
     VideoStreamClose(MyVideoStream, 0);
-#else
-    MyVideoStream->SkipStream = 1;
-    if (MyVideoStream->Decoder) {
-	VideoDecoder *decoder;
-
-	decoder = MyVideoStream->Decoder;
-	pthread_mutex_lock(&MyVideoStream->DecoderLockMutex);
-	MyVideoStream->Decoder = NULL;	// lock read thread
-	pthread_mutex_unlock(&MyVideoStream->DecoderLockMutex);
-	// FIXME: this can crash, hw decoder released by video exit
-	CodecVideoClose(decoder);
-	CodecVideoDelDecoder(decoder);
-    }
-    if (MyVideoStream->HwDecoder) {
-	// done by exit: VideoDelHwDecoder(MyVideoStream->HwDecoder);
-	MyVideoStream->HwDecoder = NULL;
-    }
-    VideoPacketExit(MyVideoStream);
-
-    MyVideoStream->NewStream = 1;
-    MyVideoStream->InvalidPesCounter = 0;
-#endif
 }
 
 #ifdef DEBUG
@@ -1485,23 +1429,6 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		return;
 
 	    case PES_START:		// at start of pes packet payload
-#if 0
-		// Played with PlayAudio
-		// FIXME: need 0x80 -- 0xA0 state
-		if (AudioCodecID == AV_CODEC_ID_NONE) {
-		    if ((*p & 0xF0) == 0x80) {	// AC-3 & DTS
-			Debug(3, "pesdemux: dvd ac-3\n");
-		    } else if ((*p & 0xFF) == 0xA0) {	// LPCM
-			Debug(3, "pesdemux: dvd lpcm\n");
-			pesdx->State = PES_LPCM_HEADER;
-			pesdx->HeaderIndex = 0;
-			pesdx->HeaderSize = 7;
-			// FIXME: need harder LPCM check
-			//break;
-		    }
-		}
-#endif
-
 	    case PES_INIT:		// find start of packet
 		// FIXME: increase if needed the buffer
 
@@ -1821,86 +1748,6 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 		    }
 		}
 		break;
-
-#if 0
-		// Played with PlayAudio
-	    case PES_LPCM_HEADER:	// lpcm header
-		n = pesdx->HeaderSize - pesdx->HeaderIndex;
-		if (n > size) {
-		    n = size;
-		}
-		memcpy(pesdx->Header + pesdx->HeaderIndex, p, n);
-		pesdx->HeaderIndex += n;
-		p += n;
-		size -= n;
-
-		if (pesdx->HeaderIndex == pesdx->HeaderSize) {
-		    static int samplerates[] = { 48000, 96000, 44100, 32000 };
-		    int samplerate;
-		    int channels;
-		    int bits_per_sample;
-		    const uint8_t *q;
-
-		    if (AudioCodecID != AV_CODEC_ID_PCM_DVD) {
-
-			q = pesdx->Header;
-			Debug(3, "pesdemux: LPCM %d sr:%d bits:%d chan:%d\n",
-			    q[0], q[5] >> 4, (((q[5] >> 6) & 0x3) + 4) * 4,
-			    (q[5] & 0x7) + 1);
-			CodecAudioClose(MyAudioDecoder);
-
-			bits_per_sample = (((q[5] >> 6) & 0x3) + 4) * 4;
-			if (bits_per_sample != 16) {
-			    Error(_
-				("softhddev: LPCM %d bits per sample aren't supported\n"),
-				bits_per_sample);
-			    // FIXME: handle unsupported formats.
-			}
-			samplerate = samplerates[q[5] >> 4];
-			channels = (q[5] & 0x7) + 1;
-			AudioSetup(&samplerate, &channels, 0);
-			if (samplerate != samplerates[q[5] >> 4]) {
-			    Error(_
-				("softhddev: LPCM %d sample-rate is unsupported\n"),
-				samplerates[q[5] >> 4]);
-			    // FIXME: support resample
-			}
-			if (channels != (q[5] & 0x7) + 1) {
-			    Error(_
-				("softhddev: LPCM %d channels are unsupported\n"),
-				(q[5] & 0x7) + 1);
-			    // FIXME: support resample
-			}
-			//CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
-			AudioCodecID = AV_CODEC_ID_PCM_DVD;
-		    }
-		    pesdx->State = PES_LPCM_PAYLOAD;
-		    pesdx->Index = 0;
-		    pesdx->Skip = 0;
-		}
-		break;
-
-	    case PES_LPCM_PAYLOAD:	// lpcm payload
-		// fill buffer
-		n = pesdx->Size - pesdx->Index;
-		if (n > size) {
-		    n = size;
-		}
-		memcpy(pesdx->Buffer + pesdx->Index, p, n);
-		pesdx->Index += n;
-		p += n;
-		size -= n;
-
-		if (pesdx->PTS != (int64_t) AV_NOPTS_VALUE) {
-		    // FIXME: needs bigger buffer
-		    AudioSetClock(pesdx->PTS);
-		    pesdx->PTS = AV_NOPTS_VALUE;
-		}
-		swab(pesdx->Buffer, pesdx->Buffer, pesdx->Index);
-		AudioEnqueue(pesdx->Buffer, pesdx->Index);
-		pesdx->Index = 0;
-		break;
-#endif
 	}
     } while (size > 0);
 }
@@ -1987,18 +1834,6 @@ static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size, int av)
 
 	PesParse(&PesDemuxer[av], p + payload, TS_PACKET_SIZE - payload, p[1] & 0x40, av);
 
-#if 0
-	int tmp;
-
-	//	check continuity
-	tmp = p[3] & 0x0F;		// continuity counter
-	if (((tsdx->CC + 1) & 0x0F) != tmp) {
-	    Debug(3, "tsdemux: OUT OF SYNC: %d %d\n", tmp, tsdx->CC);
-	    //TS discontinuity (received 8, expected 0) for PID
-	}
-	tsdx->CC = tmp;
-#endif
-
       next_packet:
 	p += TS_PACKET_SIZE;
 	size -= TS_PACKET_SIZE;
@@ -2069,14 +1904,6 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] &
 	    0xFE) << 14 | data[12] << 7 | (data[13] & 0xFE) >> 1;
 	//Debug(3, "audio: pts %#012" PRIx64 "\n", AudioAvPkt->pts);
-    }
-    if (0) {				// dts is unused
-	if (data[7] & 0x40) {
-	    AudioAvPkt->dts =
-		(int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16]
-		& 0xFE) << 14 | data[17] << 7 | (data[18] & 0xFE) >> 1;
-	    Debug(3, "audio: dts %#012" PRIx64 "\n", AudioAvPkt->dts);
-	}
     }
 
     p = data + 9 + n;

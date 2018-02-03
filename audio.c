@@ -1011,26 +1011,6 @@ static snd_pcm_t *AlsaOpenPCM(int passthrough)
 	Info(_("audio/alsa: using %sdevice '%s'\n"),
 	    passthrough ? "pass-through " : "", device);
     }
-    //
-    // for AC3 pass-through try to set the non-audio bit, use AES0=6
-    //
-    if (passthrough && AudioAppendAES) {
-#if 0
-	// FIXME: not yet finished
-	char *buf;
-	const char *s;
-	int n;
-
-	n = strlen(device);
-	buf = alloca(n + sizeof(":AES0=6") + 1);
-	strcpy(buf, device);
-	if (!(s = strchr(buf, ':'))) {
-	    // no alsa parameters
-	    strcpy(buf + n, ":AES=6");
-	}
-	Debug(3, "audio/alsa: try '%s'\n", buf);
-#endif
-    }
     // open none blocking; if device is already used, we don't want wait
     if ((err =
 	    snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK,
@@ -1267,39 +1247,6 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	break;
     }
 
-    // this is disabled, no advantages!
-    if (0) {				// no underruns allowed, play silence
-	snd_pcm_sw_params_t *sw_params;
-	snd_pcm_uframes_t boundary;
-
-	snd_pcm_sw_params_alloca(&sw_params);
-	err = snd_pcm_sw_params_current(AlsaPCMHandle, sw_params);
-	if (err < 0) {
-	    Error(_("audio: snd_pcm_sw_params_current failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err = snd_pcm_sw_params_get_boundary(sw_params, &boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_get_boundary failed: %s\n"),
-		snd_strerror(err));
-	}
-	Debug(4, "audio/alsa: boundary %lu frames\n", boundary);
-	if ((err =
-		snd_pcm_sw_params_set_stop_threshold(AlsaPCMHandle, sw_params,
-		    boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err =
-		snd_pcm_sw_params_set_silence_size(AlsaPCMHandle, sw_params,
-		    boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err = snd_pcm_sw_params(AlsaPCMHandle, sw_params)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params failed: %s\n"),
-		snd_strerror(err));
-	}
-    }
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
@@ -1774,6 +1721,7 @@ static int64_t OssGetDelay(void)
 */
 static int OssSetup(int *sample_rate, int *channels, int passthrough)
 {
+    int fildes;
     int ret;
     int tmp;
     int delay;
@@ -1784,17 +1732,13 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 	return -1;
     }
 
-    if (1) {				// close+open for pcm / AC-3
-	int fildes;
-
-	fildes = OssPcmFildes;
-	OssPcmFildes = -1;
-	close(fildes);
-	if (!(fildes = OssOpenPCM(passthrough))) {
-	    return -1;
-	}
-	OssPcmFildes = fildes;
+    fildes = OssPcmFildes;
+    OssPcmFildes = -1;
+    close(fildes);
+    if (!(fildes = OssOpenPCM(passthrough))) {
+	return -1;
     }
+    OssPcmFildes = fildes;
 
     ret = 0;
 
@@ -2441,46 +2385,6 @@ void AudioVideoReady(int64_t pts)
     }
 
     AudioVideoIsReady = 1;
-#if 0
-    if (AudioRing[AudioRingWrite].HwSampleRate
-	&& AudioRing[AudioRingWrite].HwChannels) {
-	if (pts != (int64_t) INT64_C(0x8000000000000000)
-	    && AudioRing[AudioRingWrite].PTS !=
-	    (int64_t) INT64_C(0x8000000000000000)) {
-	    Debug(3, "audio: a/v %d %s\n",
-		(int)(pts - AudioRing[AudioRingWrite].PTS) / 90,
-		AudioRunning ? "running" : "stopped");
-	}
-	Debug(3, "audio: start %4zdms %s|%s video ready\n",
-	    (RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer) * 1000)
-	    / (AudioRing[AudioRingWrite].HwSampleRate *
-		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
-	    Timestamp2String(pts),
-	    Timestamp2String(AudioRing[AudioRingWrite].PTS));
-
-	if (!AudioRunning) {
-	    size_t used;
-
-	    used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
-	    // enough video + audio buffered
-	    if (AudioStartThreshold < used) {
-		// too much audio buffered, skip it
-		if (AudioStartThreshold < used) {
-		    Debug(3, "audio: start %4zdms skip video ready\n",
-			((used - AudioStartThreshold) * 1000)
-			/ (AudioRing[AudioRingWrite].HwSampleRate *
-			    AudioRing[AudioRingWrite].HwChannels *
-			    AudioBytesProSample));
-		    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
-			used - AudioStartThreshold);
-		}
-		AudioRunning = 1;
-		pthread_cond_signal(&AudioStartCond);
-	    }
-	}
-    }
-    AudioVideoIsReady = 1;
-#endif
 }
 
 /**

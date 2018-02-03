@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-03 21:41+0200\n"
+"POT-Creation-Date: 2018-02-03 21:54+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -99,22 +99,6 @@ msgstr ""
 
 #, c-format
 msgid "audio/alsa: set params error: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_current failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_get_boundary failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_set_silence_size failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params failed: %s\n"
 msgstr ""
 
 #, c-format
@@ -341,18 +325,6 @@ msgid "pesdemux: out of memory\n"
 msgstr ""
 
 msgid "pesdemux: mpeg1 pes packet unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "softhddev: LPCM %d bits per sample aren't supported\n"
-msgstr ""
-
-#, c-format
-msgid "softhddev: LPCM %d sample-rate is unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "softhddev: LPCM %d channels are unsupported\n"
 msgstr ""
 
 msgid "tsdemux: transport stream out of sync\n"
@@ -858,9 +830,6 @@ msgstr ""
 msgid "video/vaapi: invalid surface in ringbuffer\n"
 msgstr ""
 
-msgid "video/vaapi: vaSyncSurface failed\n"
-msgstr ""
-
 msgid "video/vaapi: can't destroy image!\n"
 msgstr ""
 
@@ -1057,10 +1026,6 @@ msgid "video: output buffer full, dropping frame (%d/%d)\n"
 msgstr ""
 
 #, c-format
-msgid "video/vaapi: surface %#010x not ready: still displayed %d\n"
-msgstr ""
-
-#, c-format
 msgid "video/vaapi: can't create a surface: %s\n"
 msgstr ""
 
@@ -1082,6 +1047,9 @@ msgstr ""
 msgid "video/vaapi: can't put image!\n"
 msgstr ""
 
+msgid "video/vaapi: vaSyncSurface failed\n"
+msgstr ""
+
 #, c-format
 msgid "video/vaapi: vaPutSurface failed %d\n"
 msgstr ""
@@ -1089,11 +1057,11 @@ msgstr ""
 msgid "video/vaapi: can't unmap image buffer\n"
 msgstr ""
 
-msgid "video/vaapi: can't get source image\n"
-msgstr ""
-
 #, c-format
 msgid "video/vaapi: vaDeriveImage failed %d\n"
+msgstr ""
+
+msgid "video/vaapi: can't get source image\n"
 msgstr ""
 
 #, c-format
