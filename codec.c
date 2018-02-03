@@ -30,8 +30,6 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// compile audio drift correction support (very experimental)
-#define USE_AUDIO_DRIFT_CORRECTION
     /// compile AC-3 audio drift correction support (very experimental)
 #define USE_AC3_DRIFT_CORRECTION
     /// use ffmpeg libswresample API (autodected, Makefile)
@@ -755,13 +753,9 @@ enum IEC61937
     IEC61937_EAC3 = 0x15,		///< E-AC-3 data
 };
 
-#ifdef USE_AUDIO_DRIFT_CORRECTION
 #define CORRECT_PCM	1		///< do PCM audio-drift correction
 #define CORRECT_AC3	2		///< do AC-3 audio-drift correction
 static char CodecAudioDrift;		///< flag: enable audio-drift correction
-#else
-static const int CodecAudioDrift = 0;
-#endif
     ///
     /// Pass-through flags: CodecPCM, CodecAC3, CodecEAC3, ...
     ///
@@ -928,10 +922,7 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 */
 void CodecSetAudioDrift(int mask)
 {
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     CodecAudioDrift = mask & (CORRECT_PCM | CORRECT_AC3);
-#endif
-    (void)mask;
 }
 
 /**
@@ -1368,7 +1359,6 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 	return;
     }
     // prepare audio drift resample
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     if (CodecAudioDrift & CORRECT_PCM) {
 	if (audio_decoder->AvResample) {
 	    Error(_("codec/audio: overwrite resample\n"));
@@ -1387,7 +1377,6 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 		10 * audio_decoder->HwSampleRate);
 	}
     }
-#endif
 }
 
 /**
@@ -1399,7 +1388,6 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 */
 void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 {
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     if ((CodecAudioDrift & CORRECT_PCM) && audio_decoder->AvResample) {
 	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
 	    FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
@@ -1467,7 +1455,6 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	AudioEnqueue(buf, n);
 	return;
     }
-#endif
     if (!(audio_decoder->Passthrough & CodecPCM)) {
 	CodecReorderAudioFrame(data, count, audio_decoder->HwChannels);
     }
@@ -1645,7 +1632,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 */
 static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 {
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     struct timespec nowtime;
     int64_t delay;
     int64_t tim_diff;
@@ -1760,9 +1746,6 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
 	}
     }
-#else
-    AudioSetClock(pts);
-#endif
 }
 
 /**
