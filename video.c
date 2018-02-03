@@ -46,7 +46,6 @@
 #define USE_DOUBLEBUFFER		///< use GLX double buffers
 //#define USE_VAAPI				///< enable vaapi support
 //#define USE_VDPAU				///< enable vdpau support
-//#define USE_BITMAP			///< use vdpau bitmap surface
 //#define AV_INFO				///< log a/v sync informations
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
@@ -7326,17 +7325,10 @@ static int VdpauSurfaceIndex;		///< current display surface
 static int VdpauSurfaceQueued;		///< number of display surfaces queued
 static struct timespec VdpauFrameTime;	///< time of last display
 
-#ifdef USE_BITMAP
-    /// bitmap surfaces for osd
-static VdpBitmapSurface VdpauOsdBitmapSurface[2] = {
-    VDP_INVALID_HANDLE, VDP_INVALID_HANDLE
-};
-#else
     /// output surfaces for osd
 static VdpOutputSurface VdpauOsdOutputSurface[2] = {
     VDP_INVALID_HANDLE, VDP_INVALID_HANDLE
 };
-#endif
 static int VdpauOsdSurfaceIndex;	///< index into double buffered osd
 
     /// grab render output surface
@@ -9978,31 +9970,6 @@ static void VdpauMixOsd(void)
 
     // FIXME: double buffered osd disabled
     VdpauOsdSurfaceIndex = 1;
-#ifdef USE_BITMAP
-    status =
-	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
-	[VdpauSurfaceIndex], &output_rect,
-	VdpauOsdBitmapSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
-	VideoTransparentOsd ? &blend_state : NULL,
-	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't render bitmap surface: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-
-    if (Osd3DMode > 0) {
-	status =
-	    VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
-	    [VdpauSurfaceIndex], &output_double_rect,
-	    VdpauOsdBitmapSurface[!VdpauOsdSurfaceIndex], &source_rect, NULL,
-	    VideoTransparentOsd ? &blend_state : NULL,
-	    VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
-	if (status != VDP_STATUS_OK) {
-	    Error(_("video/vdpau: can't render output surface: %s\n"),
-		VdpauGetErrorString(status));
-	}
-    }
-#else
     status =
 	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
@@ -10026,7 +9993,6 @@ static void VdpauMixOsd(void)
 		VdpauGetErrorString(status));
 	}
     }
-#endif
     //end = GetMsTicks();
     /*
        Debug(4, "video:/vdpau: osd render %d %dms\n", VdpauOsdSurfaceIndex,
@@ -10227,17 +10193,6 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 
     // FIXME: double buffered osd disabled
     // VdpauOsdSurfaceIndex always 0 and only 0 valid
-#ifdef USE_BITMAP
-    status =
-	VdpauOutputSurfaceRenderBitmapSurface(VdpauSurfacesRb
-	[VdpauSurfaceIndex], &output_rect,
-	VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex], &source_rect, NULL, NULL,
-	VDP_OUTPUT_SURFACE_RENDER_ROTATE_0);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: can't render output surface: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-#else
     status =
 	VdpauOutputSurfaceRenderOutputSurface(VdpauSurfacesRb
 	[VdpauSurfaceIndex], &output_rect,
@@ -10247,7 +10202,6 @@ static void VdpauBlackSurface(VdpauDecoder * decoder)
 	Error(_("video/vdpau: can't render output surface: %s\n"),
 	    VdpauGetErrorString(status));
     }
-#endif
 }
 
 ///
@@ -10839,11 +10793,7 @@ static int VdpauPreemptionRecover(void)
     //	invalid osd bitmap/output surfaces
     //
     for (i = 0; i < 1; ++i) {
-#ifdef USE_BITMAP
-	VdpauOsdBitmapSurface[i] = VDP_INVALID_HANDLE;
-#else
 	VdpauOsdOutputSurface[i] = VDP_INVALID_HANDLE;
-#endif
     }
 
     VdpauOsdInit(OsdWidth, OsdHeight);
@@ -11016,15 +10966,9 @@ static void VdpauOsdClear(void)
 	return;
     }
     // osd image available?
-#ifdef USE_BITMAP
-    if (VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
-	return;
-    }
-#else
     if (VdpauOsdOutputSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
 	return;
     }
-#endif
 
     if (OsdWidth * OsdHeight > 4096 * 2160) {
 	Error(_("video/vdpau: osd too big: unsupported\n"));
@@ -11048,15 +10992,6 @@ static void VdpauOsdClear(void)
     data[0] = OsdZeros;
     pitches[0] = OsdWidth * 4;
 
-#ifdef USE_BITMAP
-    status =
-	VdpauBitmapSurfacePutBitsNative(VdpauOsdBitmapSurface
-	[VdpauOsdSurfaceIndex], data, pitches, &dst_rect);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: bitmap surface put bits failed: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-#else
     status =
 	VdpauOutputSurfacePutBitsNative(VdpauOsdOutputSurface
 	[VdpauOsdSurfaceIndex], data, pitches, &dst_rect);
@@ -11064,7 +10999,6 @@ static void VdpauOsdClear(void)
 	Error(_("video/vdpau: output surface put bits failed: %s\n"),
 	    VdpauGetErrorString(status));
     }
-#endif
 }
 
 ///
@@ -11098,15 +11032,9 @@ static void VdpauOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
 	return;
     }
     // osd image available?
-#ifdef USE_BITMAP
-    if (VdpauOsdBitmapSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
-	return;
-    }
-#else
     if (VdpauOsdOutputSurface[VdpauOsdSurfaceIndex] == VDP_INVALID_HANDLE) {
 	return;
     }
-#endif
 
 #ifdef DEBUG
     start = GetMsTicks();
@@ -11119,15 +11047,6 @@ static void VdpauOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
     data[0] = argb + xi * 4 + yi * pitch;
     pitches[0] = pitch;
 
-#ifdef USE_BITMAP
-    status =
-	VdpauBitmapSurfacePutBitsNative(VdpauOsdBitmapSurface
-	[VdpauOsdSurfaceIndex], data, pitches, &dst_rect);
-    if (status != VDP_STATUS_OK) {
-	Error(_("video/vdpau: bitmap surface put bits failed: %s\n"),
-	    VdpauGetErrorString(status));
-    }
-#else
     status =
 	VdpauOutputSurfacePutBitsNative(VdpauOsdOutputSurface
 	[VdpauOsdSurfaceIndex], data, pitches, &dst_rect);
@@ -11135,7 +11054,6 @@ static void VdpauOsdDrawARGB(int xi, int yi, int width, int height, int pitch,
 	Error(_("video/vdpau: output surface put bits failed: %s\n"),
 	    VdpauGetErrorString(status));
     }
-#endif
 #ifdef DEBUG
     end = GetMsTicks();
 
@@ -11162,22 +11080,6 @@ static void VdpauOsdInit(int width, int height)
     //
     //	create bitmap/surface for osd
     //
-#ifdef USE_BITMAP
-    if (VdpauOsdBitmapSurface[0] == VDP_INVALID_HANDLE) {
-	for (i = 0; i < 1; ++i) {
-	    status =
-		VdpauBitmapSurfaceCreate(VdpauDevice, VDP_RGBA_FORMAT_B8G8R8A8,
-		width, height, VDP_TRUE, VdpauOsdBitmapSurface + i);
-	    if (status != VDP_STATUS_OK) {
-		Error(_("video/vdpau: can't create bitmap surface: %s\n"),
-		    VdpauGetErrorString(status));
-	    }
-	    Debug(4,
-		"video/vdpau: created bitmap surface %dx%d with id 0x%08x\n",
-		width, height, VdpauOsdBitmapSurface[i]);
-	}
-    }
-#else
     if (VdpauOsdOutputSurface[0] == VDP_INVALID_HANDLE) {
 	for (i = 0; i < 1; ++i) {
 	    status =
@@ -11192,7 +11094,6 @@ static void VdpauOsdInit(int width, int height)
 		width, height, VdpauOsdOutputSurface[i]);
 	}
     }
-#endif
     Debug(3, "video/vdpau: osd surfaces created\n");
 }
 
@@ -11206,20 +11107,6 @@ static void VdpauOsdExit(void)
     //
     //	destroy osd bitmap/output surfaces
     //
-#ifdef USE_BITMAP
-    for (i = 0; i < 1; ++i) {
-	VdpStatus status;
-
-	if (VdpauOsdBitmapSurface[i] != VDP_INVALID_HANDLE) {
-	    status = VdpauBitmapSurfaceDestroy(VdpauOsdBitmapSurface[i]);
-	    if (status != VDP_STATUS_OK) {
-		Error(_("video/vdpau: can't destroy bitmap surface: %s\n"),
-		    VdpauGetErrorString(status));
-	    }
-	    VdpauOsdBitmapSurface[i] = VDP_INVALID_HANDLE;
-	}
-    }
-#else
     for (i = 0; i < 1; ++i) {
 	VdpStatus status;
 
@@ -11232,7 +11119,6 @@ static void VdpauOsdExit(void)
 	    VdpauOsdOutputSurface[i] = VDP_INVALID_HANDLE;
 	}
     }
-#endif
 }
 
 ///

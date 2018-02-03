@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2015-10-20 14:39+0200\n"
+"POT-Creation-Date: 2018-02-03 16:38+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -1390,10 +1390,6 @@ msgid "video: get hwaccel context, not supported\n"
 msgstr ""
 
 #, c-format
-msgid "video/vdpau: can't render bitmap surface: %s\n"
-msgstr ""
-
-#, c-format
 msgid "video/vdpau: %d surface deinterlace unsupported\n"
 msgstr ""
 
@@ -1421,19 +1417,7 @@ msgid "video/vdpau: osd too big: unsupported\n"
 msgstr ""
 
 #, c-format
-msgid "video/vdpau: bitmap surface put bits failed: %s\n"
-msgstr ""
-
-#, c-format
 msgid "video/vdpau: output surface put bits failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create bitmap surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy bitmap surface: %s\n"
 msgstr ""
 
 msgid "video: fatal i/o error\n"
