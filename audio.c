@@ -37,8 +37,6 @@
 ///	@todo FIXME: there can be problems with little/big endian.
 ///
 
-//#define USE_ALSA			///< enable alsa support
-//#define USE_OSS			///< enable OSS support
 #define USE_AUDIO_THREAD		///< use thread for audio playback
 #define USE_AUDIO_MIXER			///< use audio module mixer
 

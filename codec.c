@@ -30,11 +30,6 @@
 ///		many bugs and incompatiblity in it.  Don't use this shit.
 ///
 
-    /// use ffmpeg libswresample API (autodected, Makefile)
-#define noUSE_SWRESAMPLE
-    /// use libav libavresample API (autodected, Makefile)
-#define noUSE_AVRESAMPLE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

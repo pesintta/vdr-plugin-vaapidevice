@@ -39,13 +39,8 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
-#define noUSE_SCREENSAVER		///< support disable screensaver
 #define USE_AUTOCROP			///< compile auto-crop support
-#define noUSE_GLX			///< outdated GLX code
 #define USE_DOUBLEBUFFER		///< use GLX double buffers
-//#define USE_VAAPI				///< enable vaapi support
-//#define USE_VDPAU				///< enable vdpau support
-//#define AV_INFO				///< log a/v sync informations
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
