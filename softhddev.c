@@ -2501,8 +2501,6 @@ int PlayVideo(const uint8_t * data, int size)
     return PlayVideo3(MyVideoStream, data, size);
 }
 
-#ifdef USE_TS_VIDEO
-
 /**
 **	Play transport stream video packet.
 **
@@ -2513,7 +2511,6 @@ int PlayVideo(const uint8_t * data, int size)
 **
 **	@returns number of bytes consumed;
 */
-
 int PlayTsVideo(const uint8_t * data, int size)
 {
     static TsDemux tsdx[1];
@@ -2545,8 +2542,6 @@ int PlayTsVideo(const uint8_t * data, int size)
     }
     return TsDemuxer(tsdx, data, size, TS_PES_VIDEO);
 }
-#endif
-
 
 
     /// call VDR support function
@@ -3410,9 +3405,7 @@ int Start(void)
 	MyVideoStream->SkipStream = 1;
 	SkipAudio = 1;
     }
-#ifdef USE_TS_VIDEO
     PesInit(&PesDemuxer[TS_PES_VIDEO]);
-#endif
     PesInit(&PesDemuxer[TS_PES_AUDIO]);
     Info(_("[softhddev] ready%s\n"),
 	ConfigStartSuspended ? ConfigStartSuspended ==

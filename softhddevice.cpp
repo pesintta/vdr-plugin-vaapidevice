@@ -2373,9 +2373,7 @@ class cSoftHdDevice:public cDevice
     virtual void GetOsdSize(int &, int &, double &);
     virtual int PlayVideo(const uchar *, int);
     virtual int PlayAudio(const uchar *, int, uchar);
-#ifdef USE_TS_VIDEO
     virtual int PlayTsVideo(const uchar *, int);
-#endif
     virtual int PlayTsAudio(const uchar *, int);
     virtual void SetAudioChannelDevice(int);
     virtual int GetAudioChannelDevice(void);
@@ -2767,7 +2765,6 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
     return::PlayVideo(data, length);
 }
 
-#ifdef USE_TS_VIDEO
 /**
 **	Play a TS video packet.
 **
@@ -2778,7 +2775,6 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 {
     return::PlayTsVideo(data, length);
 }
-#endif
 
 /**
 **	Play a TS audio packet.
