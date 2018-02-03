@@ -6318,49 +6318,12 @@ static void VaapiSyncRenderFrame(VaapiDecoder * decoder,
     }
 #endif
 
-#ifndef USE_PIP
-#error	"-DUSE_PIP or #define USE_PIP is needed,"
     // if video output buffer is full, wait and display surface.
     // loop for interlace
     if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
-#ifdef DEBUG
-	Fatal("video/vaapi: this code part shouldn't be used\n");
-#else
 	Info("video/vaapi: this code part shouldn't be used\n");
-#endif
 	return;
     }
-#else
-    // FIXME: this part code should be no longer be needed with new mpeg fix
-    while (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
-	struct timespec abstime;
-
-	pthread_mutex_unlock(&VideoLockMutex);
-
-	abstime = decoder->FrameTime;
-	abstime.tv_nsec += 14 * 1000 * 1000;
-	if (abstime.tv_nsec >= 1000 * 1000 * 1000) {
-	    // avoid overflow
-	    abstime.tv_sec++;
-	    abstime.tv_nsec -= 1000 * 1000 * 1000;
-	}
-
-	VideoPollEvent();
-
-	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-	pthread_testcancel();
-	pthread_mutex_lock(&VideoLockMutex);
-	// give osd some time slot
-	while (pthread_cond_timedwait(&VideoWakeupCond, &VideoLockMutex,
-		&abstime) != ETIMEDOUT) {
-	    // SIGUSR1
-	    Debug(3, "video/vaapi: pthread_cond_timedwait error\n");
-	}
-	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-
-	VaapiSyncDisplayFrame();
-    }
-#endif
 
     if (!decoder->Closing) {
 	VideoSetPts(&decoder->PTS, decoder->Interlaced, video_ctx, frame);

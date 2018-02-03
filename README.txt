@@ -34,7 +34,6 @@ A software and GPU emulated HD output device plugin for VDR.
     o Suspend / Dettach
     o Letterbox, Stretch and Center cut-out video display modes
     o atmo light support with plugin http://github.com/durchflieger/DFAtmo
-    o PIP (Picture-in-Picture)
 
     o planned: Improved software deinterlacer (yadif or/and ffmpeg filters)
 
@@ -239,31 +238,6 @@ Setup: /etc/vdr/setup.conf
 	1 pillar box
 	2 center cut-out
 
-	softhddevice.pip.X = 79
-	softhddevice.pip.Y = 78
-	softhddevice.pip.Width = 18
-	softhddevice.pip.Height = 18
-	PIP pip window position and size in percent.
-
-	softhddevice.pip.VideoX = 0
-	softhddevice.pip.VideoY = 0
-	softhddevice.pip.VideoWidth = 0
-	softhddevice.pip.VideoHeight = 0
-	PIP video window position and size in percent.
-
-	softhddevice.pip.Alt.X = 0
-	softhddevice.pip.Alt.Y = 50
-	softhddevice.pip.Alt.Width = 0
-	softhddevice.pip.Alt.Height = 50
-	PIP alternative pip window position and size in percent.
-
-	softhddevice.pip.Alt.VideoX = 0
-	softhddevice.pip.Alt.VideoY = 0
-	softhddevice.pip.Alt.VideoWidth = 0
-	softhddevice.pip.Alt.VideoHeight = 50
-	PIP alternative video window position and size in percent.
-
-
 Setup: /etc/vdr/remote.conf
 ------
 
@@ -380,5 +354,3 @@ Requires:
 
 	GNU Make 3.xx
 		http://www.gnu.org/software/make/make.html
-
-Optional:

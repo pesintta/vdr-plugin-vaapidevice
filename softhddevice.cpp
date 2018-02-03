@@ -159,25 +159,6 @@ static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
 static char *ConfigPassthroughDevice;	///< config audio pass-through device
 
-#ifdef USE_PIP
-static int ConfigPipX = 100 - 3 - 18;	///< config pip pip x in %
-static int ConfigPipY = 100 - 4 - 18;	///< config pip pip y in %
-static int ConfigPipWidth = 18;		///< config pip pip width in %
-static int ConfigPipHeight = 18;	///< config pip pip height in %
-static int ConfigPipVideoX;		///< config pip video x in %
-static int ConfigPipVideoY;		///< config pip video y in %
-static int ConfigPipVideoWidth;		///< config pip video width in %
-static int ConfigPipVideoHeight;	///< config pip video height in %
-static int ConfigPipAltX;		///< config pip alt. pip x in %
-static int ConfigPipAltY = 50;		///< config pip alt. pip y in %
-static int ConfigPipAltWidth;		///< config pip alt. pip width in %
-static int ConfigPipAltHeight = 50;	///< config pip alt. pip height in %
-static int ConfigPipAltVideoX;		///< config pip alt. video x in %
-static int ConfigPipAltVideoY;		///< config pip alt. video y in %
-static int ConfigPipAltVideoWidth;	///< config pip alt. video width in %
-static int ConfigPipAltVideoHeight = 50;	///< config pip alt. video height in %
-#endif
-
 #ifdef USE_SCREENSAVER
 static char ConfigEnableDPMSatBlackScreen;	///< Enable DPMS(Screensaver) while displaying black screen(radio)
 #endif
@@ -757,26 +738,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioBufferTime;
     int AudioAutoAES;
 
-#ifdef USE_PIP
-    int Pip;
-    int PipX;
-    int PipY;
-    int PipWidth;
-    int PipHeight;
-    int PipVideoX;
-    int PipVideoY;
-    int PipVideoWidth;
-    int PipVideoHeight;
-    int PipAltX;
-    int PipAltY;
-    int PipAltWidth;
-    int PipAltHeight;
-    int PipAltVideoX;
-    int PipAltVideoY;
-    int PipAltVideoWidth;
-    int PipAltVideoHeight;
-#endif
-
 #ifdef USE_SCREENSAVER
     int EnableDPMSatBlackScreen;
 #endif
@@ -1035,41 +996,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Enable automatic AES"), &AudioAutoAES,
 		trVDR("no"), trVDR("yes")));
     }
-#ifdef USE_PIP
-    //
-    //	PIP
-    //
-    Add(CollapsedItem(tr("Picture-In-Picture"), Pip));
-    if (Pip) {
-	// FIXME: predefined modes/custom mode
-	Add(new cMenuEditIntItem(tr("Pip X (%)"), &PipX, 0, 100));
-	Add(new cMenuEditIntItem(tr("Pip Y (%)"), &PipY, 0, 100));
-	Add(new cMenuEditIntItem(tr("Pip Width (%)"), &PipWidth, 0, 100));
-	Add(new cMenuEditIntItem(tr("Pip Height (%)"), &PipHeight, 0, 100));
-	Add(new cMenuEditIntItem(tr("Video X (%)"), &PipVideoX, 0, 100));
-	Add(new cMenuEditIntItem(tr("Video Y (%)"), &PipVideoY, 0, 100));
-	Add(new cMenuEditIntItem(tr("Video Width (%)"), &PipVideoWidth, 0,
-		100));
-	Add(new cMenuEditIntItem(tr("Video Height (%)"), &PipVideoHeight, 0,
-		100));
-	Add(new cMenuEditIntItem(tr("Alternative Pip X (%)"), &PipAltX, 0,
-		100));
-	Add(new cMenuEditIntItem(tr("Alternative Pip Y (%)"), &PipAltY, 0,
-		100));
-	Add(new cMenuEditIntItem(tr("Alternative Pip Width (%)"), &PipAltWidth,
-		0, 100));
-	Add(new cMenuEditIntItem(tr("Alternative Pip Height (%)"),
-		&PipAltHeight, 0, 100));
-	Add(new cMenuEditIntItem(tr("Alternative Video X (%)"), &PipAltVideoX,
-		0, 100));
-	Add(new cMenuEditIntItem(tr("Alternative Video Y (%)"), &PipAltVideoY,
-		0, 100));
-	Add(new cMenuEditIntItem(tr("Alternative Video Width (%)"),
-		&PipAltVideoWidth, 0, 100));
-	Add(new cMenuEditIntItem(tr("Alternative Video Height (%)"),
-		&PipAltVideoHeight, 0, 100));
-    }
-#endif
 
     SetCurrent(Get(current));		// restore selected menu entry
     Display();				// display build menu
@@ -1085,9 +1011,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_video;
     int old_audio;
 
-#ifdef USE_PIP
-    int old_pip;
-#endif
     int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
     int old_denoise[RESOLUTIONS];
@@ -1102,9 +1025,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_general = General;
     old_video = Video;
     old_audio = Audio;
-#ifdef USE_PIP
-    old_pip = Pip;
-#endif
     old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
@@ -1120,9 +1040,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
 	if (old_general != General || old_video != Video || old_audio != Audio
-#ifdef USE_PIP
-	    || old_pip != Pip
-#endif
 	    || old_osd_size != OsdSize) {
 	    Create();			// update menu
 	} else {
@@ -1257,29 +1174,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioStereoDescent = ConfigAudioStereoDescent;
     AudioBufferTime = ConfigAudioBufferTime;
     AudioAutoAES = ConfigAudioAutoAES;
-
-#ifdef USE_PIP
-    //
-    //	PIP
-    //
-    Pip = 0;
-    PipX = ConfigPipX;
-    PipY = ConfigPipY;
-    PipWidth = ConfigPipWidth;
-    PipHeight = ConfigPipHeight;
-    PipVideoX = ConfigPipVideoX;
-    PipVideoY = ConfigPipVideoY;
-    PipVideoWidth = ConfigPipVideoWidth;
-    PipVideoHeight = ConfigPipVideoHeight;
-    PipAltX = ConfigPipAltX;
-    PipAltY = ConfigPipAltY;
-    PipAltWidth = ConfigPipAltWidth;
-    PipAltHeight = ConfigPipAltHeight;
-    PipAltVideoX = ConfigPipAltVideoX;
-    PipAltVideoY = ConfigPipAltVideoY;
-    PipAltVideoWidth = ConfigPipAltVideoWidth;
-    PipAltVideoHeight = ConfigPipAltVideoHeight;
-#endif
 
 #ifdef USE_SCREENSAVER
     EnableDPMSatBlackScreen = ConfigEnableDPMSatBlackScreen;
@@ -1464,27 +1358,6 @@ void cMenuSetupSoft::Store(void)
     SetupStore("AudioAutoAES", ConfigAudioAutoAES = AudioAutoAES);
     AudioSetAutoAES(ConfigAudioAutoAES);
 
-#ifdef USE_PIP
-    SetupStore("pip.X", ConfigPipX = PipX);
-    SetupStore("pip.Y", ConfigPipY = PipY);
-    SetupStore("pip.Width", ConfigPipWidth = PipWidth);
-    SetupStore("pip.Height", ConfigPipHeight = PipHeight);
-    SetupStore("pip.VideoX", ConfigPipVideoX = PipVideoX);
-    SetupStore("pip.VideoY", ConfigPipVideoY = PipVideoY);
-    SetupStore("pip.VideoWidth", ConfigPipVideoWidth = PipVideoWidth);
-    SetupStore("pip.VideoHeight", ConfigPipVideoHeight = PipVideoHeight);
-    SetupStore("pip.Alt.X", ConfigPipAltX = PipAltX);
-    SetupStore("pip.Alt.Y", ConfigPipAltY = PipAltY);
-    SetupStore("pip.Alt.Width", ConfigPipAltWidth = PipAltWidth);
-    SetupStore("pip.Alt.Height", ConfigPipAltHeight = PipAltHeight);
-    SetupStore("pip.Alt.VideoX", ConfigPipAltVideoX = PipAltVideoX);
-    SetupStore("pip.Alt.VideoY", ConfigPipAltVideoY = PipAltVideoY);
-    SetupStore("pip.Alt.VideoWidth", ConfigPipAltVideoWidth =
-	PipAltVideoWidth);
-    SetupStore("pip.Alt.VideoHeight", ConfigPipAltVideoHeight =
-	PipAltVideoHeight);
-#endif
-
 #ifdef USE_SCREENSAVER
     SetupStore("EnableDPMSatBlackScreen", ConfigEnableDPMSatBlackScreen =
 	EnableDPMSatBlackScreen);
@@ -1584,380 +1457,6 @@ cSoftHdControl::~cSoftHdControl()
 }
 
 //////////////////////////////////////////////////////////////////////////////
-//	PIP
-//////////////////////////////////////////////////////////////////////////////
-
-#ifdef USE_PIP
-
-extern "C" void DelPip(void);		///< remove PIP
-static int PipAltPosition;		///< flag alternative position
-
-//////////////////////////////////////////////////////////////////////////////
-//	cReceiver
-//////////////////////////////////////////////////////////////////////////////
-
-#include <vdr/receiver.h>
-
-/**
-**	Receiver class for PIP mode.
-*/
-class cSoftReceiver:public cReceiver
-{
-  protected:
-    virtual void Activate(bool);
-#if APIVERSNUM >= 20301
-    virtual void Receive(const uchar *, int);
-#else
-    virtual void Receive(uchar *, int);
-#endif
-  public:
-     cSoftReceiver(const cChannel *);	///< receiver constructor
-     virtual ~ cSoftReceiver();		///< receiver destructor
-};
-
-/**
-**	Receiver constructor.
-**
-**	@param channel	channel to receive
-*/
-cSoftReceiver::cSoftReceiver(const cChannel * channel):cReceiver(NULL,
-    MINPRIORITY)
-{
-    // cReceiver::channelID not setup, this can cause trouble
-    // we want video only
-    AddPid(channel->Vpid());
-}
-
-/**
-**	Receiver destructor.
-*/
-cSoftReceiver::~cSoftReceiver()
-{
-    Detach();
-}
-
-/**
-**	Called before the receiver gets attached or detached.
-**
-**	@param on	flag attached, detached
-*/
-void cSoftReceiver::Activate(bool on)
-{
-    if (on) {
-	int width;
-	int height;
-	double video_aspect;
-
-	GetOsdSize(&width, &height, &video_aspect);
-	if (PipAltPosition) {
-	    PipStart((ConfigPipAltVideoX * width) / 100,
-		(ConfigPipAltVideoY * height) / 100,
-		ConfigPipAltVideoWidth ? (ConfigPipAltVideoWidth * width) /
-		100 : width,
-		ConfigPipAltVideoHeight ? (ConfigPipAltVideoHeight * height) /
-		100 : height, (ConfigPipAltX * width) / 100,
-		(ConfigPipAltY * height) / 100,
-		ConfigPipAltWidth ? (ConfigPipAltWidth * width) / 100 : width,
-		ConfigPipAltHeight ? (ConfigPipAltHeight * height) /
-		100 : height);
-	} else {
-	    PipStart((ConfigPipVideoX * width) / 100,
-		(ConfigPipVideoY * height) / 100,
-		ConfigPipVideoWidth ? (ConfigPipVideoWidth * width) /
-		100 : width,
-		ConfigPipVideoHeight ? (ConfigPipVideoHeight * height) /
-		100 : height, (ConfigPipX * width) / 100,
-		(ConfigPipY * height) / 100,
-		ConfigPipWidth ? (ConfigPipWidth * width) / 100 : width,
-		ConfigPipHeight ? (ConfigPipHeight * height) / 100 : height);
-	}
-    } else {
-	PipStop();
-    }
-}
-
-///
-///	Parse packetized elementary stream.
-///
-///	@param data	payload data of transport stream
-///	@param size	number of payload data bytes
-///	@param is_start flag, start of pes packet
-///
-static void PipPesParse(const uint8_t * data, int size, int is_start)
-{
-    static uint8_t *pes_buf;
-    static int pes_size;
-    static int pes_index;
-
-    // FIXME: quick&dirty
-
-    if (!pes_buf) {
-	pes_size = 500 * 1024 * 1024;
-	pes_buf = (uint8_t *) malloc(pes_size);
-	if (!pes_buf) {			// out of memory, should never happen
-	    return;
-	}
-	pes_index = 0;
-    }
-    if (is_start) {			// start of pes packet
-	if (pes_index) {
-	    if (pes_buf[0] || pes_buf[1] || pes_buf[2] != 0x01) {
-		// FIXME: first should always fail
-		Error(tr("[softhddev]pip: invalid PES packet %d\n"),
-		    pes_index);
-	    } else {
-		PipPlayVideo(pes_buf, pes_index);
-		// FIXME: buffer full: pes packet is dropped
-	    }
-	    pes_index = 0;
-	}
-    }
-
-    if (pes_index + size > pes_size) {
-	Error(tr("[softhddev]pip: pes buffer too small\n"));
-	pes_size *= 2;
-	if (pes_index + size > pes_size) {
-	    pes_size = (pes_index + size) * 2;
-	}
-	pes_buf = (uint8_t *) realloc(pes_buf, pes_size);
-	if (!pes_buf) {			// out of memory, should never happen
-	    return;
-	}
-    }
-    memcpy(pes_buf + pes_index, data, size);
-    pes_index += size;
-}
-
-    /// Transport stream packet size
-#define TS_PACKET_SIZE	188
-    /// Transport stream packet sync byte
-#define TS_PACKET_SYNC	0x47
-
-/**
-**	Receive TS packet from device.
-**
-**	@param data	ts packet
-**	@param size	size (#TS_PACKET_SIZE=188) of tes packet
-*/
-#if APIVERSNUM >= 20301
-void cSoftReceiver::Receive(const uchar * data, int size)
-#else
-void cSoftReceiver::Receive(uchar * data, int size)
-#endif
-{
-    const uint8_t *p;
-
-    p = data;
-    while (size >= TS_PACKET_SIZE) {
-	int payload;
-
-	if (p[0] != TS_PACKET_SYNC) {
-	    Error(tr("[softhddev]tsdemux: transport stream out of sync\n"));
-	    // FIXME: kill all buffers
-	    return;
-	}
-	if (p[1] & 0x80) {		// error indicatord
-	    Debug(3, "[softhddev]tsdemux: transport error\n");
-	    // FIXME: kill all buffers
-	    goto next_packet;
-	}
-	// skip adaptation field
-	switch (p[3] & 0x30) {		// adaption field
-	    case 0x00:			// reserved
-	    case 0x20:			// adaptation field only
-	    default:
-		goto next_packet;
-	    case 0x10:			// only payload
-		payload = 4;
-		break;
-	    case 0x30:			// skip adapation field
-		payload = 5 + p[4];
-		// illegal length, ignore packet
-		if (payload >= TS_PACKET_SIZE) {
-		    Debug(3, "[softhddev]tsdemux: illegal adaption field length\n");
-		    goto next_packet;
-		}
-		break;
-	}
-
-	PipPesParse(p + payload, TS_PACKET_SIZE - payload, p[1] & 0x40);
-
-      next_packet:
-	p += TS_PACKET_SIZE;
-	size -= TS_PACKET_SIZE;
-    }
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-static cSoftReceiver *PipReceiver;	///< PIP receiver
-static int PipChannelNr;		///< last PIP channel number
-static const cChannel *PipChannel;	///< current PIP channel
-
-/**
-**	Stop PIP.
-*/
-extern "C" void DelPip(void)
-{
-    delete PipReceiver;
-
-    PipReceiver = NULL;
-    PipChannel = NULL;
-}
-
-/**
-**	Prepare new PIP.
-**
-**	@param channel_nr	channel number
-*/
-static void NewPip(int channel_nr)
-{
-    const cChannel *channel;
-    cDevice *device;
-    cSoftReceiver *receiver;
-
-#ifdef DEBUG
-    // is device replaying?
-    if (cDevice::PrimaryDevice()->Replaying() && cControl::Control()) {
-	Debug(3, "[softhddev]%s: replay active\n", __FUNCTION__);
-	// FIXME: need to find PID
-    }
-#endif
-
-    if (!channel_nr) {
-	channel_nr = cDevice::CurrentChannel();
-    }
-    LOCK_CHANNELS_READ;
-    if (channel_nr && (channel = Channels MURKS GetByNumber(channel_nr))
-	&& (device = cDevice::GetDevice(channel, 0, false, false))) {
-
-	DelPip();
-
-	device->SwitchChannel(channel, false);
-	receiver = new cSoftReceiver(channel);
-	device->AttachReceiver(receiver);
-	PipReceiver = receiver;
-	PipChannel = channel;
-	PipChannelNr = channel_nr;
-    }
-}
-
-/**
-**	Toggle PIP on/off.
-*/
-static void TogglePip(void)
-{
-    if (PipReceiver) {
-	int attached;
-
-	attached = PipReceiver->IsAttached();
-	DelPip();
-	if (attached) {			// turn off only if last PIP was on
-	    return;
-	}
-    }
-    NewPip(PipChannelNr);
-}
-
-/**
-**	Switch PIP to next available channel.
-**
-**	@param direction	direction of channel switch
-*/
-static void PipNextAvailableChannel(int direction)
-{
-    const cChannel *channel;
-    const cChannel *first;
-
-    channel = PipChannel;
-    first = channel;
-
-    DelPip();				// disable PIP to free the device
-
-    LOCK_CHANNELS_READ;
-    while (channel) {
-	bool ndr;
-	cDevice *device;
-
-	channel = direction > 0 ? Channels MURKS Next(channel)
-	    : Channels MURKS Prev(channel);
-	if (!channel && Setup.ChannelsWrap) {
-	    channel =
-		direction > 0 ? Channels MURKS First() : Channels MURKS Last();
-	}
-	if (channel && !channel->GroupSep()
-	    && (device = cDevice::GetDevice(channel, 0, false, true))
-	    && device->ProvidesChannel(channel, 0, &ndr) && !ndr) {
-
-	    NewPip(channel->Number());
-	    return;
-	}
-	if (channel == first) {
-	    Skins.Message(mtError, tr("Channel not available!"));
-	    break;
-	}
-    }
-}
-
-/**
-**	Swap PIP channels.
-*/
-static void SwapPipChannels(void)
-{
-    const cChannel *channel;
-
-    channel = PipChannel;
-
-    DelPip();
-    NewPip(0);
-
-    if (channel) {
-	LOCK_CHANNELS_READ;
-
-	Channels MURKS SwitchTo(channel->Number());
-    }
-}
-
-/**
-**	Swap PIP position.
-*/
-static void SwapPipPosition(void)
-{
-    int width;
-    int height;
-    double video_aspect;
-
-    PipAltPosition ^= 1;
-    if (!PipReceiver) {			// no PIP visible, no update needed
-	return;
-    }
-
-    GetOsdSize(&width, &height, &video_aspect);
-    if (PipAltPosition) {
-	PipSetPosition((ConfigPipAltVideoX * width) / 100,
-	    (ConfigPipAltVideoY * height) / 100,
-	    ConfigPipAltVideoWidth ? (ConfigPipAltVideoWidth * width) /
-	    100 : width,
-	    ConfigPipAltVideoHeight ? (ConfigPipAltVideoHeight * height) /
-	    100 : height, (ConfigPipAltX * width) / 100,
-	    (ConfigPipAltY * height) / 100,
-	    ConfigPipAltWidth ? (ConfigPipAltWidth * width) / 100 : width,
-	    ConfigPipAltHeight ? (ConfigPipAltHeight * height) / 100 : height);
-    } else {
-	PipSetPosition((ConfigPipVideoX * width) / 100,
-	    (ConfigPipVideoY * height) / 100,
-	    ConfigPipVideoWidth ? (ConfigPipVideoWidth * width) / 100 : width,
-	    ConfigPipVideoHeight ? (ConfigPipVideoHeight * height) /
-	    100 : height, (ConfigPipX * width) / 100,
-	    (ConfigPipY * height) / 100,
-	    ConfigPipWidth ? (ConfigPipWidth * width) / 100 : width,
-	    ConfigPipHeight ? (ConfigPipHeight * height) / 100 : height);
-    }
-}
-
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
 //	cOsdMenu
 //////////////////////////////////////////////////////////////////////////////
 
@@ -2008,27 +1507,6 @@ void cSoftHdMenu::Create(void)
     } else {
 	Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
     }
-#ifdef USE_PIP
-    if (PipReceiver) {
-	Add(new cOsdItem(hk(tr("PIP toggle on/off: off")), osUser2));
-    } else {
-	Add(new cOsdItem(hk(tr("PIP toggle on/off: on")), osUser2));
-    }
-    Add(new cOsdItem(hk(tr("PIP zapmode (not working)")), osUser3));
-    Add(new cOsdItem(hk(tr("PIP channel +")), osUser4));
-    Add(new cOsdItem(hk(tr("PIP channel -")), osUser5));
-    if (PipReceiver) {
-	Add(new cOsdItem(hk(tr("PIP on/swap channels: swap")), osUser6));
-    } else {
-	Add(new cOsdItem(hk(tr("PIP on/swap channels: on")), osUser6));
-    }
-    if (PipAltPosition) {
-	Add(new cOsdItem(hk(tr("PIP swap position: normal")), osUser7));
-    } else {
-	Add(new cOsdItem(hk(tr("PIP swap position: alternative")), osUser7));
-    }
-    Add(new cOsdItem(hk(tr("PIP close")), osUser8));
-#endif
     Add(new cOsdItem(NULL, osUnknown, false));
     Add(new cOsdItem(NULL, osUnknown, false));
     GetStats(&missed, &duped, &dropped, &counter);
@@ -2169,29 +1647,6 @@ static void HandleHotkey(int code)
 	case 49:			// rotate 16:9 -> window mode
 	    VideoSetOtherDisplayFormat(-1);
 	    break;
-
-#ifdef USE_PIP
-	case 102:			// PIP toggle
-	    TogglePip();
-	    break;
-	case 104:
-	    PipNextAvailableChannel(1);
-	    break;
-	case 105:
-	    PipNextAvailableChannel(-1);
-	    break;
-	case 106:
-	    SwapPipChannels();
-	    break;
-	case 107:
-	    SwapPipPosition();
-	    break;
-	case 108:
-	    DelPip();
-	    PipChannelNr = 0;
-	    break;
-#endif
-
 	default:
 	    Error(tr("[softhddev]: hot key %d is not supported\n"), code);
 	    break;
@@ -2281,27 +1736,6 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		}
 	    }
 	    return osEnd;
-#ifdef USE_PIP
-	case osUser2:
-	    TogglePip();
-	    return osEnd;
-	case osUser4:
-	    PipNextAvailableChannel(1);
-	    return osEnd;
-	case osUser5:
-	    PipNextAvailableChannel(-1);
-	    return osEnd;
-	case osUser6:
-	    SwapPipChannels();
-	    return osEnd;
-	case osUser7:
-	    SwapPipPosition();
-	    return osEnd;
-	case osUser8:
-	    DelPip();
-	    PipChannelNr = 0;
-	    return osEnd;
-#endif
 	default:
 	    Create();
 	    break;
@@ -3276,73 +2710,6 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 	AudioSetAutoAES(ConfigAudioAutoAES);
 	return true;
     }
-#ifdef USE_PIP
-    if (!strcasecmp(name, "pip.X")) {
-	ConfigPipX = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Y")) {
-	ConfigPipY = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Width")) {
-	ConfigPipWidth = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Height")) {
-	ConfigPipHeight = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.VideoX")) {
-	ConfigPipVideoX = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.VideoY")) {
-	ConfigPipVideoY = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.VideoWidth")) {
-	ConfigPipVideoWidth = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.VideoHeight")) {
-	ConfigPipVideoHeight = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.X")) {
-	ConfigPipAltX = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.Y")) {
-	ConfigPipAltY = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.Width")) {
-	ConfigPipAltWidth = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.Height")) {
-	ConfigPipAltHeight = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.VideoX")) {
-	ConfigPipAltVideoX = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.VideoY")) {
-	ConfigPipAltVideoY = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.VideoWidth")) {
-	ConfigPipAltVideoWidth = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "pip.Alt.VideoHeight")) {
-	ConfigPipAltVideoHeight = atoi(value);
-	return true;
-    }
-#endif
-
 #ifdef USE_SCREENSAVER
     if (!strcasecmp(name, "EnableDPMSatBlackScreen")) {
 	ConfigEnableDPMSatBlackScreen = atoi(value);

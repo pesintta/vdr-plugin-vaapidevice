@@ -30,11 +30,9 @@ ifneq ($(SWRESAMPLE),1)
 AVRESAMPLE ?= $(shell pkg-config --exists libavresample && echo 1)
 endif
 
-#CONFIG := -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
+#CONFIG := -DDEBUG #-DOSD_DEBUG	        # enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
-
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
-CONFIG += -DUSE_PIP			# PIP support
 
 ### The version number of this plugin (taken from the main source file):
 

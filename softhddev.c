@@ -20,7 +20,6 @@
 ///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
-#define noUSE_PIP			///< include PIP support + new API
 #define noDUMP_TRICKSPEED		///< dump raw trickspeed packets
 
 #include <sys/types.h>
@@ -539,10 +538,6 @@ struct __video_stream__
 
 static VideoStream MyVideoStream[1];	///< normal video stream
 
-#ifdef USE_PIP
-static VideoStream PipVideoStream[1];	///< pip video stream
-#endif
-
 #ifdef DEBUG
 uint32_t VideoSwitch;			///< debug video switch ticks
 static int VideoMaxPacketSize;		///< biggest used packet buffer
@@ -704,159 +699,6 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
     VideoResetPacket(stream);
 }
 
-#ifdef USE_PIP
-
-/**
-**	Place mpeg video data in packet ringbuffer.
-**
-**	Some tv-stations sends mulitple pictures in a single PES packet.
-**	Split the packet into single picture packets.
-**	Nick/CC, Viva, MediaShop, Deutsches Music Fernsehen
-**
-**	FIXME: this code can be written much faster
-**
-**	@param stream	video stream
-**	@param pts	presentation timestamp of pes packet
-**	@param data	data of pes packet
-**	@param size	size of pes packet
-*/
-static void VideoMpegEnqueue(VideoStream * stream, int64_t pts,
-    const uint8_t * data, int size)
-{
-    static const char startcode[3] = { 0x00, 0x00, 0x01 };
-    const uint8_t *p;
-    int n;
-    int first;
-
-    // first scan
-    first = !stream->PacketRb[stream->PacketWrite].stream_index;
-    p = data;
-    n = size;
-
-#ifdef DEBUG
-    if (n < 4) {
-	// is a problem with the pes start code detection
-	Error(_("[softhddev] too short PES video packet\n"));
-	fprintf(stderr, "[softhddev] too short PES video packet\n");
-    }
-#endif
-
-    switch (stream->StartCodeState) {	// prefix starting in last packet
-	case 3:			// 0x00 0x00 0x01 seen
-#ifdef DEBUG
-	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-#endif
-	    if (!p[0] || p[0] == 0xb3) {
-#ifdef DEBUG
-		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
-#endif
-		stream->PacketRb[stream->PacketWrite].stream_index -= 3;
-		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
-		VideoEnqueue(stream, pts, startcode, 3);
-		first = p[0] == 0xb3;
-		p++;
-		n--;
-		pts = AV_NOPTS_VALUE;
-	    }
-	    break;
-	case 2:			// 0x00 0x00 seen
-#ifdef DEBUG
-	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-#endif
-	    if (p[0] == 0x01 && (!p[1] || p[1] == 0xb3)) {
-#ifdef DEBUG
-		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
-#endif
-		stream->PacketRb[stream->PacketWrite].stream_index -= 2;
-		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
-		VideoEnqueue(stream, pts, startcode, 2);
-		first = p[1] == 0xb3;
-		p += 2;
-		n -= 2;
-		pts = AV_NOPTS_VALUE;
-	    }
-	    break;
-	case 1:			// 0x00 seen
-#ifdef DEBUG
-	    fprintf(stderr, "last: %d\n", stream->StartCodeState);
-#endif
-	    if (!p[0] && p[1] == 0x01 && (!p[2] || p[2] == 0xb3)) {
-#ifdef DEBUG
-		fprintf(stderr, "last: %d start\n", stream->StartCodeState);
-#endif
-		stream->PacketRb[stream->PacketWrite].stream_index -= 1;
-		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
-		VideoEnqueue(stream, pts, startcode, 1);
-		first = p[2] == 0xb3;
-		p += 3;
-		n -= 3;
-		pts = AV_NOPTS_VALUE;
-	    }
-	case 0:
-	    break;
-    }
-
-    // b3 b4 b8 00 b5 ... 00 b5 ...
-
-    while (n > 3) {
-	// scan for picture header 0x00000100
-	// FIXME: not perfect, must split at 0xb3 also
-	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
-	    if (first) {
-		first = 0;
-		n -= 4;
-		p += 4;
-		continue;
-	    }
-	    // packet has already an picture header
-	    /*
-	       fprintf(stderr, "\nfix:%9d,%02x%02x%02x %02x ", n,
-	       p[0], p[1], p[2], p[3]);
-	     */
-	    // first packet goes only upto picture header
-	    VideoEnqueue(stream, pts, data, p - data);
-	    VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
-#ifdef DEBUG
-	    fprintf(stderr, "fix\r");
-#endif
-	    data = p;
-	    size = n;
-
-	    // time-stamp only valid for first packet
-	    pts = AV_NOPTS_VALUE;
-	    n -= 4;
-	    p += 4;
-	    continue;
-	}
-	--n;
-	++p;
-    }
-
-    stream->StartCodeState = 0;
-    switch (n) {			// handle packet border start code
-	case 3:
-	    if (!p[0] && !p[1] && p[2] == 0x01) {
-		stream->StartCodeState = 3;
-	    }
-	    break;
-	case 2:
-	    if (!p[0] && !p[1]) {
-		stream->StartCodeState = 2;
-	    }
-	    break;
-	case 1:
-	    if (!p[0]) {
-		stream->StartCodeState = 1;
-	    }
-	    break;
-	case 0:
-	    break;
-    }
-    VideoEnqueue(stream, pts, data, size);
-}
-
-#else
-
 /**
 **	Fix packet for FFMpeg.
 **
@@ -931,8 +773,6 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 #endif
     CodecVideoDecode(vdecoder, tmp);
 }
-
-#endif
 
 /**
 **	Open video stream.
@@ -1120,29 +960,12 @@ int VideoDecodeInput(VideoStream * stream)
     avpkt->size = avpkt->stream_index;
     avpkt->stream_index = 0;
 
-#ifdef USE_PIP
-    //fprintf(stderr, "[");
-    //DumpMpeg(avpkt->data, avpkt->size);
-#ifdef STILL_DEBUG
-    if (InStillPicture) {
-	DumpMpeg(avpkt->data, avpkt->size);
-    }
-#endif
-    // lock decoder against close
-    pthread_mutex_lock(&stream->DecoderLockMutex);
-    if (stream->Decoder) {
-	CodecVideoDecode(stream->Decoder, avpkt);
-    }
-    pthread_mutex_unlock(&stream->DecoderLockMutex);
-    //fprintf(stderr, "]\n");
-#else
     // old version
     if (stream->LastCodecID == AV_CODEC_ID_MPEG2VIDEO) {
 	FixPacketForFFMpeg(stream->Decoder, avpkt);
     } else {
 	CodecVideoDecode(stream->Decoder, avpkt);
     }
-#endif
 
     avpkt->size = saved_size;
 
@@ -1612,11 +1435,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 				Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
 			    }
 #endif
-#ifdef USE_PIP
-			    VideoMpegEnqueue(MyVideoStream, pesdx->PTS, check - 2, l + 2);
-#else
 			    VideoEnqueue(MyVideoStream, pesdx->PTS, check - 2, l + 2);
-#endif
 			    pesdx->Skip += n;
 			    pesdx->PTS = AV_NOPTS_VALUE;
 			    break;
@@ -1628,16 +1447,8 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size,
 			    pesdx->PTS = AV_NOPTS_VALUE;
 			    break;
 			}
-#ifdef USE_PIP
-			if (MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
-			    VideoMpegEnqueue(MyVideoStream, pesdx->PTS, q, n);
-			} else {
-			    VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
-			}
-#else
 			// SKIP PES header
 			VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
-#endif
 			pesdx->Skip += n;
 		}
 		break;
@@ -2270,11 +2081,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	}
 #endif
 	// SKIP PES header, begin of start code
-#ifdef USE_PIP
-	VideoMpegEnqueue(stream, pts, check - 2, l + 2);
-#else
 	VideoEnqueue(stream, pts, check - 2, l + 2);
-#endif
 	return size;
     }
     // this happens when vdr sends incomplete packets
@@ -2282,15 +2089,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	Debug(3, "video: not detected\n");
 	return size;
     }
-#ifdef USE_PIP
-    if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
-	// SKIP PES header
-	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
-    } else {
-	// SKIP PES header
-	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
-    }
-#else
     // SKIP PES header
     VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
 
@@ -2302,7 +2100,6 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	// waiting for a full complete packages, increases needed delays
 	VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
     }
-#endif
 
     return size;
 }
@@ -3190,9 +2987,6 @@ void SoftHdDeviceExit(void)
     }
 
     pthread_mutex_destroy(&SuspendLockMutex);
-#ifdef USE_PIP
-    pthread_mutex_destroy(&PipVideoStream->DecoderLockMutex);
-#endif
     pthread_mutex_destroy(&MyVideoStream->DecoderLockMutex);
 }
 
@@ -3211,9 +3005,6 @@ int Start(void)
     CodecInit();
 
     pthread_mutex_init(&MyVideoStream->DecoderLockMutex, NULL);
-#ifdef USE_PIP
-    pthread_mutex_init(&PipVideoStream->DecoderLockMutex, NULL);
-#endif
     pthread_mutex_init(&SuspendLockMutex, NULL);
 
     if (!ConfigStartSuspended) {
@@ -3323,10 +3114,6 @@ void Suspend(int video, int audio, int dox11)
 
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
-#ifdef USE_PIP
-    DelPip();				// must stop PIP
-#endif
-
     // FIXME: should not be correct, if not both are suspended!
     // Move down into if (video) ...
     MyVideoStream->SkipStream = 1;
@@ -3421,99 +3208,6 @@ void ScaleVideo(int x, int y, int width, int height)
 	VideoSetOutputPosition(MyVideoStream->HwDecoder, x, y, width, height);
     }
 }
-
-//////////////////////////////////////////////////////////////////////////////
-//	PIP
-//////////////////////////////////////////////////////////////////////////////
-
-#ifdef USE_PIP
-
-/**
-**	Set PIP position.
-**
-**	@param x		video window x coordinate OSD relative
-**	@param y		video window y coordinate OSD relative
-**	@param width		video window width OSD relative
-**	@param height		video window height OSD relative
-**	@param pip_x		pip window x coordinate OSD relative
-**	@param pip_y		pip window y coordinate OSD relative
-**	@param pip_width	pip window width OSD relative
-**	@param pip_height	pip window height OSD relative
-*/
-void PipSetPosition(int x, int y, int width, int height, int pip_x, int pip_y,
-    int pip_width, int pip_height)
-{
-    if (!MyVideoStream->HwDecoder) {	// video not running
-	return;
-    }
-    ScaleVideo(x, y, width, height);
-
-    if (!PipVideoStream->HwDecoder) {	// pip not running
-	return;
-    }
-    VideoSetOutputPosition(PipVideoStream->HwDecoder, pip_x, pip_y, pip_width,
-	pip_height);
-}
-
-/**
-**	Start PIP stream.
-**
-**	@param x		video window x coordinate OSD relative
-**	@param y		video window y coordinate OSD relative
-**	@param width		video window width OSD relative
-**	@param height		video window height OSD relative
-**	@param pip_x		pip window x coordinate OSD relative
-**	@param pip_y		pip window y coordinate OSD relative
-**	@param pip_width	pip window width OSD relative
-**	@param pip_height	pip window height OSD relative
-*/
-void PipStart(int x, int y, int width, int height, int pip_x, int pip_y,
-    int pip_width, int pip_height)
-{
-    if (!MyVideoStream->HwDecoder) {	// video not running
-	return;
-    }
-
-    if (!PipVideoStream->Decoder) {
-	VideoStreamOpen(PipVideoStream);
-    }
-    PipSetPosition(x, y, width, height, pip_x, pip_y, pip_width, pip_height);
-}
-
-/**
-**	Stop PIP.
-*/
-void PipStop(void)
-{
-    int i;
-
-    if (!MyVideoStream->HwDecoder) {	// video not running
-	return;
-    }
-
-    ScaleVideo(0, 0, 0, 0);
-
-    PipVideoStream->Close = 1;
-    for (i = 0; PipVideoStream->Close && i < 50; ++i) {
-	usleep(1 * 1000);
-    }
-    Info("[softhddev]%s: pip close %dms\n", __FUNCTION__, i);
-}
-
-/**
-**	PIP play video packet.
-**
-**	@param data	data of exactly one complete PES packet
-**	@param size	size of PES packet
-**
-**	@return number of bytes used, 0 if internal buffer are full.
-*/
-int PipPlayVideo(const uint8_t * data, int size)
-{
-    return PlayVideo3(PipVideoStream, data, size);
-}
-
-#endif
 
 int IsReplay(void)
 {

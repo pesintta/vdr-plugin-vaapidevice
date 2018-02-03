@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-03 21:54+0200\n"
+"POT-Creation-Date: 2018-02-04 00:00+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -318,9 +318,6 @@ msgstr ""
 msgid "video: no empty slot in packet ringbuffer\n"
 msgstr ""
 
-msgid "[softhddev] too short PES video packet\n"
-msgstr ""
-
 msgid "pesdemux: out of memory\n"
 msgstr ""
 
@@ -609,105 +606,11 @@ msgstr "Audio Puffergröße (ms)"
 msgid "Enable automatic AES"
 msgstr "Aktiviere automatiche AES"
 
-msgid "Picture-In-Picture"
-msgstr "Bild in Bild (PIP)"
-
-msgid "Pip X (%)"
-msgstr "PIP X (%)"
-
-msgid "Pip Y (%)"
-msgstr "PIP Y (%)"
-
-msgid "Pip Width (%)"
-msgstr "PIP Breite (%)"
-
-msgid "Pip Height (%)"
-msgstr "PIP Höhe (%)"
-
-msgid "Video X (%)"
-msgstr "Video X (%)"
-
-msgid "Video Y (%)"
-msgstr "Video Y (%)"
-
-msgid "Video Width (%)"
-msgstr "Videobreite (%)"
-
-msgid "Video Height (%)"
-msgstr "Videohöhe (%)"
-
-msgid "Alternative Pip X (%)"
-msgstr "Alternative PIP X (%)"
-
-msgid "Alternative Pip Y (%)"
-msgstr "Alternative Pip Y (%)"
-
-msgid "Alternative Pip Width (%)"
-msgstr "Alternative PIP Breite (%)"
-
-msgid "Alternative Pip Height (%)"
-msgstr "Alternative PIP Höhe (%)"
-
-msgid "Alternative Video X (%)"
-msgstr "Alternative Video X (%)"
-
-msgid "Alternative Video Y (%)"
-msgstr "Alternative Video Y (%)"
-
-msgid "Alternative Video Width (%)"
-msgstr "Alternative Videobreite (%)"
-
-msgid "Alternative Video Height (%)"
-msgstr "Alternative Videohöhe (%)"
-
-#, c-format
-msgid "[softhddev]pip: invalid PES packet %d\n"
-msgstr ""
-
-msgid "[softhddev]pip: pes buffer too small\n"
-msgstr ""
-
-msgid "[softhddev]tsdemux: transport stream out of sync\n"
-msgstr ""
-
-msgid "Channel not available!"
-msgstr "Kanal nicht verfügbar!"
-
 msgid "Detach SoftHdDevice"
 msgstr ""
 
 msgid "Suspend SoftHdDevice"
 msgstr "Unterbreche SoftHdDevice"
-
-msgid "PIP toggle on/off: off"
-msgstr "PIP deaktivieren"
-
-msgid "PIP toggle on/off: on"
-msgstr "PIP aktivieren"
-
-msgid "PIP zapmode (not working)"
-msgstr ""
-
-msgid "PIP channel +"
-msgstr "PIP Kanal +"
-
-msgid "PIP channel -"
-msgstr "PIP Kanal -"
-
-msgid "PIP on/swap channels: swap"
-msgstr ""
-
-msgid "PIP on/swap channels: on"
-msgstr ""
-
-msgid "PIP swap position: normal"
-msgstr ""
-
-msgid "PIP swap position: alternative"
-msgstr ""
-
-msgid "PIP close"
-msgstr "PIP schließen"
 
 #, c-format
 msgid " Frames missed(%d) duped(%d) dropped(%d) total(%d)"
@@ -1159,3 +1062,6 @@ msgstr ""
 
 msgid "video: error closing display\n"
 msgstr ""
+
+#~ msgid "Enable Screensaver(DPMS) at black screen"
+#~ msgstr "Bildschirmschoner(DPMS) bei schwarzen Bild  aktivieren"
