@@ -39,7 +39,6 @@
 ///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
-#define USE_DOUBLEBUFFER		///< use GLX double buffers
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
@@ -1141,22 +1140,16 @@ static void GlxSetupWindow(xcb_window_t window, int width, int height,
     glDisable(GL_DEPTH_TEST);		// setup 2d drawing
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
-#ifdef USE_DOUBLEBUFFER
     glDrawBuffer(GL_BACK);
-#else
-    glDrawBuffer(GL_FRONT);
-#endif
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 #ifdef DEBUG
-#ifdef USE_DOUBLEBUFFER
     glDrawBuffer(GL_FRONT);
     glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glDrawBuffer(GL_BACK);
-#endif
 #endif
 
     // clear
@@ -1179,9 +1172,7 @@ static void GlxInit(void)
 	GLX_RED_SIZE,		8,
 	GLX_GREEN_SIZE,		8,
 	GLX_BLUE_SIZE,		8,
-#ifdef USE_DOUBLEBUFFER
 	GLX_DOUBLEBUFFER,	True,
-#endif
 	None
     };
     XVisualInfo *vi;
