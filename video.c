@@ -486,6 +486,7 @@ static xcb_atom_t NetWmStateFullscreen;	///< fullscreen wm-state message atom
 extern uint32_t VideoSwitch;		///< ticks for channel switch
 #endif
 extern void AudioVideoReady(int64_t);	///< tell audio video is ready
+extern int IsReplay(void);
 
 #ifdef USE_VIDEO_THREAD
 
@@ -493,6 +494,8 @@ static pthread_t VideoThread;		///< video decode thread
 static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
 static pthread_mutex_t VideoMutex;	///< video condition mutex
 static pthread_mutex_t VideoLockMutex;	///< video lock mutex
+extern pthread_mutex_t PTS_mutex;	///< PTS mutex
+extern pthread_mutex_t ReadAdvance_mutex;	///< PTS mutex
 
 #endif
 
@@ -522,6 +525,10 @@ static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 static char DPMSDisabled;		///< flag we have disabled dpms
 static char EnableDPMSatBlackScreen;	///< flag we should enable dpms at black screen
 #endif
+
+uint32_t mutex_start_time;
+int max_mutex_delay;
+max_mutex_delay = 1;
 
 //----------------------------------------------------------------------------
 //	Common Functions
@@ -6494,7 +6501,16 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
     int64_t video_clock;
 
     err = 0;
+    mutex_start_time = GetMsTicks();
+    pthread_mutex_lock(&PTS_mutex);
+    pthread_mutex_lock(&ReadAdvance_mutex);
     audio_clock = AudioGetClock();
+    pthread_mutex_unlock(&ReadAdvance_mutex);
+    pthread_mutex_unlock(&PTS_mutex);
+    if (GetMsTicks() - mutex_start_time > max_mutex_delay) {
+	max_mutex_delay = GetMsTicks() - mutex_start_time;
+	Debug(3, "video: mutex delay: %"PRIu32"ms\n", max_mutex_delay);
+    }
     video_clock = VaapiGetClock(decoder);
     filled = atomic_read(&decoder->SurfacesFilled);
 
@@ -6541,10 +6557,14 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 	int diff;
+	int lower_limit;
 
 	diff = video_clock - audio_clock - VideoAudioDelay;
-	diff = (decoder->LastAVDiff + diff) / 2;
-	decoder->LastAVDiff = diff;
+	lower_limit = !IsReplay() ? -25 : 32;
+	if (!IsReplay()) {
+	    diff = (decoder->LastAVDiff + diff) / 2;
+	    decoder->LastAVDiff = diff;
+	}
 
 	if (abs(diff) > 5000 * 90) {	// more than 5s
 	    err = VaapiMessage(2, "video: audio/video difference too big\n");
@@ -6552,18 +6572,24 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    // FIXME: this quicker sync step, did not work with new code!
 	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
-	    decoder->SyncCounter = 1;
-	    goto out;
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+		goto out;
+	    }
 	} else if (diff > 55 * 90) {
 	    err = VaapiMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
-	    decoder->SyncCounter = 1;
-	    goto out;
-	} else if (diff < -25 * 90 && filled > 1 + 2 * decoder->Interlaced) {
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+		goto out;
+	    }
+	} else if (diff < lower_limit * 90 && filled > 1 + 2 * decoder->Interlaced) {
 	    err = VaapiMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
-	    decoder->SyncCounter = 1;
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+	    }
 	}
 #if defined(DEBUG) || defined(AV_INFO)
 	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
@@ -10518,7 +10544,16 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	// FIXME: 60Hz Mode
 	goto skip_sync;
     }
+    mutex_start_time = GetMsTicks();
+    pthread_mutex_lock(&PTS_mutex);
+    pthread_mutex_lock(&ReadAdvance_mutex);
     audio_clock = AudioGetClock();
+    pthread_mutex_unlock(&ReadAdvance_mutex);
+    pthread_mutex_unlock(&PTS_mutex);
+    if (GetMsTicks() - mutex_start_time > max_mutex_delay) {
+	max_mutex_delay = GetMsTicks() - mutex_start_time;
+	Debug(3, "video: mutex delay: %"PRIu32"ms\n", max_mutex_delay);
+    }
 
     // 60Hz: repeat every 5th field
     if (Video60HzMode && !(decoder->FramesDisplayed % 6)) {
@@ -10562,10 +10597,14 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	&& video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
 	int diff;
+	int lower_limit;
 
 	diff = video_clock - audio_clock - VideoAudioDelay;
-	diff = (decoder->LastAVDiff + diff) / 2;
-	decoder->LastAVDiff = diff;
+	lower_limit = !IsReplay() ? -25 : 32;
+	if (!IsReplay()) {
+	    diff = (decoder->LastAVDiff + diff) / 2;
+	    decoder->LastAVDiff = diff;
+	}
 
 	if (abs(diff) > 5000 * 90) {	// more than 5s
 	    err = VdpauMessage(2, "video: audio/video difference too big\n");
@@ -10573,18 +10612,24 @@ static void VdpauSyncDecoder(VdpauDecoder * decoder)
 	    // FIXME: this quicker sync step, did not work with new code!
 	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
-	    decoder->SyncCounter = 1;
-	    goto out;
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+		goto out;
+	    }
 	} else if (diff > 55 * 90) {
 	    err = VdpauMessage(2, "video: slow down video, duping frame\n");
 	    ++decoder->FramesDuped;
-	    decoder->SyncCounter = 1;
-	    goto out;
-	} else if (diff < -25 * 90 && filled > 1 + 2 * decoder->Interlaced) {
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+		goto out;
+	    }
+	} else if (diff < lower_limit * 90 && filled > 1 + 2 * decoder->Interlaced) {
 	    err = VdpauMessage(2, "video: speed up video, droping frame\n");
 	    ++decoder->FramesDropped;
 	    VdpauAdvanceDecoderFrame(decoder);
-	    decoder->SyncCounter = 1;
+	    if (VideoSoftStartSync) {
+		decoder->SyncCounter = 1;
+	    }
 	}
 #if defined(DEBUG) || defined(AV_INFO)
 	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
