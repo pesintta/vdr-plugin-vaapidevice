@@ -2027,21 +2027,6 @@ static void VaapiPrintFrames(const VaapiDecoder * decoder)
 }
 
 ///
-///	Scale value from one range to another
-///
-///	@param valueIn	value to scale
-///	@param baseMin	original range min value
-///	@param baseMax	original range max value
-///	@param limitMin	new range min value
-///	@param limitMax	new range max value
-///	@return	scaled value
-///
-static inline float VaapiScale(float valueIn, float baseMin, float baseMax, float limitMin, float limitMax)
-{
-    return ((limitMax - limitMin) * (valueIn - baseMin) / (baseMax - baseMin)) + limitMin;
-}
-
-///
 ///	Normalize config values for UI
 ///
 ///	@param config	config struct to normalize
@@ -2504,128 +2489,6 @@ static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n,
     VAProfile profile);
 static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints,
     unsigned n, VAEntrypoint entrypoint);
-
-///
-///	1080i
-///
-static void Vaapi1080i(void)
-{
-    VAProfile profiles[vaMaxNumProfiles(VaDisplay)];
-    int profile_n;
-    VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
-    int entrypoint_n;
-    int p;
-    int e;
-    VAConfigAttrib attrib;
-    VAConfigID config_id;
-    VAContextID context_id;
-    VASurfaceID surfaces[32];
-    VAImage image[1];
-    int n;
-    uint32_t start_tick;
-    uint32_t tick;
-
-    p = -1;
-    e = -1;
-
-    //	prepare va-api profiles
-    if (vaQueryConfigProfiles(VaDisplay, profiles, &profile_n)) {
-	Error(_("codec: vaQueryConfigProfiles failed"));
-	return;
-    }
-    // check profile
-    p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
-    if (p == -1) {
-	p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
-    }
-    if (p == -1) {
-	p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
-    }
-    if (p == -1) {
-	Debug(3, "\tno profile found\n");
-	return;
-    }
-    // prepare va-api entry points
-    if (vaQueryConfigEntrypoints(VaDisplay, p, entrypoints, &entrypoint_n)) {
-	Error(_("codec: vaQueryConfigEntrypoints failed"));
-	return;
-    }
-    e = VaapiFindEntrypoint(entrypoints, entrypoint_n, VAEntrypointVLD);
-    if (e == -1) {
-	Warning(_("codec: unsupported: slow path\n"));
-	return;
-    }
-    memset(&attrib, 0, sizeof(attrib));
-    attrib.type = VAConfigAttribRTFormat;
-    attrib.value = VA_RT_FORMAT_YUV420;
-    // create a configuration for the decode pipeline
-    if (vaCreateConfig(VaDisplay, p, e, &attrib, 1, &config_id)) {
-	Error(_("codec: can't create config"));
-	return;
-    }
-    if (vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, 1920, 1080, surfaces,
-	    32, NULL, 0) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't create surfaces\n"));
-	return;
-    }
-    // bind surfaces to context
-    if (vaCreateContext(VaDisplay, config_id, 1920, 1080, VA_PROGRESSIVE,
-	    surfaces, 32, &context_id)) {
-	Error(_("codec: can't create context"));
-	return;
-    }
-    // without this 1080i will crash
-    image->image_id = VA_INVALID_ID;
-    if (vaDeriveImage(VaDisplay, surfaces[0], image)
-	!= VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: vaDeriveImage failed\n"));
-    }
-    if (image->image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay, image->image_id) != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: can't destroy image!\n"));
-	}
-    }
-
-    start_tick = GetMsTicks();
-    for (n = 1; n < 2; ++n) {
-	if (vaPutSurface(VaDisplay, surfaces[0], VideoWindow,
-		// decoder src
-		0, 0, 1920, 1080,
-		// video dst
-		0, 0, 1920, 1080, NULL, 0, VA_TOP_FIELD | VA_CLEAR_DRAWABLE)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: vaPutSurface failed\n"));
-	}
-	if (vaPutSurface(VaDisplay, surfaces[0], VideoWindow,
-		// decoder src
-		0, 0, 1920, 1080,
-		// video dst
-		0, 0, 1920, 1080, NULL, 0, VA_BOTTOM_FIELD | VA_CLEAR_DRAWABLE)
-	    != VA_STATUS_SUCCESS) {
-	    Error(_("video/vaapi: vaPutSurface failed\n"));
-	}
-	tick = GetMsTicks();
-#ifdef DEBUG
-	if (!(n % 10)) {
-	    fprintf(stderr, "%dms / frame\n", (tick - start_tick) / n);
-	}
-#endif
-    }
-
-    // destory the stuff.
-    if (vaDestroyContext(VaDisplay, context_id) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't destroy context!\n"));
-    }
-    if (vaDestroySurfaces(VaDisplay, surfaces, 32) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't destroy surfaces\n"));
-    }
-    if (vaDestroyConfig(VaDisplay, config_id) != VA_STATUS_SUCCESS) {
-	Error(_("video/vaapi: can't destroy config!\n"));
-    }
-#ifdef DEBUG
-    fprintf(stderr, "done\n");
-#endif
-}
 
 #endif
 
@@ -7857,19 +7720,6 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 void VideoSetDevice(const char *device)
 {
     VideoDriverName = device;
-}
-
-///
-///	Get video driver name.
-///
-///	@returns name of current video driver.
-///
-const char *VideoGetDriverName(void)
-{
-    if (VideoUsedModule) {
-	return VideoUsedModule->Name;
-    }
-    return "";
 }
 
 int VideoIsDriverVaapi(void)

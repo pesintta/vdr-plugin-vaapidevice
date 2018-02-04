@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-04 00:08+0200\n"
+"POT-Creation-Date: 2018-02-04 20:47+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -751,33 +751,6 @@ msgstr ""
 msgid "video/vaapi: can't destroy glx surface!\n"
 msgstr ""
 
-msgid "codec: vaQueryConfigProfiles failed"
-msgstr ""
-
-msgid "codec: vaQueryConfigEntrypoints failed"
-msgstr ""
-
-msgid "codec: unsupported: slow path\n"
-msgstr ""
-
-msgid "codec: can't create config"
-msgstr ""
-
-msgid "video/vaapi: can't create surfaces\n"
-msgstr ""
-
-msgid "codec: can't create context"
-msgstr ""
-
-msgid "video/vaapi: vaDeriveImage failed\n"
-msgstr ""
-
-msgid "video/vaapi: vaPutSurface failed\n"
-msgstr ""
-
-msgid "video/vaapi: can't destroy surfaces\n"
-msgstr ""
-
 #, c-format
 msgid "video/vaapi: Can't connect VA-API to X11 server on '%s'\n"
 msgstr ""
@@ -873,6 +846,15 @@ msgstr ""
 msgid "video/vaapi: can't create context '%s'\n"
 msgstr ""
 
+msgid "codec: vaQueryConfigProfiles failed"
+msgstr ""
+
+msgid "codec: vaQueryConfigEntrypoints failed"
+msgstr ""
+
+msgid "codec: unsupported: slow path\n"
+msgstr ""
+
 msgid "codec: can't get attributes"
 msgstr ""
 
@@ -909,6 +891,9 @@ msgid "video/vaapi: gpu hung %dms %d\n"
 msgstr ""
 
 msgid "video/glx: vaCopySurfaceGLX failed\n"
+msgstr ""
+
+msgid "video/vaapi: vaDeriveImage failed\n"
 msgstr ""
 
 #, c-format

@@ -80,9 +80,6 @@ extern void VideoDisplayWakeup(void);
     /// Set video device.
 extern void VideoSetDevice(const char *);
 
-    /// Get video driver name.
-extern const char *VideoGetDriverName(void);
-
     /// Get used video driver.
 extern int VideoIsDriverVaapi(void);
 

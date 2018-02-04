@@ -1665,7 +1665,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 */
 void CodecAudioFlushBuffers(AudioDecoder * decoder)
 {
-    avcodec_flush_buffers(decoder->AudioCtx);
+    if (decoder->AudioCtx)
+	avcodec_flush_buffers(decoder->AudioCtx);
 }
 
 //----------------------------------------------------------------------------

@@ -2444,14 +2444,6 @@ void AudioFlushBuffers(void)
 }
 
 /**
-**	Call back to play audio polled.
-*/
-void AudioPoller(void)
-{
-    // FIXME: write poller
-}
-
-/**
 **	Get free bytes in audio output.
 */
 int AudioFreeBytes(void)
