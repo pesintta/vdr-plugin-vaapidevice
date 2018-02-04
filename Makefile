@@ -218,3 +218,7 @@ indent:
 video_test: video.c Makefile
 	$(CC) -DVIDEO_TEST -DVERSION='"$(VERSION)"' $(CFLAGS) $(LDFLAGS) $< \
 	$(LIBS) -o $@
+
+.PHONY: cppcheck
+cppcheck:
+	cppcheck --enable=all -v -f $(SRCS)
