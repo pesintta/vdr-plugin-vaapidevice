@@ -1,21 +1,21 @@
 //////////////////////////////////////////////////////////////////////////////
 ///
-///	Copyright (c) 2009 - 2012 by Lutz Sammer.  All Rights Reserved.
+/// Copyright (c) 2009 - 2012 by Lutz Sammer.  All Rights Reserved.
 ///
-///	Contributor(s):
-///		Copied from uwm.
+/// Contributor(s):
+/// Copied from uwm.
 ///
-///	License: AGPLv3
+/// License: AGPLv3
 ///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
+/// This program is free software: you can redistribute it and/or modify
+/// it under the terms of the GNU Affero General Public License as
+/// published by the Free Software Foundation, either version 3 of the
+/// License.
 ///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
+/// This program is distributed in the hope that it will be useful,
+/// but WITHOUT ANY WARRANTY; without even the implied warranty of
+/// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+/// GNU Affero General Public License for more details.
 ///
 //////////////////////////////////////////////////////////////////////////////
 
@@ -27,28 +27,28 @@
 #include <time.h>			// clock_gettime
 
 //////////////////////////////////////////////////////////////////////////////
-//	Defines
+//  Defines
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
-//	Declares
+//  Declares
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
-//	Variables
+//  Variables
 //////////////////////////////////////////////////////////////////////////////
 
 extern int LogLevel;			///< how much information wanted
 
 //////////////////////////////////////////////////////////////////////////////
-//	Prototypes
+//  Prototypes
 //////////////////////////////////////////////////////////////////////////////
 
 static inline void Syslog(const int, const char *format, ...)
     __attribute__ ((format(printf, 2, 3)));
 
 //////////////////////////////////////////////////////////////////////////////
-//	Inlines
+//  Inlines
 //////////////////////////////////////////////////////////////////////////////
 
 #ifdef DEBUG
@@ -70,11 +70,20 @@ static inline void Syslog(const int level, const char *format, ...)
     if (LogLevel > level || DebugLevel > level) {
 	va_list ap;
 	int priority = LOG_DEBUG;
+
 	switch (level) {
-	    case 0:  priority = LOG_ERR;     break;
-	    case 1:  priority = LOG_WARNING; break;
-	    case 2:  priority = LOG_INFO;    break;
-	    default: priority = LOG_DEBUG;   break;
+	    case 0:
+		priority = LOG_ERR;
+		break;
+	    case 1:
+		priority = LOG_WARNING;
+		break;
+	    case 2:
+		priority = LOG_INFO;
+		break;
+	    default:
+		priority = LOG_DEBUG;
+		break;
 	}
 
 	va_start(ap, format);
@@ -130,9 +139,8 @@ static inline const char *Timestamp2String(int64_t ts)
 	return "--:--:--.---";
     }
     idx = (idx + 1) % 3;
-    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d",
-	(int)(ts / (90 * 3600000)), (int)((ts / (90 * 60000)) % 60),
-	(int)((ts / (90 * 1000)) % 60), (int)((ts / 90) % 1000));
+    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d", (int)(ts / (90 * 3600000)),
+	(int)((ts / (90 * 60000)) % 60), (int)((ts / (90 * 1000)) % 60), (int)((ts / 90) % 1000));
 
     return buf[idx];
 }

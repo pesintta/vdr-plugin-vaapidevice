@@ -1,20 +1,20 @@
 //////////////////////////////////////////////////////////////////////////////
 ///
-///	Copyright (c) 2009 - 2013, 2015 by Johns.  All Rights Reserved.
+/// Copyright (c) 2009 - 2013, 2015 by Johns.  All Rights Reserved.
 ///
-///	Contributor(s):
+/// Contributor(s):
 ///
-///	License: AGPLv3
+/// License: AGPLv3
 ///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
+/// This program is free software: you can redistribute it and/or modify
+/// it under the terms of the GNU Affero General Public License as
+/// published by the Free Software Foundation, either version 3 of the
+/// License.
 ///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
+/// This program is distributed in the hope that it will be useful,
+/// but WITHOUT ANY WARRANTY; without even the implied warranty of
+/// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+/// GNU Affero General Public License for more details.
 ///
 //////////////////////////////////////////////////////////////////////////////
 
@@ -22,7 +22,7 @@
 /// @{
 
 //----------------------------------------------------------------------------
-//	Defines
+//  Defines
 //----------------------------------------------------------------------------
 
 #define CodecPCM 0x01			///< PCM bit mask
@@ -33,50 +33,52 @@
 
 #define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
 
-enum HWAccelID {
-     HWACCEL_NONE = 0,
-     HWACCEL_AUTO,
-     HWACCEL_VDPAU,
-     HWACCEL_DXVA2,
-     HWACCEL_VDA,
-     HWACCEL_VIDEOTOOLBOX,
-     HWACCEL_QSV,
-     HWACCEL_VAAPI,
-     HWACCEL_CUVID,
+enum HWAccelID
+{
+    HWACCEL_NONE = 0,
+    HWACCEL_AUTO,
+    HWACCEL_VDPAU,
+    HWACCEL_DXVA2,
+    HWACCEL_VDA,
+    HWACCEL_VIDEOTOOLBOX,
+    HWACCEL_QSV,
+    HWACCEL_VAAPI,
+    HWACCEL_CUVID,
 };
 
 AVBufferRef *hw_device_ctx;
+
 ///
-///     Video decoder structure.
+/// Video decoder structure.
 ///
 struct _video_decoder_
 {
-     VideoHwDecoder *HwDecoder;          ///< video hardware decoder
+    VideoHwDecoder *HwDecoder;		///< video hardware decoder
 
-     int GetFormatDone;                  ///< flag get format called!
-     AVCodec *VideoCodec;                ///< video codec
-     AVCodecContext *VideoCtx;           ///< video codec context
-     int FirstKeyFrame;                  ///< flag first frame
-     AVFrame *Frame;                     ///< decoded video frame
+    int GetFormatDone;			///< flag get format called!
+    AVCodec *VideoCodec;		///< video codec
+    AVCodecContext *VideoCtx;		///< video codec context
+    int FirstKeyFrame;			///< flag first frame
+    AVFrame *Frame;			///< decoded video frame
 
-     /* hwaccel options */
-     enum HWAccelID hwaccel_id;
-     char  *hwaccel_device;
-     enum AVPixelFormat hwaccel_output_format;
+    /* hwaccel options */
+    enum HWAccelID hwaccel_id;
+    char *hwaccel_device;
+    enum AVPixelFormat hwaccel_output_format;
 
-     /* hwaccel context */
-     enum HWAccelID active_hwaccel_id;
-     void  *hwaccel_ctx;
-     void (*hwaccel_uninit)(AVCodecContext *s);
-     int  (*hwaccel_get_buffer)(AVCodecContext *s, AVFrame *frame, int flags);
-     int  (*hwaccel_retrieve_data)(AVCodecContext *s, AVFrame *frame);
-     enum AVPixelFormat hwaccel_pix_fmt;
-     enum AVPixelFormat hwaccel_retrieved_pix_fmt;
-     AVBufferRef *hw_frames_ctx;
+    /* hwaccel context */
+    enum HWAccelID active_hwaccel_id;
+    void *hwaccel_ctx;
+    void (*hwaccel_uninit) (AVCodecContext * s);
+    int (*hwaccel_get_buffer) (AVCodecContext * s, AVFrame * frame, int flags);
+    int (*hwaccel_retrieve_data) (AVCodecContext * s, AVFrame * frame);
+    enum AVPixelFormat hwaccel_pix_fmt;
+    enum AVPixelFormat hwaccel_retrieved_pix_fmt;
+    AVBufferRef *hw_frames_ctx;
 };
 
 //----------------------------------------------------------------------------
-//	Typedefs
+//  Typedefs
 //----------------------------------------------------------------------------
 
     /// Video decoder typedef.
@@ -86,14 +88,14 @@ typedef struct _video_decoder_ VideoDecoder;
 typedef struct _audio_decoder_ AudioDecoder;
 
 //----------------------------------------------------------------------------
-//	Variables
+//  Variables
 //----------------------------------------------------------------------------
 
     /// Flag prefer fast xhannel switch
 extern char CodecUsePossibleDefectFrames;
 
 //----------------------------------------------------------------------------
-//	Prototypes
+//  Prototypes
 //----------------------------------------------------------------------------
 
     /// Allocate a new video decoder context.
