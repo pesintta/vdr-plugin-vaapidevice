@@ -1,5 +1,4 @@
-///
-///	@file video.h	@brief Video module header file
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 /// @addtogroup Video
@@ -204,9 +202,6 @@ extern void VideoGetOsdSize(int *, int *);
 
     /// Set OSD size.
 extern void VideoSetOsdSize(int, int);
-
-    /// Set Osd 3D Mode
-extern void VideoSetOsd3DMode(int);
 
     /// Set video clock.
 extern void VideoSetClock(VideoHwDecoder *, int64_t);

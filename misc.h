@@ -1,5 +1,4 @@
-///
-///	@file misc.h	@brief Misc function header file
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2009 - 2012 by Lutz Sammer.  All Rights Reserved.
 ///
@@ -18,7 +17,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 /// @addtogroup misc

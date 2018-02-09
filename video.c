@@ -1,5 +1,4 @@
-///
-///	@file video.c	@brief Video module
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 ///
@@ -452,7 +450,6 @@ static pthread_mutex_t VideoDisplayLockMutex;	///< video lock mutex
 static int OsdConfigWidth;		///< osd configured width
 static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
-static char Osd3DMode;			///< 3D OSD mode
 static int OsdWidth;			///< osd width
 static int OsdHeight;			///< osd height
 static int OsdDirtyX;			///< osd dirty area x
@@ -6854,16 +6851,6 @@ void VideoSetOsdSize(int width, int height)
 }
 
 ///
-///	Set the 3d OSD mode.
-///
-///	@param mode	OSD mode (0=off, 1=SBS, 2=Top Bottom)
-///
-void VideoSetOsd3DMode(int mode)
-{
-    Osd3DMode = mode;
-}
-
-///
 ///	Setup osd.
 ///
 ///	FIXME: looking for BGRA, but this fourcc isn't supported by the
@@ -7143,7 +7130,7 @@ static void VideoThreadInit(void)
     pthread_mutex_init(&VideoLockMutex, NULL);
     pthread_cond_init(&VideoWakeupCond, NULL);
     pthread_create(&VideoThread, NULL, VideoDisplayHandlerThread, NULL);
-    pthread_setname_np(VideoThread, "softhddev video");
+    pthread_setname_np(VideoThread, "vaapidevice video");
 }
 
 ///
@@ -7516,7 +7503,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 
 	return rgb;
     } else {
-	Warning(_("softhddev: grab unsupported\n"));
+	Warning(_("vaapidevice: grab unsupported\n"));
     }
 
     (void)size;
@@ -7540,7 +7527,7 @@ uint8_t *VideoGrabService(int *size, int *width, int *height)
     if (VideoUsedModule->GrabOutput) {
 	return VideoUsedModule->GrabOutput(size, width, height);
     } else {
-	Warning(_("softhddev: grab unsupported\n"));
+	Warning(_("vaapidevice: grab unsupported\n"));
     }
 
     (void)size;
@@ -7639,17 +7626,17 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual,
 #ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
     // FIXME: utf _NET_WM_NAME
     xcb_icccm_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING, 8,
-	sizeof("softhddevice") - 1, "softhddevice");
+	sizeof("vaapidevice") - 1, "vaapidevice");
     xcb_icccm_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING, 8,
-	sizeof("softhddevice") - 1, "softhddevice");
+	sizeof("vaapidevice") - 1, "vaapidevice");
 #endif
     // define only available with xcb-utils-0.3.6
 #ifdef XCB_NUM_WM_HINTS_ELEMENTS
     // FIXME: utf _NET_WM_NAME
     xcb_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING,
-	sizeof("softhddevice") - 1, "softhddevice");
+	sizeof("vaapidevice") - 1, "vaapidevice");
     xcb_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING,
-	sizeof("softhddevice") - 1, "softhddevice");
+	sizeof("vaapidevice") - 1, "vaapidevice");
 #endif
 
     // FIXME: size hints

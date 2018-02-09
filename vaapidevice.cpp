@@ -1,5 +1,4 @@
-///
-///	@file softhddevice.cpp	@brief A software HD device plugin for VDR.
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 #define __STDC_CONSTANT_MACROS		///< needed for ffmpeg UINT64_C
@@ -34,8 +32,6 @@
 #endif
 
 #include "softhddev.h"
-#include "softhddevice.h"
-#include "softhddevice_service.h"
 
 extern "C"
 {
@@ -60,7 +56,7 @@ extern "C"
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name
     /// for the distribution archive.
-static const char *const VERSION = "0.8.0"
+static const char *const VERSION = "1.0.0"
 #ifdef GIT_REV
     "-GIT" GIT_REV
 #endif
@@ -68,13 +64,13 @@ static const char *const VERSION = "0.8.0"
 
     /// vdr-plugin description.
 static const char *const DESCRIPTION =
-trNOOP("A software and GPU emulated HD device");
+trNOOP("VA-API output device");
 
     /// vdr-plugin text of main menu entry
-static const char *MAINMENUENTRY = trNOOP("SoftHdDevice");
+static const char *MAINMENUENTRY = trNOOP("VA-API Device");
 
-    /// single instance of softhddevice plugin device.
-static class cSoftHdDevice *MyDevice;
+    /// single instance of vaapidevice plugin device.
+static class cVaapiDevice *MyDevice;
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -235,7 +231,6 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat,
 	csoft = new cSoftRemote(keymap);
     }
 
-    //Debug(3, "[softhddev]%s %s, %s, %s\n", __FUNCTION__, keymap, key, letter);
     if (key[1]) {			// no single character
 	if (!csoft->Put(key, repeat, release) && letter
 	    && !cRemote::IsLearning()) {
@@ -1481,9 +1476,9 @@ void cSoftHdMenu::Create(void)
     SetHasHotkeys();
 
     if (ConfigDetachFromMainMenu) {
-	Add(new cOsdItem(hk(tr("Detach SoftHdDevice")), osUser1));
+	Add(new cOsdItem(hk(tr("Detach VA-API Device")), osUser1));
     } else {
-	Add(new cOsdItem(hk(tr("Suspend SoftHdDevice")), osUser1));
+	Add(new cOsdItem(hk(tr("Suspend VA-API Device")), osUser1));
     }
     Add(new cOsdItem(NULL, osUnknown, false));
     Add(new cOsdItem(NULL, osUnknown, false));
@@ -1640,8 +1635,6 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 {
     eOSState state;
 
-    //Debug(3, "[softhddev]%s: %x\n", __FUNCTION__, key);
-
     switch (HotkeyState) {
 	case HksInitial:		// initial state, waiting for hot key
 	    if (key == kBlue) {
@@ -1725,11 +1718,11 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 //	cDevice
 //////////////////////////////////////////////////////////////////////////////
 
-class cSoftHdDevice:public cDevice
+class cVaapiDevice:public cDevice
 {
   public:
-    cSoftHdDevice(void);
-    virtual ~ cSoftHdDevice(void);
+    cVaapiDevice(void);
+    virtual ~ cVaapiDevice(void);
 
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
@@ -1782,18 +1775,16 @@ class cSoftHdDevice:public cDevice
 /**
 **	Constructor device.
 */
-cSoftHdDevice::cSoftHdDevice(void)
+cVaapiDevice::cVaapiDevice(void)
 {
-    //Debug(3, "[softhddev]%s\n", __FUNCTION__);
     spuDecoder = NULL;
 }
 
 /**
 **	Destructor device.
 */
-cSoftHdDevice::~cSoftHdDevice(void)
+cVaapiDevice::~cVaapiDevice(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
     delete spuDecoder;
 }
 
@@ -1802,7 +1793,7 @@ cSoftHdDevice::~cSoftHdDevice(void)
 **
 **	@param on	flag if becoming or loosing primary
 */
-void cSoftHdDevice::MakePrimaryDevice(bool on)
+void cVaapiDevice::MakePrimaryDevice(bool on)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, on);
 
@@ -1826,7 +1817,7 @@ void cSoftHdDevice::MakePrimaryDevice(bool on)
 **	@returns a pointer to the device's SPU decoder (or NULL, if this
 **	device doesn't have an SPU decoder)
 */
-cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
+cSpuDecoder *cVaapiDevice::GetSpuDecoder(void)
 {
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
@@ -1839,7 +1830,7 @@ cSpuDecoder *cSoftHdDevice::GetSpuDecoder(void)
 /**
 **	Tells whether this device has a MPEG decoder.
 */
-bool cSoftHdDevice::HasDecoder(void) const
+bool cVaapiDevice::HasDecoder(void) const
 {
     return true;
 }
@@ -1847,7 +1838,7 @@ bool cSoftHdDevice::HasDecoder(void) const
 /**
 **	Returns true if this device can currently start a replay session.
 */
-bool cSoftHdDevice::CanReplay(void) const
+bool cVaapiDevice::CanReplay(void) const
 {
     return true;
 }
@@ -1857,7 +1848,7 @@ bool cSoftHdDevice::CanReplay(void) const
 **
 **	@param play_mode	new play mode (Audio/Video/External...)
 */
-bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
+bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, play_mode);
 
@@ -1897,10 +1888,8 @@ bool cSoftHdDevice::SetPlayMode(ePlayMode play_mode)
 **	Gets the current System Time Counter, which can be used to
 **	synchronize audio, video and subtitles.
 */
-int64_t cSoftHdDevice::GetSTC(void)
+int64_t cVaapiDevice::GetSTC(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     return::GetSTC();
 }
 
@@ -1914,14 +1903,14 @@ int64_t cSoftHdDevice::GetSTC(void)
 **	@param forward	flag forward direction
 */
 #if APIVERSNUM >= 20103
-void cSoftHdDevice::TrickSpeed(int speed, bool forward)
+void cVaapiDevice::TrickSpeed(int speed, bool forward)
 {
     Debug(3, "[softhddev]%s: %d %d\n", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
 #else
-void cSoftHdDevice::TrickSpeed(int speed)
+void cVaapiDevice::TrickSpeed(int speed)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, speed);
 
@@ -1932,7 +1921,7 @@ void cSoftHdDevice::TrickSpeed(int speed)
 /**
 **	Clears all video and audio data from the device.
 */
-void cSoftHdDevice::Clear(void)
+void cVaapiDevice::Clear(void)
 {
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
@@ -1943,7 +1932,7 @@ void cSoftHdDevice::Clear(void)
 /**
 **	Sets the device into play mode (after a previous trick mode)
 */
-void cSoftHdDevice::Play(void)
+void cVaapiDevice::Play(void)
 {
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
@@ -1954,7 +1943,7 @@ void cSoftHdDevice::Play(void)
 /**
 **	Puts the device into "freeze frame" mode.
 */
-void cSoftHdDevice::Freeze(void)
+void cVaapiDevice::Freeze(void)
 {
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
@@ -1965,7 +1954,7 @@ void cSoftHdDevice::Freeze(void)
 /**
 **	Turns off audio while replaying.
 */
-void cSoftHdDevice::Mute(void)
+void cVaapiDevice::Mute(void)
 {
     Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 
@@ -1979,7 +1968,7 @@ void cSoftHdDevice::Mute(void)
 **	@param data	pes or ts data of a frame
 **	@param length	length of data area
 */
-void cSoftHdDevice::StillPicture(const uchar * data, int length)
+void cVaapiDevice::StillPicture(const uchar * data, int length)
 {
     Debug(3, "[softhddev]%s: %s %p %d\n", __FUNCTION__,
 	data[0] == 0x47 ? "ts" : "pes", data, length);
@@ -2001,11 +1990,9 @@ void cSoftHdDevice::StillPicture(const uchar * data, int length)
 **	@retval true	if ready
 **	@retval false	if busy
 */
-bool cSoftHdDevice::Poll(
+bool cVaapiDevice::Poll(
     __attribute__ ((unused)) cPoller & poller, int timeout_ms)
 {
-    //Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, timeout_ms);
-
     return::Poll(timeout_ms);
 }
 
@@ -2014,7 +2001,7 @@ bool cSoftHdDevice::Poll(
 **
 **	@param timeout_ms	timeout in ms to become ready
 */
-bool cSoftHdDevice::Flush(int timeout_ms)
+bool cVaapiDevice::Flush(int timeout_ms)
 {
     Debug(3, "[softhddev]%s: %d ms\n", __FUNCTION__, timeout_ms);
 
@@ -2027,7 +2014,7 @@ bool cSoftHdDevice::Flush(int timeout_ms)
 **	Sets the video display format to the given one (only useful if this
 **	device has an MPEG decoder).
 */
-void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
+void cVaapiDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
     video_display_format)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, video_display_format);
@@ -2043,7 +2030,7 @@ void cSoftHdDevice:: SetVideoDisplayFormat(eVideoDisplayFormat
 **
 **	@param video_format16_9	flag true 16:9.
 */
-void cSoftHdDevice::SetVideoFormat(bool video_format16_9)
+void cVaapiDevice::SetVideoFormat(bool video_format16_9)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, video_format16_9);
 
@@ -2058,7 +2045,7 @@ void cSoftHdDevice::SetVideoFormat(bool video_format16_9)
 **
 **	@note the video_aspect is used to scale the subtitle.
 */
-void cSoftHdDevice::GetVideoSize(int &width, int &height, double &video_aspect)
+void cVaapiDevice::GetVideoSize(int &width, int &height, double &video_aspect)
 {
     ::GetVideoSize(&width, &height, &video_aspect);
 }
@@ -2068,7 +2055,7 @@ void cSoftHdDevice::GetVideoSize(int &width, int &height, double &video_aspect)
 **
 **	FIXME: Called every second, for nothing (no OSD displayed)?
 */
-void cSoftHdDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
+void cVaapiDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 {
     ::GetOsdSize(&width, &height, &pixel_aspect);
 }
@@ -2082,33 +2069,27 @@ void cSoftHdDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 **	@param length	length of PES packet
 **	@param id	type of audio data this packet holds
 */
-int cSoftHdDevice::PlayAudio(const uchar * data, int length, uchar id)
+int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
-    //Debug(3, "[softhddev]%s: %p %p %d %d\n", __FUNCTION__, this, data, length, id);
-
     return::PlayAudio(data, length, id);
 }
 
-void cSoftHdDevice::SetAudioTrackDevice(
+void cVaapiDevice::SetAudioTrackDevice(
     __attribute__ ((unused)) eTrackType type)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 }
 
-void cSoftHdDevice::SetDigitalAudioDevice( __attribute__ ((unused)) bool on)
+void cVaapiDevice::SetDigitalAudioDevice( __attribute__ ((unused)) bool on)
 {
-    //Debug(3, "[softhddev]%s: %s\n", __FUNCTION__, on ? "true" : "false");
 }
 
-void cSoftHdDevice::SetAudioChannelDevice( __attribute__ ((unused))
+void cVaapiDevice::SetAudioChannelDevice( __attribute__ ((unused))
     int audio_channel)
 {
-    //Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, audio_channel);
 }
 
-int cSoftHdDevice::GetAudioChannelDevice(void)
+int cVaapiDevice::GetAudioChannelDevice(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
     return 0;
 }
 
@@ -2117,7 +2098,7 @@ int cSoftHdDevice::GetAudioChannelDevice(void)
 **
 **	@param volume	device volume
 */
-void cSoftHdDevice::SetVolumeDevice(int volume)
+void cVaapiDevice::SetVolumeDevice(int volume)
 {
     Debug(3, "[softhddev]%s: %d\n", __FUNCTION__, volume);
 
@@ -2132,9 +2113,8 @@ void cSoftHdDevice::SetVolumeDevice(int volume)
 **	@param data	exactly one complete PES packet (which is incomplete)
 **	@param length	length of PES packet
 */
-int cSoftHdDevice::PlayVideo(const uchar * data, int length)
+int cVaapiDevice::PlayVideo(const uchar * data, int length)
 {
-    //Debug(3, "[softhddev]%s: %p %d\n", __FUNCTION__, data, length);
     return::PlayVideo(data, length);
 }
 
@@ -2144,7 +2124,7 @@ int cSoftHdDevice::PlayVideo(const uchar * data, int length)
 **	@param data	ts data buffer
 **	@param length	ts packet length (188)
 */
-int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
+int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
 {
     return::PlayTsVideo(data, length);
 }
@@ -2155,7 +2135,7 @@ int cSoftHdDevice::PlayTsVideo(const uchar * data, int length)
 **	@param data	ts data buffer
 **	@param length	ts packet length (188)
 */
-int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
+int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
 {
     if (SoftIsPlayingVideo != cDevice::IsPlayingVideo()) {
 	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
@@ -2174,7 +2154,7 @@ int cSoftHdDevice::PlayTsAudio(const uchar * data, int length)
 **	@param width	number of horizontal pixels in the frame
 **	@param height	number of vertical pixels in the frame
 */
-uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
+uchar *cVaapiDevice::GrabImage(int &size, bool jpeg, int quality, int width,
     int height)
 {
     Debug(3, "[softhddev]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg,
@@ -2199,7 +2179,7 @@ uchar *cSoftHdDevice::GrabImage(int &size, bool jpeg, int quality, int width,
 **
 **	@returns the real rectangle or cRect:Null if invalid.
 */
-cRect cSoftHdDevice::CanScaleVideo(const cRect & rect,
+cRect cVaapiDevice::CanScaleVideo(const cRect & rect,
     __attribute__ ((unused)) int alignment)
 {
     return rect;
@@ -2210,7 +2190,7 @@ cRect cSoftHdDevice::CanScaleVideo(const cRect & rect,
 **
 **	@param rect	video window rectangle
 */
-void cSoftHdDevice::ScaleVideo(const cRect & rect)
+void cVaapiDevice::ScaleVideo(const cRect & rect)
 {
 #ifdef OSD_DEBUG
     Debug(3, "[softhddev]%s: %dx%d%+d%+d\n", __FUNCTION__, rect.Width(),
@@ -2235,11 +2215,11 @@ extern "C" uint8_t * CreateJpeg(uint8_t * image, int *size, int quality,
 //	cPlugin
 //////////////////////////////////////////////////////////////////////////////
 
-class cPluginSoftHdDevice:public cPlugin
+class cPluginVaapiDevice:public cPlugin
 {
   public:
-    cPluginSoftHdDevice(void);
-    virtual ~ cPluginSoftHdDevice(void);
+    cPluginVaapiDevice(void);
+    virtual ~ cPluginVaapiDevice(void);
     virtual const char *Version(void);
     virtual const char *Description(void);
     virtual const char *CommandLineHelp(void);
@@ -2264,21 +2244,16 @@ class cPluginSoftHdDevice:public cPlugin
 **	@note DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
 **	VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
 */
-cPluginSoftHdDevice::cPluginSoftHdDevice(void)
+cPluginVaapiDevice::cPluginVaapiDevice(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
 }
 
 /**
 **	Clean up after yourself!
 */
-cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
+cPluginVaapiDevice::~cPluginVaapiDevice(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     ::SoftHdDeviceExit();
-
-    // keep ConfigX11Display ...
 }
 
 /**
@@ -2286,7 +2261,7 @@ cPluginSoftHdDevice::~cPluginSoftHdDevice(void)
 **
 **	@returns version number as constant string.
 */
-const char *cPluginSoftHdDevice::Version(void)
+const char *cPluginVaapiDevice::Version(void)
 {
     return VERSION;
 }
@@ -2296,7 +2271,7 @@ const char *cPluginSoftHdDevice::Version(void)
 **
 **	@returns short description as constant string.
 */
-const char *cPluginSoftHdDevice::Description(void)
+const char *cPluginVaapiDevice::Description(void)
 {
     return tr(DESCRIPTION);
 }
@@ -2306,7 +2281,7 @@ const char *cPluginSoftHdDevice::Description(void)
 **
 **	@returns command line help as constant string.
 */
-const char *cPluginSoftHdDevice::CommandLineHelp(void)
+const char *cPluginVaapiDevice::CommandLineHelp(void)
 {
     return::CommandLineHelp();
 }
@@ -2314,10 +2289,8 @@ const char *cPluginSoftHdDevice::CommandLineHelp(void)
 /**
 **	Process the command line arguments.
 */
-bool cPluginSoftHdDevice::ProcessArgs(int argc, char *argv[])
+bool cPluginVaapiDevice::ProcessArgs(int argc, char *argv[])
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     return::ProcessArgs(argc, argv);
 }
 
@@ -2328,11 +2301,9 @@ bool cPluginSoftHdDevice::ProcessArgs(int argc, char *argv[])
 **
 **	@returns true if any devices are available.
 */
-bool cPluginSoftHdDevice::Initialize(void)
+bool cPluginVaapiDevice::Initialize(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
-    MyDevice = new cSoftHdDevice();
+    MyDevice = new cVaapiDevice();
 
     return true;
 }
@@ -2340,16 +2311,14 @@ bool cPluginSoftHdDevice::Initialize(void)
 /**
 **	 Start any background activities the plugin shall perform.
 */
-bool cPluginSoftHdDevice::Start(void)
+bool cPluginVaapiDevice::Start(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     if (!MyDevice->IsPrimaryDevice()) {
-	Info("[softhddev] softhddevice %d is not the primary device!",
+	Info("[softhddev] vaapidevice %d is not the primary device!",
 	    MyDevice->DeviceNumber());
 	if (ConfigMakePrimary) {
 	    // Must be done in the main thread
-	    Debug(3, "[softhddev] makeing softhddevice %d the primary device!",
+	    Debug(3, "[softhddev] making vaapidevice %d the primary device!",
 		MyDevice->DeviceNumber());
 	    DoMakePrimary = MyDevice->DeviceNumber() + 1;
 	}
@@ -2377,51 +2346,41 @@ bool cPluginSoftHdDevice::Start(void)
 **	Shutdown plugin.  Stop any background activities the plugin is
 **	performing.
 */
-void cPluginSoftHdDevice::Stop(void)
+void cPluginVaapiDevice::Stop(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     ::Stop();
 }
 
 /**
 **	Perform any cleanup or other regular tasks.
 */
-void cPluginSoftHdDevice::Housekeeping(void)
+void cPluginVaapiDevice::Housekeeping(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     ::Housekeeping();
 }
 
 /**
 **	Create main menu entry.
 */
-const char *cPluginSoftHdDevice::MainMenuEntry(void)
+const char *cPluginVaapiDevice::MainMenuEntry(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     return ConfigHideMainMenuEntry ? NULL : tr(MAINMENUENTRY);
 }
 
 /**
 **	Perform the action when selected from the main VDR menu.
 */
-cOsdObject *cPluginSoftHdDevice::MainMenuAction(void)
+cOsdObject *cPluginVaapiDevice::MainMenuAction(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
-    return new cSoftHdMenu("SoftHdDevice");
+    return new cSoftHdMenu("VA-API Device");
 }
 
 /**
 **	Called for every plugin once during every cycle of VDR's main program
 **	loop.
 */
-void cPluginSoftHdDevice::MainThreadHook(void)
+void cPluginVaapiDevice::MainThreadHook(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     if (DoMakePrimary) {
 	Debug(3, "[softhddev]%s: switching primary device to %d\n",
 	    __FUNCTION__, DoMakePrimary);
@@ -2435,10 +2394,8 @@ void cPluginSoftHdDevice::MainThreadHook(void)
 /**
 **	Return our setup menu.
 */
-cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
+cMenuSetupPage *cPluginVaapiDevice::SetupMenu(void)
 {
-    //Debug(3, "[softhddev]%s:\n", __FUNCTION__);
-
     return new cMenuSetupSoft;
 }
 
@@ -2450,11 +2407,9 @@ cMenuSetupPage *cPluginSoftHdDevice::SetupMenu(void)
 **
 **	@returns true if the parameter is supported.
 */
-bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
+bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
 {
     int i;
-
-    //Debug(3, "[softhddev]%s: '%s' = '%s'\n", __FUNCTION__, name, value);
 
     if (!strcasecmp(name, "MakePrimary")) {
 	ConfigMakePrimary = atoi(value);
@@ -2698,71 +2653,8 @@ bool cPluginSoftHdDevice::SetupParse(const char *name, const char *value)
 **			service protocol
 **	@param data	custom data structure
 */
-bool cPluginSoftHdDevice::Service(const char *id, void *data)
+bool cPluginVaapiDevice::Service(const char *id, void *data)
 {
-    //Debug(3, "[softhddev]%s: id %s\n", __FUNCTION__, id);
-
-    if (strcmp(id, OSD_3DMODE_SERVICE) == 0) {
-	SoftHDDevice_Osd3DModeService_v1_0_t *r;
-
-	r = (SoftHDDevice_Osd3DModeService_v1_0_t *) data;
-	VideoSetOsd3DMode(r->Mode);
-	return true;
-    }
-
-    if (strcmp(id, ATMO_GRAB_SERVICE) == 0) {
-	int width;
-	int height;
-
-	if (data == NULL) {
-	    return true;
-	}
-
-	if (SuspendMode != NOT_SUSPENDED) {
-	    return false;
-	}
-
-	SoftHDDevice_AtmoGrabService_v1_0_t *r =
-	    (SoftHDDevice_AtmoGrabService_v1_0_t *) data;
-	if (r->structSize != sizeof(SoftHDDevice_AtmoGrabService_v1_0_t)
-	    || r->analyseSize < 64 || r->analyseSize > 256
-	    || r->clippedOverscan < 0 || r->clippedOverscan > 200) {
-	    return false;
-	}
-
-	width = r->analyseSize * -1;	// Internal marker for Atmo grab service
-	height = r->clippedOverscan;
-
-	r->img = VideoGrabService(&r->imgSize, &width, &height);
-	if (r->img == NULL) {
-	    return false;
-	}
-	r->imgType = GRAB_IMG_RGBA_FORMAT_B8G8R8A8;
-	r->width = width;
-	r->height = height;
-	return true;
-    }
-
-    if (strcmp(id, ATMO1_GRAB_SERVICE) == 0) {
-	SoftHDDevice_AtmoGrabService_v1_1_t *r;
-
-	if (!data) {
-	    return true;
-	}
-
-	if (SuspendMode != NOT_SUSPENDED) {
-	    return false;
-	}
-
-	r = (SoftHDDevice_AtmoGrabService_v1_1_t *) data;
-	r->img = VideoGrabService(&r->size, &r->width, &r->height);
-	if (!r->img) {
-	    return false;
-	}
-
-	return true;
-    }
-
     return false;
 }
 
@@ -2777,10 +2669,10 @@ bool cPluginSoftHdDevice::Service(const char *id, void *data)
 static const char *SVDRPHelpText[] = {
     "SUSP\n" "\040   Suspend plugin.\n\n"
 	"    The plugin is suspended to save energie. Depending on the setup\n"
-	"    'softhddevice.Suspend.Close = 0' only the video and audio output\n"
-	"    is stopped or with 'softhddevice.Suspend.Close = 1' the video\n"
+	"    'vaapidevice.Suspend.Close = 0' only the video and audio output\n"
+	"    is stopped or with 'vaapidevice.Suspend.Close = 1' the video\n"
 	"    and audio devices are closed.\n"
-	"    If 'softhddevice.Suspend.X11 = 1' is set and the X11 server was\n"
+	"    If 'vaapidevice.Suspend.X11 = 1' is set and the X11 server was\n"
 	"    started by the plugin, the X11 server would also be closed.\n"
 	"    (Stopping X11 while suspended isn't supported yet)\n",
     "RESU\n" "\040   Resume plugin.\n\n"
@@ -2797,7 +2689,7 @@ static const char *SVDRPHelpText[] = {
 	"    -a audio\taudio device (fe. alsa: hw:0,0 oss: /dev/dsp)\n"
 	"    -p pass\t\taudio device for pass-through (hw:0,1 or /dev/dsp1)\n",
     "PRIM <n>\n" "    Make <n> the primary device.\n\n"
-	"    <n> is the number of device. Without number softhddevice becomes\n"
+	"    <n> is the number of device. Without number vaapidevice becomes\n"
 	"    the primary device. If becoming primary, the plugin is attached\n"
 	"    to the devices. If loosing primary, the plugin is detached from\n"
 	"    the devices.",
@@ -2825,12 +2717,9 @@ static const char *SVDRPHelpText[] = {
 	"    NOT_SUSPENDED    ==  0  (910)\n"
 	"    SUSPEND_NORMAL   ==  1  (911)\n"
 	"    SUSPEND_DETACHED ==  2  (912)\n",
-    "3DOF\n" "\040   3D OSD off.\n",
-    "3DTB\n" "\040   3D OSD Top and Bottom.\n",
-    "3DSB\n" "\040   3D OSD Side by Side.\n",
-    "RAIS\n" "\040   Raise softhddevice window\n\n"
-	"    If Xserver is not started by softhddevice, the window which\n"
-	"    contains the softhddevice frontend will be raised to the front.\n",
+    "RAIS\n" "\040   Raise vaapidevice window\n\n"
+	"    If Xserver is not started by vaapidevice, the window which\n"
+	"    contains the vaapidevice frontend will be raised to the front.\n",
     NULL
 };
 
@@ -2840,7 +2729,7 @@ static const char *SVDRPHelpText[] = {
 **	return a pointer to a list of help strings for all of the plugin's
 **	SVDRP commands.
 */
-const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
+const char **cPluginVaapiDevice::SVDRPHelpPages(void)
 {
     return SVDRPHelpText;
 }
@@ -2852,7 +2741,7 @@ const char **cPluginSoftHdDevice::SVDRPHelpPages(void)
 **	@param option		all command arguments
 **	@param reply_code	reply code
 */
-cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
+cString cPluginVaapiDevice::SVDRPCommand(const char *command,
     const char *option, __attribute__ ((unused)) int &reply_code)
 {
     if (!strcasecmp(command, "STAT")) {
@@ -2870,23 +2759,23 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     }
     if (!strcasecmp(command, "SUSP")) {
 	if (cSoftHdControl::Player) {	// already suspended
-	    return "SoftHdDevice already suspended";
+	    return "VA-API device already suspended";
 	}
 	if (SuspendMode != NOT_SUSPENDED) {
-	    return "SoftHdDevice already detached";
+	    return "VA-API device already detached";
 	}
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	Suspend(ConfigSuspendClose, ConfigSuspendClose, ConfigSuspendX11);
 	SuspendMode = SUSPEND_NORMAL;
-	return "SoftHdDevice is suspended";
+	return "VA-API device is suspended";
     }
     if (!strcasecmp(command, "RESU")) {
 	if (SuspendMode == NOT_SUSPENDED) {
-	    return "SoftHdDevice already resumed";
+	    return "VA-API device already resumed";
 	}
 	if (SuspendMode != SUSPEND_NORMAL) {
-	    return "can't resume SoftHdDevice";
+	    return "can't resume VA-API device";
 	}
 	if (ShutdownHandler.GetUserInactiveTime()) {
 	    ShutdownHandler.SetUserInactiveTimeout();
@@ -2896,20 +2785,20 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	}
 	Resume();
 	SuspendMode = NOT_SUSPENDED;
-	return "SoftHdDevice is resumed";
+	return "VA-API device is resumed";
     }
     if (!strcasecmp(command, "DETA")) {
 	if (SuspendMode == SUSPEND_DETACHED) {
-	    return "SoftHdDevice already detached";
+	    return "VA-API device already detached";
 	}
 	if (cSoftHdControl::Player) {	// already suspended
-	    return "can't suspend SoftHdDevice already suspended";
+	    return "can't suspend VA-API device already suspended";
 	}
 	cControl::Launch(new cSoftHdControl);
 	cControl::Attach();
 	Suspend(1, 1, 0);
 	SuspendMode = SUSPEND_DETACHED;
-	return "SoftHdDevice is detached";
+	return "VA-API device is detached";
     }
     if (!strcasecmp(command, "ATTA")) {
 	char *tmp;
@@ -2918,7 +2807,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	char *o;
 
 	if (SuspendMode != SUSPEND_DETACHED) {
-	    return "can't attach SoftHdDevice not detached";
+	    return "can't attach VA-API device not detached";
 	}
 	if (!(tmp = strdup(option))) {
 	    return "out of memory";
@@ -2978,7 +2867,7 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	}
 	Resume();
 	SuspendMode = NOT_SUSPENDED;
-	return "SoftHdDevice is attached";
+	return "VA-API device is attached";
     }
     if (!strcasecmp(command, "HOTK")) {
 	int hotk;
@@ -2998,19 +2887,6 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
 	DoMakePrimary = primary;
 	return "switching primary device requested";
     }
-    if (!strcasecmp(command, "3DOF")) {
-	VideoSetOsd3DMode(0);
-	return "3d off";
-    }
-    if (!strcasecmp(command, "3DSB")) {
-	VideoSetOsd3DMode(1);
-	return "3d sbs";
-    }
-    if (!strcasecmp(command, "3DTB")) {
-	VideoSetOsd3DMode(2);
-	return "3d tb";
-    }
-
     if (!strcasecmp(command, "RAIS")) {
 	if (!ConfigStartX11Server) {
 	    VideoRaiseWindow();
@@ -3023,4 +2899,4 @@ cString cPluginSoftHdDevice::SVDRPCommand(const char *command,
     return NULL;
 }
 
-VDRPLUGINCREATOR(cPluginSoftHdDevice);	// Don't touch this!
+VDRPLUGINCREATOR(cPluginVaapiDevice);	// Don't touch this!

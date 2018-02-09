@@ -1,5 +1,4 @@
-///
-///	@file ringbuffer.h	@brief Ringbuffer module header file
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2009, 2011 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 /// @addtogroup Ringbuffer

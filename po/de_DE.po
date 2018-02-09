@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-04 20:47+0200\n"
+"POT-Creation-Date: 2018-02-09 22:12+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -422,11 +422,11 @@ msgstr ""
 msgid "[softhddev] ready%s\n"
 msgstr ""
 
-msgid "A software and GPU emulated HD device"
-msgstr "Ein Software und GPU emulieres HD-Gerät"
+msgid "VA-API output device"
+msgstr ""
 
-msgid "SoftHdDevice"
-msgstr "SoftHdDevice"
+msgid "VA-API Device"
+msgstr ""
 
 msgid "[softhddev]: dirty area too big\n"
 msgstr ""
@@ -603,11 +603,11 @@ msgstr "Audio Puffergröße (ms)"
 msgid "Enable automatic AES"
 msgstr "Aktiviere automatiche AES"
 
-msgid "Detach SoftHdDevice"
+msgid "Detach VA-API Device"
 msgstr ""
 
-msgid "Suspend SoftHdDevice"
-msgstr "Unterbreche SoftHdDevice"
+msgid "Suspend VA-API Device"
+msgstr ""
 
 #, c-format
 msgid " Frames missed(%d) duped(%d) dropped(%d) total(%d)"
@@ -1024,7 +1024,7 @@ msgstr ""
 msgid "video: out of memory\n"
 msgstr ""
 
-msgid "softhddev: grab unsupported\n"
+msgid "vaapidevice: grab unsupported\n"
 msgstr ""
 
 #, c-format

@@ -1,13 +1,12 @@
 #
 # Makefile for a Video Disk Recorder plugin
 #
-# $Id$
 
 # The official name of this plugin.
 # This name will be used in the '-P...' option of VDR to load the plugin.
 # By default the main source file also carries this name.
 
-PLUGIN = softhddevice
+PLUGIN = vaapidevice
 
 ### Configuration (edit this for your needs)
 
@@ -76,7 +75,7 @@ PACKAGE = vdr-$(ARCHIVE)
 
 SOFILE = libvdr-$(PLUGIN).so
 
-### Parse softhddevice config
+### Parse vaapidevice config
 
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA

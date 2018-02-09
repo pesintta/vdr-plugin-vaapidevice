@@ -1,5 +1,4 @@
-///
-///	@file softhddev.h	@brief software HD device plugin header file.
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus

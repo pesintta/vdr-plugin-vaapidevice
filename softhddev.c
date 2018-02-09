@@ -1,5 +1,4 @@
-///
-///	@file softhddev.c	@brief A software HD device plugin for VDR.
+//////////////////////////////////////////////////////////////////////////////
 ///
 ///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
 ///
@@ -17,7 +16,6 @@
 ///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ///	GNU Affero General Public License for more details.
 ///
-///	$Id$
 //////////////////////////////////////////////////////////////////////////////
 
 #define noDUMP_TRICKSPEED		///< dump raw trickspeed packets
@@ -2717,7 +2715,7 @@ int ProcessArgs(int argc, char *const argv[])
     //	Parse arguments.
     //
 #ifdef __FreeBSD__
-    if (!strcmp(*argv, "softhddevice")) {
+    if (!strcmp(*argv, "vaapidevice")) {
 	++argv;
 	--argc;
     }
