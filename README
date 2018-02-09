@@ -1,8 +1,7 @@
-Copyright (c) 2011 - 2013 by Johns.  All Rights Reserved.
+Copyright (C) 2011 - 2013 by Johns. All Rights Reserved.
+Copyright (C) 2018 by pesintta, rofafor.
 
-Contributor(s):
-
-License: AGPLv3
+SPDX-License-Identifier: AGPL-3.0-only
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -26,7 +25,7 @@ A VA-API output device plugin for VDR.
     o VDR ScaleVideo API
     o Autocrop
     o Grab image
-    o Suspend / Dettach
+    o Suspend / Detach
     o Letterbox, Stretch and Center cut-out video display modes
 
 Install:
@@ -38,7 +37,7 @@ Install:
 	make install
 
 	You can edit Makefile to enable/disable Alsa / OSS
-	support.  The default is to autodetect as much as possible.
+	support. The default is to autodetect as much as possible.
 
 Setup:	environment
 ------

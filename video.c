@@ -1,29 +1,10 @@
-//////////////////////////////////////////////////////////////////////////////
+/// Copyright (C) 2009 - 2015 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-/// Copyright (c) 2009 - 2015 by Johns.	 All Rights Reserved.
-///
-/// Contributor(s):
-///
-/// License: AGPLv3
-///
-/// This program is free software: you can redistribute it and/or modify
-/// it under the terms of the GNU Affero General Public License as
-/// published by the Free Software Foundation, either version 3 of the
-/// License.
-///
-/// This program is distributed in the hope that it will be useful,
-/// but WITHOUT ANY WARRANTY; without even the implied warranty of
-/// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-/// GNU Affero General Public License for more details.
-///
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 ///
-/// @defgroup Video The video module.
-///
 /// This module contains all video rendering functions.
-///
-/// @todo disable screen saver support
 ///
 /// Uses Xlib where it is needed for VA-API.  XCB is used for
 /// everything else.
@@ -2657,9 +2638,9 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 ///
 /// Verify & Run arbitrary VPP processing on src/dst surface(s)
 ///
-/// @param ctx[in]	VA-API postprocessing context
-/// @param src[in]	source surface to scale
-/// @param dst[in]	destination surface to put result in
+/// @param ctx[in]  VA-API postprocessing context
+/// @param src[in]  source surface to scale
+/// @param dst[in]  destination surface to put result in
 /// @param filters[in]	    array of VABufferID filters to run
 /// @param num_filters[in]  number of VABufferID filters supplied
 /// @param filter_flags[in] filter flags to provide to postprocessing
@@ -2795,9 +2776,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
 ///
 /// Convert & Scale between source / destination surfaces
 ///
-/// @param ctx[in]	VA-API postprocessing context
-/// @param src[in]	source surface to scale
-/// @param dst[in]	destination surface to put result in
+/// @param ctx[in]  VA-API postprocessing context
+/// @param src[in]  source surface to scale
+/// @param dst[in]  destination surface to put result in
 static inline VAStatus VaapiRunScaling(VAContextID ctx, VASurfaceID src, VASurfaceID dst)
 {
     return VaapiPostprocessSurface(ctx, src, dst, NULL, 0, VA_FILTER_SCALING_HQ, VA_PROC_PIPELINE_SUBPICTURES, NULL, 0,
@@ -2960,7 +2941,7 @@ static inline uint8_t VaapiClampToUint8(const int value)
 /// Grab output surface in YUV format and convert to bgra.
 ///
 /// @param decoder[in]	    VA-API decoder
-/// @param src[in]	Source VASurfaceID to grab
+/// @param src[in]  Source VASurfaceID to grab
 /// @param ret_size[out]    size of allocated surface copy
 /// @param ret_width[in,out]	width of output
 /// @param ret_height[in,out]	height of output
@@ -3065,7 +3046,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 /// Grab output surface by utilizing VA-API surface color conversion HW.
 ///
 /// @param decoder[in]	    VA-API decoder
-/// @param src[in]	Source VASurfaceID to grab
+/// @param src[in]  Source VASurfaceID to grab
 /// @param ret_size[out]    size of allocated surface copy
 /// @param ret_width[in,out]	width of output
 /// @param ret_height[in,out]	height of output
@@ -3721,8 +3702,8 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsign
 /// Callback to negotiate the PixelFormat.
 ///
 /// @param fmt	is the list of formats which are supported by the codec,
-///	it is terminated by -1 as 0 is a valid format, the
-///	formats are ordered by quality.
+/// it is terminated by -1 as 0 is a valid format, the
+/// formats are ordered by quality.
 ///
 /// @note + 2 surface for software deinterlace
 ///
@@ -6954,9 +6935,9 @@ void VideoReleaseSurface(VideoHwDecoder * hw_decoder, unsigned surface)
 /// @param hw_decoder	video hardware decoder
 /// @param video_ctx	ffmpeg video codec context
 /// @param fmt	    is the list of formats which are supported by
-///	the codec, it is terminated by -1 as 0 is a
-///	valid format, the formats are ordered by
-///	quality.
+/// the codec, it is terminated by -1 as 0 is a
+/// valid format, the formats are ordered by
+/// quality.
 ///
 enum AVPixelFormat Video_get_format(VideoHwDecoder * hw_decoder, AVCodecContext * video_ctx,
     const enum AVPixelFormat *fmt)

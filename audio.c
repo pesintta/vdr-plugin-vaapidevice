@@ -1,25 +1,8 @@
-//////////////////////////////////////////////////////////////////////////////
+/// Copyright (C) 2009 - 2014 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-/// Copyright (c) 2009 - 2014 by Johns.	 All Rights Reserved.
-///
-/// Contributor(s):
-///
-/// License: AGPLv3
-///
-/// This program is free software: you can redistribute it and/or modify
-/// it under the terms of the GNU Affero General Public License as
-/// published by the Free Software Foundation, either version 3 of the
-/// License.
-///
-/// This program is distributed in the hope that it will be useful,
-/// but WITHOUT ANY WARRANTY; without even the implied warranty of
-/// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-/// GNU Affero General Public License for more details.
-///
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
-///
-/// @defgroup Audio The audio module.
 ///
 /// This module contains all audio output functions.
 ///
@@ -30,9 +13,6 @@
 ///
 /// OSS PCM/Mixer api is supported.
 /// @see http://manuals.opensound.com/developer/
-///
-///
-/// @todo FIXME: there can be problems with little/big endian.
 ///
 
 #define USE_AUDIO_THREAD		///< use thread for audio playback
@@ -174,12 +154,12 @@ static int AudioChannelsInHw[9];	///< table which channels are supported
 enum _audio_rates
 {					///< sample rates enumeration
     // HW: 32000 44100 48000 88200 96000 176400 192000
-    //Audio32000,	    ///< 32.0Khz
+    //Audio32000,   ///< 32.0Khz
     Audio44100,				///< 44.1Khz
     Audio48000,				///< 48.0Khz
-    //Audio88200,	    ///< 88.2Khz
-    //Audio96000,	    ///< 96.0Khz
-    //Audio176400,	    ///< 176.4Khz
+    //Audio88200,   ///< 88.2Khz
+    //Audio96000,   ///< 96.0Khz
+    //Audio176400,  ///< 176.4Khz
     Audio192000,			///< 192.0Khz
     AudioRatesMax			///< max index
 };

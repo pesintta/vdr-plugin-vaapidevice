@@ -1,22 +1,7 @@
-//////////////////////////////////////////////////////////////////////////////
+/// Copyright (C) 2011 - 2015 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-/// Copyright (c) 2011 - 2015 by Johns.	 All Rights Reserved.
-///
-/// Contributor(s):
-///
-/// License: AGPLv3
-///
-/// This program is free software: you can redistribute it and/or modify
-/// it under the terms of the GNU Affero General Public License as
-/// published by the Free Software Foundation, either version 3 of the
-/// License.
-///
-/// This program is distributed in the hope that it will be useful,
-/// but WITHOUT ANY WARRANTY; without even the implied warranty of
-/// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-/// GNU Affero General Public License for more details.
-///
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 #define noDUMP_TRICKSPEED		///< dump raw trickspeed packets
 
@@ -1154,7 +1139,7 @@ enum
 typedef struct _pes_demux_
 {
     //int Pid;	    ///< packet id
-    //int PcrPid;	///< program clock reference pid
+    //int PcrPid;   ///< program clock reference pid
     int StreamType;			///< stream type
 
     int State;				///< parsing state
@@ -1340,7 +1325,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 
 		    while (!*check) {	// count leading zeros
 			if (l < 3) {
-//	Warning(_("[softhddev] empty video packet %d bytes\n"), n);
+//  Warning(_("[softhddev] empty video packet %d bytes\n"), n);
 			    z = 0;
 			    break;
 			}
