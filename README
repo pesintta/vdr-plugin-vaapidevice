@@ -18,13 +18,12 @@ A VA-API output device plugin for VDR.
     o Based on softhddevice by Johns: http://projects.vdr-developer.org/projects/plg-softhddevice
     o Video decoder CPU / VAAPI
     o Video output VAAPI
-    o Audio FFMpeg / Alsa / Analog
-    o Audio FFMpeg / Alsa / Digital
+    o Audio FFMpeg / Alsa / Analog / Digital
     o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
     o VDR ScaleVideo API
     o Autocrop
-    o Grab image
+    o Grab image (no OSD!)
     o Suspend / Detach
     o Letterbox, Stretch and Center cut-out video display modes
 
@@ -237,8 +236,7 @@ Commandline:
 SVDRP:
 ------
 
-	Use 'svdrpsend.pl plug vaapidevice HELP'
-	or 'svdrpsend plug vaapidevice HELP' to see the SVDRP commands help
+	Use 'svdrpsend plug vaapidevice HELP' to see the SVDRP commands help
 	and which are supported by the plugin.
 
 Keymacros:
@@ -271,42 +269,36 @@ Running:
 	Click into video window to toggle fullscreen/window mode, only if you
 	have a window manager running.
 
-Warning:
---------
-	libav is not supported, expect many bugs with it.
-
-Known Bugs:
------------
-	VA-API doesn't v-sync h264 interlaced streams
-	vdr-image not working
-
 Requires:
 ---------
-	media-video/vdr (version >=1.7.xx)
+	media-video/vdr (version >=2.2.0)
 		Video Disk Recorder - turns a pc into a powerful set top box
 		for DVB.
 		http://www.tvdr.de/
 
-	media-video/ffmpeg (version >=0.7)
+	media-video/ffmpeg (version >=3.2)
 		Complete solution to record, convert and stream audio and
 		video. Includes libavcodec and libswresample.
 		http://ffmpeg.org
+
 	media-libs/alsa-lib
 		Advanced Linux Sound Architecture Library
 		http://www.alsa-project.org
     or
 	kernel support for oss/oss4 or alsa oss emulation
 
-	x11-libs/libva
+	x11-libs/libva (version >=2.0.0)
 		Video Acceleration (VA) API for Linux
 		http://www.freedesktop.org/wiki/Software/vaapi
-	x11-libs/libva-intel-driver
+
+	x11-libs/libva-intel-driver (version >=2.0.0)
 		HW video decode support for Intel integrated graphics
 		http://www.freedesktop.org/wiki/Software/vaapi
 
 	x11-libs/libxcb,
 		X C-language Bindings library
 		http://xcb.freedesktop.org
+
 	x11-libs/xcb-util,
 	x11-libs/xcb-util-wm,
 	x11-libs/xcb-util-keysyms
@@ -317,6 +309,3 @@ Requires:
 	x11-libs/libX11
 		X.Org X11 library
 		http://xorg.freedesktop.org
-
-	GNU Make 3.xx
-		http://www.gnu.org/software/make/make.html

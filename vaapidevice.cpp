@@ -29,11 +29,8 @@ extern "C"
 #include "misc.h"
 }
 
-#if APIVERSNUM >= 20301
-#define MURKS ->
-#else
-#define MURKS .
-#define LOCK_CHANNELS_READ	do { } while (0)
+#if defined(APIVERSNUM) && APIVERSNUM < 20200
+#error "VDR-2.2.0 API version or greater is required!"
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -48,7 +45,7 @@ static const char *const VERSION = "1.0.0"
     ;
 
     /// vdr-plugin description.
-static const char *const DESCRIPTION = trNOOP("VA-API output device");
+static const char *const DESCRIPTION = trNOOP("VA-API Output Device");
 
     /// vdr-plugin text of main menu entry
 static const char *MAINMENUENTRY = trNOOP("VA-API Device");
