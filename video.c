@@ -148,7 +148,7 @@ typedef enum _video_deinterlace_modes_
 } VideoDeinterlaceModes;
 
 ///
-/// Video scaleing modes.
+/// Video scaling modes.
 ///
 typedef enum _video_scaling_modes_
 {
@@ -241,8 +241,6 @@ typedef struct _video_config_values_
 #define CODEC_SURFACES_MAX	31	    ///< maximal of surfaces
 
 #define CODEC_SURFACES_DEFAULT	21	///< default of surfaces
-// FIXME: video-xvba only supports 14
-#define xCODEC_SURFACES_DEFAULT	14	///< default of surfaces
 
 #define CODEC_SURFACES_MPEG2	3	///< 1 decode, up to  2 references
 #define CODEC_SURFACES_MPEG4	3	///< 1 decode, up to  2 references
@@ -1450,9 +1448,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 //  VA-API
 //----------------------------------------------------------------------------
 
-static char VaapiBuggyXvBA;		///< fix xvba-video bugs
-static char VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
-
 static VADisplay *VaDisplay;		///< VA-API display
 
 static VAImage VaOsdImage = {
@@ -1808,19 +1803,14 @@ static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
 	surface = decoder->SurfacesFree[i];
 	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status)
 	    != VA_STATUS_SUCCESS) {
-	    // this fails with XvBA und mpeg softdecoder
-	    if (!VaapiBuggyXvBA) {
-		Error("video/vaapi: vaQuerySurface failed");
-	    }
+	    // this fails with mpeg softdecoder
+	    Error("video/vaapi: vaQuerySurface failed");
 	    status = VASurfaceReady;
 	}
 	// surface still in use, try next
 	if (status != VASurfaceReady) {
 	    Debug(4, "video/vaapi: surface %#010x not ready: %d", surface, status);
-	    if (!VaapiBuggyVdpau || i < 1) {
-		continue;
-	    }
-	    usleep(1 * 1000);
+	    continue;
 	}
 	// copy remaining surfaces down
 	decoder->SurfaceFreeN--;
@@ -2378,17 +2368,6 @@ static int VaapiInit(const char *display_name)
     s = vaQueryVendorString(VaDisplay);
     Info("video/vaapi: libva %d.%d (%s) initialized", major, minor, s);
 
-    //
-    //	Setup fixes for driver bugs.
-    //
-    if (strstr(s, "VDPAU")) {
-	Info("video/vaapi: use vdpau bug workaround");
-	setenv("VDPAU_VIDEO_PUTSURFACE_FAST", "0", 0);
-	VaapiBuggyVdpau = 1;
-    }
-    if (strstr(s, "XvBA")) {
-	VaapiBuggyXvBA = 1;
-    }
     //
     //	check which attributes are supported
     //
