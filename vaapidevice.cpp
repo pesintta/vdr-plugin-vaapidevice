@@ -12,10 +12,6 @@
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
 
-#ifdef HAVE_CONFIG
-#include "config.h"
-#endif
-
 #include "vaapidevice.h"
 
 extern "C"
