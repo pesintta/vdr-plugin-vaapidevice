@@ -523,11 +523,7 @@ void cSoftOsd::Flush(void)
 #endif
 	OsdDrawARGB(xp, yp, w, h, stride, pm->Data(), x, y);
 
-#if APIVERSNUM >= 20110
 	DestroyPixmap(pm);
-#else
-	delete pm;
-#endif
     }
     Dirty = 0;
 }
@@ -1577,11 +1573,7 @@ class cVaapiDevice:public cDevice
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
     virtual bool SetPlayMode(ePlayMode);
-#if APIVERSNUM >= 20103
     virtual void TrickSpeed(int, bool);
-#else
-    virtual void TrickSpeed(int);
-#endif
     virtual void Clear(void);
     virtual void Play(void);
     virtual void Freeze(void);
@@ -1590,10 +1582,8 @@ class cVaapiDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
-#if APIVERSNUM >= 10733
     virtual cRect CanScaleVideo(const cRect &, int = taCenter);
     virtual void ScaleVideo(const cRect & = cRect::Null);
-#endif
     virtual void SetVideoDisplayFormat(eVideoDisplayFormat);
     virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
@@ -1752,21 +1742,12 @@ int64_t cVaapiDevice::GetSTC(void)
 **	@param speed	trick speed
 **	@param forward	flag forward direction
 */
-#if APIVERSNUM >= 20103
 void cVaapiDevice::TrickSpeed(int speed, bool forward)
 {
     Debug(3, "[vaapidevice]%s: %d %d\n", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
-#else
-void cVaapiDevice::TrickSpeed(int speed)
-{
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, speed);
-
-    ::TrickSpeed(speed);
-}
-#endif
 
 /**
 **	Clears all video and audio data from the device.
@@ -2014,8 +1995,6 @@ uchar *cVaapiDevice::GrabImage(int &size, bool jpeg, int quality, int width, int
     return::GrabImage(&size, jpeg, quality, width, height);
 }
 
-#if APIVERSNUM >= 10733
-
 /**
 **	Ask the output, if it can scale video.
 **
@@ -2040,8 +2019,6 @@ void cVaapiDevice::ScaleVideo(const cRect & rect)
 #endif
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
-
-#endif
 
 /**
 **	Call rgb to jpeg for C Plugin.
