@@ -4406,84 +4406,6 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     usleep(1 * 1000);
 }
 
-#define noUSE_VECTOR			///< use gcc vector extension
-#ifdef USE_VECTOR
-
-typedef char v16qi __attribute__ ((vector_size(16)));
-typedef char v8qi __attribute__ ((vector_size(8)));
-typedef int16_t v4hi __attribute__ ((vector_size(4)));
-typedef int16_t v8hi __attribute__ ((vector_size(8)));
-
-///
-/// ELA Edge-based Line Averaging
-/// Low-Complexity Interpolation Method
-///
-/// abcdefg    abcdefg	abcdefg	 abcdefg    abcdefg
-///    x     x	  x x	 x
-/// hijklmn  hijklmn	hijklmn	   hijklmn   hijklmn
-///
-static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width, int above, int below, int next)
-{
-    int x;
-
-    // 8/16 128bit xmm register
-
-    for (x = 0; x < width; x += 8) {
-	v8qi c;
-	v8qi d;
-	v8qi e;
-	v8qi j;
-	v8qi k;
-	v8qi l;
-	v8qi t1;
-	v8qi t2;
-	v8qi pred;
-	v8qi score_l;
-	v8qi score_h;
-	v8qi t_l;
-	v8qi t_h;
-	v8qi zero;
-
-	// ignore bound violation
-	d = *(v8qi *) & cur[above + x];
-	k = *(v8qi *) & cur[below + x];
-	pred = __builtin_ia32_pavgb(d, k);
-
-	// score = ABS(c - j) + ABS(d - k) + ABS(e - l);
-	c = *(v8qi *) & cur[above + x - 1 * next];
-	e = *(v8qi *) & cur[above + x + 1 * next];
-	j = *(v8qi *) & cur[below + x - 1 * next];
-	l = *(v8qi *) & cur[below + x + 1 * next];
-
-	t1 = __builtin_ia32_psubusb(c, j);
-	t2 = __builtin_ia32_psubusb(j, c);
-	t1 = __builtin_ia32_pmaxub(t1, t2);
-	zero ^= zero;
-	score_l = __builtin_ia32_punpcklbw(t1, zero);
-	score_h = __builtin_ia32_punpckhbw(t1, zero);
-
-	t1 = __builtin_ia32_psubusb(d, k);
-	t2 = __builtin_ia32_psubusb(k, d);
-	t1 = __builtin_ia32_pmaxub(t1, t2);
-	t_l = __builtin_ia32_punpcklbw(t1, zero);
-	t_h = __builtin_ia32_punpckhbw(t1, zero);
-	score_l = __builtin_ia32_paddw(score_l, t_l);
-	score_h = __builtin_ia32_paddw(score_h, t_h);
-
-	t1 = __builtin_ia32_psubusb(e, l);
-	t2 = __builtin_ia32_psubusb(l, e);
-	t1 = __builtin_ia32_pmaxub(t1, t2);
-	t_l = __builtin_ia32_punpcklbw(t1, zero);
-	t_h = __builtin_ia32_punpckhbw(t1, zero);
-	score_l = __builtin_ia32_paddw(score_l, t_l);
-	score_h = __builtin_ia32_paddw(score_h, t_h);
-
-	*(v8qi *) & dst[x] = pred;
-    }
-}
-
-#else
-
     /// Return the absolute value of an integer.
 #define ABS(i)	((i) >= 0 ? (i) : (-(i)))
 
@@ -4547,8 +4469,6 @@ static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width, int
 	dst[x + 0] = spatial_pred;
     }
 }
-
-#endif
 
 ///
 /// Vaapi spatial deinterlace.
