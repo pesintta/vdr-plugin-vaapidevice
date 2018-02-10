@@ -104,30 +104,12 @@ typedef enum
 #endif
 
 // support old ffmpeg versions <1.0
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
-#define AVCodecID CodecID
-#define AV_CODEC_ID_H263 CODEC_ID_H263
-#define AV_CODEC_ID_H264 CODEC_ID_H264
-#define AV_CODEC_ID_MPEG1VIDEO CODEC_ID_MPEG1VIDEO
-#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
-#define AV_CODEC_ID_MPEG4 CODEC_ID_MPEG4
-#define AV_CODEC_ID_VC1 CODEC_ID_VC1
-#define AV_CODEC_ID_WMV3 CODEC_ID_WMV3
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
+#error "libavcodec is too old - please, upgrade!"
 #endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/hwcontext.h>
-
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,86,100) && \
-    LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,60,100)
-    ///
-    /// ffmpeg version 1.1.1 calls get_format with zero width and height
-    /// for H264 codecs.
-    /// since version 1.1.3 get_format is called twice.
-    /// ffmpeg 1.2 still buggy
-    ///
-#define FFMPEG_BUG1_WORKAROUND		///< get_format bug workaround
-#endif
 
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
@@ -469,16 +451,6 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
     //	Get duration for this frame.
     //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
     //
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,13,100)
-    // version for older ffmpeg without framerate
-    if (video_ctx->time_base.num && video_ctx->time_base.den) {
-	duration = (video_ctx->ticks_per_frame * 1000 * video_ctx->time_base.num) / video_ctx->time_base.den;
-    } else {
-	duration = interlaced ? 40 : 20;    // 50Hz -> 20ms default
-    }
-    Debug(4, "video: %d/%d %" PRIx64 " -> %d", video_ctx->time_base.den, video_ctx->time_base.num,
-	av_frame_get_pkt_duration(frame), duration);
-#else
     if (video_ctx->framerate.num && video_ctx->framerate.den) {
 	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
     } else {
@@ -486,7 +458,6 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
     }
     Debug(4, "video: %d/%d %" PRIx64 " -> %d", video_ctx->framerate.den, video_ctx->framerate.num,
 	av_frame_get_pkt_duration(frame), duration);
-#endif
 
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
@@ -3597,47 +3568,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 ///
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
-#ifdef FFMPEG_BUG1_WORKAROUND
-    // get_format not called with valid informations.
-    if (video_ctx->width != decoder->InputWidth || video_ctx->height != decoder->InputHeight) {
-	VAStatus status;
-
-	decoder->InputWidth = video_ctx->width;
-	decoder->InputHeight = video_ctx->height;
-	decoder->InputAspect = video_ctx->sample_aspect_ratio;
-
-	VaapiSetup(decoder, video_ctx);
-
-	// create a configuration for the decode pipeline
-	if ((status =
-		vaCreateConfig(decoder->VaDisplay, decoder->Profile, decoder->Entrypoint, NULL, 0,
-		    &decoder->VaapiContext->config_id))) {
-	    Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
-	    // bind surfaces to context
-	} else if ((status =
-		vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id, video_ctx->width,
-		    video_ctx->height, VA_PROGRESSIVE, decoder->SurfacesFree, decoder->SurfaceFreeN,
-		    &decoder->VaapiContext->context_id))) {
-	    Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
-	}
-
-	status =
-	    vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
-	}
-	status =
-	    vaCreateContext(decoder->VaDisplay, decoder->VppConfig, video_ctx->width, video_ctx->height,
-	    VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
-	}
-	// FIXME: too late to switch to software rending on failures
-	VaapiSetupVideoProcessing(decoder);
-    }
-#else
     (void)video_ctx;
-#endif
     return VaapiGetSurface0(decoder);
 }
 
@@ -3856,7 +3787,6 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
 
-#ifndef FFMPEG_BUG1_WORKAROUND
     if (video_ctx->width && video_ctx->height) {
 	VAStatus status;
 
@@ -3895,7 +3825,6 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 
 	VaapiSetupVideoProcessing(decoder);
     }
-#endif
 
     Debug(3, "\t%#010x %s", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
     return *fmt_idx;
@@ -5199,21 +5128,12 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	decoder->SurfaceField = 0;
     }
     // update aspect ratio changes
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,60,100)
     if (decoder->InputWidth && decoder->InputHeight && av_cmp_q(decoder->InputAspect, frame->sample_aspect_ratio)) {
 	Debug(3, "video/vaapi: aspect ratio changed");
 
 	decoder->InputAspect = frame->sample_aspect_ratio;
 	VaapiUpdateOutput(decoder);
     }
-#else
-    if (decoder->InputWidth && decoder->InputHeight && av_cmp_q(decoder->InputAspect, video_ctx->sample_aspect_ratio)) {
-	Debug(3, "video/vaapi: aspect ratio changed");
-
-	decoder->InputAspect = video_ctx->sample_aspect_ratio;
-	VaapiUpdateOutput(decoder);
-    }
-#endif
 
     //
     // Hardware render

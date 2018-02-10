@@ -21,18 +21,9 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/mem.h>
-// support old ffmpeg versions <1.0
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
-#define AVCodecID CodecID
-#define AV_CODEC_ID_AAC CODEC_ID_AAC
-#define AV_CODEC_ID_AAC_LATM CODEC_ID_AAC_LATM
-#define AV_CODEC_ID_AC3 CODEC_ID_AC3
-#define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
-#define AV_CODEC_ID_H264 CODEC_ID_H264
-#define AV_CODEC_ID_MP2 CODEC_ID_MP2
-#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
-#define AV_CODEC_ID_NONE CODEC_ID_NONE
-#define AV_CODEC_ID_PCM_DVD CODEC_ID_PCM_DVD
+
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
+#error "libavcodec is too old - please, upgrade!"
 #endif
 
 #ifndef __USE_GNU

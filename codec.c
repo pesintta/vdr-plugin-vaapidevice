@@ -27,14 +27,11 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/mem.h>
-// support old ffmpeg versions <1.0
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,18,102)
-#define AVCodecID CodecID
-#define AV_CODEC_ID_AC3 CODEC_ID_AC3
-#define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
-#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
-#define AV_CODEC_ID_H264 CODEC_ID_H264
+
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
+#error "libavcodec is too old - please, upgrade!"
 #endif
+
 #include <libavcodec/vaapi.h>
 #ifdef USE_SWRESAMPLE
 #include <libswresample/swresample.h>
@@ -60,13 +57,7 @@
 
 //----------------------------------------------------------------------------
 
-    // correct is AV_VERSION_INT(56,35,101) but some gentoo i* think
-    // they must change it.
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,26,100)
-    /// ffmpeg 2.6 started to show artifacts after channel switch
-    /// to SDTV channels
 #define FFMPEG_WORKAROUND_ARTIFACTS	1
-#endif
 
 //----------------------------------------------------------------------------
 //  Global
@@ -105,17 +96,6 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enu
     VideoDecoder *decoder;
 
     decoder = video_ctx->opaque;
-#if LIBAVCODEC_VERSION_INT == AV_VERSION_INT(54,86,100)
-    // this begins to stink, 1.1.2 calls get_format for each frame
-    // 1.1.3 has the same version, but works again
-    if (decoder->GetFormatDone) {
-	if (decoder->GetFormatDone < 10) {
-	    ++decoder->GetFormatDone;
-	    Error("codec/video: ffmpeg/libav buggy: get_format called again");
-	}
-	return *fmt;			// FIXME: this is hack
-    }
-#endif
 
     // bug in ffmpeg 1.1.1, called with zero width or height
     if (!video_ctx->width || !video_ctx->height) {
@@ -142,10 +122,6 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 
     decoder = video_ctx->opaque;
 
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(54,86,100)
-    // ffmpeg has this already fixed
-    // libav 0.8.5 53.35.0 still needs this
-#endif
     if (!decoder->GetFormatDone) {	// get_format missing
 	enum AVPixelFormat fmts[2];
 
@@ -160,27 +136,11 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 
 	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
 
-	//Debug(3, "codec: use surface %#010x", surface);
-
-#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,48,101)
-	frame->type = FF_BUFFER_TYPE_USER;
-#endif
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
-	frame->age = 256 * 256 * 256 * 64;
-#endif
 	// vaapi needs both fields set
 	frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
 	frame->data[0] = frame->buf[0]->data;
 	frame->data[3] = frame->data[0];
 
-#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
-	// reordered frames
-	if (video_ctx->pkt) {
-	    frame->pkt_pts = video_ctx->pkt->pts;
-	} else {
-	    frame->pkt_pts = AV_NOPTS_VALUE;
-	}
-#endif
 	return 0;
     }
     //Debug(3, "codec: fallback to default get_buffer");
@@ -271,12 +231,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->thread_count = 1;
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
-    if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
-	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal("codec: can't open video codec!");
-    }
-#else
     if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
 	Debug(3, "codec: video mpeg hack active");
 	// HACK around badly placed checks in mpeg_mc_decode_init
@@ -290,7 +244,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	pthread_mutex_unlock(&CodecLockMutex);
 	Fatal("codec: can't open video codec!");
     }
-#endif
     pthread_mutex_unlock(&CodecLockMutex);
 
     decoder->VideoCtx->opaque = decoder;    // our structure
@@ -318,15 +271,9 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     //
     //	Prepare frame buffer for decoder
     //
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(decoder->Frame = av_frame_alloc())) {
 	Fatal("codec: can't allocate video decoder frame buffer");
     }
-#else
-    if (!(decoder->Frame = avcodec_alloc_frame())) {
-	Fatal("codec: can't allocate video decoder frame buffer");
-    }
-#endif
     // reset buggy ffmpeg/libav flag
     decoder->GetFormatDone = 0;
 #ifdef FFMPEG_WORKAROUND_ARTIFACTS
@@ -342,11 +289,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 void CodecVideoClose(VideoDecoder * video_decoder)
 {
     // FIXME: play buffered data
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_free(&video_decoder->Frame);   // callee does checks
-#else
-    av_freep(&video_decoder->Frame);
-#endif
 
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
@@ -424,9 +367,7 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	}
     }
     // new AVFrame API
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_unref(frame);
-#endif
 }
 
 /**
@@ -460,9 +401,7 @@ struct _audio_decoder_
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
 
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     AVFrame *Frame;			///< decoded audio frame buffer
-#endif
 
 #if !defined(USE_SWRESAMPLE) && !defined(USE_AVRESAMPLE)
     ReSampleContext *ReSample;		///< old resampling context
@@ -533,11 +472,9 @@ AudioDecoder *CodecAudioNewDecoder(void)
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
 	Fatal("codec: can't allocate audio decoder");
     }
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(audio_decoder->Frame = av_frame_alloc())) {
 	Fatal("codec: can't allocate audio decoder frame buffer");
     }
-#endif
 
     return audio_decoder;
 }
@@ -549,9 +486,7 @@ AudioDecoder *CodecAudioNewDecoder(void)
 */
 void CodecAudioDelDecoder(AudioDecoder * decoder)
 {
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_free(&decoder->Frame);	// callee does checks
-#endif
     free(decoder);
 }
 
@@ -578,23 +513,10 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
     }
 
     if (CodecDownmix) {
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100)
-	audio_decoder->AudioCtx->request_channels = 2;
-#endif
 	audio_decoder->AudioCtx->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
     }
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,61,100)
-    // this has no effect (with ffmpeg and libav)
-    // audio_decoder->AudioCtx->request_sample_fmt = AV_SAMPLE_FMT_S16;
-#endif
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
-    if (avcodec_open(audio_decoder->AudioCtx, audio_codec) < 0) {
-	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal("codec: can't open audio codec");
-    }
-#else
     {
 	AVDictionary *av_dict = NULL;
 
@@ -608,7 +530,6 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	}
 	av_dict_free(&av_dict);
     }
-#endif
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'", audio_decoder->AudioCodec->long_name);
 
@@ -1461,11 +1382,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx;
 
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
-    AVFrame frame[1];
-#else
     AVFrame *frame;
-#endif
     int got_frame;
     int n;
 
@@ -1474,12 +1391,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     // FIXME: don't need to decode pass-through codecs
 
     // new AVFrame API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
-    avcodec_get_frame_defaults(frame);
-#else
     frame = audio_decoder->Frame;
     av_frame_unref(frame);
-#endif
 
     got_frame = 0;
     n = avcodec_decode_audio4(audio_ctx, frame, &got_frame, (AVPacket *) avpkt);
