@@ -85,9 +85,10 @@ typedef enum
 
 #ifdef USE_VAAPI
 #include <va/va_x11.h>
-#if VA_CHECK_VERSION(0,33,99)
-#include <va/va_vpp.h>
+#if !VA_CHECK_VERSION(1,0,0)
+#error "libva is too old - please, upgrade!"
 #endif
+#include <va/va_vpp.h>
 #ifdef USE_GLX
 #include <va/va_glx.h>
 #endif
@@ -1473,7 +1474,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 
 static char VaapiBuggyXvBA;		///< fix xvba-video bugs
 static char VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
-static char VaapiBuggyIntel;		///< fix libva-driver-intel bugs
 
 static VADisplay *VaDisplay;		///< VA-API display
 
@@ -1484,9 +1484,7 @@ static VAImage VaOsdImage = {
 static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
 
-#if VA_CHECK_VERSION(0,33,99)
 static char VaapiVideoProcessing;	///< supports video processing
-#endif
 
     /// VA-API decoder typedef
 typedef struct _vaapi_decoder_ VaapiDecoder;
@@ -2150,13 +2148,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     decoder->PTS = AV_NOPTS_VALUE;
 
-    // old va-api intel driver didn't supported get/put-image.
-#if VA_CHECK_VERSION(0,33,99)
-    // FIXME: not the exact version with support
     decoder->GetPutImage = 1;
-#else
-    decoder->GetPutImage = !VaapiBuggyIntel;
-#endif
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
 
@@ -2396,13 +2388,8 @@ static int VaapiInit(const char *display_name)
     setenv("DISPLAY", display_name, 1);
 
 #ifndef DEBUG
-#if VA_CHECK_VERSION(1,0,0)
     vaSetErrorCallback(VaDisplay, NULL, NULL);
     vaSetInfoCallback(VaDisplay, NULL, NULL);
-#elif VA_CHECK_VERSION(0,40,0)
-    vaSetErrorCallback(NULL);
-    vaSetInfoCallback(NULL);
-#endif
 #endif
     if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Can't inititialize VA-API on '%s'", display_name);
@@ -2424,9 +2411,6 @@ static int VaapiInit(const char *display_name)
     if (strstr(s, "XvBA")) {
 	VaapiBuggyXvBA = 1;
     }
-    if (strstr(s, "Intel i965")) {
-	VaapiBuggyIntel = 1;
-    }
     //
     //	check which attributes are supported
     //
@@ -2440,7 +2424,6 @@ static int VaapiInit(const char *display_name)
 
     // FIXME: VaapiSetBackground(VideoBackground);
 
-#if VA_CHECK_VERSION(0,33,99)
     //
     //	check vpp support
     //
@@ -2460,7 +2443,6 @@ static int VaapiInit(const char *display_name)
 	    }
 	}
     }
-#endif
     return 1;
 }
 
@@ -3304,7 +3286,6 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 ///
 static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 {
-#if VA_CHECK_VERSION(0,33,99)
     VAStatus va_status;
     VAProcFilterType filtertypes[VAProcFilterCount];
     unsigned filtertype_n;
@@ -3554,8 +3535,6 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     decoder->BackwardRefCount = pipeline_caps.num_backward_references;
 
     //TODO: Verify that rest of the capabilities are set properly
-
-#endif
 }
 
 ///
