@@ -58,9 +58,6 @@ extern void VideoDisplayWakeup(void);
     /// Set video device.
 extern void VideoSetDevice(const char *);
 
-    /// Get used video driver.
-extern int VideoIsDriverVaapi(void);
-
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
 
@@ -153,10 +150,6 @@ extern void VideoSetCutTopBottom(int[]);
 
     /// Set cut left and right.
 extern void VideoSetCutLeftRight(int[]);
-
-    /// Set first & second field ordering.
-extern void VideoSetFirstField(int[]);
-extern void VideoSetSecondField(int[]);
 
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);

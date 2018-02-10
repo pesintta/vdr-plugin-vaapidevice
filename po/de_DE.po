@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-10 16:34+0200\n"
+"POT-Creation-Date: 2018-02-10 19:40+0200\n"
 "PO-Revision-Date: 2018-02-10 16:34+0200\n"
 "Last-Translator: <unknown>\n"
 "Language-Team: <german>\n"
@@ -118,12 +118,6 @@ msgstr "Schneide oben und unten ab (Pixel)"
 
 msgid "Cut left and right (pixel)"
 msgstr "Schneide links und rechts ab (Pixel)"
-
-msgid "First field order (0-2)"
-msgstr ""
-
-msgid "Second field order (0-2)"
-msgstr ""
 
 msgid "Auto-crop"
 msgstr ""

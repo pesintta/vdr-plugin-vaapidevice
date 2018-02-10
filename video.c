@@ -345,12 +345,6 @@ static int VideoCutTopBottom[VideoResolutionMax];
     /// Default cut left and right in pixels
 static int VideoCutLeftRight[VideoResolutionMax];
 
-    /// Default field ordering for first field
-static int VideoFirstField[VideoResolutionMax];
-
-    /// Default field ordering for second field
-static int VideoSecondField[VideoResolutionMax];
-
     /// Color space ITU-R BT.601, ITU-R BT.709, ...
 static const VideoColorSpace VideoColorSpaces[VideoResolutionMax] = {
     VideoColorSpaceBt601, VideoColorSpaceBt709, VideoColorSpaceBt709,
@@ -4230,7 +4224,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface, int s
     }
 
     /* Queue the first field */
-    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[VideoFirstField[decoder->Resolution]];
+    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[0];
     decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
     decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
     atomic_inc(&decoder->SurfacesFilled);
@@ -4248,8 +4242,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface, int s
 
 	    VaapiAddToHistoryQueue(decoder->SecondFieldHistory, *secondfield);
 	}
-	decoder->SurfacesRb[decoder->SurfaceWrite] =
-	    decoder->SecondFieldHistory[VideoSecondField[decoder->Resolution]];
+	decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->SecondFieldHistory[0];
 	decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
 	decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
 	atomic_inc(&decoder->SurfacesFilled);
@@ -7051,18 +7044,6 @@ void VideoSetDevice(const char *device)
     VideoDriverName = device;
 }
 
-int VideoIsDriverVaapi(void)
-{
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
-    if (VideoUsedModule == &VaapiModule) {
-#endif
-	return 1;
-    }
-    return 0;
-}
-
 ///
 /// Set video geometry.
 ///
@@ -7743,32 +7724,6 @@ void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
     VideoCutLeftRight[3] = pixels[3];
     VideoCutLeftRight[4] = pixels[4];
     // FIXME: update output
-}
-
-///
-/// Set first field ordering.
-///
-/// @param first    table with VideoResolutionMax values
-///
-void VideoSetFirstField(int first[VideoResolutionMax])
-{
-    VideoFirstField[0] = first[0];
-    VideoFirstField[1] = first[1];
-    VideoFirstField[2] = first[2];
-    VideoFirstField[3] = first[3];
-}
-
-///
-/// Set second field ordering.
-///
-/// @param second   table with VideoResolutionMax values
-///
-void VideoSetSecondField(int second[VideoResolutionMax])
-{
-    VideoSecondField[0] = second[0];
-    VideoSecondField[1] = second[1];
-    VideoSecondField[2] = second[2];
-    VideoSecondField[3] = second[3];
 }
 
 ///
