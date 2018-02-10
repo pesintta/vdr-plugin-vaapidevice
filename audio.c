@@ -15,8 +15,6 @@
 /// @see http://manuals.opensound.com/developer/
 ///
 
-#define USE_AUDIO_MIXER			///< use audio module mixer
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -370,8 +368,6 @@ static void AudioSoftAmplifier(int16_t * samples, int count)
     }
 }
 
-#ifdef USE_AUDIO_MIXER
-
 /**
 **	Upmix mono to stereo.
 **
@@ -570,8 +566,6 @@ static void AudioResample(const int16_t * in, int in_chan, int frames, int16_t *
 	    break;
     }
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 //  ring buffer
@@ -2114,19 +2108,9 @@ void AudioEnqueue(const void *samples, int count)
 	// just use a temporary buffer
 	frames = count / (AudioRing[AudioRingWrite].InChannels * AudioBytesProSample);
 	buffer = alloca(frames * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
-#ifdef USE_AUDIO_MIXER
 	// Convert / resample input to hardware format
 	AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames, buffer,
 	    AudioRing[AudioRingWrite].HwChannels);
-#else
-#ifdef DEBUG
-	if (AudioRing[AudioRingWrite].InChannels != AudioRing[AudioRingWrite].HwChannels) {
-	    Debug(3, "audio: internal failure channels mismatch");
-	    return;
-	}
-#endif
-	memcpy(buffer, samples, count);
-#endif
 	count = frames * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
 
 	if (AudioCompression) {		// in place operation
