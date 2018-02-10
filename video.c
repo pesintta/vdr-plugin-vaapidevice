@@ -22,7 +22,6 @@
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
 
-#define USE_VIDEO_THREAD		///< run decoder in an own thread
 //#define USE_VIDEO_THREAD2 ///< run decoder+display in own threads
 
 #include <sys/time.h>
@@ -36,10 +35,8 @@
 #include <unistd.h>
 #include <math.h>
 
-#ifdef USE_VIDEO_THREAD
 #ifndef __USE_GNU
 #define __USE_GNU
-#endif
 #include <pthread.h>
 #include <time.h>
 #include <signal.h>
@@ -387,16 +384,12 @@ extern uint32_t VideoSwitch;		///< ticks for channel switch
 extern void AudioVideoReady(int64_t);	///< tell audio video is ready
 extern int IsReplay(void);
 
-#ifdef USE_VIDEO_THREAD
-
 static pthread_t VideoThread;		///< video decode thread
 static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
 static pthread_mutex_t VideoMutex;	///< video condition mutex
 static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 extern pthread_mutex_t PTS_mutex;	///< PTS mutex
 extern pthread_mutex_t ReadAdvance_mutex;   ///< PTS mutex
-
-#endif
 
 #ifdef USE_VIDEO_THREAD2
 
@@ -643,9 +636,7 @@ static int GlxVSyncEnabled;		///< enable/disable v-sync
 static GLXContext GlxSharedContext;	///< shared gl context
 static GLXContext GlxContext;		///< our gl context
 
-#ifdef USE_VIDEO_THREAD
 static GLXContext GlxThreadContext;	///< our gl context for the thread
-#endif
 
 static GLXFBConfig *GlxFBConfigs;	///< our gl fb configs
 static XVisualInfo *GlxVisualInfo;	///< our gl visual
@@ -3161,7 +3152,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 	GLXContext prevcontext = glXGetCurrentContext();
 
 	if (!prevcontext) {
-#ifdef USE_VIDEO_THREAD
 	    if (GlxThreadContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
 		    GlxThreadContext);
@@ -3169,7 +3159,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 		    Fatal("video/glx: can't make glx context current");
 		}
 	    } else
-#endif
 	    if (GlxContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxThreadContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
@@ -5318,7 +5307,6 @@ static void VaapiDisplayFrame(void)
 	GLXContext prevcontext = glXGetCurrentContext();
 
 	if (!prevcontext) {
-#ifdef USE_VIDEO_THREAD
 	    if (GlxThreadContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
 		    GlxThreadContext);
@@ -5326,7 +5314,6 @@ static void VaapiDisplayFrame(void)
 		    Fatal("video/glx: can't make glx context current");
 		}
 	    } else
-#endif
 	    if (GlxContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
@@ -5688,8 +5675,6 @@ static void VaapiSetOutputPosition(VaapiDecoder * decoder, int x, int y, int wid
     decoder->VideoHeight = height;
 }
 
-#ifdef USE_VIDEO_THREAD
-
 ///
 /// Handle a va-api display.
 ///
@@ -5757,12 +5742,6 @@ static void VaapiDisplayHandlerThread(void)
     VaapiSyncDisplayFrame();
     pthread_mutex_unlock(&VideoLockMutex);
 }
-
-#else
-
-#define VaapiDisplayHandlerThread	NULL
-
-#endif
 
 //----------------------------------------------------------------------------
 //  VA-API OSD
@@ -6170,8 +6149,6 @@ static int NoopInit(const char *display_name)
     return 1;
 }
 
-#ifdef USE_VIDEO_THREAD
-
 ///
 /// Handle a noop display.
 ///
@@ -6180,12 +6157,6 @@ static void NoopDisplayHandlerThread(void)
     // avoid 100% cpu use
     usleep(20 * 1000);
 }
-
-#else
-
-#define NoopDisplayHandlerThread	NULL
-
-#endif
 
 ///
 /// Noop void function.
@@ -6368,14 +6339,12 @@ static int VideoIOErrorHandler( __attribute__ ((unused)) Display * display)
 	VideoUsedModule = &NoopModule;
 	XlibDisplay = NULL;
 	VideoWindow = XCB_NONE;
-#ifdef USE_VIDEO_THREAD
 	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 	pthread_cond_destroy(&VideoWakeupCond);
 	pthread_mutex_destroy(&VideoLockMutex);
 	pthread_mutex_destroy(&VideoMutex);
 	VideoThread = 0;
 	pthread_exit("video thread exit");
-#endif
     }
     do {
 	sleep(1000);
@@ -6504,8 +6473,6 @@ void VideoPollEvent(void)
 //  Thread
 //----------------------------------------------------------------------------
 
-#ifdef USE_VIDEO_THREAD
-
 ///
 /// Lock video thread.
 ///
@@ -6622,8 +6589,6 @@ void VideoDisplayWakeup(void)
 	VideoThreadInit();
     }
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 //  Video API
@@ -8030,9 +7995,7 @@ void VideoExit(void)
     if (!XlibDisplay) {			// no init or failed
 	return;
     }
-#ifdef USE_VIDEO_THREAD
     VideoThreadExit();
-#endif
     VideoUsedModule->Exit();
     VideoUsedModule = &NoopModule;
 #ifdef USE_GLX
