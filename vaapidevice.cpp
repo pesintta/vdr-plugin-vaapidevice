@@ -250,10 +250,6 @@ volatile char cSoftOsd::Dirty;		///< flag force redraw everything
 */
 void cSoftOsd::SetActive(bool on)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d level %d\n", __FUNCTION__, on, OsdLevel);
-#endif
-
     if (Active() == on) {
 	return;				// already active, no action
     }
@@ -282,12 +278,6 @@ void cSoftOsd::SetActive(bool on)
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
 {
-#ifdef OSD_DEBUG
-    /* FIXME: OsdWidth/OsdHeight not correct!
-     */
-    Debug(3, "[vaapidevice]%s: %dx%d%+d%+d, %d\n", __FUNCTION__, OsdWidth(), OsdHeight(), left, top, level);
-#endif
-
     OsdLevel = level;
 }
 
@@ -298,10 +288,6 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 */
 cSoftOsd::~cSoftOsd(void)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: level %d\n", __FUNCTION__, OsdLevel);
-#endif
-
     SetActive(false);
     // done by SetActive: OsdClose();
 }
@@ -311,10 +297,6 @@ cSoftOsd::~cSoftOsd(void)
 */
 eOsdError cSoftOsd::SetAreas(const tArea * areas, int n)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d areas \n", __FUNCTION__, n);
-#endif
-
     // clear old OSD, when new areas are set
     if (!IsTrueColor()) {
 	cBitmap *bitmap;
@@ -338,10 +320,6 @@ void cSoftOsd::Flush(void)
 {
     cPixmapMemory *pm;
 
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: level %d active %d\n", __FUNCTION__, OsdLevel, Active());
-#endif
-
     if (!Active()) {			// this osd is not active
 	return;
     }
@@ -350,14 +328,6 @@ void cSoftOsd::Flush(void)
 	cBitmap *bitmap;
 	int i;
 
-#ifdef OSD_DEBUG
-	static char warned;
-
-	if (!warned) {
-	    Debug(3, "[vaapidevice]%s: FIXME: should be truecolor\n", __FUNCTION__);
-	    warned = 1;
-	}
-#endif
 	// draw all bitmaps
 	for (i = 0; (bitmap = GetBitmap(i)); ++i) {
 	    uint8_t *argb;
@@ -438,9 +408,6 @@ void cSoftOsd::Flush(void)
 		    ((uint32_t *) argb)[x - x1 + (y - y1) * w] = bitmap->GetColor(x, y);
 		}
 	    }
-#ifdef OSD_DEBUG
-	    Debug(3, "[vaapidevice]%s: draw %dx%d%+d%+d bm\n", __FUNCTION__, w, h, xs + x1, ys + y1);
-#endif
 	    OsdDrawARGB(0, 0, w, h, w * sizeof(uint32_t), argb, xs + x1, ys + y1);
 
 	    bitmap->Clean();
@@ -513,10 +480,6 @@ void cSoftOsd::Flush(void)
 	if (h > height - y) {
 	    h = height - y;
 	}
-#ifdef OSD_DEBUG
-	Debug(3, "[vaapidevice]%s: draw %dx%d%+d%+d*%d -> %+d%+d %p\n", __FUNCTION__, w, h, xp, yp, stride, x, y,
-	    pm->Data());
-#endif
 	OsdDrawARGB(xp, yp, w, h, stride, pm->Data(), x, y);
 
 	DestroyPixmap(pm);
@@ -553,10 +516,6 @@ cOsd *cSoftOsdProvider::Osd;		///< single osd
 */
 cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
-#endif
-
     return Osd = new cSoftOsd(left, top, level);
 }
 
@@ -576,9 +535,6 @@ bool cSoftOsdProvider::ProvidesTrueColor(void)
 cSoftOsdProvider::cSoftOsdProvider(void)
 :  cOsdProvider()
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
-#endif
 }
 
 /**
@@ -2010,9 +1966,6 @@ cRect cVaapiDevice::CanScaleVideo(const cRect & rect, __attribute__ ((unused)) i
 */
 void cVaapiDevice::ScaleVideo(const cRect & rect)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, rect.Width(), rect.Height(), rect.X(), rect.Y());
-#endif
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
 
