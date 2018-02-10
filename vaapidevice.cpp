@@ -308,19 +308,6 @@ cSoftOsd::~cSoftOsd(void)
 
     SetActive(false);
     // done by SetActive: OsdClose();
-
-#ifdef USE_YAEPG
-    // support yaepghd, video window
-    if (vidWin.bpp) {			// restore fullsized video
-	int width;
-	int height;
-	double video_aspect;
-
-	::GetOsdSize(&width, &height, &video_aspect);
-	// works osd relative
-	::ScaleVideo(0, 0, width, height);
-    }
-#endif
 }
 
 /**
@@ -362,19 +349,6 @@ void cSoftOsd::Flush(void)
     if (!Active()) {			// this osd is not active
 	return;
     }
-#ifdef USE_YAEPG
-    // support yaepghd, video window
-    if (vidWin.bpp) {
-#ifdef OSD_DEBUG
-	Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, vidWin.Width(), vidWin.Height(), vidWin.x1,
-	    vidWin.y2);
-#endif
-	// FIXME: vidWin is OSD relative not video window.
-	// FIXME: doesn't work if fixed OSD width != real window width
-	// FIXME: solved in VideoSetOutputPosition
-	::ScaleVideo(Left() + vidWin.x1, Top() + vidWin.y1, vidWin.Width(), vidWin.Height());
-    }
-#endif
 
     if (!IsTrueColor()) {
 	cBitmap *bitmap;
