@@ -134,7 +134,7 @@ override CFLAGS	  += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o softhddev.o video.o audio.o codec.o ringbuffer.o
+OBJS = $(PLUGIN).o vaapidev.o video.o audio.o codec.o ringbuffer.o
 
 SRCS = $(wildcard $(OBJS:.o=.c)) $(PLUGIN).cpp
 

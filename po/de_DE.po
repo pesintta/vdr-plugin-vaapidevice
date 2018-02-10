@@ -308,7 +308,7 @@ msgstr ""
 msgid "codec/audio: no frame\n"
 msgstr ""
 
-msgid "[softhddev] out of memory\n"
+msgid "[vaapidevice] out of memory\n"
 msgstr ""
 
 #, c-format
@@ -327,61 +327,61 @@ msgstr ""
 msgid "tsdemux: transport stream out of sync\n"
 msgstr ""
 
-msgid "[softhddev] invalid PES audio packet\n"
+msgid "[vaapidevice] invalid PES audio packet\n"
 msgstr ""
 
-msgid "[softhddev] empty audio packet\n"
-msgstr ""
-
-#, c-format
-msgid "[softhddev] invalid audio packet %d bytes\n"
-msgstr ""
-
-msgid "[softhddev] audio buffer too small\n"
+msgid "[vaapidevice] empty audio packet\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] invalid LPCM audio packet %d bytes\n"
+msgid "[vaapidevice] invalid audio packet %d bytes\n"
+msgstr ""
+
+msgid "[vaapidevice] audio buffer too small\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d bits per sample aren't supported\n"
+msgid "[vaapidevice] invalid LPCM audio packet %d bytes\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d sample-rate is unsupported\n"
+msgid "[vaapidevice] LPCM %d bits per sample aren't supported\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d channels are unsupported\n"
-msgstr ""
-
-msgid "[softhddev] invalid PES video packet\n"
+msgid "[vaapidevice] LPCM %d sample-rate is unsupported\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] %d invalid PES video packet(s)\n"
+msgid "[vaapidevice] LPCM %d channels are unsupported\n"
 msgstr ""
 
-msgid "[softhddev] empty video packet\n"
-msgstr ""
-
-#, c-format
-msgid "[softhddev] invalid video packet %d/%d bytes\n"
+msgid "[vaapidevice] invalid PES video packet\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] empty video packet %d bytes\n"
+msgid "[vaapidevice] %d invalid PES video packet(s)\n"
+msgstr ""
+
+msgid "[vaapidevice] empty video packet\n"
 msgstr ""
 
 #, c-format
-msgid "softhddev: %s called without hw decoder\n"
+msgid "[vaapidevice] invalid video packet %d/%d bytes\n"
 msgstr ""
 
-msgid "[softhddev] invalid still video packet\n"
+#, c-format
+msgid "[vaapidevice] empty video packet %d bytes\n"
 msgstr ""
 
-msgid "[softhddev] no codec known for still picture\n"
+#, c-format
+msgid "vaapidevice: %s called without hw decoder\n"
+msgstr ""
+
+msgid "[vaapidevice] invalid still video packet\n"
+msgstr ""
+
+msgid "[vaapidevice] no codec known for still picture\n"
 msgstr ""
 
 #, c-format
@@ -419,7 +419,7 @@ msgid "x-setup: Failed to start X server '%s'\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] ready%s\n"
+msgid "[vaapidevice] ready%s\n"
 msgstr ""
 
 msgid "VA-API output device"
@@ -428,7 +428,7 @@ msgstr ""
 msgid "VA-API Device"
 msgstr ""
 
-msgid "[softhddev]: dirty area too big\n"
+msgid "[vaapidevice]: dirty area too big\n"
 msgstr ""
 
 msgid "show"
@@ -636,7 +636,7 @@ msgid "auto-crop enabled"
 msgstr ""
 
 #, c-format
-msgid "[softhddev]: hot key %d is not supported\n"
+msgid "[vaapidevice]: hot key %d is not supported\n"
 msgstr ""
 
 msgid "video/glx: can't make glx osd context current\n"

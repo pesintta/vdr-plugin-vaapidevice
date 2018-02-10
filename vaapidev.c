@@ -46,7 +46,7 @@
 
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
-#include "softhddev.h"
+#include "vaapidevice.h"
 
 #include "audio.h"
 #include "video.h"
@@ -549,7 +549,7 @@ static void VideoPacketInit(VideoStream * stream)
 	avpkt = &stream->PacketRb[i];
 	// build a clean ffmpeg av packet
 	if (av_new_packet(avpkt, VIDEO_BUFFER_SIZE)) {
-	    Fatal(_("[softhddev] out of memory\n"));
+	    Fatal(_("[vaapidevice] out of memory\n"));
 	}
     }
 
@@ -1325,7 +1325,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 
 		    while (!*check) {	// count leading zeros
 			if (l < 3) {
-//  Warning(_("[softhddev] empty video packet %d bytes\n"), n);
+//  Warning(_("[vaapidevice] empty video packet %d bytes\n"), n);
 			    z = 0;
 			    break;
 			}
@@ -1404,7 +1404,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			}
 #ifdef noDEBUG				// pip pes packet has no lenght
 			if (ValidateMpeg(q, n)) {
-			    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
+			    Debug(3, "vaapidevice/video: invalid mpeg2 video packet\n");
 			}
 #endif
 			VideoEnqueue(MyVideoStream, pesdx->PTS, check - 2, l + 2);
@@ -1664,16 +1664,16 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
-	Error(_("[softhddev] invalid PES audio packet\n"));
+	Error(_("[vaapidevice] invalid PES audio packet\n"));
 	return size;
     }
     n = data[8];			// header size
 
     if (size < 9 + n + 4) {		// wrong size
 	if (size == 9 + n) {
-	    Warning(_("[softhddev] empty audio packet\n"));
+	    Warning(_("[vaapidevice] empty audio packet\n"));
 	} else {
-	    Error(_("[softhddev] invalid audio packet %d bytes\n"), size);
+	    Error(_("[vaapidevice] invalid audio packet %d bytes\n"), size);
 	}
 	return size;
     }
@@ -1688,7 +1688,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     p = data + 9 + n;
     n = size - 9 - n;			// skip pes header
     if (n + AudioAvPkt->stream_index > AudioAvPkt->size) {
-	Fatal(_("[softhddev] audio buffer too small\n"));
+	Fatal(_("[vaapidevice] audio buffer too small\n"));
 	AudioAvPkt->stream_index = 0;
     }
 
@@ -1700,7 +1700,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
     // Private stream + LPCM ID
     if ((id & 0xF0) == 0xA0) {
 	if (n < 7) {
-	    Error(_("[softhddev] invalid LPCM audio packet %d bytes\n"), size);
+	    Error(_("[vaapidevice] invalid LPCM audio packet %d bytes\n"), size);
 	    return size;
 	}
 	if (AudioCodecID != AV_CODEC_ID_PCM_DVD) {
@@ -1709,13 +1709,13 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    int channels;
 	    int bits_per_sample;
 
-	    Debug(3, "[softhddev]%s: LPCM %d sr:%d bits:%d chan:%d\n", __FUNCTION__, id, p[5] >> 4,
+	    Debug(3, "[vaapidevice]%s: LPCM %d sr:%d bits:%d chan:%d\n", __FUNCTION__, id, p[5] >> 4,
 		(((p[5] >> 6) & 0x3) + 4) * 4, (p[5] & 0x7) + 1);
 	    CodecAudioClose(MyAudioDecoder);
 
 	    bits_per_sample = (((p[5] >> 6) & 0x3) + 4) * 4;
 	    if (bits_per_sample != 16) {
-		Error(_("[softhddev] LPCM %d bits per sample aren't supported\n"), bits_per_sample);
+		Error(_("[vaapidevice] LPCM %d bits per sample aren't supported\n"), bits_per_sample);
 		// FIXME: handle unsupported formats.
 	    }
 	    samplerate = samplerates[p[5] >> 4];
@@ -1725,11 +1725,11 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    AudioSetBufferTime(400);
 	    AudioSetup(&samplerate, &channels, 0);
 	    if (samplerate != samplerates[p[5] >> 4]) {
-		Error(_("[softhddev] LPCM %d sample-rate is unsupported\n"), samplerates[p[5] >> 4]);
+		Error(_("[vaapidevice] LPCM %d sample-rate is unsupported\n"), samplerates[p[5] >> 4]);
 		// FIXME: support resample
 	    }
 	    if (channels != (p[5] & 0x7) + 1) {
-		Error(_("[softhddev] LPCM %d channels are unsupported\n"), (p[5] & 0x7) + 1);
+		Error(_("[vaapidevice] LPCM %d channels are unsupported\n"), (p[5] & 0x7) + 1);
 		// FIXME: support resample
 	    }
 	    //CodecAudioOpen(MyAudioDecoder, AV_CODEC_ID_PCM_DVD);
@@ -1916,13 +1916,13 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     // FIXME: Valgrind-3.8.1 has a problem with this code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
 	if (!stream->InvalidPesCounter++) {
-	    Error(_("[softhddev] invalid PES video packet\n"));
+	    Error(_("[vaapidevice] invalid PES video packet\n"));
 	}
 	return size;
     }
     if (stream->InvalidPesCounter) {
 	if (stream->InvalidPesCounter > 1) {
-	    Error(_("[softhddev] %d invalid PES video packet(s)\n"), stream->InvalidPesCounter);
+	    Error(_("[vaapidevice] %d invalid PES video packet(s)\n"), stream->InvalidPesCounter);
 	}
 	stream->InvalidPesCounter = 0;
     }
@@ -1934,9 +1934,9 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     n = data[8];			// header size
     if (size <= 9 + n) {		// wrong size
 	if (size == 9 + n) {
-	    Warning(_("[softhddev] empty video packet\n"));
+	    Warning(_("[vaapidevice] empty video packet\n"));
 	} else {
-	    Error(_("[softhddev] invalid video packet %d/%d bytes\n"), 9 + n, size);
+	    Error(_("[vaapidevice] invalid video packet %d/%d bytes\n"), 9 + n, size);
 	}
 	return size;
     }
@@ -1957,7 +1957,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     z = 0;
     while (!*check) {			// count leading zeros
 	if (l < 3) {
-	    Warning(_("[softhddev] empty video packet %d bytes\n"), size);
+	    Warning(_("[vaapidevice] empty video packet %d bytes\n"), size);
 	    z = 0;
 	    break;
 	}
@@ -2031,7 +2031,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	}
 #ifdef noDEBUG				// pip pes packet has no lenght
 	if (ValidateMpeg(data, size)) {
-	    Debug(3, "softhddev/video: invalid mpeg2 video packet\n");
+	    Debug(3, "vaapidevice/video: invalid mpeg2 video packet\n");
 	}
 #endif
 	// SKIP PES header, begin of start code
@@ -2249,7 +2249,7 @@ int SetPlayMode(int play_mode)
 	    break;
 	case 2:			       // audio only from player, video from decoder
 	case 3:			       // audio only from player, no video (black screen)
-	    Debug(3, "softhddev: FIXME: audio only, silence video errors\n");
+	    Debug(3, "vaapidevice: FIXME: audio only, silence video errors\n");
 	    VideoDisplayWakeup();
 	    Play();
 	    break;
@@ -2271,7 +2271,7 @@ int64_t GetSTC(void)
 	return VideoGetClock(MyVideoStream->HwDecoder);
     }
     // could happen during dettached
-    Warning(_("softhddev: %s called without hw decoder\n"), __FUNCTION__);
+    Warning(_("vaapidevice: %s called without hw decoder\n"), __FUNCTION__);
     return AV_NOPTS_VALUE;
 }
 
@@ -2302,7 +2302,7 @@ void GetVideoSize(int *width, int *height, double *aspect)
 
 #ifdef DEBUG
     if (done_width != *width || done_height != *height) {
-	Debug(3, "[softhddev]%s: %dx%d %g\n", __FUNCTION__, *width, *height, *aspect);
+	Debug(3, "[vaapidevice]%s: %dx%d %g\n", __FUNCTION__, *width, *height, *aspect);
 	done_width = *width;
 	done_height = *height;
     }
@@ -2324,7 +2324,7 @@ void TrickSpeed(int speed)
 	VideoSetTrickSpeed(MyVideoStream->HwDecoder, speed);
     } else {
 	// can happen, during startup
-	Debug(3, "softhddev: %s called without hw decoder\n", __FUNCTION__);
+	Debug(3, "vaapidevice: %s called without hw decoder\n", __FUNCTION__);
     }
     StreamFreezed = 0;
     MyVideoStream->Freezed = 0;
@@ -2350,7 +2350,7 @@ void Clear(void)
     for (i = 0; MyVideoStream->ClearBuffers && i < 20; ++i) {
 	usleep(1 * 1000);
     }
-    Debug(3, "[softhddev]%s: %dms buffers %d\n", __FUNCTION__, i, VideoGetBuffers(MyVideoStream));
+    Debug(3, "[vaapidevice]%s: %dms buffers %d\n", __FUNCTION__, i, VideoGetBuffers(MyVideoStream));
 }
 
 /**
@@ -2405,7 +2405,7 @@ void StillPicture(const uint8_t * data, int size)
     }
     // must be a PES start code
     if (size < 9 || !data || data[0] || data[1] || data[2] != 0x01) {
-	Error(_("[softhddev] invalid still video packet\n"));
+	Error(_("[vaapidevice] invalid still video packet\n"));
 	return;
     }
 #ifdef STILL_DEBUG
@@ -2422,7 +2422,7 @@ void StillPicture(const uint8_t * data, int size)
 
     if (MyVideoStream->CodecID == AV_CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
-	Error(_("[softhddev] no codec known for still picture\n"));
+	Error(_("[vaapidevice] no codec known for still picture\n"));
     }
     // FIXME: can check video backend, if a frame was produced.
     // output for max reference frames
@@ -2443,7 +2443,7 @@ void StillPicture(const uint8_t * data, int size)
 
 #ifdef DEBUG
 		if (split[0] || split[1] || split[2] != 0x01) {
-		    Error(_("[softhddev] invalid still video packet\n"));
+		    Error(_("[vaapidevice] invalid still video packet\n"));
 		    break;
 		}
 #endif
@@ -2488,7 +2488,7 @@ void StillPicture(const uint8_t * data, int size)
     for (i = 0; VideoGetBuffers(MyVideoStream) && i < 30; ++i) {
 	usleep(10 * 1000);
     }
-    Debug(3, "[softhddev]%s: buffers %d %dms\n", __FUNCTION__, VideoGetBuffers(MyVideoStream), i * 10);
+    Debug(3, "[vaapidevice]%s: buffers %d %dms\n", __FUNCTION__, VideoGetBuffers(MyVideoStream), i * 10);
 #ifdef STILL_DEBUG
     InStillPicture = 0;
 #endif
@@ -2581,7 +2581,7 @@ void GetOsdSize(int *width, int *height, double *aspect)
 
 #ifdef DEBUG
     if (done_width != *width || done_height != *height) {
-	Debug(3, "[softhddev]%s: %dx%d %g\n", __FUNCTION__, *width, *height, *aspect);
+	Debug(3, "[vaapidevice]%s: %dx%d %g\n", __FUNCTION__, *width, *height, *aspect);
 	done_width = *width;
 	done_height = *height;
     }
@@ -2956,7 +2956,7 @@ int Start(void)
     }
     PesInit(&PesDemuxer[TS_PES_VIDEO]);
     PesInit(&PesDemuxer[TS_PES_AUDIO]);
-    Info(_("[softhddev] ready%s\n"),
+    Info(_("[vaapidevice] ready%s\n"),
 	ConfigStartSuspended ? ConfigStartSuspended == -1 ? " detached" : " suspended" : "");
 
     return ConfigStartSuspended;
@@ -3040,7 +3040,7 @@ void Suspend(int video, int audio, int dox11)
 	return;
     }
 
-    Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
 
     // FIXME: should not be correct, if not both are suspended!
     // Move down into if (video) ...
@@ -3077,7 +3077,7 @@ void Resume(void)
 	return;
     }
 
-    Debug(3, "[softhddev]%s:\n", __FUNCTION__);
+    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
 
     pthread_mutex_lock(&SuspendLockMutex);
     // FIXME: start x11
