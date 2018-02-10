@@ -7,4 +7,4 @@
 .chaos
 # generated files
 .dependencies
-libvdr-softhddevice.so*
+libvdr-vaapidevice.so*
