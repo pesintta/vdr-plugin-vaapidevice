@@ -32,7 +32,6 @@ extern VideoHwDecoder *VideoNewHwDecoder(VideoStream *);
     /// Deallocate video hardware decoder.
 extern void VideoDelHwDecoder(VideoHwDecoder *);
 
-#ifdef LIBAVCODEC_VERSION
     /// Get and allocate a video hardware surface.
 extern unsigned VideoGetSurface(VideoHwDecoder *, const AVCodecContext *);
 
@@ -47,7 +46,6 @@ extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *, const AVF
 
     /// Get hwaccel context for ffmpeg.
 extern void *VideoGetHwAccelContext(VideoHwDecoder *);
-#endif
 
     /// Poll video events.
 extern void VideoPollEvent(void);
