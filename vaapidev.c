@@ -1042,9 +1042,9 @@ static int DumpH264(const uint8_t * data, int size)
 */
 static int ValidateMpeg(const uint8_t * data, int size)
 {
-    int pes_l;
-
     do {
+	int pes_l;
+
 	if (size < 9) {
 	    return -1;
 	}
@@ -1245,7 +1245,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			// PCM audio can't be found
 			// FIXME: simple+faster detection, if codec already known
 			r = 0;
-			if (!r && FastMpegCheck(q)) {
+			if (FastMpegCheck(q)) {
 			    r = MpegCheck(q, n);
 			    codec_id = AV_CODEC_ID_MP2;
 			}
@@ -1345,12 +1345,12 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			    // this should improve ffwd+frew, but produce crash in ffmpeg
 			    // with some streams
 			    if (MyVideoStream->TrickSpeed && pesdx->PTS != (int64_t) AV_NOPTS_VALUE) {
-				// H264 NAL End of Sequence
-				static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
-
 				// 1-5=SLICE 6=SEI 7=SPS 8=PPS
 				// NAL SPS sequence parameter set
 				if ((check[7] & 0x1F) == 0x07) {
+				    // H264 NAL End of Sequence
+				    static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
+
 				    VideoNextPacket(MyVideoStream, AV_CODEC_ID_H264);
 				    VideoEnqueue(MyVideoStream, AV_NOPTS_VALUE, seq_end_h264, sizeof(seq_end_h264));
 				}
@@ -1578,7 +1578,7 @@ static int TsDemuxer(TsDemux * tsdx, const uint8_t * data, int size, int av)
 	}
 #ifdef DEBUG
 	pid = (p[1] & 0x1F) << 8 | p[2];
-	Debug(4, "tsdemux: PID: %#04x%s%s", pid, p[1] & 0x40 ? " start" : "", p[3] & 0x10 ? " payload" : "");
+	Debug(4, "tsdemux: PID: %#04x%s%s", pid, (p[1] & 0x40) ? " start" : "", (p[3] & 0x10) ? " payload" : "");
 #endif
 	// skip adaptation field
 	switch (p[3] & 0x30) {		// adaption field
@@ -1976,12 +1976,12 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	    // this should improve ffwd+frew, but produce crash in ffmpeg
 	    // with some streams
 	    if (stream->TrickSpeed && pts != (int64_t) AV_NOPTS_VALUE) {
-		// H264 NAL End of Sequence
-		static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
-
 		// 1-5=SLICE 6=SEI 7=SPS 8=PPS
 		// NAL SPS sequence parameter set
 		if ((check[7] & 0x1F) == 0x07) {
+		    // H264 NAL End of Sequence
+		    static uint8_t seq_end_h264[] = { 0x00, 0x00, 0x00, 0x01, 0x0A };
+
 		    VideoNextPacket(stream, AV_CODEC_ID_H264);
 		    VideoEnqueue(stream, AV_NOPTS_VALUE, seq_end_h264, sizeof(seq_end_h264));
 		}
@@ -2364,13 +2364,11 @@ void StillPicture(const uint8_t * data, int size)
     fprintf(stderr, "still-picture");
 #endif
     for (i = 0; i < (MyVideoStream->CodecID == AV_CODEC_ID_HEVC ? 3 : 4); ++i) {
-	const uint8_t *split;
-	int n;
-
 	// FIXME: vdr pes recordings sends mixed audio/video
 	if ((data[3] & 0xF0) == 0xE0) { // PES packet
-	    split = data;
-	    n = size;
+	    const uint8_t *split = data;
+	    int n = size;
+
 	    // split the I-frame into single pes packets
 	    do {
 		int len;

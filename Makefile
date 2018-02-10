@@ -127,9 +127,9 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"' -D_GNU_SOURCE $(CONFIG) \
 ### Make it standard
 
 override CXXFLAGS += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
-    -g -W -Wall -Wextra -Winit-self -Werror=overloaded-virtual
+    -g -W -Wall -Wextra -Winit-self -Werror=overloaded-virtual -Wno-unused-parameter
 override CFLAGS	  += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
-    -g -W -Wall -Wextra -Winit-self -Wdeclaration-after-statement
+    -g -W -Wall -Wextra -Winit-self -Wdeclaration-after-statement -Wno-unused-parameter
 
 ### The object files (add further files here):
 

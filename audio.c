@@ -185,8 +185,6 @@ static void AudioNormalizer(int16_t * samples, int count)
 {
     int i;
     int l;
-    int n;
-    uint32_t avg;
     int factor;
     int16_t *data;
 
@@ -194,7 +192,9 @@ static void AudioNormalizer(int16_t * samples, int count)
     l = count / AudioBytesProSample;
     data = samples;
     do {
-	n = l;
+	uint32_t avg;
+	int n = l;
+
 	if (AudioNormCounter + n > AudioNormSamples) {
 	    n = AudioNormSamples - AudioNormCounter;
 	}
@@ -279,16 +279,12 @@ static void AudioResetNormalizer(void)
 */
 static void AudioCompressor(int16_t * samples, int count)
 {
-    int max_sample;
-    int i;
-    int factor;
-
     // find loudest sample
-    max_sample = 0;
-    for (i = 0; i < count / AudioBytesProSample; ++i) {
-	int t;
+    int max_sample = 0;
 
-	t = abs(samples[i]);
+    for (int i = 0; i < count / AudioBytesProSample; ++i) {
+	int t = abs(samples[i]);
+
 	if (t > max_sample) {
 	    max_sample = t;
 	}
@@ -296,7 +292,8 @@ static void AudioCompressor(int16_t * samples, int count)
 
     // calculate compression factor
     if (max_sample > 0) {
-	factor = (INT16_MAX * 1000) / max_sample;
+	int factor = (INT16_MAX * 1000) / max_sample;
+
 	// smooth compression (FIXME: make configurable?)
 	AudioCompressionFactor = (AudioCompressionFactor * 950 + factor * 50) / 1000;
 	if (AudioCompressionFactor > factor) {
@@ -305,24 +302,22 @@ static void AudioCompressor(int16_t * samples, int count)
 	if (AudioCompressionFactor > AudioMaxCompression) {
 	    AudioCompressionFactor = AudioMaxCompression;
 	}
-    } else {
-	return;				// silent nothing todo
-    }
 
-    Debug(4, "audio/compress: max %5d, fac=%6.3f, com=%6.3f", max_sample, factor / 1000.0,
-	AudioCompressionFactor / 1000.0);
+	Debug(4, "audio/compress: max %5d, fac=%6.3f, com=%6.3f", max_sample, factor / 1000.0,
+	    AudioCompressionFactor / 1000.0);
 
-    // apply compression factor
-    for (i = 0; i < count / AudioBytesProSample; ++i) {
-	int t;
+	// apply compression factor
+	for (int i = 0; i < count / AudioBytesProSample; ++i) {
+	    int t;
 
-	t = (samples[i] * AudioCompressionFactor) / 1000;
-	if (t < INT16_MIN) {
-	    t = INT16_MIN;
-	} else if (t > INT16_MAX) {
-	    t = INT16_MAX;
+	    t = (samples[i] * AudioCompressionFactor) / 1000;
+	    if (t < INT16_MIN) {
+		t = INT16_MIN;
+	    } else if (t > INT16_MAX) {
+		t = INT16_MAX;
+	    }
+	    samples[i] = t;
 	}
-	samples[i] = t;
     }
 }
 
@@ -849,12 +844,13 @@ static int AlsaPlayRingbuffer(void)
 static void AlsaFlushBuffers(void)
 {
     if (AlsaPCMHandle) {
-	int err;
 	snd_pcm_state_t state;
 
 	state = snd_pcm_state(AlsaPCMHandle);
 	Debug(3, "audio/alsa: flush state %s", snd_pcm_state_name(state));
 	if (state != SND_PCM_STATE_OPEN) {
+	    int err;
+
 	    if ((err = snd_pcm_drop(AlsaPCMHandle)) < 0) {
 		Error("audio: snd_pcm_drop(): %s", snd_strerror(err));
 	    }
@@ -997,10 +993,9 @@ static void AlsaInitPCM(void)
 */
 static void AlsaSetVolume(int volume)
 {
-    int v;
-
     if (AlsaMixer && AlsaMixerElem) {
-	v = (volume * AlsaRatio) / (1000 * 1000);
+	int v = (volume * AlsaRatio) / (1000 * 1000);
+
 	snd_mixer_selem_set_playback_volume(AlsaMixerElem, 0, v);
 	snd_mixer_selem_set_playback_volume(AlsaMixerElem, 1, v);
     }
@@ -1117,7 +1112,6 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 {
     snd_pcm_uframes_t buffer_size;
     snd_pcm_uframes_t period_size;
-    int err;
     int delay;
 
     if (!AlsaPCMHandle) {		// alsa not running yet
@@ -1144,6 +1138,8 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
     }
 
     for (;;) {
+	int err;
+
 	if ((err =
 		snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
 		    AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED : SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
@@ -2425,7 +2421,7 @@ int AudioSetup(int *freq, int *channels, int passthrough)
     Debug(3, "audio: setup channels %d frequency %dHz %s", *channels, *freq, passthrough ? "pass-through" : "");
 
     // invalid parameter
-    if (!freq || !channels || !*freq || !*channels) {
+    if (!(freq && *freq) || !(channels && *channels)) {
 	Debug(3, "audio: bad channels or frequency parameters");
 	// FIXME: set flag invalid setup
 	return -1;
@@ -2617,15 +2613,10 @@ void AudioInit(void)
     int freq;
     int chan;
 
-    name = "noop";
-#ifdef USE_OSS
-    name = "oss";
-#endif
-#ifdef USE_ALSA
-    name = "alsa";
-#endif
     if (AudioModuleName) {
 	name = AudioModuleName;
+    } else {
+	name = "noop";
     }
     //
     //	search selected audio module.

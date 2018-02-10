@@ -200,9 +200,6 @@ extern void VideoSetTrickSpeed(VideoHwDecoder *, int);
     /// Grab screen.
 extern uint8_t *VideoGrab(int *, int *, int *, int);
 
-    /// Grab screen raw.
-extern uint8_t *VideoGrabService(int *, int *, int *);
-
     /// Get decoder statistics.
 extern void VideoGetStats(VideoHwDecoder *, int *, int *, int *, int *);
 

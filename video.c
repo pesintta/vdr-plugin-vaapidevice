@@ -952,7 +952,6 @@ static void GlxOsdClear(void)
 static void GlxSetupWindow(xcb_window_t window, int width, int height, GLXContext context)
 {
 #ifdef DEBUG
-    uint32_t start;
     uint32_t end;
     int i;
     unsigned count;
@@ -973,7 +972,7 @@ static void GlxSetupWindow(xcb_window_t window, int width, int height, GLXContex
     // check if v-sync is working correct
     end = GetMsTicks();
     for (i = 0; i < 10; ++i) {
-	start = end;
+	uint32_t start = end;
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glXSwapBuffers(XlibDisplay, window);
@@ -2415,11 +2414,10 @@ static int VaapiInit(const char *display_name)
     {
 	VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
 	int entrypoint_n;
-	int i;
 
 	VaapiVideoProcessing = 0;
 	if (!vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n)) {
-	    for (i = 0; i < entrypoint_n; i++) {
+	    for (int i = 0; i < entrypoint_n; i++) {
 		if (entrypoints[i] == VAEntrypointVideoProc) {
 		    Info("video/vaapi: supports video processing");
 		    VaapiVideoProcessing = 1;
@@ -2730,7 +2728,6 @@ static inline VAStatus VaapiRunScaling(VAContextID ctx, VASurfaceID src, VASurfa
 ///
 static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 {
-    unsigned int i;
     unsigned int filter_count = 0;
     unsigned int filter_flags = decoder->SurfaceFlagsTable[decoder->Resolution];
     unsigned int tmp_forwardRefCount = decoder->ForwardRefCount;
@@ -2781,7 +2778,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	/* This block of code skips various filters in-flight if source/settings
 	   disallow running the filter in question */
 	filter_count = 0;
-	for (i = 0; i < decoder->filter_n; ++i) {
+	for (unsigned int i = 0; i < decoder->filter_n; ++i) {
 
 	    /* Skip deinterlacer if disabled or source is not interlaced */
 	    if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
@@ -2938,18 +2935,19 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 
     for (j = 0; j < *ret_height; ++j) {
 	for (i = 0; i < *ret_width; ++i) {
-	    unsigned int uv_index, u_index, v_index;
 	    uint8_t y = image_buffer[j * image.pitches[0] + i];
 	    uint8_t u, v;
 	    int b, g, r;
 
 	    if (image.format.fourcc == VA_FOURCC_NV12) {
-		uv_index = image.offsets[1] + (image.pitches[1] * (j / 2)) + (i / 2) * 2;
+		unsigned int uv_index = image.offsets[1] + (image.pitches[1] * (j / 2)) + (i / 2) * 2;
+
 		u = image_buffer[uv_index];
 		v = image_buffer[uv_index + 1];
 	    } else if (image.format.fourcc == VA_FOURCC('I', '4', '2', '0')) {
-		u_index = image.offsets[1] + (image.pitches[1] * (j / 2) + (i / 2));
-		v_index = image.offsets[2] + (image.pitches[2] * (j / 2) + (i / 2));
+		unsigned int u_index = image.offsets[1] + (image.pitches[1] * (j / 2) + (i / 2));
+		unsigned int v_index = image.offsets[2] + (image.pitches[2] * (j / 2) + (i / 2));
+
 		u = image_buffer[u_index];
 		v = image_buffer[v_index];
 	    } else {
@@ -3158,8 +3156,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
 		    Fatal("video/glx: can't make glx context current");
 		}
-	    } else
-	    if (GlxContext) {
+	    } else if (GlxContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxThreadContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
 		    Fatal("video/glx: can't make glx context current");
@@ -3871,9 +3868,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     e = GetMsTicks();
     if (e - s > 2000) {
 	Error("video/vaapi: gpu hung %dms %d", e - s, decoder->FrameCounter);
-#ifdef DEBUG
-	fprintf(stderr, "video/vaapi: gpu hung %dms %d", e - s, decoder->FrameCounter);
-#endif
     }
 }
 
@@ -4408,13 +4402,12 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 ///
 static void FilterLineSpatial(uint8_t * dst, const uint8_t * cur, int width, int above, int below, int next)
 {
-    int a, b, c, d, e, f, g, h, i, j, k, l, m, n;
-    int spatial_pred;
-    int spatial_score;
-    int score;
-    int x;
+    for (int x = 0; x < width; ++x) {
+	int a, b, c, d, e, f, g, h, i, j, k, l, m, n;
+	int spatial_pred;
+	int spatial_score;
+	int score;
 
-    for (x = 0; x < width; ++x) {
 	a = cur[above + x - 3 * next];	// ignore bound violation
 	b = cur[above + x - 2 * next];
 	c = cur[above + x - 1 * next];
@@ -4480,7 +4473,6 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1, 
     void *dst1_base;
     void *dst2_base;
     unsigned y;
-    unsigned p;
     uint8_t *tmp;
     int pitch;
     int width;
@@ -4563,7 +4555,7 @@ static void VaapiSpatial(VaapiDecoder * decoder, VAImage * src, VAImage * dst1, 
 	    }
 	}
     } else {				// YV12 or I420
-	for (p = 0; p < src->num_planes; ++p) {
+	for (unsigned p = 0; p < src->num_planes; ++p) {
 	    pitch = src->pitches[p];
 	    width = src->width >> (p != 0);
 	    if (VideoSkipChromaDeinterlace[decoder->Resolution] && p) {
@@ -5313,8 +5305,7 @@ static void VaapiDisplayFrame(void)
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
 		    Fatal("video/glx: can't make glx context current");
 		}
-	    } else
-	    if (GlxContext) {
+	    } else if (GlxContext) {
 		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxContext);
 		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
 		    Fatal("video/glx: can't make glx context current");
@@ -5907,7 +5898,7 @@ static void VaapiOsdInit(int width, int height)
     for (u = 0; u < format_n; ++u) {
 	Debug(3, "video/vaapi:\t%c%c%c%c flags %#x %s", formats[u].fourcc, formats[u].fourcc >> 8,
 	    formats[u].fourcc >> 16, formats[u].fourcc >> 24, flags[u],
-	    flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD ? "screen coord" : "");
+	    (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) ? "screen coord" : "");
     }
 #endif
     for (v = 0; v < sizeof(wanted_formats) / sizeof(*wanted_formats); ++v) {
@@ -6815,24 +6806,13 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
     Debug(3, "video: grab");
 
     if (VideoUsedModule->GrabOutput) {
-	uint8_t *data;
-	uint8_t *rgb;
 	char buf[64];
-	int i;
-	int n;
-	int scale_width;
-	int scale_height;
-	int x;
-	int y;
-	double src_x;
-	double src_y;
-	double scale_x;
-	double scale_y;
+	uint8_t *rgb;
+	int scale_width = *width;
+	int scale_height = *height;
+	int n = 0;
+	uint8_t *data = VideoUsedModule->GrabOutput(size, width, height);
 
-	scale_width = *width;
-	scale_height = *height;
-	n = 0;
-	data = VideoUsedModule->GrabOutput(size, width, height);
 	if (data == NULL)
 	    return NULL;
 
@@ -6844,6 +6824,10 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	}
 	// hardware didn't scale for us, use simple software scaler
 	if (scale_width != *width && scale_height != *height) {
+	    double src_y;
+	    double scale_x;
+	    double scale_y;
+
 	    if (write_header) {
 		n = snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255", scale_width, scale_height);
 	    }
@@ -6860,14 +6844,14 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	    scale_y = (double)*height / scale_height;
 
 	    src_y = 0.0;
-	    for (y = 0; y < scale_height; y++) {
+	    for (int y = 0; y < scale_height; y++) {
 		int o;
+		double src_x = 0.0;
 
-		src_x = 0.0;
 		o = (int)src_y **width;
 
-		for (x = 0; x < scale_width; x++) {
-		    i = 4 * (o + (int)src_x);
+		for (int x = 0; x < scale_width; x++) {
+		    int i = 4 * (o + (int)src_x);
 
 		    rgb[n + (x + y * scale_width) * 3 + 0] = data[i + 2];
 		    rgb[n + (x + y * scale_width) * 3 + 1] = data[i + 1];
@@ -6895,7 +6879,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	    }
 	    memcpy(rgb, buf, n);	// header
 
-	    for (i = 0; i < *size / 4; ++i) {	// convert bgra -> rgb
+	    for (int i = 0; i < *size / 4; ++i) {   // convert bgra -> rgb
 		rgb[n + i * 3 + 0] = data[i * 4 + 2];
 		rgb[n + i * 3 + 1] = data[i * 4 + 1];
 		rgb[n + i * 3 + 2] = data[i * 4 + 0];
@@ -6914,29 +6898,6 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
     (void)width;
     (void)height;
     (void)write_header;
-    return NULL;
-}
-
-///
-/// Grab image service.
-///
-/// @param size[out]	size of allocated image
-/// @param width[in,out]    width of image
-/// @param height[in,out]   height of image
-///
-uint8_t *VideoGrabService(int *size, int *width, int *height)
-{
-    Debug(3, "video: grab service");
-
-    if (VideoUsedModule->GrabOutput) {
-	return VideoUsedModule->GrabOutput(size, width, height);
-    } else {
-	Warning("vaapidevice: grab unsupported");
-    }
-
-    (void)size;
-    (void)width;
-    (void)height;
     return NULL;
 }
 

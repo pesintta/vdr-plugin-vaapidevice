@@ -163,7 +163,7 @@ class cSoftRemote:public cRemote
     **
     **	@param name	remote name
     */
-    cSoftRemote(const char *name):cRemote(name)
+    explicit cSoftRemote(const char *name):cRemote(name)
     {
     }
 
@@ -204,7 +204,7 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat, in
     }
     // if remote not already exists, create it
     if (remote) {
-	csoft = (cSoftRemote *) remote;
+	csoft = reinterpret_cast < cSoftRemote * >(remote);
     } else {
 	Debug(3, "[vaapidevice]%s: remote '%s' not found\n", __FUNCTION__, keymap);
 	csoft = new cSoftRemote(keymap);
@@ -764,7 +764,6 @@ void cMenuSetupSoft::Create(void)
 	"576i", "720p", "fake 1080i", "1080i", "UHD"
     };
     int current;
-    int i;
     const char **scaling;
     const char **scaling_short;
     const char **deinterlace;
@@ -847,7 +846,7 @@ void cMenuSetupSoft::Create(void)
 	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Skin Tone Enhancement (%d..[%d]..%d)"), stde_min, stde_def,
 			stde_max), &Stde, stde_min, stde_max));
 
-	for (i = 0; i < RESOLUTIONS; ++i) {
+	for (int i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
 
 	    // short hidden informations
@@ -930,7 +929,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_saturation;
     int old_hue;
     int old_stde;
-    int i;
 
     old_general = General;
     old_video = Video;
@@ -952,7 +950,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	if (old_general != General || old_video != Video || old_audio != Audio || old_osd_size != OsdSize) {
 	    Create();			// update menu
 	} else {
-	    for (i = 0; i < RESOLUTIONS; ++i) {
+	    for (int i = 0; i < RESOLUTIONS; ++i) {
 		if (old_resolution_shown[i] != ResolutionShown[i]) {
 		    Create();		// update menu
 		    break;

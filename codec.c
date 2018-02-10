@@ -46,9 +46,6 @@
 #endif
 #include <pthread.h>
 
-#ifdef MAIN_H
-#include MAIN_H
-#endif
 #include "iatomic.h"
 #include "misc.h"
 #include "video.h"
@@ -700,8 +697,8 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
     audio_ctx = audio_decoder->AudioCtx;
     Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s",
 	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate, audio_ctx->channels,
-	CodecPassthrough & CodecPCM ? " PCM" : "", CodecPassthrough & CodecMPA ? " MPA" : "",
-	CodecPassthrough & CodecAC3 ? " AC-3" : "", CodecPassthrough & CodecEAC3 ? " E-AC-3" : "",
+	(CodecPassthrough & CodecPCM) ? " PCM" : "", (CodecPassthrough & CodecMPA) ? " MPA" : "",
+	(CodecPassthrough & CodecAC3) ? " AC-3" : "", (CodecPassthrough & CodecEAC3) ? " E-AC-3" : "",
 	CodecPassthrough ? " pass-through" : "");
 
     *passthrough = 0;
@@ -1104,7 +1101,6 @@ int myavcodec_decode_audio3(AVCodecContext * avctx, int16_t * samples, int *fram
     ret = avcodec_decode_audio4(avctx, frame, &got_frame, avpkt);
     if (ret >= 0 && got_frame) {
 	int i, ch;
-	int planar = av_sample_fmt_is_planar(avctx->sample_fmt);
 	int data_size = av_get_bytes_per_sample(avctx->sample_fmt);
 
 	if (data_size < 0) {
