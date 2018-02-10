@@ -12,10 +12,6 @@
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
 
-#ifdef HAVE_CONFIG
-#include "config.h"
-#endif
-
 #include "vaapidevice.h"
 
 extern "C"
@@ -29,11 +25,8 @@ extern "C"
 #include "misc.h"
 }
 
-#if APIVERSNUM >= 20301
-#define MURKS ->
-#else
-#define MURKS .
-#define LOCK_CHANNELS_READ	do { } while (0)
+#if defined(APIVERSNUM) && APIVERSNUM < 20200
+#error "VDR-2.2.0 API version or greater is required!"
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -48,7 +41,7 @@ static const char *const VERSION = "1.0.0"
     ;
 
     /// vdr-plugin description.
-static const char *const DESCRIPTION = trNOOP("VA-API output device");
+static const char *const DESCRIPTION = trNOOP("VA-API Output Device");
 
     /// vdr-plugin text of main menu entry
 static const char *MAINMENUENTRY = trNOOP("VA-API Device");
@@ -112,10 +105,6 @@ static int ConfigVideoCutTopBottom[RESOLUTIONS];
     /// config cut left and right pixels
 static int ConfigVideoCutLeftRight[RESOLUTIONS];
 
-    /// config vaapi field ordering for first & second field
-static int ConfigVideoFirstField[RESOLUTIONS];
-static int ConfigVideoSecondField[RESOLUTIONS];
-
 static int ConfigAutoCropEnabled;	///< auto crop detection enabled
 static int ConfigAutoCropInterval;	///< auto crop detection interval
 static int ConfigAutoCropDelay;		///< auto crop detection delay
@@ -166,7 +155,7 @@ class cSoftRemote:public cRemote
     **
     **	@param name	remote name
     */
-    cSoftRemote(const char *name):cRemote(name)
+    explicit cSoftRemote(const char *name):cRemote(name)
     {
     }
 
@@ -207,7 +196,7 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat, in
     }
     // if remote not already exists, create it
     if (remote) {
-	csoft = (cSoftRemote *) remote;
+	csoft = reinterpret_cast < cSoftRemote * >(remote);
     } else {
 	Debug(3, "[vaapidevice]%s: remote '%s' not found\n", __FUNCTION__, keymap);
 	csoft = new cSoftRemote(keymap);
@@ -261,10 +250,6 @@ volatile char cSoftOsd::Dirty;		///< flag force redraw everything
 */
 void cSoftOsd::SetActive(bool on)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d level %d\n", __FUNCTION__, on, OsdLevel);
-#endif
-
     if (Active() == on) {
 	return;				// already active, no action
     }
@@ -293,12 +278,6 @@ void cSoftOsd::SetActive(bool on)
 cSoftOsd::cSoftOsd(int left, int top, uint level)
 :cOsd(left, top, level)
 {
-#ifdef OSD_DEBUG
-    /* FIXME: OsdWidth/OsdHeight not correct!
-     */
-    Debug(3, "[vaapidevice]%s: %dx%d%+d%+d, %d\n", __FUNCTION__, OsdWidth(), OsdHeight(), left, top, level);
-#endif
-
     OsdLevel = level;
 }
 
@@ -309,25 +288,8 @@ cSoftOsd::cSoftOsd(int left, int top, uint level)
 */
 cSoftOsd::~cSoftOsd(void)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: level %d\n", __FUNCTION__, OsdLevel);
-#endif
-
     SetActive(false);
     // done by SetActive: OsdClose();
-
-#ifdef USE_YAEPG
-    // support yaepghd, video window
-    if (vidWin.bpp) {			// restore fullsized video
-	int width;
-	int height;
-	double video_aspect;
-
-	::GetOsdSize(&width, &height, &video_aspect);
-	// works osd relative
-	::ScaleVideo(0, 0, width, height);
-    }
-#endif
 }
 
 /**
@@ -335,10 +297,6 @@ cSoftOsd::~cSoftOsd(void)
 */
 eOsdError cSoftOsd::SetAreas(const tArea * areas, int n)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d areas \n", __FUNCTION__, n);
-#endif
-
     // clear old OSD, when new areas are set
     if (!IsTrueColor()) {
 	cBitmap *bitmap;
@@ -362,38 +320,14 @@ void cSoftOsd::Flush(void)
 {
     cPixmapMemory *pm;
 
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: level %d active %d\n", __FUNCTION__, OsdLevel, Active());
-#endif
-
     if (!Active()) {			// this osd is not active
 	return;
     }
-#ifdef USE_YAEPG
-    // support yaepghd, video window
-    if (vidWin.bpp) {
-#ifdef OSD_DEBUG
-	Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, vidWin.Width(), vidWin.Height(), vidWin.x1, vidWin.y2);
-#endif
-	// FIXME: vidWin is OSD relative not video window.
-	// FIXME: doesn't work if fixed OSD width != real window width
-	// FIXME: solved in VideoSetOutputPosition
-	::ScaleVideo(Left() + vidWin.x1, Top() + vidWin.y1, vidWin.Width(), vidWin.Height());
-    }
-#endif
 
     if (!IsTrueColor()) {
 	cBitmap *bitmap;
 	int i;
 
-#ifdef OSD_DEBUG
-	static char warned;
-
-	if (!warned) {
-	    Debug(3, "[vaapidevice]%s: FIXME: should be truecolor\n", __FUNCTION__);
-	    warned = 1;
-	}
-#endif
 	// draw all bitmaps
 	for (i = 0; (bitmap = GetBitmap(i)); ++i) {
 	    uint8_t *argb;
@@ -464,7 +398,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		Error(tr("[vaapidevice]: dirty area too big\n"));
+		Error("[vaapidevice]: dirty area too big");
 		abort();
 	    }
 #endif
@@ -474,9 +408,6 @@ void cSoftOsd::Flush(void)
 		    ((uint32_t *) argb)[x - x1 + (y - y1) * w] = bitmap->GetColor(x, y);
 		}
 	    }
-#ifdef OSD_DEBUG
-	    Debug(3, "[vaapidevice]%s: draw %dx%d%+d%+d bm\n", __FUNCTION__, w, h, xs + x1, ys + y1);
-#endif
 	    OsdDrawARGB(0, 0, w, h, w * sizeof(uint32_t), argb, xs + x1, ys + y1);
 
 	    bitmap->Clean();
@@ -549,17 +480,9 @@ void cSoftOsd::Flush(void)
 	if (h > height - y) {
 	    h = height - y;
 	}
-#ifdef OSD_DEBUG
-	Debug(3, "[vaapidevice]%s: draw %dx%d%+d%+d*%d -> %+d%+d %p\n", __FUNCTION__, w, h, xp, yp, stride, x, y,
-	    pm->Data());
-#endif
 	OsdDrawARGB(xp, yp, w, h, stride, pm->Data(), x, y);
 
-#if APIVERSNUM >= 20110
 	DestroyPixmap(pm);
-#else
-	delete pm;
-#endif
     }
     Dirty = 0;
 }
@@ -593,10 +516,6 @@ cOsd *cSoftOsdProvider::Osd;		///< single osd
 */
 cOsd *cSoftOsdProvider::CreateOsd(int left, int top, uint level)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %d, %d, %d\n", __FUNCTION__, left, top, level);
-#endif
-
     return Osd = new cSoftOsd(left, top, level);
 }
 
@@ -616,9 +535,6 @@ bool cSoftOsdProvider::ProvidesTrueColor(void)
 cSoftOsdProvider::cSoftOsdProvider(void)
 :  cOsdProvider()
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
-#endif
 }
 
 /**
@@ -678,8 +594,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int Sharpen[RESOLUTIONS];
     int CutTopBottom[RESOLUTIONS];
     int CutLeftRight[RESOLUTIONS];
-    int FirstField[RESOLUTIONS];
-    int SecondField[RESOLUTIONS];
 
     int AutoCropInterval;
     int AutoCropDelay;
@@ -766,7 +680,6 @@ void cMenuSetupSoft::Create(void)
 	"576i", "720p", "fake 1080i", "1080i", "UHD"
     };
     int current;
-    int i;
     const char **scaling;
     const char **scaling_short;
     const char **deinterlace;
@@ -849,7 +762,7 @@ void cMenuSetupSoft::Create(void)
 	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Skin Tone Enhancement (%d..[%d]..%d)"), stde_min, stde_def,
 			stde_max), &Stde, stde_min, stde_max));
 
-	for (i = 0; i < RESOLUTIONS; ++i) {
+	for (int i = 0; i < RESOLUTIONS; ++i) {
 	    cString msg;
 
 	    // short hidden informations
@@ -870,11 +783,6 @@ void cMenuSetupSoft::Create(void)
 
 		Add(new cMenuEditIntItem(tr("Cut top and bottom (pixel)"), &CutTopBottom[i], 0, 250));
 		Add(new cMenuEditIntItem(tr("Cut left and right (pixel)"), &CutLeftRight[i], 0, 250));
-
-		if (VideoIsDriverVaapi()) {
-		    Add(new cMenuEditIntItem(tr("First field order (0-2)"), &FirstField[i], 0, 2));
-		    Add(new cMenuEditIntItem(tr("Second field order (0-2)"), &SecondField[i], 0, 2));
-		}
 	    }
 	}
 	//
@@ -932,7 +840,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_saturation;
     int old_hue;
     int old_stde;
-    int i;
 
     old_general = General;
     old_video = Video;
@@ -954,7 +861,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
 	if (old_general != General || old_video != Video || old_audio != Audio || old_osd_size != OsdSize) {
 	    Create();			// update menu
 	} else {
-	    for (i = 0; i < RESOLUTIONS; ++i) {
+	    for (int i = 0; i < RESOLUTIONS; ++i) {
 		if (old_resolution_shown[i] != ResolutionShown[i]) {
 		    Create();		// update menu
 		    break;
@@ -1054,10 +961,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 
 	CutTopBottom[i] = ConfigVideoCutTopBottom[i];
 	CutLeftRight[i] = ConfigVideoCutLeftRight[i];
-
-	FirstField[i] = ConfigVideoFirstField[i];
-	SecondField[i] = ConfigVideoSecondField[i];
-
     }
     //
     //	auto-crop
@@ -1192,12 +1095,6 @@ void cMenuSetupSoft::Store(void)
 	SetupStore(buf, ConfigVideoCutTopBottom[i] = CutTopBottom[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "CutLeftRight");
 	SetupStore(buf, ConfigVideoCutLeftRight[i] = CutLeftRight[i]);
-
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
-	SetupStore(buf, ConfigVideoFirstField[i] = FirstField[i]);
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
-	SetupStore(buf, ConfigVideoSecondField[i] = SecondField[i]);
-
     }
     VideoSetScaling(ConfigVideoScaling);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
@@ -1207,8 +1104,6 @@ void cMenuSetupSoft::Store(void)
     VideoSetSharpen(ConfigVideoSharpen);
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
     VideoSetCutLeftRight(ConfigVideoCutLeftRight);
-    VideoSetFirstField(ConfigVideoFirstField);
-    VideoSetSecondField(ConfigVideoSecondField);
 
     SetupStore("AutoCrop.Interval", ConfigAutoCropInterval = AutoCropInterval);
     SetupStore("AutoCrop.Delay", ConfigAutoCropDelay = AutoCropDelay);
@@ -1528,7 +1423,7 @@ static void HandleHotkey(int code)
 	    VideoSetOtherDisplayFormat(-1);
 	    break;
 	default:
-	    Error(tr("[vaapidevice]: hot key %d is not supported\n"), code);
+	    Error("[vaapidevice]: hot key %d is not supported", code);
 	    break;
     }
 }
@@ -1630,11 +1525,7 @@ class cVaapiDevice:public cDevice
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
     virtual bool SetPlayMode(ePlayMode);
-#if APIVERSNUM >= 20103
     virtual void TrickSpeed(int, bool);
-#else
-    virtual void TrickSpeed(int);
-#endif
     virtual void Clear(void);
     virtual void Play(void);
     virtual void Freeze(void);
@@ -1643,10 +1534,8 @@ class cVaapiDevice:public cDevice
     virtual bool Poll(cPoller &, int = 0);
     virtual bool Flush(int = 0);
     virtual int64_t GetSTC(void);
-#if APIVERSNUM >= 10733
     virtual cRect CanScaleVideo(const cRect &, int = taCenter);
     virtual void ScaleVideo(const cRect & = cRect::Null);
-#endif
     virtual void SetVideoDisplayFormat(eVideoDisplayFormat);
     virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
@@ -1805,21 +1694,12 @@ int64_t cVaapiDevice::GetSTC(void)
 **	@param speed	trick speed
 **	@param forward	flag forward direction
 */
-#if APIVERSNUM >= 20103
 void cVaapiDevice::TrickSpeed(int speed, bool forward)
 {
     Debug(3, "[vaapidevice]%s: %d %d\n", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
-#else
-void cVaapiDevice::TrickSpeed(int speed)
-{
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, speed);
-
-    ::TrickSpeed(speed);
-}
-#endif
 
 /**
 **	Clears all video and audio data from the device.
@@ -2067,8 +1947,6 @@ uchar *cVaapiDevice::GrabImage(int &size, bool jpeg, int quality, int width, int
     return::GrabImage(&size, jpeg, quality, width, height);
 }
 
-#if APIVERSNUM >= 10733
-
 /**
 **	Ask the output, if it can scale video.
 **
@@ -2088,13 +1966,8 @@ cRect cVaapiDevice::CanScaleVideo(const cRect & rect, __attribute__ ((unused)) i
 */
 void cVaapiDevice::ScaleVideo(const cRect & rect)
 {
-#ifdef OSD_DEBUG
-    Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, rect.Width(), rect.Height(), rect.X(), rect.Y());
-#endif
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
-
-#endif
 
 /**
 **	Call rgb to jpeg for C Plugin.
@@ -2436,18 +2309,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
 	if (!strcasecmp(name, buf)) {
 	    ConfigVideoCutLeftRight[i] = atoi(value);
 	    VideoSetCutLeftRight(ConfigVideoCutLeftRight);
-	    return true;
-	}
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "FirstField");
-	if (!strcasecmp(name, buf)) {
-	    ConfigVideoFirstField[i] = atoi(value);
-	    VideoSetFirstField(ConfigVideoFirstField);
-	    return true;
-	}
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SecondField");
-	if (!strcasecmp(name, buf)) {
-	    ConfigVideoSecondField[i] = atoi(value);
-	    VideoSetSecondField(ConfigVideoSecondField);
 	    return true;
 	}
     }

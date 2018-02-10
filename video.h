@@ -32,7 +32,6 @@ extern VideoHwDecoder *VideoNewHwDecoder(VideoStream *);
     /// Deallocate video hardware decoder.
 extern void VideoDelHwDecoder(VideoHwDecoder *);
 
-#ifdef LIBAVCODEC_VERSION
     /// Get and allocate a video hardware surface.
 extern unsigned VideoGetSurface(VideoHwDecoder *, const AVCodecContext *);
 
@@ -47,7 +46,6 @@ extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *, const AVF
 
     /// Get hwaccel context for ffmpeg.
 extern void *VideoGetHwAccelContext(VideoHwDecoder *);
-#endif
 
     /// Poll video events.
 extern void VideoPollEvent(void);
@@ -57,9 +55,6 @@ extern void VideoDisplayWakeup(void);
 
     /// Set video device.
 extern void VideoSetDevice(const char *);
-
-    /// Get used video driver.
-extern int VideoIsDriverVaapi(void);
 
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
@@ -154,10 +149,6 @@ extern void VideoSetCutTopBottom(int[]);
     /// Set cut left and right.
 extern void VideoSetCutLeftRight(int[]);
 
-    /// Set first & second field ordering.
-extern void VideoSetFirstField(int[]);
-extern void VideoSetSecondField(int[]);
-
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
 
@@ -199,9 +190,6 @@ extern void VideoSetTrickSpeed(VideoHwDecoder *, int);
 
     /// Grab screen.
 extern uint8_t *VideoGrab(int *, int *, int *, int);
-
-    /// Grab screen raw.
-extern uint8_t *VideoGrabService(int *, int *, int *);
 
     /// Get decoder statistics.
 extern void VideoGetStats(VideoHwDecoder *, int *, int *, int *, int *);

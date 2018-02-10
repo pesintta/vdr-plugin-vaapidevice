@@ -14,7 +14,7 @@ PLUGIN = vaapidevice
 ALSA ?= $(shell pkg-config --exists alsa && echo 1)
     # support OSS audio output module
 OSS ?= 1
-    # support VA-API video output module (deprecated)
+    # support VA-API video output module
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
 OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
@@ -27,8 +27,8 @@ ifneq ($(SWRESAMPLE),1)
 AVRESAMPLE ?= $(shell pkg-config --exists libavresample && echo 1)
 endif
 
-#CONFIG := -DDEBUG #-DOSD_DEBUG	        # enable debug output+functions
-#CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
+#CONFIG := -DDEBUG		# enable debug output+functions
+#CONFIG += -DSTILL_DEBUG=2	# still picture debug verbose level
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 
 ### The version number of this plugin (taken from the main source file):
@@ -86,7 +86,6 @@ ifeq ($(OSS),1)
 CONFIG += -DUSE_OSS
 endif
 ifeq ($(VAAPI),1)
-CONFIG += -DUSE_VAAPI
 _CFLAGS += $(shell pkg-config --cflags libva-x11 libva)
 LIBS += $(shell pkg-config --libs libva-x11 libva)
 ifeq ($(OPENGL),1)
@@ -128,9 +127,9 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"' -D_GNU_SOURCE $(CONFIG) \
 ### Make it standard
 
 override CXXFLAGS += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
-    -g -W -Wall -Wextra -Winit-self -Werror=overloaded-virtual
+    -g -W -Wall -Wextra -Winit-self -Werror=overloaded-virtual -Wno-unused-parameter
 override CFLAGS	  += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
-    -g -W -Wall -Wextra -Winit-self -Wdeclaration-after-statement
+    -g -W -Wall -Wextra -Winit-self -Wdeclaration-after-statement -Wno-unused-parameter
 
 ### The object files (add further files here):
 
@@ -210,6 +209,7 @@ HDRS=	$(wildcard *.h)
 indent:
 	for i in $(SRCS) $(HDRS); do \
 		indent $$i; \
+		rm -f $$i~; \
 		unexpand -a $$i | sed -e s/constconst/const/ > $$i.up; \
 		mv $$i.up $$i; \
 	done
