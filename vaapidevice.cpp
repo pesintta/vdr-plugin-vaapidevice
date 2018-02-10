@@ -370,7 +370,8 @@ void cSoftOsd::Flush(void)
     // support yaepghd, video window
     if (vidWin.bpp) {
 #ifdef OSD_DEBUG
-	Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, vidWin.Width(), vidWin.Height(), vidWin.x1, vidWin.y2);
+	Debug(3, "[vaapidevice]%s: %dx%d%+d%+d\n", __FUNCTION__, vidWin.Width(), vidWin.Height(), vidWin.x1,
+	    vidWin.y2);
 #endif
 	// FIXME: vidWin is OSD relative not video window.
 	// FIXME: doesn't work if fixed OSD width != real window width
@@ -461,7 +462,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		Error(tr("[vaapidevice]: dirty area too big\n"));
+		Error("[vaapidevice]: dirty area too big");
 		abort();
 	    }
 #endif
@@ -1525,7 +1526,7 @@ static void HandleHotkey(int code)
 	    VideoSetOtherDisplayFormat(-1);
 	    break;
 	default:
-	    Error(tr("[vaapidevice]: hot key %d is not supported\n"), code);
+	    Error("[vaapidevice]: hot key %d is not supported", code);
 	    break;
     }
 }

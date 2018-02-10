@@ -24,9 +24,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <libintl.h>
-#define _(str) gettext(str)		///< gettext shortcut
-#define _N(str) str			///< gettext_noop shortcut
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/mem.h>
@@ -114,7 +111,7 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enu
     if (decoder->GetFormatDone) {
 	if (decoder->GetFormatDone < 10) {
 	    ++decoder->GetFormatDone;
-	    Error("codec/video: ffmpeg/libav buggy: get_format called again\n");
+	    Error("codec/video: ffmpeg/libav buggy: get_format called again");
 	}
 	return *fmt;			// FIXME: this is hack
     }
@@ -122,7 +119,7 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enu
 
     // bug in ffmpeg 1.1.1, called with zero width or height
     if (!video_ctx->width || !video_ctx->height) {
-	Error("codec/video: ffmpeg/libav buggy: width or height zero\n");
+	Error("codec/video: ffmpeg/libav buggy: width or height zero");
     }
 
     decoder->GetFormatDone = 1;
@@ -152,8 +149,7 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
     if (!decoder->GetFormatDone) {	// get_format missing
 	enum AVPixelFormat fmts[2];
 
-	fprintf(stderr, "codec: buggy libav, use ffmpeg\n");
-	Warning(_("codec: buggy libav, use ffmpeg\n"));
+	Warning("codec: buggy libav, use ffmpeg");
 	fmts[0] = video_ctx->pix_fmt;
 	fmts[1] = AV_PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
@@ -164,7 +160,7 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 
 	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
 
-	//Debug(3, "codec: use surface %#010x\n", surface);
+	//Debug(3, "codec: use surface %#010x", surface);
 
 #if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,48,101)
 	frame->type = FF_BUFFER_TYPE_USER;
@@ -187,7 +183,7 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 #endif
 	return 0;
     }
-    //Debug(3, "codec: fallback to default get_buffer\n");
+    //Debug(3, "codec: fallback to default get_buffer");
     return avcodec_default_get_buffer2(video_ctx, frame, flags);
 }
 
@@ -210,7 +206,7 @@ static void Codec_free_buffer(void *opaque, uint8_t * data)
 	decoder = video_ctx->opaque;
 	surface = (unsigned)(size_t) data;
 
-	//Debug(3, "codec: release surface %#010x\n", surface);
+	//Debug(3, "codec: release surface %#010x", surface);
 	VideoReleaseSurface(decoder->HwDecoder, surface);
 
 	return;
@@ -229,7 +225,7 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
     VideoDecoder *decoder;
 
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
-	Fatal(_("codec: can't allocate vodeo decoder\n"));
+	Fatal("codec: can't allocate vodeo decoder");
     }
     decoder->HwDecoder = hw_decoder;
 
@@ -256,20 +252,20 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
 
-    Debug(3, "codec: using video codec ID %#06x (%s)\n", codec_id, avcodec_get_name(codec_id));
+    Debug(3, "codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
     if (decoder->VideoCtx) {
-	Error(_("codec: missing close\n"));
+	Error("codec: missing close");
     }
 
     if (!(video_codec = avcodec_find_decoder(codec_id))) {
-	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
+	Fatal("codec: codec ID %#06x not found", codec_id);
 	// FIXME: none fatal
     }
     decoder->VideoCodec = video_codec;
 
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
-	Fatal(_("codec: can't allocate video codec context\n"));
+	Fatal("codec: can't allocate video codec context");
     }
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
@@ -278,11 +274,11 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(decoder->VideoCtx, video_codec) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal(_("codec: can't open video codec!\n"));
+	Fatal("codec: can't open video codec!");
     }
 #else
     if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
-	Debug(3, "codec: video mpeg hack active\n");
+	Debug(3, "codec: video mpeg hack active");
 	// HACK around badly placed checks in mpeg_mc_decode_init
 	// taken from mplayer vd_ffmpeg.c
 	decoder->VideoCtx->slice_flags = SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
@@ -292,24 +288,24 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal(_("codec: can't open video codec!\n"));
+	Fatal("codec: can't open video codec!");
     }
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
 
     decoder->VideoCtx->opaque = decoder;    // our structure
 
-    Debug(3, "codec: video '%s'\n", decoder->VideoCodec->long_name);
+    Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
     if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: video can use truncated packets\n");
+	Debug(3, "codec: video can use truncated packets");
     }
     // FIXME: own memory management for video frames.
     if (video_codec->capabilities & CODEC_CAP_DR1) {
-	Debug(3, "codec: can use own buffer management\n");
+	Debug(3, "codec: can use own buffer management");
     }
 #ifdef CODEC_CAP_FRAME_THREADS
     if (video_codec->capabilities & CODEC_CAP_FRAME_THREADS) {
-	Debug(3, "codec: codec supports frame threads\n");
+	Debug(3, "codec: codec supports frame threads");
     }
 #endif
     decoder->VideoCtx->get_format = Codec_get_format;
@@ -324,11 +320,11 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     //
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(decoder->Frame = av_frame_alloc())) {
-	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
+	Fatal("codec: can't allocate video decoder frame buffer");
     }
 #else
     if (!(decoder->Frame = avcodec_alloc_frame())) {
-	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
+	Fatal("codec: can't allocate video decoder frame buffer");
     }
 #endif
     // reset buggy ffmpeg/libav flag
@@ -381,10 +377,10 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
   next_part:
     // FIXME: this function can crash with bad packets
     used = avcodec_decode_video2(video_ctx, frame, &got_frame, pkt);
-    Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, pkt->data, pkt->size, used, got_frame);
+    Debug(4, "%s: %p %d -> %d %d", __FUNCTION__, pkt->data, pkt->size, used, got_frame);
 
     if (used < 0) {
-	Debug(3, "codec: bad video frame\n");
+	Debug(3, "codec: bad video frame");
 	return;
     }
 
@@ -393,7 +389,7 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	if (!CodecUsePossibleDefectFrames && decoder->FirstKeyFrame) {
 	    decoder->FirstKeyFrame++;
 	    if (frame->key_frame) {
-		Debug(3, "codec: key frame after %d frames\n", decoder->FirstKeyFrame);
+		Debug(3, "codec: key frame after %d frames", decoder->FirstKeyFrame);
 		decoder->FirstKeyFrame = 0;
 	    }
 	} else {
@@ -408,19 +404,19 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	// some frames are needed for references, interlaced frames ...
 	// could happen with h264 dvb streams, just drop data.
 
-	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used\n", video_ctx->frame_number, used);
+	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used", video_ctx->frame_number, used);
     }
 
     // old code to support truncated or multi frame packets
     if (used != pkt->size) {
 	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
 	if (used == 0 && pkt->size == 5 && pkt->data[4] == 0x0A) {
-	    Warning("codec: ffmpeg 0.8.x workaround used\n");
+	    Warning("codec: ffmpeg 0.8.x workaround used");
 	    return;
 	}
 	if (used >= 0 && used < pkt->size) {
 	    // some tv channels, produce this
-	    Debug(4, "codec: ooops didn't use complete video packet used %d of %d\n", used, pkt->size);
+	    Debug(4, "codec: ooops didn't use complete video packet used %d of %d", used, pkt->size);
 	    pkt->size -= used;
 	    pkt->data += used;
 	    // FIXME: align problem?
@@ -535,11 +531,11 @@ AudioDecoder *CodecAudioNewDecoder(void)
     AudioDecoder *audio_decoder;
 
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
-	Fatal(_("codec: can't allocate audio decoder\n"));
+	Fatal("codec: can't allocate audio decoder");
     }
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(audio_decoder->Frame = av_frame_alloc())) {
-	Fatal(_("codec: can't allocate audio decoder frame buffer\n"));
+	Fatal("codec: can't allocate audio decoder frame buffer");
     }
 #endif
 
@@ -569,16 +565,16 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 {
     AVCodec *audio_codec;
 
-    Debug(3, "codec: using audio codec ID %#06x (%s)\n", codec_id, avcodec_get_name(codec_id));
+    Debug(3, "codec: using audio codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
     if (!(audio_codec = avcodec_find_decoder(codec_id))) {
-	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
+	Fatal("codec: codec ID %#06x not found", codec_id);
 	// FIXME: errors aren't fatal
     }
     audio_decoder->AudioCodec = audio_codec;
 
     if (!(audio_decoder->AudioCtx = avcodec_alloc_context3(audio_codec))) {
-	Fatal(_("codec: can't allocate audio codec context\n"));
+	Fatal("codec: can't allocate audio codec context");
     }
 
     if (CodecDownmix) {
@@ -596,7 +592,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 #if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,5,0)
     if (avcodec_open(audio_decoder->AudioCtx, audio_codec) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal(_("codec: can't open audio codec\n"));
+	Fatal("codec: can't open audio codec");
     }
 #else
     {
@@ -608,16 +604,16 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	//av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
 	if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &av_dict) < 0) {
 	    pthread_mutex_unlock(&CodecLockMutex);
-	    Fatal(_("codec: can't open audio codec\n"));
+	    Fatal("codec: can't open audio codec");
 	}
 	av_dict_free(&av_dict);
     }
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
-    Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCodec->long_name);
+    Debug(3, "codec: audio '%s'", audio_decoder->AudioCodec->long_name);
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: audio can use truncated packets\n");
+	Debug(3, "codec: audio can use truncated packets");
 	// we send only complete frames
 	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
@@ -781,7 +777,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
     int err;
 
     audio_ctx = audio_decoder->AudioCtx;
-    Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s\n",
+    Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s",
 	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate, audio_ctx->channels,
 	CodecPassthrough & CodecPCM ? " PCM" : "", CodecPassthrough & CodecMPA ? " MPA" : "",
 	CodecPassthrough & CodecAC3 ? " AC-3" : "", CodecPassthrough & CodecEAC3 ? " E-AC-3" : "",
@@ -814,7 +810,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
 	if (audio_ctx->codec_id != AV_CODEC_ID_EAC3
 	    || (err = AudioSetup(&audio_decoder->HwSampleRate, &audio_decoder->HwChannels, *passthrough))) {
 
-	    Debug(3, "codec/audio: audio setup error\n");
+	    Debug(3, "codec/audio: audio setup error");
 	    // FIXME: handle errors
 	    audio_decoder->HwChannels = 0;
 	    audio_decoder->HwSampleRate = 0;
@@ -822,7 +818,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
 	}
     }
 
-    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n", av_get_sample_fmt_name(audio_ctx->sample_fmt),
+    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d", av_get_sample_fmt_name(audio_ctx->sample_fmt),
 	audio_ctx->sample_rate, audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
 	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
 
@@ -870,7 +866,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	// build SPDIF header and append A52 audio to it
 	// avpkt is the original data
 	if (spdif_sz < avpkt->size + 8) {
-	    Error(_("codec/audio: decoded data smaller than encoded\n"));
+	    Error("codec/audio: decoded data smaller than encoded");
 	    return -1;
 	}
 	spdif[0] = htole16(0xF872);	// iec 61937 sync word
@@ -899,7 +895,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	    spdif_sz = 6144;
 	}
 	if (spdif_sz < audio_decoder->SpdifIndex + avpkt->size + 8) {
-	    Error(_("codec/audio: decoded data smaller than encoded\n"));
+	    Error("codec/audio: decoded data smaller than encoded");
 	    return -1;
 	}
 	// check if we must pack multiple packets
@@ -910,7 +906,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	    // fscod2
 	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
 	}
-	// fprintf(stderr, "repeat %d %d\n", repeat, avpkt->size);
+	// fprintf(stderr, "repeat %d %d", repeat, avpkt->size);
 
 	// copy original data for output
 	// pack upto repeat EAC-3 pakets into one IEC 61937 burst
@@ -968,7 +964,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n", delay / 90);
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms", delay / 90);
 	return;
     }
     // collect over some time
@@ -991,7 +987,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%6d) %3dms reset\n", audio_decoder->DriftCorr, drift / 90);
+	Debug(3, "codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
 #ifdef DEBUG
 	corr = 0;			// keep gcc happy
@@ -1029,7 +1025,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     }
 
     if (!(c++ % 10)) {
-	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1059,7 +1055,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     audio_ctx = audio_decoder->AudioCtx;
     if ((err = CodecAudioUpdateHelper(audio_decoder, &passthrough))) {
 
-	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n", audio_ctx->sample_rate, audio_ctx->channels,
+	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d", audio_ctx->sample_rate, audio_ctx->channels,
 	    audio_decoder->HwSampleRate, audio_decoder->HwChannels);
 
 	if (err == 1) {
@@ -1068,13 +1064,13 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 		audio_ctx->sample_rate, audio_ctx->sample_fmt, audio_ctx->sample_fmt, 16, 10, 0, 0.8);
 	    // libav-0.8_pre didn't support 6 -> 2 channels
 	    if (!audio_decoder->ReSample) {
-		Error(_("codec/audio: resample setup error\n"));
+		Error("codec/audio: resample setup error");
 		audio_decoder->HwChannels = 0;
 		audio_decoder->HwSampleRate = 0;
 	    }
 	    return;
 	}
-	Debug(3, "codec/audio: audio setup error\n");
+	Debug(3, "codec/audio: audio setup error");
 	// FIXME: handle errors
 	audio_decoder->HwChannels = 0;
 	audio_decoder->HwSampleRate = 0;
@@ -1086,12 +1082,12 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     // prepare audio drift resample
     if (CodecAudioDrift & CORRECT_PCM) {
 	if (audio_decoder->AvResample) {
-	    Error(_("codec/audio: overwrite resample\n"));
+	    Error("codec/audio: overwrite resample");
 	}
 	audio_decoder->AvResample =
 	    av_resample_init(audio_decoder->HwSampleRate, audio_decoder->HwSampleRate, 16, 10, 0, 0.8);
 	if (!audio_decoder->AvResample) {
-	    Error(_("codec/audio: AvResample setup error\n"));
+	    Error("codec/audio: AvResample setup error");
 	} else {
 	    // reset drift to some default value
 	    audio_decoder->DriftCorr /= 2;
@@ -1192,7 +1188,7 @@ int myavcodec_decode_audio3(AVCodecContext * avctx, int16_t * samples, int *fram
 
 	if (data_size < 0) {
 	    /* This should not occur, checking just for paranoia */
-	    fprintf(stderr, "Failed to calculate data size\n");
+	    fprintf(stderr, "Failed to calculate data size");
 	    exit(1);
 	}
 	for (i = 0; i < frame->nb_samples; i++)
@@ -1230,14 +1226,14 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     l = myavcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *) avpkt);
     if (avpkt->size != l) {
 	if (l == AVERROR(EAGAIN)) {
-	    Error(_("codec: latm\n"));
+	    Error("codec: latm");
 	    return;
 	}
 	if (l < 0) {			// no audio frame could be decompressed
-	    Error(_("codec: error audio data\n"));
+	    Error("codec: error audio data");
 	    return;
 	}
-	Error(_("codec: error more than one frame data\n"));
+	Error("codec: error more than one frame data");
     }
     // update audio clock
     if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
@@ -1260,14 +1256,14 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    outlen = audio_resample(audio_decoder->ReSample, outbuf, buf, buf_sz);
 #ifdef DEBUG
 	    if (outlen != buf_sz) {
-		Debug(3, "codec/audio: possible fixed ffmpeg\n");
+		Debug(3, "codec/audio: possible fixed ffmpeg");
 	    }
 #endif
 	    if (outlen) {
 		// outlen seems to be wrong in ffmpeg-0.9
 		outlen /= audio_decoder->Channels * av_get_bytes_per_sample(audio_ctx->sample_fmt);
 		outlen *= audio_decoder->HwChannels * av_get_bytes_per_sample(audio_ctx->sample_fmt);
-		Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
+		Debug(4, "codec/audio: %d -> %d", buf_sz, outlen);
 		CodecAudioEnqueue(audio_decoder, outbuf, outlen);
 	    }
 	} else {
@@ -1312,7 +1308,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n", delay / 90);
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms", delay / 90);
 	return;
     }
     // collect over some time
@@ -1335,7 +1331,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%6d) %3dms reset\n", audio_decoder->DriftCorr, drift / 90);
+	Debug(3, "codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
 #ifdef DEBUG
 	corr = 0;			// keep gcc happy
@@ -1371,7 +1367,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
 	}
 	if (swr_set_compensation(audio_decoder->Resample, audio_decoder->DriftCorr / 10, distance)) {
-	    Debug(3, "codec/audio: swr_set_compensation failed\n");
+	    Debug(3, "codec/audio: swr_set_compensation failed");
 	}
     }
 #endif
@@ -1381,12 +1377,12 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 
 	distance = (pts_diff * audio_decoder->HwSampleRate) / (900 * 1000);
 	if (avresample_set_compensation(audio_decoder->Resample, audio_decoder->DriftCorr / 10, distance)) {
-	    Debug(3, "codec/audio: swr_set_compensation failed\n");
+	    Debug(3, "codec/audio: swr_set_compensation failed");
 	}
     }
 #endif
     if (!(c++ % 10)) {
-	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1414,7 +1410,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16 && audio_ctx->sample_rate == audio_decoder->HwSampleRate
 	&& !CodecAudioDrift) {
 	// FIXME: use Resample only, when it is needed!
-	fprintf(stderr, "no resample needed\n");
+	fprintf(stderr, "no resample needed");
     }
 #endif
 
@@ -1426,12 +1422,12 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     if (audio_decoder->Resample) {
 	swr_init(audio_decoder->Resample);
     } else {
-	Error(_("codec/audio: can't setup resample\n"));
+	Error("codec/audio: can't setup resample");
     }
 #endif
 #ifdef USE_AVRESAMPLE
     if (!(audio_decoder->Resample = avresample_alloc_context())) {
-	Error(_("codec/audio: can't setup resample\n"));
+	Error("codec/audio: can't setup resample");
 	return;
     }
 
@@ -1445,7 +1441,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     if (avresample_open(audio_decoder->Resample)) {
 	avresample_free(&audio_decoder->Resample);
 	audio_decoder->Resample = NULL;
-	Error(_("codec/audio: can't open resample\n"));
+	Error("codec/audio: can't open resample");
 	return;
     }
 #endif
@@ -1490,17 +1486,17 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
     if (n != avpkt->size) {
 	if (n == AVERROR(EAGAIN)) {
-	    Error(_("codec/audio: latm\n"));
+	    Error("codec/audio: latm");
 	    return;
 	}
 	if (n < 0) {			// no audio frame could be decompressed
-	    Error(_("codec/audio: bad audio frame\n"));
+	    Error("codec/audio: bad audio frame");
 	    return;
 	}
-	Error(_("codec/audio: error more than one frame data\n"));
+	Error("codec/audio: error more than one frame data");
     }
     if (!got_frame) {
-	Error(_("codec/audio: no frame\n"));
+	Error("codec/audio: no frame");
 	return;
     }
     // update audio clock
@@ -1561,7 +1557,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
 #ifdef DEBUG
     // should be never reached
-    fprintf(stderr, "oops\n");
+    fprintf(stderr, "oops");
 #endif
 }
 
