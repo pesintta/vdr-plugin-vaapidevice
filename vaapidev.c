@@ -2111,59 +2111,6 @@ int PlayTsVideo(const uint8_t * data, int size)
     /// call VDR support function
 extern uint8_t *CreateJpeg(uint8_t *, int *, int, int, int);
 
-#if defined(USE_JPEG) && JPEG_LIB_VERSION >= 80
-
-/**
-**	Create a jpeg image in memory.
-**
-**	@param image		raw RGB image
-**	@param raw_size		size of raw image
-**	@param size[out]	size of jpeg image
-**	@param quality		jpeg quality
-**	@param width		number of horizontal pixels in image
-**	@param height		number of vertical pixels in image
-**
-**	@returns allocated jpeg image.
-*/
-uint8_t *CreateJpeg(uint8_t * image, int raw_size, int *size, int quality, int width, int height)
-{
-    struct jpeg_compress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-    JSAMPROW row_ptr[1];
-    int row_stride;
-    uint8_t *outbuf;
-    long unsigned int outsize;
-
-    outbuf = NULL;
-    outsize = 0;
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_compress(&cinfo);
-    jpeg_mem_dest(&cinfo, &outbuf, &outsize);
-
-    cinfo.image_width = width;
-    cinfo.image_height = height;
-    cinfo.input_components = raw_size / height / width;
-    cinfo.in_color_space = JCS_RGB;
-
-    jpeg_set_defaults(&cinfo);
-    jpeg_set_quality(&cinfo, quality, TRUE);
-    jpeg_start_compress(&cinfo, TRUE);
-
-    row_stride = width * 3;
-    while (cinfo.next_scanline < cinfo.image_height) {
-	row_ptr[0] = &image[cinfo.next_scanline * row_stride];
-	jpeg_write_scanlines(&cinfo, row_ptr, 1);
-    }
-
-    jpeg_finish_compress(&cinfo);
-    jpeg_destroy_compress(&cinfo);
-    *size = outsize;
-
-    return outbuf;
-}
-
-#endif
-
 /**
 **	Grabs the currently visible screen image.
 **
