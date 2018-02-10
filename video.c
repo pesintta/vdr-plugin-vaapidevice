@@ -83,7 +83,6 @@ typedef enum
 #include <GL/glu.h>
 #endif
 
-#ifdef USE_VAAPI
 #include <va/va_x11.h>
 #if !VA_CHECK_VERSION(1,0,0)
 #error "libva is too old - please, upgrade!"
@@ -96,7 +95,6 @@ typedef enum
 /// make source compatible with stable libva
 #define vaCreateSurfaces(d, f, w, h, s, ns, a, na) \
     vaCreateSurfaces(d, w, h, f, ns, s)
-#endif
 #endif
 
 #include <libavcodec/avcodec.h>
@@ -263,7 +261,6 @@ typedef struct _video_config_values_
 //  Variables
 //----------------------------------------------------------------------------
 
-#ifdef USE_VAAPI
 // Brightness (-100.00 - 100.00 ++ 1.00 = 0.00)
 static VideoConfigValues VaapiConfigBrightness = {.active = 0,.min_value = -100.0,.max_value = 100.0,.def_value =
 	0.0,.step = 1.0,.scale = 1.0,.drv_scale = 1.0
@@ -297,7 +294,6 @@ static VideoConfigValues VaapiConfigSharpen = {.active = 0,.min_value = 0.0,.max
 static VideoConfigValues VaapiConfigStde = {.active = 1,.min_value = 0.0,.max_value = 4.0,.def_value = 0.0,.step =
 	1.0,.scale = 1.0,.drv_scale = 1.0
 };
-#endif
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
@@ -1469,8 +1465,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 //----------------------------------------------------------------------------
 //  VA-API
 //----------------------------------------------------------------------------
-
-#ifdef USE_VAAPI
 
 static char VaapiBuggyXvBA;		///< fix xvba-video bugs
 static char VaapiBuggyVdpau;		///< fix libva-driver-vdpau bugs
@@ -6169,8 +6163,6 @@ static const VideoModule VaapiGlxModule = {
 
 #endif
 
-#endif
-
 //----------------------------------------------------------------------------
 //  NOOP
 //----------------------------------------------------------------------------
@@ -6725,11 +6717,9 @@ void VideoDisplayWakeup(void)
 /// Table of all video modules.
 ///
 static const VideoModule *VideoModules[] = {
-#ifdef USE_VAAPI
     &VaapiModule,
 #ifdef USE_GLX
     &VaapiGlxModule,
-#endif
 #endif
     &NoopModule
 };
@@ -6741,9 +6731,7 @@ struct _video_hw_decoder_
 {
     union
     {
-#ifdef USE_VAAPI
 	VaapiDecoder Vaapi;		///< VA-API decoder structure
-#endif
     };
 };
 
@@ -7099,15 +7087,12 @@ void VideoGetVideoSize(VideoHwDecoder * hw_decoder, int *width, int *height, int
     *aspect_num = 16;
     *aspect_den = 9;
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
 	*width = hw_decoder->Vaapi.InputWidth;
 	*height = hw_decoder->Vaapi.InputHeight;
 	av_reduce(aspect_num, aspect_den, hw_decoder->Vaapi.InputWidth * hw_decoder->Vaapi.InputAspect.num,
 	    hw_decoder->Vaapi.InputHeight * hw_decoder->Vaapi.InputAspect.den, 1024 * 1024);
     }
-#endif
-
 }
 
 //----------------------------------------------------------------------------
@@ -7224,7 +7209,6 @@ void VideoSetDevice(const char *device)
 
 int VideoIsDriverVaapi(void)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7232,7 +7216,6 @@ int VideoIsDriverVaapi(void)
 #endif
 	return 1;
     }
-#endif
     return 0;
 }
 
@@ -7280,7 +7263,6 @@ void VideoSetBlackPicture(int onoff)
     VideoShowBlackPicture = onoff;
 }
 
-#ifdef USE_VAAPI
 ///
 /// Vaapi helper to set various video params (brightness, contrast etc.)
 ///
@@ -7308,7 +7290,6 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, int Index, float val
 
     return va_status;
 }
-#endif
 
 ///
 /// Set brightness adjustment.
@@ -7318,7 +7299,6 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, int Index, float val
 void VideoSetBrightness(int brightness)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
 	&& VaapiDecoders[0]->vpp_brightness_idx >= 0) {
@@ -7328,7 +7308,6 @@ void VideoSetBrightness(int brightness)
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx,
 	    VideoConfigClamp(&VaapiConfigBrightness, brightness) * VaapiConfigBrightness.scale);
     }
-#endif
 }
 
 ///
@@ -7336,7 +7315,6 @@ void VideoSetBrightness(int brightness)
 ///
 int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7347,7 +7325,6 @@ int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigBrightness.max_value;
 	return VaapiConfigBrightness.active;
     }
-#endif
     return 0;
 }
 
@@ -7359,7 +7336,6 @@ int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetContrast(int contrast)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
 	&& VaapiDecoders[0]->vpp_contrast_idx >= 0) {
@@ -7369,7 +7345,6 @@ void VideoSetContrast(int contrast)
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx,
 	    VideoConfigClamp(&VaapiConfigContrast, contrast) * VaapiConfigContrast.scale);
     }
-#endif
 }
 
 ///
@@ -7377,7 +7352,6 @@ void VideoSetContrast(int contrast)
 ///
 int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7388,7 +7362,6 @@ int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigContrast.max_value;
 	return VaapiConfigContrast.active;
     }
-#endif
     return 0;
 }
 
@@ -7400,7 +7373,6 @@ int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSaturation(int saturation)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
 	&& VaapiDecoders[0]->vpp_saturation_idx >= 0) {
@@ -7410,7 +7382,6 @@ void VideoSetSaturation(int saturation)
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx,
 	    VideoConfigClamp(&VaapiConfigSaturation, saturation) * VaapiConfigSaturation.scale);
     }
-#endif
 }
 
 ///
@@ -7418,7 +7389,6 @@ void VideoSetSaturation(int saturation)
 ///
 int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7429,7 +7399,6 @@ int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigSaturation.max_value;
 	return VaapiConfigSaturation.active;
     }
-#endif
     return 0;
 }
 
@@ -7441,7 +7410,6 @@ int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetHue(int hue)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) && VaapiDecoders[0]->vpp_hue_idx >= 0) {
 #else
@@ -7450,7 +7418,6 @@ void VideoSetHue(int hue)
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx,
 	    VideoConfigClamp(&VaapiConfigHue, hue) * VaapiConfigHue.scale);
     }
-#endif
 }
 
 ///
@@ -7458,7 +7425,6 @@ void VideoSetHue(int hue)
 ///
 int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7469,7 +7435,6 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigHue.max_value;
 	return VaapiConfigHue.active;
     }
-#endif
     return 0;
 }
 
@@ -7481,7 +7446,6 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSkinToneEnhancement(int stde)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7489,7 +7453,6 @@ void VideoSetSkinToneEnhancement(int stde)
 #endif
 	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
-#endif
     VideoSurfaceModesChanged = 1;
 }
 
@@ -7498,7 +7461,6 @@ void VideoSetSkinToneEnhancement(int stde)
 ///
 int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7509,7 +7471,6 @@ int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalu
 	*maxvalue = VaapiConfigStde.max_value;
 	return VaapiConfigStde.active;
     }
-#endif
     return 0;
 }
 
@@ -7540,7 +7501,6 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width
     }
 
     // FIXME: add function to module class
-#ifdef USE_VAAPI
     if (VideoUsedModule == &VaapiModule) {
 	// check values to be able to avoid
 	// interfering with the video thread if possible
@@ -7555,7 +7515,6 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width
 	VaapiUpdateOutput(&hw_decoder->Vaapi);
 	VideoThreadUnlock();
     }
-#endif
     (void)hw_decoder;
 }
 
@@ -7701,7 +7660,6 @@ void VideoSetFullscreen(int onoff)
 ///
 /// Get scaling modes.
 ///
-#ifdef USE_VAAPI
 static const char *vaapi_scaling[] = {
     "Normal",				///< VideoScalingNormal
     "Fast",				///< VideoScalingFast
@@ -7713,11 +7671,9 @@ static const char *vaapi_scaling_short[] = {
     "F",				///< VideoScalingFast
     "HQ"				///< VideoScalingHQ
 };
-#endif
 
 int VideoGetScalingModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7727,14 +7683,12 @@ int VideoGetScalingModes(const char * **long_table, const char * **short_table)
 	*short_table = vaapi_scaling_short;
 	return ARRAY_ELEMS(vaapi_scaling);
     }
-#endif
     return 0;
 }
 
 ///
 /// Get deinterlace modes.
 ///
-#ifdef USE_VAAPI
 static const char *vaapi_deinterlace[] = {
     "Bob",				///< VideoDeinterlaceBob
     "Weave/None",			///< VideoDeinterlaceWeave
@@ -7748,11 +7702,9 @@ static const char *vaapi_deinterlace_short[] = {
     "MADI",				///< VideoDeinterlaceTemporal
     "MCDI"				///< VideoDeinterlaceTemporalSpatial
 };
-#endif
 
 int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7766,7 +7718,6 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
 	    len = ARRAY_ELEMS(vaapi_deinterlace);
 	return len;
     }
-#endif
     return 0;
 }
 
@@ -7775,7 +7726,6 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
 ///
 void VideoSetDeinterlace(int mode[VideoResolutionMax])
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7788,7 +7738,6 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
 		mode[i] = VaapiDecoders[0]->MaxSupportedDeinterlacer;
 	}
     }
-#endif
     VideoDeinterlace[0] = mode[0];
     VideoDeinterlace[1] = mode[1];
     VideoDeinterlace[2] = mode[2];
@@ -7828,7 +7777,6 @@ void VideoSetInverseTelecine(int onoff[VideoResolutionMax])
 ///
 void VideoSetDenoise(int level[VideoResolutionMax])
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7840,7 +7788,6 @@ void VideoSetDenoise(int level[VideoResolutionMax])
 	    level[i] = VideoConfigClamp(&VaapiConfigDenoise, level[i]);
 	}
     }
-#endif
     VideoDenoise[0] = level[0];
     VideoDenoise[1] = level[1];
     VideoDenoise[2] = level[2];
@@ -7854,7 +7801,6 @@ void VideoSetDenoise(int level[VideoResolutionMax])
 ///
 int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7865,7 +7811,6 @@ int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigDenoise.max_value;
 	return VaapiConfigDenoise.active;
     }
-#endif
     return 0;
 }
 
@@ -7874,7 +7819,6 @@ int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 ///
 void VideoSetSharpen(int level[VideoResolutionMax])
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7886,7 +7830,6 @@ void VideoSetSharpen(int level[VideoResolutionMax])
 	    level[i] = VideoConfigClamp(&VaapiConfigSharpen, level[i]);
 	}
     }
-#endif
     VideoSharpen[0] = level[0];
     VideoSharpen[1] = level[1];
     VideoSharpen[2] = level[2];
@@ -7900,7 +7843,6 @@ void VideoSetSharpen(int level[VideoResolutionMax])
 ///
 int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_VAAPI
 #ifdef USE_GLX
     if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
 #else
@@ -7911,7 +7853,6 @@ int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue)
 	*maxvalue = VaapiConfigSharpen.max_value;
 	return VaapiConfigSharpen.active;
     }
-#endif
     return 0;
 }
 
