@@ -292,7 +292,8 @@ static VideoConfigValues VaapiConfigStde = {.active = 1,.min_value = 0.0,.max_va
 
 char VideoIgnoreRepeatPict;		///< disable repeat pict warning
 
-static const char *VideoDriverName;	///< video output device
+static const char *VideoDriverName = "va-api";	///< video output device - default to va-api
+
 static Display *XlibDisplay;		///< Xlib X11 display
 static xcb_connection_t *Connection;	///< xcb connection
 static xcb_colormap_t VideoColormap;	///< video colormap
