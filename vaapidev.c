@@ -2943,8 +2943,7 @@ int Start(void)
     }
     PesInit(&PesDemuxer[TS_PES_VIDEO]);
     PesInit(&PesDemuxer[TS_PES_AUDIO]);
-    Info("[vaapidevice] ready%s",
-	ConfigStartSuspended ? ConfigStartSuspended == -1 ? " detached" : " suspended" : "");
+    Info("[vaapidevice] ready%s", ConfigStartSuspended ? ConfigStartSuspended == -1 ? " detached" : " suspended" : "");
 
     return ConfigStartSuspended;
 }

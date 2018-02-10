@@ -209,6 +209,7 @@ HDRS=	$(wildcard *.h)
 indent:
 	for i in $(SRCS) $(HDRS); do \
 		indent $$i; \
+		rm -f $$i~; \
 		unexpand -a $$i | sed -e s/constconst/const/ > $$i.up; \
 		mv $$i.up $$i; \
 	done

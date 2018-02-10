@@ -867,8 +867,8 @@ static void GlxOsdDrawARGB(int xi, int yi, int width, int height, int pitch, con
     int copywidth, copyheight;
 
     if (OsdWidth < width + x || OsdHeight < height + y) {
-	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, OsdWidth,
-	    height, y, OsdHeight);
+	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, OsdWidth, height,
+	    y, OsdHeight);
     }
     if (OsdWidth < x || OsdHeight < y)
 	return;
@@ -2176,8 +2176,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
 #ifdef DEBUG
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
-	Error("Surface queue mismatch. SurfaceRead = %d, SurfaceWrite = %d, SurfacesFilled = %d",
-	    decoder->SurfaceRead, decoder->SurfaceWrite, atomic_read(&decoder->SurfacesFilled));
+	Error("Surface queue mismatch. SurfaceRead = %d, SurfaceWrite = %d, SurfacesFilled = %d", decoder->SurfaceRead,
+	    decoder->SurfaceWrite, atomic_read(&decoder->SurfacesFilled));
     }
 #endif
 
@@ -2929,8 +2929,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 
     // Sanity check for image format
     if (image.format.fourcc != VA_FOURCC_NV12 && image.format.fourcc != VA_FOURCC('I', '4', '2', '0')) {
-	Error("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)", image.format.fourcc,
-	    image.num_planes);
+	Error("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)", image.format.fourcc, image.num_planes);
 	goto out_destroy;
     }
 
@@ -5107,7 +5106,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	decoder->InputAspect = frame->sample_aspect_ratio;
 	VaapiUpdateOutput(decoder);
     }
-
     //
     // Hardware render
     //

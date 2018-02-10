@@ -2803,9 +2803,9 @@ void AudioInit(void)
 	}
     }
     for (u = 0; u < AudioRatesMax; ++u) {
-	Info("audio: %6dHz supports %d %d %d %d %d %d %d %d channels", AudioRatesTable[u],
-	    AudioChannelMatrix[u][1], AudioChannelMatrix[u][2], AudioChannelMatrix[u][3], AudioChannelMatrix[u][4],
-	    AudioChannelMatrix[u][5], AudioChannelMatrix[u][6], AudioChannelMatrix[u][7], AudioChannelMatrix[u][8]);
+	Info("audio: %6dHz supports %d %d %d %d %d %d %d %d channels", AudioRatesTable[u], AudioChannelMatrix[u][1],
+	    AudioChannelMatrix[u][2], AudioChannelMatrix[u][3], AudioChannelMatrix[u][4], AudioChannelMatrix[u][5],
+	    AudioChannelMatrix[u][6], AudioChannelMatrix[u][7], AudioChannelMatrix[u][8]);
     }
 #ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
