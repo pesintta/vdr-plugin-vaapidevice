@@ -1,45 +1,15 @@
+/// Copyright (C) 2009 - 2015 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file codec.c	@brief Codec functions
-///
-///	Copyright (c) 2009 - 2015 by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 ///
-///	@defgroup Codec The codec module.
+/// This module contains all decoder and codec functions.
+/// It is uses ffmpeg (http://ffmpeg.org) as backend.
 ///
-///		This module contains all decoder and codec functions.
-///		It is uses ffmpeg (http://ffmpeg.org) as backend.
+/// It may work with libav (http://libav.org), but the tests show
+/// many bugs and incompatiblity in it.	 Don't use this shit.
 ///
-///		It may work with libav (http://libav.org), but the tests show
-///		many bugs and incompatiblity in it.  Don't use this shit.
-///
-
-    /// compile with pass-through support (stable, AC-3, E-AC-3 only)
-#define USE_PASSTHROUGH
-    /// compile audio drift correction support (very experimental)
-#define USE_AUDIO_DRIFT_CORRECTION
-    /// compile AC-3 audio drift correction support (very experimental)
-#define USE_AC3_DRIFT_CORRECTION
-    /// use ffmpeg libswresample API (autodected, Makefile)
-#define noUSE_SWRESAMPLE
-    /// use libav libavresample API (autodected, Makefile)
-#define noUSE_AVRESAMPLE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,12 +35,10 @@
 #define AVCodecID CodecID
 #define AV_CODEC_ID_AC3 CODEC_ID_AC3
 #define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
+#define AV_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
 #define AV_CODEC_ID_H264 CODEC_ID_H264
 #endif
 #include <libavcodec/vaapi.h>
-#ifdef USE_VDPAU
-#include <libavcodec/vdpau.h>
-#endif
 #ifdef USE_SWRESAMPLE
 #include <libswresample/swresample.h>
 #endif
@@ -104,49 +72,26 @@
 #endif
 
 //----------------------------------------------------------------------------
-//	Global
+//  Global
 //----------------------------------------------------------------------------
 
       ///
-      ///	ffmpeg lock mutex
+      ///   ffmpeg lock mutex
       ///
-      ///	new ffmpeg dislikes simultanous open/close
-      ///	this breaks our code, until this is fixed use lock.
+      ///   new ffmpeg dislikes simultanous open/close
+      ///   this breaks our code, until this is fixed use lock.
       ///
 static pthread_mutex_t CodecLockMutex;
 
-    /// Flag prefer fast xhannel switch
+    /// Flag prefer fast channel switch
 char CodecUsePossibleDefectFrames;
 
 //----------------------------------------------------------------------------
-//	Video
+//  Video
 //----------------------------------------------------------------------------
 
-#if 0
-///
-///	Video decoder typedef.
-///
-//typedef struct _video_decoder_ Decoder;
-#endif
-
-///
-///	Video decoder structure.
-///
-struct _video_decoder_
-{
-    VideoHwDecoder *HwDecoder;		///< video hardware decoder
-
-    int GetFormatDone;			///< flag get format called!
-    AVCodec *VideoCodec;		///< video codec
-    AVCodecContext *VideoCtx;		///< video codec context
-#ifdef FFMPEG_WORKAROUND_ARTIFACTS
-    int FirstKeyFrame;			///< flag first frame
-#endif
-    AVFrame *Frame;			///< decoded video frame
-};
-
 //----------------------------------------------------------------------------
-//	Call-backs
+//  Call-backs
 //----------------------------------------------------------------------------
 
 /**
@@ -158,8 +103,7 @@ struct _video_decoder_
 **				valid format, the formats are ordered by
 **				quality.
 */
-static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
-    const enum PixelFormat *fmt)
+static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
     VideoDecoder *decoder;
 
@@ -170,8 +114,7 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
     if (decoder->GetFormatDone) {
 	if (decoder->GetFormatDone < 10) {
 	    ++decoder->GetFormatDone;
-	    Error
-		("codec/video: ffmpeg/libav buggy: get_format called again\n");
+	    Error("codec/video: ffmpeg/libav buggy: get_format called again\n");
 	}
 	return *fmt;			// FIXME: this is hack
     }
@@ -186,6 +129,8 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
 
+static void Codec_free_buffer(void *opaque, uint8_t * data);
+
 /**
 **	Video buffer management, get buffer for frame.
 **
@@ -194,61 +139,25 @@ static enum PixelFormat Codec_get_format(AVCodecContext * video_ctx,
 **	@param video_ctx	Codec context
 **	@param frame		Get buffer for this frame
 */
-static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
+static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int flags)
 {
     VideoDecoder *decoder;
 
     decoder = video_ctx->opaque;
+
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(54,86,100)
     // ffmpeg has this already fixed
     // libav 0.8.5 53.35.0 still needs this
 #endif
     if (!decoder->GetFormatDone) {	// get_format missing
-	enum PixelFormat fmts[2];
+	enum AVPixelFormat fmts[2];
 
 	fprintf(stderr, "codec: buggy libav, use ffmpeg\n");
 	Warning(_("codec: buggy libav, use ffmpeg\n"));
 	fmts[0] = video_ctx->pix_fmt;
-	fmts[1] = PIX_FMT_NONE;
+	fmts[1] = AV_PIX_FMT_NONE;
 	Codec_get_format(video_ctx, fmts);
     }
-#ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
-	unsigned surface;
-	struct vdpau_render_state *vrs;
-
-	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
-	vrs = av_mallocz(sizeof(struct vdpau_render_state));
-	vrs->surface = surface;
-
-	//Debug(3, "codec: use surface %#010x\n", surface);
-
-#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,48,101)
-	frame->type = FF_BUFFER_TYPE_USER;
-#endif
-#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(53,46,0)
-	frame->age = 256 * 256 * 256 * 64;
-#endif
-	// render
-	frame->data[0] = (void *)vrs;
-	frame->data[1] = NULL;
-	frame->data[2] = NULL;
-	frame->data[3] = NULL;
-
-#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
-	// reordered frames
-	if (video_ctx->pkt) {
-	    frame->pkt_pts = video_ctx->pkt->pts;
-	} else {
-	    frame->pkt_pts = AV_NOPTS_VALUE;
-	}
-#endif
-	return 0;
-    }
-#endif
     // VA-API:
     if (video_ctx->hwaccel_context) {
 	unsigned surface;
@@ -264,8 +173,9 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	frame->age = 256 * 256 * 256 * 64;
 #endif
 	// vaapi needs both fields set
-	frame->data[0] = (void *)(size_t) surface;
-	frame->data[3] = (void *)(size_t) surface;
+	frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
+	frame->data[0] = frame->buf[0]->data;
+	frame->data[3] = frame->data[0];
 
 #if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(52,66,100)
 	// reordered frames
@@ -278,113 +188,34 @@ static int Codec_get_buffer(AVCodecContext * video_ctx, AVFrame * frame)
 	return 0;
     }
     //Debug(3, "codec: fallback to default get_buffer\n");
-    return avcodec_default_get_buffer(video_ctx, frame);
+    return avcodec_default_get_buffer2(video_ctx, frame, flags);
 }
 
 /**
 **	Video buffer management, release buffer for frame.
 **	Called to release buffers which were allocated with get_buffer.
 **
-**	@param video_ctx	Codec context
-**	@param frame		Release buffer for this frame
+**	@param opaque	opaque data
+**	@param data		buffer data
 */
-static void Codec_release_buffer(AVCodecContext * video_ctx, AVFrame * frame)
+static void Codec_free_buffer(void *opaque, uint8_t * data)
 {
-#ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
-	VideoDecoder *decoder;
-	struct vdpau_render_state *vrs;
-	unsigned surface;
+    AVCodecContext *video_ctx = (AVCodecContext *) opaque;
 
-	decoder = video_ctx->opaque;
-	vrs = (struct vdpau_render_state *)frame->data[0];
-	surface = vrs->surface;
-
-	//Debug(3, "codec: release surface %#010x\n", surface);
-	VideoReleaseSurface(decoder->HwDecoder, surface);
-
-	av_freep(&vrs->bitstream_buffers);
-	vrs->bitstream_buffers_allocated = 0;
-	av_freep(&frame->data[0]);
-
-	return;
-    }
-#endif
     // VA-API
     if (video_ctx->hwaccel_context) {
 	VideoDecoder *decoder;
 	unsigned surface;
 
 	decoder = video_ctx->opaque;
-	surface = (unsigned)(size_t) frame->data[3];
+	surface = (unsigned)(size_t) data;
 
 	//Debug(3, "codec: release surface %#010x\n", surface);
 	VideoReleaseSurface(decoder->HwDecoder, surface);
 
-	frame->data[0] = NULL;
-	frame->data[3] = NULL;
-
 	return;
     }
-    //Debug(3, "codec: fallback to default release_buffer\n");
-    return avcodec_default_release_buffer(video_ctx, frame);
 }
-
-/// libav: compatibility hack
-#ifndef AV_NUM_DATA_POINTERS
-#define AV_NUM_DATA_POINTERS	4
-#endif
-
-/**
-**	Draw a horizontal band.
-**
-**	@param video_ctx	Codec context
-**	@param frame		draw this frame
-**	@param y		y position of slice
-**	@param type		1->top field, 2->bottom field, 3->frame
-**	@param offset		offset into AVFrame.data from which slice
-**				should be read
-**	@param height		height of slice
-*/
-static void Codec_draw_horiz_band(AVCodecContext * video_ctx,
-    const AVFrame * frame, __attribute__ ((unused))
-    int offset[AV_NUM_DATA_POINTERS], __attribute__ ((unused))
-    int y, __attribute__ ((unused))
-    int type, __attribute__ ((unused))
-    int height)
-{
-#ifdef USE_VDPAU
-    // VDPAU: PIX_FMT_VDPAU_H264 .. PIX_FMT_VDPAU_VC1 PIX_FMT_VDPAU_MPEG4
-    if ((PIX_FMT_VDPAU_H264 <= video_ctx->pix_fmt
-	    && video_ctx->pix_fmt <= PIX_FMT_VDPAU_VC1)
-	|| video_ctx->pix_fmt == PIX_FMT_VDPAU_MPEG4) {
-	VideoDecoder *decoder;
-	struct vdpau_render_state *vrs;
-
-	//unsigned surface;
-
-	decoder = video_ctx->opaque;
-	vrs = (struct vdpau_render_state *)frame->data[0];
-	//surface = vrs->surface;
-
-	//Debug(3, "codec: draw slice surface %#010x\n", surface);
-	//Debug(3, "codec: %d references\n", vrs->info.h264.num_ref_frames);
-
-	VideoDrawRenderState(decoder->HwDecoder, vrs);
-	return;
-    }
-#else
-    (void)video_ctx;
-    (void)frame;
-#endif
-}
-
-//----------------------------------------------------------------------------
-//	Test
-//----------------------------------------------------------------------------
 
 /**
 **	Allocate a new video decoder context.
@@ -419,22 +250,19 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 **	Open video decoder.
 **
 **	@param decoder	private video decoder
-**	@param name	video codec name
-**	@param codec_id	video codec id, used if name == NULL
+**	@param codec_id	video codec id
 */
-void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
+void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
 
-    Debug(3, "codec: using video codec %s or ID %#06x\n", name, codec_id);
+    Debug(3, "codec: using video codec ID %#06x (%s)\n", codec_id, avcodec_get_name(codec_id));
 
     if (decoder->VideoCtx) {
 	Error(_("codec: missing close\n"));
     }
 
-    if (name && (video_codec = avcodec_find_decoder_by_name(name))) {
-	Debug(3, "codec: vdpau decoder found\n");
-    } else if (!(video_codec = avcodec_find_decoder(codec_id))) {
+    if (!(video_codec = avcodec_find_decoder(codec_id))) {
 	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
 	// FIXME: none fatal
     }
@@ -453,13 +281,11 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 	Fatal(_("codec: can't open video codec!\n"));
     }
 #else
-    if (video_codec->capabilities & (CODEC_CAP_HWACCEL_VDPAU |
-	    CODEC_CAP_HWACCEL)) {
+    if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
 	Debug(3, "codec: video mpeg hack active\n");
 	// HACK around badly placed checks in mpeg_mc_decode_init
 	// taken from mplayer vd_ffmpeg.c
-	decoder->VideoCtx->slice_flags =
-	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
+	decoder->VideoCtx->slice_flags = SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
 	decoder->VideoCtx->thread_count = 1;
 	decoder->VideoCtx->active_thread_type = 0;
     }
@@ -471,74 +297,40 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
 
-    decoder->VideoCtx->opaque = decoder;	// our structure
+    decoder->VideoCtx->opaque = decoder;    // our structure
 
-    Debug(3, "codec: video '%s'\n", decoder->VideoCtx->codec_name);
-    if (codec_id == AV_CODEC_ID_H264) {
-	// 2.53 Ghz CPU is too slow for this codec at 1080i
-	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_ALL;
-	//decoder->VideoCtx->skip_loop_filter = AVDISCARD_BIDIR;
-    }
+    Debug(3, "codec: video '%s'\n", decoder->VideoCodec->long_name);
     if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets\n");
-#ifndef USE_MPEG_COMPLETE
-	// we send incomplete frames, for old PES recordings
-	// this breaks the decoder for some stations
-	decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
-#endif
     }
     // FIXME: own memory management for video frames.
     if (video_codec->capabilities & CODEC_CAP_DR1) {
 	Debug(3, "codec: can use own buffer management\n");
-    }
-    if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
-	Debug(3, "codec: can export data for HW decoding (VDPAU)\n");
     }
 #ifdef CODEC_CAP_FRAME_THREADS
     if (video_codec->capabilities & CODEC_CAP_FRAME_THREADS) {
 	Debug(3, "codec: codec supports frame threads\n");
     }
 #endif
-    //decoder->VideoCtx->debug = FF_DEBUG_STARTCODE;
-    //decoder->VideoCtx->err_recognition |= AV_EF_EXPLODE;
+    decoder->VideoCtx->get_format = Codec_get_format;
+    decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
+    decoder->VideoCtx->thread_count = 1;
+    decoder->VideoCtx->active_thread_type = 0;
+    decoder->VideoCtx->draw_horiz_band = NULL;
+    decoder->VideoCtx->hwaccel_context = VideoGetHwAccelContext(decoder->HwDecoder);
 
-    if (video_codec->capabilities & CODEC_CAP_HWACCEL_VDPAU) {
-	// FIXME: get_format never called.
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer = Codec_get_buffer;
-	decoder->VideoCtx->release_buffer = Codec_release_buffer;
-	decoder->VideoCtx->reget_buffer = Codec_get_buffer;
-	decoder->VideoCtx->draw_horiz_band = Codec_draw_horiz_band;
-	decoder->VideoCtx->slice_flags =
-	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->active_thread_type = 0;
-    } else {
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->hwaccel_context =
-	    VideoGetHwAccelContext(decoder->HwDecoder);
-    }
-
-    // our pixel format video hardware decoder hook
-    if (decoder->VideoCtx->hwaccel_context) {
-	decoder->VideoCtx->get_format = Codec_get_format;
-	decoder->VideoCtx->get_buffer = Codec_get_buffer;
-	decoder->VideoCtx->release_buffer = Codec_release_buffer;
-	decoder->VideoCtx->reget_buffer = Codec_get_buffer;
-#if 0
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->draw_horiz_band = NULL;
-	decoder->VideoCtx->slice_flags =
-	    SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	//decoder->VideoCtx->flags |= CODEC_FLAG_EMU_EDGE;
-#endif
-    }
     //
     //	Prepare frame buffer for decoder
     //
-    if (!(decoder->Frame = avcodec_alloc_frame())) {
-	Fatal(_("codec: can't allocate decoder frame\n"));
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
+    if (!(decoder->Frame = av_frame_alloc())) {
+	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
     }
+#else
+    if (!(decoder->Frame = avcodec_alloc_frame())) {
+	Fatal(_("codec: can't allocate video decoder frame buffer\n"));
+    }
+#endif
     // reset buggy ffmpeg/libav flag
     decoder->GetFormatDone = 0;
 #ifdef FFMPEG_WORKAROUND_ARTIFACTS
@@ -554,7 +346,12 @@ void CodecVideoOpen(VideoDecoder * decoder, const char *name, int codec_id)
 void CodecVideoClose(VideoDecoder * video_decoder)
 {
     // FIXME: play buffered data
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
+    av_frame_free(&video_decoder->Frame);   // callee does checks
+#else
     av_freep(&video_decoder->Frame);
+#endif
+
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
 	avcodec_close(video_decoder->VideoCtx);
@@ -562,43 +359,6 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 	pthread_mutex_unlock(&CodecLockMutex);
     }
 }
-
-#if 0
-
-/**
-**	Display pts...
-**
-**	ffmpeg-0.9 pts always AV_NOPTS_VALUE
-**	ffmpeg-0.9 pkt_pts nice monotonic (only with HD)
-**	ffmpeg-0.9 pkt_dts wild jumping -160 - 340 ms
-**
-**	libav 0.8_pre20111116 pts always AV_NOPTS_VALUE
-**	libav 0.8_pre20111116 pkt_pts always 0 (could be fixed?)
-**	libav 0.8_pre20111116 pkt_dts wild jumping -160 - 340 ms
-*/
-void DisplayPts(AVCodecContext * video_ctx, AVFrame * frame)
-{
-    int ms_delay;
-    int64_t pts;
-    static int64_t last_pts;
-
-    pts = frame->pkt_pts;
-    if (pts == (int64_t) AV_NOPTS_VALUE) {
-	printf("*");
-    }
-    ms_delay = (1000 * video_ctx->time_base.num) / video_ctx->time_base.den;
-    ms_delay += frame->repeat_pict * ms_delay / 2;
-    printf("codec: PTS %s%s %" PRId64 " %d %d/%d %dms\n",
-	frame->repeat_pict ? "r" : " ", frame->interlaced_frame ? "I" : " ",
-	pts, (int)(pts - last_pts) / 90, video_ctx->time_base.num,
-	video_ctx->time_base.den, ms_delay);
-
-    if (pts != (int64_t) AV_NOPTS_VALUE) {
-	last_pts = pts;
-    }
-}
-
-#endif
 
 /**
 **	Decode a video packet.
@@ -621,8 +381,7 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
   next_part:
     // FIXME: this function can crash with bad packets
     used = avcodec_decode_video2(video_ctx, frame, &got_frame, pkt);
-    Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, pkt->data, pkt->size, used,
-	got_frame);
+    Debug(4, "%s: %p %d -> %d %d\n", __FUNCTION__, pkt->data, pkt->size, used, got_frame);
 
     if (used < 0) {
 	Debug(3, "codec: bad video frame\n");
@@ -634,14 +393,13 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	if (!CodecUsePossibleDefectFrames && decoder->FirstKeyFrame) {
 	    decoder->FirstKeyFrame++;
 	    if (frame->key_frame) {
-		Debug(3, "codec: key frame after %d frames\n",
-			decoder->FirstKeyFrame);
-		    decoder->FirstKeyFrame = 0;
-		}
-	    } else {
-		//DisplayPts(video_ctx, frame);
-		VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+		Debug(3, "codec: key frame after %d frames\n", decoder->FirstKeyFrame);
+		decoder->FirstKeyFrame = 0;
 	    }
+	} else {
+	    //DisplayPts(video_ctx, frame);
+	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+	}
 #else
 	//DisplayPts(video_ctx, frame);
 	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
@@ -650,11 +408,9 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	// some frames are needed for references, interlaced frames ...
 	// could happen with h264 dvb streams, just drop data.
 
-	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used\n",
-	    video_ctx->frame_number, used);
+	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used\n", video_ctx->frame_number, used);
     }
 
-#if 1
     // old code to support truncated or multi frame packets
     if (used != pkt->size) {
 	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
@@ -664,15 +420,16 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	}
 	if (used >= 0 && used < pkt->size) {
 	    // some tv channels, produce this
-	    Debug(4,
-		"codec: ooops didn't use complete video packet used %d of %d\n",
-		used, pkt->size);
+	    Debug(4, "codec: ooops didn't use complete video packet used %d of %d\n", used, pkt->size);
 	    pkt->size -= used;
 	    pkt->data += used;
 	    // FIXME: align problem?
 	    goto next_part;
 	}
     }
+    // new AVFrame API
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
+    av_frame_unref(frame);
 #endif
 }
 
@@ -689,18 +446,11 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
 }
 
 //----------------------------------------------------------------------------
-//	Audio
+//  Audio
 //----------------------------------------------------------------------------
 
-#if 0
 ///
-///	Audio decoder typedef.
-///
-typedef struct _audio_decoder_ AudioDecoder;
-#endif
-
-///
-///	Audio decoder structure.
+/// Audio decoder structure.
 ///
 struct _audio_decoder_
 {
@@ -714,7 +464,7 @@ struct _audio_decoder_
     int HwSampleRate;			///< hw sample rate
     int HwChannels;			///< hw channels
 
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     AVFrame *Frame;			///< decoded audio frame buffer
 #endif
 
@@ -745,7 +495,7 @@ struct _audio_decoder_
     int DriftFrac;			///< audio drift fraction for ac3
 
 #if !defined(USE_SWRESAMPLE) && !defined(USE_AVRESAMPLE)
-    struct AVResampleContext *AvResample;	///< second audio resample context
+    struct AVResampleContext *AvResample;   ///< second audio resample context
 #define MAX_CHANNELS 8			///< max number of channels supported
     int16_t *Buffer[MAX_CHANNELS];	///< deinterleave sample buffers
     int BufferSize;			///< size of sample buffer
@@ -756,7 +506,7 @@ struct _audio_decoder_
 };
 
 ///
-///	IEC Data type enumeration.
+/// IEC Data type enumeration.
 ///
 enum IEC61937
 {
@@ -765,21 +515,14 @@ enum IEC61937
     IEC61937_EAC3 = 0x15,		///< E-AC-3 data
 };
 
-#ifdef USE_AUDIO_DRIFT_CORRECTION
-#define CORRECT_PCM	1		///< do PCM audio-drift correction
-#define CORRECT_AC3	2		///< do AC-3 audio-drift correction
+#define CORRECT_PCM	1		    ///< do PCM audio-drift correction
+#define CORRECT_AC3	2		    ///< do AC-3 audio-drift correction
 static char CodecAudioDrift;		///< flag: enable audio-drift correction
-#else
-static const int CodecAudioDrift = 0;
-#endif
-#ifdef USE_PASSTHROUGH
+
     ///
     /// Pass-through flags: CodecPCM, CodecAC3, CodecEAC3, ...
     ///
 static char CodecPassthrough;
-#else
-static const int CodecPassthrough = 0;
-#endif
 static char CodecDownmix;		///< enable AC-3 decoder downmix
 
 /**
@@ -794,7 +537,7 @@ AudioDecoder *CodecAudioNewDecoder(void)
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
 	Fatal(_("codec: can't allocate audio decoder\n"));
     }
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     if (!(audio_decoder->Frame = av_frame_alloc())) {
 	Fatal(_("codec: can't allocate audio decoder frame buffer\n"));
     }
@@ -810,7 +553,7 @@ AudioDecoder *CodecAudioNewDecoder(void)
 */
 void CodecAudioDelDecoder(AudioDecoder * decoder)
 {
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56,28,1)
     av_frame_free(&decoder->Frame);	// callee does checks
 #endif
     free(decoder);
@@ -820,19 +563,15 @@ void CodecAudioDelDecoder(AudioDecoder * decoder)
 **	Open audio decoder.
 **
 **	@param audio_decoder	private audio decoder
-**	@param name	audio codec name
-**	@param codec_id	audio codec id, used if name == NULL
+**	@param codec_id	audio	codec id
 */
-void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
-    int codec_id)
+void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 {
     AVCodec *audio_codec;
 
-    Debug(3, "codec: using audio codec %s or ID %#06x\n", name, codec_id);
+    Debug(3, "codec: using audio codec ID %#06x (%s)\n", codec_id, avcodec_get_name(codec_id));
 
-    if (name && (audio_codec = avcodec_find_decoder_by_name(name))) {
-	Debug(3, "codec: audio decoder '%s' found\n", name);
-    } else if (!(audio_codec = avcodec_find_decoder(codec_id))) {
+    if (!(audio_codec = avcodec_find_decoder(codec_id))) {
 	Fatal(_("codec: codec ID %#06x not found\n"), codec_id);
 	// FIXME: errors aren't fatal
     }
@@ -843,11 +582,10 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 
     if (CodecDownmix) {
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100) || FF_API_REQUEST_CHANNELS
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(53,61,100)
 	audio_decoder->AudioCtx->request_channels = 2;
 #endif
-	audio_decoder->AudioCtx->request_channel_layout =
-	    AV_CH_LAYOUT_STEREO_DOWNMIX;
+	audio_decoder->AudioCtx->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
     }
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53,61,100)
     // this has no effect (with ffmpeg and libav)
@@ -861,10 +599,9 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
 	Fatal(_("codec: can't open audio codec\n"));
     }
 #else
-    if (1) {
-	AVDictionary *av_dict;
+    {
+	AVDictionary *av_dict = NULL;
 
-	av_dict = NULL;
 	// FIXME: import settings
 	//av_dict_set(&av_dict, "dmix_mode", "0", 0);
 	//av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
@@ -877,7 +614,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, const char *name,
     }
 #endif
     pthread_mutex_unlock(&CodecLockMutex);
-    Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCtx->codec_name);
+    Debug(3, "codec: audio '%s'\n", audio_decoder->AudioCodec->long_name);
 
     if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: audio can use truncated packets\n");
@@ -945,10 +682,7 @@ void CodecAudioClose(AudioDecoder * audio_decoder)
 */
 void CodecSetAudioDrift(int mask)
 {
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     CodecAudioDrift = mask & (CORRECT_PCM | CORRECT_AC3);
-#endif
-    (void)mask;
 }
 
 /**
@@ -958,10 +692,7 @@ void CodecSetAudioDrift(int mask)
 */
 void CodecSetAudioPassthrough(int mask)
 {
-#ifdef USE_PASSTHROUGH
     CodecPassthrough = mask & (CodecPCM | CodecAC3 | CodecEAC3);
-#endif
-    (void)mask;
 }
 
 /**
@@ -1044,19 +775,16 @@ static void CodecReorderAudioFrame(int16_t * buf, int size, int channels)
 **	@param audio_decoder	audio decoder data
 **	@param[out] passthrough	pass-through output
 */
-static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
-    int *passthrough)
+static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough)
 {
     const AVCodecContext *audio_ctx;
     int err;
 
     audio_ctx = audio_decoder->AudioCtx;
     Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s\n",
-	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
-	audio_ctx->channels, CodecPassthrough & CodecPCM ? " PCM" : "",
-	CodecPassthrough & CodecMPA ? " MPA" : "",
-	CodecPassthrough & CodecAC3 ? " AC-3" : "",
-	CodecPassthrough & CodecEAC3 ? " E-AC-3" : "",
+	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate, audio_ctx->channels,
+	CodecPassthrough & CodecPCM ? " PCM" : "", CodecPassthrough & CodecMPA ? " MPA" : "",
+	CodecPassthrough & CodecAC3 ? " AC-3" : "", CodecPassthrough & CodecEAC3 ? " E-AC-3" : "",
 	CodecPassthrough ? " pass-through" : "");
 
     *passthrough = 0;
@@ -1068,8 +796,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 
     // SPDIF/HDMI pass-through
     if ((CodecPassthrough & CodecAC3 && audio_ctx->codec_id == AV_CODEC_ID_AC3)
-	|| (CodecPassthrough & CodecEAC3
-	    && audio_ctx->codec_id == AV_CODEC_ID_EAC3)) {
+	|| (CodecPassthrough & CodecEAC3 && audio_ctx->codec_id == AV_CODEC_ID_EAC3)) {
 	if (audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
 	    // E-AC-3 over HDMI some receivers need HBR
 	    audio_decoder->HwSampleRate *= 4;
@@ -1080,16 +807,12 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 	*passthrough = 1;
     }
     // channels/sample-rate not support?
-    if ((err =
-	    AudioSetup(&audio_decoder->HwSampleRate,
-		&audio_decoder->HwChannels, *passthrough))) {
+    if ((err = AudioSetup(&audio_decoder->HwSampleRate, &audio_decoder->HwChannels, *passthrough))) {
 
 	// try E-AC-3 none HBR
 	audio_decoder->HwSampleRate /= 4;
 	if (audio_ctx->codec_id != AV_CODEC_ID_EAC3
-	    || (err =
-		AudioSetup(&audio_decoder->HwSampleRate,
-		    &audio_decoder->HwChannels, *passthrough))) {
+	    || (err = AudioSetup(&audio_decoder->HwSampleRate, &audio_decoder->HwChannels, *passthrough))) {
 
 	    Debug(3, "codec/audio: audio setup error\n");
 	    // FIXME: handle errors
@@ -1099,9 +822,8 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 	}
     }
 
-    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n",
-	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate,
-	audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
+    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d\n", av_get_sample_fmt_name(audio_ctx->sample_fmt),
+	audio_ctx->sample_rate, audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
 	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
 
     return 0;
@@ -1113,10 +835,8 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder,
 **	@param audio_decoder	audio decoder data
 **	@param avpkt		undecoded audio packet
 */
-static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
-    const AVPacket * avpkt)
+static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
-#ifdef USE_PASSTHROUGH
     const AVCodecContext *audio_ctx;
 
     audio_ctx = audio_decoder->AudioCtx;
@@ -1128,19 +848,16 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	spdif = audio_decoder->Spdif;
 	spdif_sz = 6144;
 
-#ifdef USE_AC3_DRIFT_CORRECTION
 	// FIXME: this works with some TVs/AVReceivers
 	// FIXME: write burst size drift correction, which should work with all
 	if (CodecAudioDrift & CORRECT_AC3) {
 	    int x;
 
 	    x = (audio_decoder->DriftFrac +
-		(audio_decoder->DriftCorr * spdif_sz)) / (10 *
-		audio_decoder->HwSampleRate * 100);
+		(audio_decoder->DriftCorr * spdif_sz)) / (10 * audio_decoder->HwSampleRate * 100);
 	    audio_decoder->DriftFrac =
 		(audio_decoder->DriftFrac +
-		(audio_decoder->DriftCorr * spdif_sz)) % (10 *
-		audio_decoder->HwSampleRate * 100);
+		(audio_decoder->DriftCorr * spdif_sz)) % (10 * audio_decoder->HwSampleRate * 100);
 	    // round to word border
 	    x *= audio_decoder->HwChannels * 4;
 	    if (x < -64) {		// limit correction
@@ -1150,8 +867,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	    }
 	    spdif_sz += x;
 	}
-#endif
-
 	// build SPDIF header and append A52 audio to it
 	// avpkt is the original data
 	if (spdif_sz < avpkt->size + 8) {
@@ -1171,8 +886,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	AudioEnqueue(spdif, spdif_sz);
 	return 1;
     }
-    if (CodecPassthrough & CodecEAC3
-	&& audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
+    if (CodecPassthrough & CodecEAC3 && audio_ctx->codec_id == AV_CODEC_ID_EAC3) {
 	uint16_t *spdif;
 	int spdif_sz;
 	int repeat;
@@ -1211,8 +925,7 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	spdif[1] = htole16(0x4E1F);
 	spdif[2] = htole16(IEC61937_EAC3);
 	spdif[3] = htole16(audio_decoder->SpdifIndex * 8);
-	memset(spdif + 4 + audio_decoder->SpdifIndex / 2, 0,
-	    spdif_sz - 8 - audio_decoder->SpdifIndex);
+	memset(spdif + 4 + audio_decoder->SpdifIndex / 2, 0, spdif_sz - 8 - audio_decoder->SpdifIndex);
 
 	// don't play with the eac-3 samples
 	AudioEnqueue(spdif, spdif_sz);
@@ -1221,7 +934,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder,
 	audio_decoder->SpdifCount = 0;
 	return 1;
     }
-#endif
     return 0;
 }
 
@@ -1241,6 +953,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t pts_diff;
     int drift;
     int corr;
+    static int c;
 
     AudioSetClock(pts);
 
@@ -1255,8 +968,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n",
-	    delay / 90);
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n", delay / 90);
 	return;
     }
     // collect over some time
@@ -1266,12 +978,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     }
 
     tim_diff = (nowtime.tv_sec - audio_decoder->LastTime.tv_sec)
-	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-	audio_decoder->LastTime.tv_nsec);
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - audio_decoder->LastTime.tv_nsec);
 
-    drift =
-	(tim_diff * 90) / (1000 * 1000) - pts_diff + delay -
-	audio_decoder->LastDelay;
+    drift = (tim_diff * 90) / (1000 * 1000) - pts_diff + delay - audio_decoder->LastDelay;
 
     // adjust rounding error
     nowtime.tv_nsec -= nowtime.tv_nsec % (1000 * 1000 / 90);
@@ -1279,17 +988,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     audio_decoder->LastPTS = pts;
     audio_decoder->LastDelay = delay;
 
-    if (0) {
-	Debug(3,
-	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
-	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
-	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
-    }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%6d) %3dms reset\n",
-	    audio_decoder->DriftCorr, drift / 90);
+	Debug(3, "codec/audio: drift(%6d) %3dms reset\n", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
 #ifdef DEBUG
 	corr = 0;			// keep gcc happy
@@ -1307,7 +1009,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	    audio_decoder->DriftCorr = -corr;
 	}
 
-	if (audio_decoder->DriftCorr < -20000) {	// limit correction
+	if (audio_decoder->DriftCorr < -20000) {    // limit correction
 	    audio_decoder->DriftCorr = -20000;
 	} else if (audio_decoder->DriftCorr > 20000) {
 	    audio_decoder->DriftCorr = 20000;
@@ -1323,16 +1025,11 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	} else {
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
 	}
-	av_resample_compensate(audio_decoder->AvResample,
-	    audio_decoder->DriftCorr / 10, distance);
+	av_resample_compensate(audio_decoder->AvResample, audio_decoder->DriftCorr / 10, distance);
     }
-    if (1) {
-	static int c;
 
-	if (!(c++ % 10)) {
-	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
-		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
-	}
+    if (!(c++ % 10)) {
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1362,16 +1059,13 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     audio_ctx = audio_decoder->AudioCtx;
     if ((err = CodecAudioUpdateHelper(audio_decoder, &passthrough))) {
 
-	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n",
-	    audio_ctx->sample_rate, audio_ctx->channels,
+	Debug(3, "codec/audio: resample %dHz *%d -> %dHz *%d\n", audio_ctx->sample_rate, audio_ctx->channels,
 	    audio_decoder->HwSampleRate, audio_decoder->HwChannels);
 
 	if (err == 1) {
 	    audio_decoder->ReSample =
-		av_audio_resample_init(audio_decoder->HwChannels,
-		audio_ctx->channels, audio_decoder->HwSampleRate,
-		audio_ctx->sample_rate, audio_ctx->sample_fmt,
-		audio_ctx->sample_fmt, 16, 10, 0, 0.8);
+		av_audio_resample_init(audio_decoder->HwChannels, audio_ctx->channels, audio_decoder->HwSampleRate,
+		audio_ctx->sample_rate, audio_ctx->sample_fmt, audio_ctx->sample_fmt, 16, 10, 0, 0.8);
 	    // libav-0.8_pre didn't support 6 -> 2 channels
 	    if (!audio_decoder->ReSample) {
 		Error(_("codec/audio: resample setup error\n"));
@@ -1390,26 +1084,22 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 	return;
     }
     // prepare audio drift resample
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     if (CodecAudioDrift & CORRECT_PCM) {
 	if (audio_decoder->AvResample) {
 	    Error(_("codec/audio: overwrite resample\n"));
 	}
 	audio_decoder->AvResample =
-	    av_resample_init(audio_decoder->HwSampleRate,
-	    audio_decoder->HwSampleRate, 16, 10, 0, 0.8);
+	    av_resample_init(audio_decoder->HwSampleRate, audio_decoder->HwSampleRate, 16, 10, 0, 0.8);
 	if (!audio_decoder->AvResample) {
 	    Error(_("codec/audio: AvResample setup error\n"));
 	} else {
 	    // reset drift to some default value
 	    audio_decoder->DriftCorr /= 2;
 	    audio_decoder->DriftFrac = 0;
-	    av_resample_compensate(audio_decoder->AvResample,
-		audio_decoder->DriftCorr / 10,
+	    av_resample_compensate(audio_decoder->AvResample, audio_decoder->DriftCorr / 10,
 		10 * audio_decoder->HwSampleRate);
 	}
     }
-#endif
 }
 
 /**
@@ -1421,10 +1111,9 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 */
 void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 {
-#ifdef USE_AUDIO_DRIFT_CORRECTION
     if ((CodecAudioDrift & CORRECT_PCM) && audio_decoder->AvResample) {
-	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
-	    FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
+	int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 + FF_INPUT_BUFFER_PADDING_SIZE]
+	    __attribute__ ((aligned(16)));
 	int16_t buftmp[MAX_CHANNELS][(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4];
 	int consumed;
 	int i;
@@ -1437,15 +1126,12 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	if (audio_decoder->RemainCount + bytes_n > audio_decoder->BufferSize) {
 	    audio_decoder->BufferSize = audio_decoder->RemainCount + bytes_n;
 	    for (ch = 0; ch < MAX_CHANNELS; ++ch) {
-		audio_decoder->Buffer[ch] =
-		    realloc(audio_decoder->Buffer[ch],
-		    audio_decoder->BufferSize);
+		audio_decoder->Buffer[ch] = realloc(audio_decoder->Buffer[ch], audio_decoder->BufferSize);
 	    }
 	}
 	// copy remaining bytes into sample buffer
 	for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
-	    memcpy(audio_decoder->Buffer[ch], audio_decoder->Remain[ch],
-		audio_decoder->RemainCount);
+	    memcpy(audio_decoder->Buffer[ch], audio_decoder->Remain[ch], audio_decoder->RemainCount);
 	}
 	// deinterleave samples into sample buffer
 	for (i = 0; i < bytes_n / 2; i++) {
@@ -1459,18 +1145,14 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	n = 0;				// keep gcc lucky
 	// resample the sample buffer into tmp buffer
 	for (ch = 0; ch < audio_decoder->HwChannels; ++ch) {
-	    n = av_resample(audio_decoder->AvResample, buftmp[ch],
-		audio_decoder->Buffer[ch], &consumed, bytes_n / 2,
+	    n = av_resample(audio_decoder->AvResample, buftmp[ch], audio_decoder->Buffer[ch], &consumed, bytes_n / 2,
 		sizeof(buftmp[ch]) / 2, ch == audio_decoder->HwChannels - 1);
 	    // fixme remaining channels
 	    if (bytes_n - consumed * 2 > audio_decoder->RemainSize) {
 		audio_decoder->RemainSize = bytes_n - consumed * 2;
 	    }
-	    audio_decoder->Remain[ch] =
-		realloc(audio_decoder->Remain[ch], audio_decoder->RemainSize);
-	    memcpy(audio_decoder->Remain[ch],
-		audio_decoder->Buffer[ch] + consumed,
-		audio_decoder->RemainSize);
+	    audio_decoder->Remain[ch] = realloc(audio_decoder->Remain[ch], audio_decoder->RemainSize);
+	    memcpy(audio_decoder->Remain[ch], audio_decoder->Buffer[ch] + consumed, audio_decoder->RemainSize);
 	    audio_decoder->RemainCount = audio_decoder->RemainSize;
 	}
 
@@ -1489,11 +1171,41 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 	AudioEnqueue(buf, n);
 	return;
     }
-#endif
     if (!(audio_decoder->Passthrough & CodecPCM)) {
 	CodecReorderAudioFrame(data, count, audio_decoder->HwChannels);
     }
     AudioEnqueue(data, count);
+}
+
+int myavcodec_decode_audio3(AVCodecContext * avctx, int16_t * samples, int *frame_size_ptr, AVPacket * avpkt)
+{
+    AVFrame *frame = av_frame_alloc();
+    int ret, got_frame = 0;
+
+    if (!frame)
+	return AVERROR(ENOMEM);
+    ret = avcodec_decode_audio4(avctx, frame, &got_frame, avpkt);
+    if (ret >= 0 && got_frame) {
+	int i, ch;
+	int planar = av_sample_fmt_is_planar(avctx->sample_fmt);
+	int data_size = av_get_bytes_per_sample(avctx->sample_fmt);
+
+	if (data_size < 0) {
+	    /* This should not occur, checking just for paranoia */
+	    fprintf(stderr, "Failed to calculate data size\n");
+	    exit(1);
+	}
+	for (i = 0; i < frame->nb_samples; i++)
+	    for (ch = 0; ch < avctx->channels; ch++) {
+		memcpy(samples, frame->extended_data[ch] + data_size * i, data_size);
+		samples = (char *)samples + data_size;
+	    }
+	*frame_size_ptr = data_size * avctx->channels * frame->nb_samples;
+    } else {
+	*frame_size_ptr = 0;
+    }
+    av_frame_free(&frame);
+    return ret;
 }
 
 /**
@@ -1506,8 +1218,7 @@ void CodecAudioEnqueue(AudioDecoder * audio_decoder, int16_t * data, int count)
 */
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
-    int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
-	FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
+    int16_t buf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 + FF_INPUT_BUFFER_PADDING_SIZE] __attribute__ ((aligned(16)));
     int buf_sz;
     int l;
     AVCodecContext *audio_ctx;
@@ -1516,7 +1227,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 
     // FIXME: don't need to decode pass-through codecs
     buf_sz = sizeof(buf);
-    l = avcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *) avpkt);
+    l = myavcodec_decode_audio3(audio_ctx, buf, &buf_sz, (AVPacket *) avpkt);
     if (avpkt->size != l) {
 	if (l == AVERROR(EAGAIN)) {
 	    Error(_("codec: latm\n"));
@@ -1533,8 +1244,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
     }
     // FIXME: must first play remainings bytes, than change and play new.
-    if (audio_decoder->Passthrough != CodecPassthrough
-	|| audio_decoder->SampleRate != audio_ctx->sample_rate
+    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
 	|| audio_decoder->Channels != audio_ctx->channels) {
 	CodecAudioUpdateFormat(audio_decoder);
     }
@@ -1542,14 +1252,12 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     if (audio_decoder->HwSampleRate && audio_decoder->HwChannels) {
 	// need to resample audio
 	if (audio_decoder->ReSample) {
-	    int16_t outbuf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 +
-		FF_INPUT_BUFFER_PADDING_SIZE]
+	    int16_t outbuf[(AVCODEC_MAX_AUDIO_FRAME_SIZE * 3) / 4 + FF_INPUT_BUFFER_PADDING_SIZE]
 		__attribute__ ((aligned(16)));
 	    int outlen;
 
 	    // FIXME: libav-0.7.2 crash here
-	    outlen =
-		audio_resample(audio_decoder->ReSample, outbuf, buf, buf_sz);
+	    outlen = audio_resample(audio_decoder->ReSample, outbuf, buf, buf_sz);
 #ifdef DEBUG
 	    if (outlen != buf_sz) {
 		Debug(3, "codec/audio: possible fixed ffmpeg\n");
@@ -1557,11 +1265,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 #endif
 	    if (outlen) {
 		// outlen seems to be wrong in ffmpeg-0.9
-		outlen /= audio_decoder->Channels *
-		    av_get_bytes_per_sample(audio_ctx->sample_fmt);
-		outlen *=
-		    audio_decoder->HwChannels *
-		    av_get_bytes_per_sample(audio_ctx->sample_fmt);
+		outlen /= audio_decoder->Channels * av_get_bytes_per_sample(audio_ctx->sample_fmt);
+		outlen *= audio_decoder->HwChannels * av_get_bytes_per_sample(audio_ctx->sample_fmt);
 		Debug(4, "codec/audio: %d -> %d\n", buf_sz, outlen);
 		CodecAudioEnqueue(audio_decoder, outbuf, outlen);
 	    }
@@ -1569,57 +1274,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
 		return;
 	    }
-#if 0
-	    //
-	    //	old experimental code
-	    //
-	    if (1) {
-		// FIXME: need to detect dts
-		// copy original data for output
-		// FIXME: buf is sint
-		buf[0] = 0x72;
-		buf[1] = 0xF8;
-		buf[2] = 0x1F;
-		buf[3] = 0x4E;
-		buf[4] = 0x00;
-		switch (avpkt->size) {
-		    case 512:
-			buf[5] = 0x0B;
-			break;
-		    case 1024:
-			buf[5] = 0x0C;
-			break;
-		    case 2048:
-			buf[5] = 0x0D;
-			break;
-		    default:
-			Debug(3,
-			    "codec/audio: dts sample burst not supported\n");
-			buf[5] = 0x00;
-			break;
-		}
-		buf[6] = (avpkt->size * 8);
-		buf[7] = (avpkt->size * 8) >> 8;
-		//buf[8] = 0x0B;
-		//buf[9] = 0x77;
-		//printf("%x %x\n", avpkt->data[0],avpkt->data[1]);
-		// swab?
-		memcpy(buf + 8, avpkt->data, avpkt->size);
-		memset(buf + 8 + avpkt->size, 0, buf_sz - 8 - avpkt->size);
-	    } else if (1) {
-		// FIXME: need to detect mp2
-		// FIXME: mp2 passthrough
-		// see softhddev.c version/layer
-		// 0x04 mpeg1 layer1
-		// 0x05 mpeg1 layer23
-		// 0x06 mpeg2 ext
-		// 0x07 mpeg2.5 layer 1
-		// 0x08 mpeg2.5 layer 2
-		// 0x09 mpeg2.5 layer 3
-	    }
-	    // DTS HD?
-	    // True HD?
-#endif
 	    CodecAudioEnqueue(audio_decoder, buf, buf_sz);
 	}
     }
@@ -1643,6 +1297,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t pts_diff;
     int drift;
     int corr;
+    static int c;
 
     AudioSetClock(pts);
 
@@ -1657,8 +1312,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n",
-	    delay / 90);
+	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms\n", delay / 90);
 	return;
     }
     // collect over some time
@@ -1668,12 +1322,9 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     }
 
     tim_diff = (nowtime.tv_sec - audio_decoder->LastTime.tv_sec)
-	* 1000 * 1000 * 1000 + (nowtime.tv_nsec -
-	audio_decoder->LastTime.tv_nsec);
+	* 1000 * 1000 * 1000 + (nowtime.tv_nsec - audio_decoder->LastTime.tv_nsec);
 
-    drift =
-	(tim_diff * 90) / (1000 * 1000) - pts_diff + delay -
-	audio_decoder->LastDelay;
+    drift = (tim_diff * 90) / (1000 * 1000) - pts_diff + delay - audio_decoder->LastDelay;
 
     // adjust rounding error
     nowtime.tv_nsec -= nowtime.tv_nsec % (1000 * 1000 / 90);
@@ -1681,17 +1332,10 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     audio_decoder->LastPTS = pts;
     audio_decoder->LastDelay = delay;
 
-    if (0) {
-	Debug(3,
-	    "codec/audio: interval P:%5" PRId64 "ms T:%5" PRId64 "ms D:%4"
-	    PRId64 "ms %f %d\n", pts_diff / 90, tim_diff / (1000 * 1000),
-	    delay / 90, drift / 90.0, audio_decoder->DriftCorr);
-    }
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%6d) %3dms reset\n",
-	    audio_decoder->DriftCorr, drift / 90);
+	Debug(3, "codec/audio: drift(%6d) %3dms reset\n", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
 #ifdef DEBUG
 	corr = 0;			// keep gcc happy
@@ -1709,7 +1353,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	    audio_decoder->DriftCorr = -corr;
 	}
 
-	if (audio_decoder->DriftCorr < -20000) {	// limit correction
+	if (audio_decoder->DriftCorr < -20000) {    // limit correction
 	    audio_decoder->DriftCorr = -20000;
 	} else if (audio_decoder->DriftCorr > 20000) {
 	    audio_decoder->DriftCorr = 20000;
@@ -1726,8 +1370,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	} else {
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
 	}
-	if (swr_set_compensation(audio_decoder->Resample,
-		audio_decoder->DriftCorr / 10, distance)) {
+	if (swr_set_compensation(audio_decoder->Resample, audio_decoder->DriftCorr / 10, distance)) {
 	    Debug(3, "codec/audio: swr_set_compensation failed\n");
 	}
     }
@@ -1737,19 +1380,13 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	int distance;
 
 	distance = (pts_diff * audio_decoder->HwSampleRate) / (900 * 1000);
-	if (avresample_set_compensation(audio_decoder->Resample,
-		audio_decoder->DriftCorr / 10, distance)) {
+	if (avresample_set_compensation(audio_decoder->Resample, audio_decoder->DriftCorr / 10, distance)) {
 	    Debug(3, "codec/audio: swr_set_compensation failed\n");
 	}
     }
 #endif
-    if (1) {
-	static int c;
-
-	if (!(c++ % 10)) {
-	    Debug(3, "codec/audio: drift(%6d) %8dus %5d\n",
-		audio_decoder->DriftCorr, drift * 1000 / 90, corr);
-	}
+    if (!(c++ % 10)) {
+	Debug(3, "codec/audio: drift(%6d) %8dus %5d\n", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -1774,8 +1411,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     audio_ctx = audio_decoder->AudioCtx;
 
 #ifdef DEBUG
-    if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16
-	&& audio_ctx->sample_rate == audio_decoder->HwSampleRate
+    if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16 && audio_ctx->sample_rate == audio_decoder->HwSampleRate
 	&& !CodecAudioDrift) {
 	// FIXME: use Resample only, when it is needed!
 	fprintf(stderr, "no resample needed\n");
@@ -1784,10 +1420,9 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 
 #ifdef USE_SWRESAMPLE
     audio_decoder->Resample =
-	swr_alloc_set_opts(audio_decoder->Resample, audio_ctx->channel_layout,
-	AV_SAMPLE_FMT_S16, audio_decoder->HwSampleRate,
-	audio_ctx->channel_layout, audio_ctx->sample_fmt,
-	audio_ctx->sample_rate, 0, NULL);
+	swr_alloc_set_opts(audio_decoder->Resample, audio_ctx->channel_layout, AV_SAMPLE_FMT_S16,
+	audio_decoder->HwSampleRate, audio_ctx->channel_layout, audio_ctx->sample_fmt, audio_ctx->sample_rate, 0,
+	NULL);
     if (audio_decoder->Resample) {
 	swr_init(audio_decoder->Resample);
     } else {
@@ -1800,18 +1435,12 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 	return;
     }
 
-    av_opt_set_int(audio_decoder->Resample, "in_channel_layout",
-	audio_ctx->channel_layout, 0);
-    av_opt_set_int(audio_decoder->Resample, "in_sample_fmt",
-	audio_ctx->sample_fmt, 0);
-    av_opt_set_int(audio_decoder->Resample, "in_sample_rate",
-	audio_ctx->sample_rate, 0);
-    av_opt_set_int(audio_decoder->Resample, "out_channel_layout",
-	audio_ctx->channel_layout, 0);
-    av_opt_set_int(audio_decoder->Resample, "out_sample_fmt",
-	AV_SAMPLE_FMT_S16, 0);
-    av_opt_set_int(audio_decoder->Resample, "out_sample_rate",
-	audio_decoder->HwSampleRate, 0);
+    av_opt_set_int(audio_decoder->Resample, "in_channel_layout", audio_ctx->channel_layout, 0);
+    av_opt_set_int(audio_decoder->Resample, "in_sample_fmt", audio_ctx->sample_fmt, 0);
+    av_opt_set_int(audio_decoder->Resample, "in_sample_rate", audio_ctx->sample_rate, 0);
+    av_opt_set_int(audio_decoder->Resample, "out_channel_layout", audio_ctx->channel_layout, 0);
+    av_opt_set_int(audio_decoder->Resample, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+    av_opt_set_int(audio_decoder->Resample, "out_sample_rate", audio_decoder->HwSampleRate, 0);
 
     if (avresample_open(audio_decoder->Resample)) {
 	avresample_free(&audio_decoder->Resample);
@@ -1836,7 +1465,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx;
 
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
     AVFrame frame[1];
 #else
     AVFrame *frame;
@@ -1849,7 +1478,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     // FIXME: don't need to decode pass-through codecs
 
     // new AVFrame API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(56,28,1)
     avcodec_get_frame_defaults(frame);
 #else
     frame = audio_decoder->Frame;
@@ -1857,8 +1486,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 #endif
 
     got_frame = 0;
-    n = avcodec_decode_audio4(audio_ctx, frame, &got_frame,
-	(AVPacket *) avpkt);
+    n = avcodec_decode_audio4(audio_ctx, frame, &got_frame, (AVPacket *) avpkt);
 
     if (n != avpkt->size) {
 	if (n == AVERROR(EAGAIN)) {
@@ -1880,8 +1508,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	CodecAudioSetClock(audio_decoder, avpkt->pts);
     }
     // format change
-    if (audio_decoder->Passthrough != CodecPassthrough
-	|| audio_decoder->SampleRate != audio_ctx->sample_rate
+    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
 	|| audio_decoder->Channels != audio_ctx->channels) {
 	CodecAudioUpdateFormat(audio_decoder);
     }
@@ -1893,37 +1520,17 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
     if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
 	return;
     }
-
-    if (0) {
-	char strbuf[32];
-	int data_sz;
-	int plane_sz;
-
-	data_sz =
-	    av_samples_get_buffer_size(&plane_sz, audio_ctx->channels,
-	    frame->nb_samples, audio_ctx->sample_fmt, 1);
-	fprintf(stderr, "codec/audio: sample_fmt %s\n",
-	    av_get_sample_fmt_name(audio_ctx->sample_fmt));
-	av_get_channel_layout_string(strbuf, 32, audio_ctx->channels,
-	    audio_ctx->channel_layout);
-	fprintf(stderr, "codec/audio: layout %s\n", strbuf);
-	fprintf(stderr,
-	    "codec/audio: channels %d samples %d plane %d data %d\n",
-	    audio_ctx->channels, frame->nb_samples, plane_sz, data_sz);
-    }
 #ifdef USE_SWRESAMPLE
     if (audio_decoder->Resample) {
 	uint8_t outbuf[8192 * 2 * 8];
 	uint8_t *out[1];
 
 	out[0] = outbuf;
-	n = swr_convert(audio_decoder->Resample, out,
-	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+	n = swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
 	    (const uint8_t **)frame->extended_data, frame->nb_samples);
 	if (n > 0) {
 	    if (!(audio_decoder->Passthrough & CodecPCM)) {
-		CodecReorderAudioFrame((int16_t *) outbuf,
-		    n * 2 * audio_decoder->HwChannels,
+		CodecReorderAudioFrame((int16_t *) outbuf, n * 2 * audio_decoder->HwChannels,
 		    audio_decoder->HwChannels);
 	    }
 	    AudioEnqueue(outbuf, n * 2 * audio_decoder->HwChannels);
@@ -1938,14 +1545,12 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	uint8_t *out[1];
 
 	out[0] = outbuf;
-	n = avresample_convert(audio_decoder->Resample, out, 0,
-	    sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+	n = avresample_convert(audio_decoder->Resample, out, 0, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
 	    (uint8_t **) frame->extended_data, 0, frame->nb_samples);
 	// FIXME: set out_linesize, in_linesize correct
 	if (n > 0) {
 	    if (!(audio_decoder->Passthrough & CodecPCM)) {
-		CodecReorderAudioFrame((int16_t *) outbuf,
-		    n * 2 * audio_decoder->HwChannels,
+		CodecReorderAudioFrame((int16_t *) outbuf, n * 2 * audio_decoder->HwChannels,
 		    audio_decoder->HwChannels);
 	    }
 	    AudioEnqueue(outbuf, n * 2 * audio_decoder->HwChannels);
@@ -1969,11 +1574,12 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 */
 void CodecAudioFlushBuffers(AudioDecoder * decoder)
 {
-    avcodec_flush_buffers(decoder->AudioCtx);
+    if (decoder->AudioCtx)
+	avcodec_flush_buffers(decoder->AudioCtx);
 }
 
 //----------------------------------------------------------------------------
-//	Codec
+//  Codec
 //----------------------------------------------------------------------------
 
 /**

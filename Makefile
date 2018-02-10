@@ -1,13 +1,12 @@
 #
 # Makefile for a Video Disk Recorder plugin
 #
-# $Id$
 
 # The official name of this plugin.
 # This name will be used in the '-P...' option of VDR to load the plugin.
 # By default the main source file also carries this name.
 
-PLUGIN = softhddevice
+PLUGIN = vaapidevice
 
 ### Configuration (edit this for your needs)
 
@@ -15,14 +14,12 @@ PLUGIN = softhddevice
 ALSA ?= $(shell pkg-config --exists alsa && echo 1)
     # support OSS audio output module
 OSS ?= 1
-    # support VDPAU video output module
-VDPAU ?= $(shell pkg-config --exists vdpau && echo 1)
     # support VA-API video output module (deprecated)
-#VAAPI ?= $(shell pkg-config --exists libva && echo 1)
+VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
-#OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
-    # screensaver disable/enable
-SCREENSAVER ?= 1
+OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
+    # use ffmpeg libswscale
+SWSCALE ?= $(shell pkg-config --exists libswscale && echo 1)
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
     # use libav libavresample
@@ -30,20 +27,9 @@ ifneq ($(SWRESAMPLE),1)
 AVRESAMPLE ?= $(shell pkg-config --exists libavresample && echo 1)
 endif
 
-CONFIG := # -DDEBUG #-DOSD_DEBUG	# enable debug output+functions
+#CONFIG := -DDEBUG #-DOSD_DEBUG	        # enable debug output+functions
 #CONFIG += -DSTILL_DEBUG=2		# still picture debug verbose level
-
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
-CONFIG += -DUSE_PIP			# PIP support
-#CONFIG += -DHAVE_PTHREAD_NAME		# supports new pthread_setname_np
-#CONFIG += -DNO_TS_AUDIO		# disable ts audio parser
-#CONFIG += -DUSE_TS_VIDEO		# build new ts video parser
-#CONFIG += -DUSE_MPEG_COMPLETE		# support only complete mpeg packets
-#CONFIG += -DH264_EOS_TRICKSPEED	# insert seq end packets for trickspeed
-#CONDIF += -DDUMP_TRICKSPEED		# dump trickspeed packets
-#CONFIG += -DUSE_BITMAP			# VDPAU, use bitmap surface for OSD
-CONFIG += -DUSE_VDR_SPU			# use VDR SPU decoder.
-#CONFIG += -DUSE_SOFTLIMIT		# (tobe removed) limit the buffer fill
 
 ### The version number of this plugin (taken from the main source file):
 
@@ -89,7 +75,7 @@ PACKAGE = vdr-$(ARCHIVE)
 
 SOFILE = libvdr-$(PLUGIN).so
 
-### Parse softhddevice config
+### Parse vaapidevice config
 
 ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA
@@ -98,11 +84,6 @@ LIBS += $(shell pkg-config --libs alsa)
 endif
 ifeq ($(OSS),1)
 CONFIG += -DUSE_OSS
-endif
-ifeq ($(VDPAU),1)
-CONFIG += -DUSE_VDPAU
-_CFLAGS += $(shell pkg-config --cflags vdpau)
-LIBS += $(shell pkg-config --libs vdpau)
 endif
 ifeq ($(VAAPI),1)
 CONFIG += -DUSE_VAAPI
@@ -118,10 +99,10 @@ CONFIG += -DUSE_GLX
 _CFLAGS += $(shell pkg-config --cflags gl glu)
 LIBS += $(shell pkg-config --libs gl glu)
 endif
-ifeq ($(SCREENSAVER),1)
-CONFIG += -DUSE_SCREENSAVER
-_CFLAGS += $(shell pkg-config --cflags xcb-screensaver xcb-dpms)
-LIBS += $(shell pkg-config --libs xcb-screensaver xcb-dpms)
+ifeq ($(SWSCALE),1)
+CONFIG += -DUSE_SWSCALE
+_CFLAGS += $(shell pkg-config --cflags libswscale)
+LIBS += $(shell pkg-config --libs libswscale)
 endif
 ifeq ($(SWRESAMPLE),1)
 CONFIG += -DUSE_SWRESAMPLE
@@ -153,7 +134,7 @@ override CFLAGS	  += $(_CFLAGS) $(DEFINES) $(INCLUDES) \
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o softhddev.o video.o audio.o codec.o ringbuffer.o
+OBJS = $(PLUGIN).o vaapidev.o video.o audio.o codec.o ringbuffer.o
 
 SRCS = $(wildcard $(OBJS:.o=.c)) $(PLUGIN).cpp
 
@@ -233,6 +214,6 @@ indent:
 		mv $$i.up $$i; \
 	done
 
-video_test: video.c Makefile
-	$(CC) -DVIDEO_TEST -DVERSION='"$(VERSION)"' $(CFLAGS) $(LDFLAGS) $< \
-	$(LIBS) -o $@
+.PHONY: cppcheck
+cppcheck:
+	cppcheck --enable=all -v -f $(SRCS)

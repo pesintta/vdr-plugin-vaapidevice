@@ -1,30 +1,10 @@
+/// Copyright (C) 2009 - 2015 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file video.h	@brief Video module header file
-///
-///	Copyright (c) 2009 - 2013 by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
-
-/// @addtogroup Video
-/// @{
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 //----------------------------------------------------------------------------
-//	Typedefs
+//  Typedefs
 //----------------------------------------------------------------------------
 
     /// Video hardware decoder typedef
@@ -34,16 +14,16 @@ typedef struct _video_hw_decoder_ VideoHwDecoder;
 typedef struct __video_stream__ VideoStream;
 
 //----------------------------------------------------------------------------
-//	Variables
+//  Variables
 //----------------------------------------------------------------------------
 
-extern signed char VideoHardwareDecoder;	///< flag use hardware decoder
+extern signed char VideoHardwareDecoder;    ///< flag use hardware decoder
 extern char VideoIgnoreRepeatPict;	///< disable repeat pict warning
 extern int VideoAudioDelay;		///< audio/video delay
 extern char ConfigStartX11Server;	///< flag start the x11 server
 
 //----------------------------------------------------------------------------
-//	Prototypes
+//  Prototypes
 //----------------------------------------------------------------------------
 
     /// Allocate new video hardware decoder.
@@ -60,21 +40,13 @@ extern unsigned VideoGetSurface(VideoHwDecoder *, const AVCodecContext *);
 extern void VideoReleaseSurface(VideoHwDecoder *, unsigned);
 
     /// Callback to negotiate the PixelFormat.
-extern enum PixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *,
-    const enum PixelFormat *);
+extern enum AVPixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *, const enum AVPixelFormat *);
 
     /// Render a ffmpeg frame.
-extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *,
-    const AVFrame *);
+extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *, const AVFrame *);
 
     /// Get hwaccel context for ffmpeg.
 extern void *VideoGetHwAccelContext(VideoHwDecoder *);
-
-#ifdef AVCODEC_VDPAU_H
-    /// Draw vdpau render state.
-extern void VideoDrawRenderState(VideoHwDecoder *,
-    struct vdpau_render_state *);
-#endif
 #endif
 
     /// Poll video events.
@@ -86,8 +58,8 @@ extern void VideoDisplayWakeup(void);
     /// Set video device.
 extern void VideoSetDevice(const char *);
 
-    /// Get video driver name.
-extern const char *VideoGetDriverName(void);
+    /// Get used video driver.
+extern int VideoIsDriverVaapi(void);
 
     /// Set video geometry.
 extern int VideoSetGeometry(const char *);
@@ -104,14 +76,32 @@ extern void VideoSetBlackPicture(int);
     /// Set brightness adjustment.
 extern void VideoSetBrightness(int);
 
+    /// Get brightness configurations.
+extern int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set contrast adjustment.
 extern void VideoSetContrast(int);
+
+    /// Get contrast configurations.
+extern int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set saturation adjustment.
 extern void VideoSetSaturation(int);
 
+    /// Get saturation configurations.
+extern int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set hue adjustment.
 extern void VideoSetHue(int);
+
+    /// Get hue configurations.
+extern int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue);
+
+    /// Set skin tone enhancement.
+extern void VideoSetSkinToneEnhancement(int);
+
+    /// Get skin tone enhancement configurations.
+extern int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set video output position.
 extern void VideoSetOutputPosition(VideoHwDecoder *, int, int, int, int);
@@ -128,6 +118,12 @@ extern void VideoSetOtherDisplayFormat(int);
     /// Set video fullscreen mode.
 extern void VideoSetFullscreen(int);
 
+    /// Get scaling modes.
+extern int VideoGetScalingModes(const char * **long_table, const char * **short_table);
+
+    /// Get deinterlace modes.
+extern int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_table);
+
     /// Set deinterlace.
 extern void VideoSetDeinterlace(int[]);
 
@@ -143,14 +139,24 @@ extern void VideoSetScaling(int[]);
     /// Set denoise.
 extern void VideoSetDenoise(int[]);
 
+    /// Get denoise configurations.
+extern int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue);
+
     /// Set sharpen.
 extern void VideoSetSharpen(int[]);
+
+    /// Get sharpen configurations.
+extern int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue);
 
     /// Set cut top and bottom.
 extern void VideoSetCutTopBottom(int[]);
 
     /// Set cut left and right.
 extern void VideoSetCutLeftRight(int[]);
+
+    /// Set first & second field ordering.
+extern void VideoSetFirstField(int[]);
+extern void VideoSetSecondField(int[]);
 
     /// Set studio levels.
 extern void VideoSetStudioLevels(int);
@@ -168,16 +174,13 @@ extern void VideoSetAutoCrop(int, int, int);
 extern void VideoOsdClear(void);
 
     /// Draw an OSD ARGB image.
-extern void VideoOsdDrawARGB(int, int, int, int, const uint8_t *);
+extern void VideoOsdDrawARGB(int, int, int, int, int, const uint8_t *, int, int);
 
     /// Get OSD size.
 extern void VideoGetOsdSize(int *, int *);
 
     /// Set OSD size.
 extern void VideoSetOsdSize(int, int);
-
-    /// Set Osd 3D Mode
-extern void VideoSetOsd3DMode(int);
 
     /// Set video clock.
 extern void VideoSetClock(VideoHwDecoder *, int64_t);
@@ -221,7 +224,5 @@ extern int VideoDecodeInput(VideoStream *);
     /// Get number of input buffers.
 extern int VideoGetBuffers(const VideoStream *);
 
-       /// Raise the frontend window
-extern int VideoRaiseWindow();
-
-/// @}
+    /// Raise the frontend window
+extern int VideoRaiseWindow(void);

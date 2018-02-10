@@ -1,56 +1,35 @@
+/// Copyright (C) 2009 - 2012 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file misc.h	@brief Misc function header file
-///
-///	Copyright (c) 2009 - 2012 by Lutz Sammer.  All Rights Reserved.
-///
-///	Contributor(s):
-///		Copied from uwm.
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
-
-/// @addtogroup misc
-/// @{
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 #include <syslog.h>
 #include <stdarg.h>
 #include <time.h>			// clock_gettime
 
 //////////////////////////////////////////////////////////////////////////////
-//	Defines
+//  Defines
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
-//	Declares
+//  Declares
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
-//	Variables
+//  Variables
 //////////////////////////////////////////////////////////////////////////////
 
-extern int SysLogLevel;			///< how much information wanted
+extern int LogLevel;			///< how much information wanted
 
 //////////////////////////////////////////////////////////////////////////////
-//	Prototypes
+//  Prototypes
 //////////////////////////////////////////////////////////////////////////////
 
 static inline void Syslog(const int, const char *format, ...)
     __attribute__ ((format(printf, 2, 3)));
 
 //////////////////////////////////////////////////////////////////////////////
-//	Inlines
+//  Inlines
 //////////////////////////////////////////////////////////////////////////////
 
 #ifdef DEBUG
@@ -69,11 +48,27 @@ static inline void Syslog(const int, const char *format, ...)
 */
 static inline void Syslog(const int level, const char *format, ...)
 {
-    if (SysLogLevel > level || DebugLevel > level) {
+    if (LogLevel > level || DebugLevel > level) {
 	va_list ap;
+	int priority = LOG_DEBUG;
+
+	switch (level) {
+	    case 0:
+		priority = LOG_ERR;
+		break;
+	    case 1:
+		priority = LOG_WARNING;
+		break;
+	    case 2:
+		priority = LOG_INFO;
+		break;
+	    default:
+		priority = LOG_DEBUG;
+		break;
+	}
 
 	va_start(ap, format);
-	vsyslog(LOG_ERR, format, ap);
+	vsyslog(priority, format, ap);
 	va_end(ap);
     }
 }
@@ -125,11 +120,32 @@ static inline const char *Timestamp2String(int64_t ts)
 	return "--:--:--.---";
     }
     idx = (idx + 1) % 3;
-    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d",
-	(int)(ts / (90 * 3600000)), (int)((ts / (90 * 60000)) % 60),
-	(int)((ts / (90 * 1000)) % 60), (int)((ts / 90) % 1000));
+    snprintf(buf[idx], sizeof(buf[idx]), "%2d:%02d:%02d.%03d", (int)(ts / (90 * 3600000)),
+	(int)((ts / (90 * 60000)) % 60), (int)((ts / (90 * 1000)) % 60), (int)((ts / 90) % 1000));
 
     return buf[idx];
+}
+
+/**
+**	Get ticks in us.
+**
+**	@returns ticks in us,
+*/
+static inline uint32_t GetUsTicks(void)
+{
+#ifdef CLOCK_MONOTONIC
+    struct timespec tspec;
+
+    clock_gettime(CLOCK_MONOTONIC, &tspec);
+    return (tspec.tv_sec * 1000 * 1000) + (tspec.tv_nsec / (1000));
+#else
+    struct timeval tval;
+
+    if (gettimeofday(&tval, NULL) < 0) {
+	return 0;
+    }
+    return (tval.tv_sec * 1000 * 1000) + (tval.tv_usec);
+#endif
 }
 
 /**
@@ -139,19 +155,5 @@ static inline const char *Timestamp2String(int64_t ts)
 */
 static inline uint32_t GetMsTicks(void)
 {
-#ifdef CLOCK_MONOTONIC
-    struct timespec tspec;
-
-    clock_gettime(CLOCK_MONOTONIC, &tspec);
-    return (tspec.tv_sec * 1000) + (tspec.tv_nsec / (1000 * 1000));
-#else
-    struct timeval tval;
-
-    if (gettimeofday(&tval, NULL) < 0) {
-	return 0;
-    }
-    return (tval.tv_sec * 1000) + (tval.tv_usec / 1000);
-#endif
+    return GetUsTicks() / 1000;
 }
-
-/// @}

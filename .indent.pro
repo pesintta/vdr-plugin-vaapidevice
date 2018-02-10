@@ -26,10 +26,10 @@
 --dont-line-up-parentheses
 --no-space-after-function-call-names
 --space-special-semicolon
---tab-size8
---use-tabs
---line-length79
---comment-line-length79
+--tab-size4
+--no-tabs
+--line-length119
+--comment-line-length119
 --honour-newlines
 --dont-break-procedure-type
 --break-before-boolean-operator
