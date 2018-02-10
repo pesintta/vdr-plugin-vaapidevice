@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2015-10-20 14:39+0200\n"
+"POT-Creation-Date: 2018-02-09 22:12+0200\n"
 "PO-Revision-Date: blabla\n"
 "Last-Translator: blabla\n"
 "Language-Team: blabla\n"
@@ -99,22 +99,6 @@ msgstr ""
 
 #, c-format
 msgid "audio/alsa: set params error: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_current failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_get_boundary failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params_set_silence_size failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "audio: snd_pcm_sw_params failed: %s\n"
 msgstr ""
 
 #, c-format
@@ -324,7 +308,7 @@ msgstr ""
 msgid "codec/audio: no frame\n"
 msgstr ""
 
-msgid "[softhddev] out of memory\n"
+msgid "[vaapidevice] out of memory\n"
 msgstr ""
 
 #, c-format
@@ -334,85 +318,70 @@ msgstr ""
 msgid "video: no empty slot in packet ringbuffer\n"
 msgstr ""
 
-msgid "[softhddev] too short PES video packet\n"
-msgstr ""
-
 msgid "pesdemux: out of memory\n"
 msgstr ""
 
 msgid "pesdemux: mpeg1 pes packet unsupported\n"
 msgstr ""
 
-#, c-format
-msgid "softhddev: LPCM %d bits per sample aren't supported\n"
-msgstr ""
-
-#, c-format
-msgid "softhddev: LPCM %d sample-rate is unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "softhddev: LPCM %d channels are unsupported\n"
-msgstr ""
-
 msgid "tsdemux: transport stream out of sync\n"
 msgstr ""
 
-msgid "[softhddev] invalid PES audio packet\n"
+msgid "[vaapidevice] invalid PES audio packet\n"
 msgstr ""
 
-msgid "[softhddev] empty audio packet\n"
-msgstr ""
-
-#, c-format
-msgid "[softhddev] invalid audio packet %d bytes\n"
-msgstr ""
-
-msgid "[softhddev] audio buffer too small\n"
+msgid "[vaapidevice] empty audio packet\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] invalid LPCM audio packet %d bytes\n"
+msgid "[vaapidevice] invalid audio packet %d bytes\n"
+msgstr ""
+
+msgid "[vaapidevice] audio buffer too small\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d bits per sample aren't supported\n"
+msgid "[vaapidevice] invalid LPCM audio packet %d bytes\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d sample-rate is unsupported\n"
+msgid "[vaapidevice] LPCM %d bits per sample aren't supported\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] LPCM %d channels are unsupported\n"
-msgstr ""
-
-msgid "[softhddev] invalid PES video packet\n"
+msgid "[vaapidevice] LPCM %d sample-rate is unsupported\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] %d invalid PES video packet(s)\n"
+msgid "[vaapidevice] LPCM %d channels are unsupported\n"
 msgstr ""
 
-msgid "[softhddev] empty video packet\n"
-msgstr ""
-
-#, c-format
-msgid "[softhddev] invalid video packet %d/%d bytes\n"
+msgid "[vaapidevice] invalid PES video packet\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] empty video packet %d bytes\n"
+msgid "[vaapidevice] %d invalid PES video packet(s)\n"
+msgstr ""
+
+msgid "[vaapidevice] empty video packet\n"
 msgstr ""
 
 #, c-format
-msgid "softhddev: %s called without hw decoder\n"
+msgid "[vaapidevice] invalid video packet %d/%d bytes\n"
 msgstr ""
 
-msgid "[softhddev] invalid still video packet\n"
+#, c-format
+msgid "[vaapidevice] empty video packet %d bytes\n"
 msgstr ""
 
-msgid "[softhddev] no codec known for still picture\n"
+#, c-format
+msgid "vaapidevice: %s called without hw decoder\n"
+msgstr ""
+
+msgid "[vaapidevice] invalid still video packet\n"
+msgstr ""
+
+msgid "[vaapidevice] no codec known for still picture\n"
 msgstr ""
 
 #, c-format
@@ -450,16 +419,16 @@ msgid "x-setup: Failed to start X server '%s'\n"
 msgstr ""
 
 #, c-format
-msgid "[softhddev] ready%s\n"
+msgid "[vaapidevice] ready%s\n"
 msgstr ""
 
-msgid "A software and GPU emulated HD device"
-msgstr "Ein Software und GPU emulieres HD-Gerät"
+msgid "VA-API output device"
+msgstr ""
 
-msgid "SoftHdDevice"
-msgstr "SoftHdDevice"
+msgid "VA-API Device"
+msgstr ""
 
-msgid "[softhddev]: dirty area too big\n"
+msgid "[vaapidevice]: dirty area too big\n"
 msgstr ""
 
 msgid "show"
@@ -501,17 +470,11 @@ msgstr "Unterbrechen stoppt X11"
 msgid "Video"
 msgstr "Video"
 
-msgid "Enable Screensaver(DPMS) at black screen"
-msgstr "Bildschirmschoner(DPMS) bei schwarzen Bild  aktivieren"
-
 msgid "Video background color (RGB)"
 msgstr "Video Hintergrundfrabe (RGB)"
 
 msgid "Video background color (Alpha)"
 msgstr "Video Hintergrundfarbe (Alpha)"
-
-msgid "Use studio levels"
-msgstr "Benutze Studio Levels"
 
 msgid "60hz display mode"
 msgstr "60Hz Anzeigemodus"
@@ -550,12 +513,6 @@ msgstr "Skalierung"
 
 msgid "Deinterlace"
 msgstr "Deinterlace"
-
-msgid "SkipChromaDeinterlace"
-msgstr ""
-
-msgid "Inverse Telecine"
-msgstr "Inverse Filmübertragung"
 
 #, c-format
 msgid "Denoise (%d..[%d]..%d)"
@@ -646,105 +603,11 @@ msgstr "Audio Puffergröße (ms)"
 msgid "Enable automatic AES"
 msgstr "Aktiviere automatiche AES"
 
-msgid "Picture-In-Picture"
-msgstr "Bild in Bild (PIP)"
-
-msgid "Pip X (%)"
-msgstr "PIP X (%)"
-
-msgid "Pip Y (%)"
-msgstr "PIP Y (%)"
-
-msgid "Pip Width (%)"
-msgstr "PIP Breite (%)"
-
-msgid "Pip Height (%)"
-msgstr "PIP Höhe (%)"
-
-msgid "Video X (%)"
-msgstr "Video X (%)"
-
-msgid "Video Y (%)"
-msgstr "Video Y (%)"
-
-msgid "Video Width (%)"
-msgstr "Videobreite (%)"
-
-msgid "Video Height (%)"
-msgstr "Videohöhe (%)"
-
-msgid "Alternative Pip X (%)"
-msgstr "Alternative PIP X (%)"
-
-msgid "Alternative Pip Y (%)"
-msgstr "Alternative Pip Y (%)"
-
-msgid "Alternative Pip Width (%)"
-msgstr "Alternative PIP Breite (%)"
-
-msgid "Alternative Pip Height (%)"
-msgstr "Alternative PIP Höhe (%)"
-
-msgid "Alternative Video X (%)"
-msgstr "Alternative Video X (%)"
-
-msgid "Alternative Video Y (%)"
-msgstr "Alternative Video Y (%)"
-
-msgid "Alternative Video Width (%)"
-msgstr "Alternative Videobreite (%)"
-
-msgid "Alternative Video Height (%)"
-msgstr "Alternative Videohöhe (%)"
-
-#, c-format
-msgid "[softhddev]pip: invalid PES packet %d\n"
+msgid "Detach VA-API Device"
 msgstr ""
 
-msgid "[softhddev]pip: pes buffer too small\n"
+msgid "Suspend VA-API Device"
 msgstr ""
-
-msgid "[softhddev]tsdemux: transport stream out of sync\n"
-msgstr ""
-
-msgid "Channel not available!"
-msgstr "Kanal nicht verfügbar!"
-
-msgid "Detach SoftHdDevice"
-msgstr ""
-
-msgid "Suspend SoftHdDevice"
-msgstr "Unterbreche SoftHdDevice"
-
-msgid "PIP toggle on/off: off"
-msgstr "PIP deaktivieren"
-
-msgid "PIP toggle on/off: on"
-msgstr "PIP aktivieren"
-
-msgid "PIP zapmode (not working)"
-msgstr ""
-
-msgid "PIP channel +"
-msgstr "PIP Kanal +"
-
-msgid "PIP channel -"
-msgstr "PIP Kanal -"
-
-msgid "PIP on/swap channels: swap"
-msgstr ""
-
-msgid "PIP on/swap channels: on"
-msgstr ""
-
-msgid "PIP swap position: normal"
-msgstr ""
-
-msgid "PIP swap position: alternative"
-msgstr ""
-
-msgid "PIP close"
-msgstr "PIP schließen"
 
 #, c-format
 msgid " Frames missed(%d) duped(%d) dropped(%d) total(%d)"
@@ -773,7 +636,7 @@ msgid "auto-crop enabled"
 msgstr ""
 
 #, c-format
-msgid "[softhddev]: hot key %d is not supported\n"
+msgid "[vaapidevice]: hot key %d is not supported\n"
 msgstr ""
 
 msgid "video/glx: can't make glx osd context current\n"
@@ -867,9 +730,6 @@ msgstr ""
 msgid "video/vaapi: invalid surface in ringbuffer\n"
 msgstr ""
 
-msgid "video/vaapi: vaSyncSurface failed\n"
-msgstr ""
-
 msgid "video/vaapi: can't destroy image!\n"
 msgstr ""
 
@@ -889,33 +749,6 @@ msgid "video/vaapi: can't destroy a surface\n"
 msgstr ""
 
 msgid "video/vaapi: can't destroy glx surface!\n"
-msgstr ""
-
-msgid "codec: vaQueryConfigProfiles failed"
-msgstr ""
-
-msgid "codec: vaQueryConfigEntrypoints failed"
-msgstr ""
-
-msgid "codec: unsupported: slow path\n"
-msgstr ""
-
-msgid "codec: can't create config"
-msgstr ""
-
-msgid "video/vaapi: can't create surfaces\n"
-msgstr ""
-
-msgid "codec: can't create context"
-msgstr ""
-
-msgid "video/vaapi: vaDeriveImage failed\n"
-msgstr ""
-
-msgid "video/vaapi: vaPutSurface failed\n"
-msgstr ""
-
-msgid "video/vaapi: can't destroy surfaces\n"
 msgstr ""
 
 #, c-format
@@ -1013,6 +846,15 @@ msgstr ""
 msgid "video/vaapi: can't create context '%s'\n"
 msgstr ""
 
+msgid "codec: vaQueryConfigProfiles failed"
+msgstr ""
+
+msgid "codec: vaQueryConfigEntrypoints failed"
+msgstr ""
+
+msgid "codec: unsupported: slow path\n"
+msgstr ""
+
 msgid "codec: can't get attributes"
 msgstr ""
 
@@ -1048,11 +890,10 @@ msgstr ""
 msgid "video/vaapi: gpu hung %dms %d\n"
 msgstr ""
 
-#, c-format
-msgid "video/vaapi: surface %#010x not ready: still displayed %d\n"
+msgid "video/glx: vaCopySurfaceGLX failed\n"
 msgstr ""
 
-msgid "video/glx: vaCopySurfaceGLX failed\n"
+msgid "video/vaapi: vaDeriveImage failed\n"
 msgstr ""
 
 #, c-format
@@ -1091,6 +932,9 @@ msgstr ""
 msgid "video/vaapi: can't put image!\n"
 msgstr ""
 
+msgid "video/vaapi: vaSyncSurface failed\n"
+msgstr ""
+
 #, c-format
 msgid "video/vaapi: vaPutSurface failed %d\n"
 msgstr ""
@@ -1098,11 +942,11 @@ msgstr ""
 msgid "video/vaapi: can't unmap image buffer\n"
 msgstr ""
 
-msgid "video/vaapi: can't get source image\n"
-msgstr ""
-
 #, c-format
 msgid "video/vaapi: vaDeriveImage failed %d\n"
+msgstr ""
+
+msgid "video/vaapi: can't get source image\n"
 msgstr ""
 
 #, c-format
@@ -1154,288 +998,6 @@ msgstr ""
 msgid "video/vaapi: can't destroy subpicture\n"
 msgstr ""
 
-msgid "video/vdpau: surface needed not set\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create video surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video surface: %s\n"
-msgstr ""
-
-msgid "video/vdpau: out of surfaces\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: release surface %#08x, which is not in use\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't set mixer feature enables: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't generate CSC matrix: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't set mixer attribute values: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create video mixer: %s\n"
-msgstr ""
-
-msgid "video/vdpau: out of decoders\n"
-msgstr ""
-
-msgid "video/vdpau: out of memory\n"
-msgstr ""
-
-msgid "video/vdpau: need 1 future, 1 current, 1 back and 1 work surface\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video decoder: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy video mixer: %s\n"
-msgstr ""
-
-msgid "video/vdpau: decoder not in decoder list.\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: Can't get function address of '%s': %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create presentation queue target: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create presentation queue: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create grab render output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy grab render output surface: %s\n"
-msgstr ""
-
-msgid "video/vdpau preemption device not our device\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: Can't create vdp device on display '%s'\n"
-msgstr ""
-
-msgid "video/vdpau: Can't get function address of 'GetErrorString'\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: VDPAU API version: %u\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: VDPAU information: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't register preemption callback: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query feature '%s': %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: highest supported high quality scaling %d\n"
-msgstr ""
-
-msgid "video/vdpau: high quality scaling unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: feature deinterlace temporal %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: feature deinterlace temporal spatial %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: attribute skip chroma deinterlace %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query video surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:2:0 chroma format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:2:2 chroma format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 4:4:4 chroma format with %dx%d supported\n"
-msgstr ""
-
-msgid "video/vdpau: doesn't support yuvy video surface\n"
-msgstr ""
-
-msgid "video/vdpau: doesn't support yv12 video surface\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit BGRA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit RGBA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 10bit RGBA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: 8bit BRGA format with %dx%d supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface parameters: %s\n"
-msgstr ""
-
-msgid "video/vdpau: video surface chroma type mismatch\n"
-msgstr ""
-
-msgid "video/vdpau: video surface size mismatch\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create decoder: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query decoder capabilities: %s\n"
-msgstr ""
-
-msgid "video/vdpau: no valid vdpau pixfmt found\n"
-msgstr ""
-
-msgid "video/vdpau: no valid profile found\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: unsupported chroma type %d\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface bits: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get output surface parameters: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't render output surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: unsupported rgba format %d\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't get video surface bits native: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: output buffer full, dropping frame (%d/%d)\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: pixel format %d not supported\n"
-msgstr ""
-
-msgid "Cannot initialize the conversion context!\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't put video surface bits: %s\n"
-msgstr ""
-
-msgid "video: get hwaccel context, not supported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't render bitmap surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: %d surface deinterlace unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't render mixer: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't query status: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't block queue: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: missed frame (%d/%d)\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't queue display: %s\n"
-msgstr ""
-
-msgid "video/vdpau: osd too big: unsupported\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: bitmap surface put bits failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: output surface put bits failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't create bitmap surface: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: can't destroy bitmap surface: %s\n"
-msgstr ""
-
 msgid "video: fatal i/o error\n"
 msgstr ""
 
@@ -1459,21 +1021,10 @@ msgstr ""
 msgid "video: repeated pict %d found, but not handled\n"
 msgstr ""
 
-#, c-format
-msgid "video/vdpau: decoder rendering failed: %s\n"
-msgstr ""
-
-#, c-format
-msgid "video/vdpau: %s: decoder render too slow %ums\n"
-msgstr ""
-
-msgid "video/vdpau: draw render state, without vdpau enabled\n"
-msgstr ""
-
 msgid "video: out of memory\n"
 msgstr ""
 
-msgid "softhddev: grab unsupported\n"
+msgid "vaapidevice: grab unsupported\n"
 msgstr ""
 
 #, c-format

@@ -1,29 +1,10 @@
+/// Copyright (C) 2009, 2011, 2014 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file ringbuffer.c	@brief Ringbuffer module
-///
-///	Copyright (c) 2009, 2011, 2014	by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 ///
-///	@defgroup Ringbuffer The ring buffer module.
-///
-///	Lock free ring buffer with only one writer and one reader.
+/// Lock free ring buffer with only one writer and one reader.
 ///
 
 #include <stdio.h>
@@ -74,7 +55,7 @@ RingBuffer *RingBufferNew(size_t size)
     if (!(rb = malloc(sizeof(*rb)))) {	// allocate structure
 	return rb;
     }
-    if (!(rb->Buffer = malloc(size))) {	// allocate buffer
+    if (!(rb->Buffer = malloc(size))) { // allocate buffer
 	free(rb);
 	return NULL;
     }

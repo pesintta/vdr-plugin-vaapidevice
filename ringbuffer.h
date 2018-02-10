@@ -1,27 +1,7 @@
+/// Copyright (C) 2009, 2011 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file ringbuffer.h	@brief Ringbuffer module header file
-///
-///	Copyright (c) 2009, 2011 by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
-
-/// @addtogroup Ringbuffer
-/// @{
+/// SPDX-License-Identifier: AGPL-3.0-only
 
     /// ring buffer typedef
 typedef struct _ring_buffer_ RingBuffer;
@@ -58,5 +38,3 @@ extern size_t RingBufferFreeBytes(RingBuffer *);
 
     /// used bytes ring buffer
 extern size_t RingBufferUsedBytes(RingBuffer *);
-
-/// @}

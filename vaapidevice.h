@@ -1,32 +1,14 @@
+/// Copyright (C) 2011 - 2015 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file softhddev.h	@brief software HD device plugin header file.
-///
-///	Copyright (c) 2011 - 2015 by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
     /// C callback feed key press
-    extern void FeedKeyPress(const char *, const char *, int, int,
-	const char *);
+    extern void FeedKeyPress(const char *, const char *, int, int, const char *);
 
     /// C plugin get osd size and ascpect
     extern void GetOsdSize(int *, int *, double *);
@@ -34,8 +16,7 @@ extern "C"
     /// C plugin close osd
     extern void OsdClose(void);
     /// C plugin draw osd pixmap
-    extern void OsdDrawARGB(int, int, int, int, int, const uint8_t *, int,
-	int);
+    extern void OsdDrawARGB(int, int, int, int, int, const uint8_t *, int, int);
 
     /// C plugin play audio packet
     extern int PlayAudio(const uint8_t *, int, uint8_t);

@@ -1,44 +1,20 @@
+/// Copyright (C) 2009 - 2014 by Johns. All Rights Reserved.
+/// Copyright (C) 2018 by pesintta, rofafor.
 ///
-///	@file audio.c		@brief Audio module
-///
-///	Copyright (c) 2009 - 2014 by Johns.  All Rights Reserved.
-///
-///	Contributor(s):
-///
-///	License: AGPLv3
-///
-///	This program is free software: you can redistribute it and/or modify
-///	it under the terms of the GNU Affero General Public License as
-///	published by the Free Software Foundation, either version 3 of the
-///	License.
-///
-///	This program is distributed in the hope that it will be useful,
-///	but WITHOUT ANY WARRANTY; without even the implied warranty of
-///	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-///	GNU Affero General Public License for more details.
-///
-///	$Id$
-//////////////////////////////////////////////////////////////////////////////
+/// SPDX-License-Identifier: AGPL-3.0-only
 
 ///
-///	@defgroup Audio The audio module.
+/// This module contains all audio output functions.
 ///
-///		This module contains all audio output functions.
+/// ALSA PCM/Mixer api is supported.
+/// @see http://www.alsa-project.org/alsa-doc/alsa-lib
 ///
-///		ALSA PCM/Mixer api is supported.
-///		@see http://www.alsa-project.org/alsa-doc/alsa-lib
+/// @note alsa async playback is broken, don't use it!
 ///
-///	@note alsa async playback is broken, don't use it!
-///
-///		OSS PCM/Mixer api is supported.
-///		@see http://manuals.opensound.com/developer/
-///
-///
-///	@todo FIXME: there can be problems with little/big endian.
+/// OSS PCM/Mixer api is supported.
+/// @see http://manuals.opensound.com/developer/
 ///
 
-//#define USE_ALSA			///< enable alsa support
-//#define USE_OSS			///< enable OSS support
 #define USE_AUDIO_THREAD		///< use thread for audio playback
 #define USE_AUDIO_MIXER			///< use audio module mixer
 
@@ -83,10 +59,6 @@
 #define __USE_GNU
 #endif
 #include <pthread.h>
-#ifndef HAVE_PTHREAD_NAME
-    /// only available with newer glibc
-#define pthread_setname_np(thread, name)
-#endif
 #endif
 
 #include "iatomic.h"			// portable atomic_t
@@ -96,7 +68,7 @@
 #include "audio.h"
 
 //----------------------------------------------------------------------------
-//	Declarations
+//  Declarations
 //----------------------------------------------------------------------------
 
 /**
@@ -110,7 +82,7 @@ typedef struct _audio_module_
     void (*const FlushBuffers) (void);	///< flush sample buffers
      int64_t(*const GetDelay) (void);	///< get current audio delay
     void (*const SetVolume) (int);	///< set output volume
-    int (*const Setup) (int *, int *, int);	///< setup channels, samplerate
+    int (*const Setup) (int *, int *, int); ///< setup channels, samplerate
     void (*const Play) (void);		///< play audio
     void (*const Pause) (void);		///< pause audio
     void (*const Init) (void);		///< initialize audio output module
@@ -120,7 +92,7 @@ typedef struct _audio_module_
 static const AudioModule NoopModule;	///< forward definition of noop module
 
 //----------------------------------------------------------------------------
-//	Variables
+//  Variables
 //----------------------------------------------------------------------------
 
 char AudioAlsaDriverBroken;		///< disable broken driver message
@@ -132,17 +104,17 @@ static const char *AudioModuleName;	///< which audio module to use
     /// Selected audio module.
 static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< PCM device name
-static const char *AudioPassthroughDevice;	///< Passthrough device name
+static const char *AudioPassthroughDevice;  ///< Passthrough device name
 static char AudioAppendAES;		///< flag automatic append AES
 static const char *AudioMixerDevice;	///< mixer device name
 static const char *AudioMixerChannel;	///< mixer channel name
 static char AudioDoingInit;		///> flag in init, reduce error
 static volatile char AudioRunning;	///< thread running / stopped
 static volatile char AudioPaused;	///< audio paused
-static volatile char AudioVideoIsReady;	///< video ready start early
+static volatile char AudioVideoIsReady; ///< video ready start early
 static int AudioSkip;			///< skip audio to sync to video
 
-static const int AudioBytesProSample = 2;	///< number of bytes per sample
+static const int AudioBytesProSample = 2;   ///< number of bytes per sample
 
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
@@ -163,7 +135,7 @@ static char AudioCompression;		///< flag use compress volume
 static char AudioMute;			///< flag muted
 static int AudioAmplifier;		///< software volume factor
 static int AudioNormalizeFactor;	///< current normalize factor
-static const int AudioMinNormalize = 100;	///< min. normalize factor
+static const int AudioMinNormalize = 100;   ///< min. normalize factor
 static int AudioMaxNormalize;		///< max. normalize factor
 static int AudioCompressionFactor;	///< current compression factor
 static int AudioMaxCompression;		///< max. compression factor
@@ -171,7 +143,7 @@ static int AudioStereoDescent;		///< volume descent for stereo
 static int AudioVolume;			///< current volume (0 .. 1000)
 
 extern int VideoAudioDelay;		///< import audio/video delay
-extern volatile char SoftIsPlayingVideo;	///< stream contains video data
+extern volatile char SoftIsPlayingVideo;    ///< stream contains video data
 
     /// default ring buffer size ~2s 8ch 16bit (3 * 5 * 7 * 8)
 static const unsigned AudioRingBufferSize = 3 * 5 * 7 * 8 * 2 * 1000;
@@ -182,12 +154,12 @@ static int AudioChannelsInHw[9];	///< table which channels are supported
 enum _audio_rates
 {					///< sample rates enumeration
     // HW: 32000 44100 48000 88200 96000 176400 192000
-    //Audio32000,				///< 32.0Khz
+    //Audio32000,   ///< 32.0Khz
     Audio44100,				///< 44.1Khz
     Audio48000,				///< 48.0Khz
-    //Audio88200,				///< 88.2Khz
-    //Audio96000,				///< 96.0Khz
-    //Audio176400,				///< 176.4Khz
+    //Audio88200,   ///< 88.2Khz
+    //Audio96000,   ///< 96.0Khz
+    //Audio176400,  ///< 176.4Khz
     Audio192000,			///< 192.0Khz
     AudioRatesMax			///< max index
 };
@@ -204,10 +176,10 @@ static const unsigned AudioRatesTable[AudioRatesMax] = {
 };
 
 //----------------------------------------------------------------------------
-//	filter
+//  filter
 //----------------------------------------------------------------------------
 
-static const int AudioNormSamples = 4096;	///< number of samples
+static const int AudioNormSamples = 4096;   ///< number of samples
 
 #define AudioNormMaxIndex 128		///< number of average values
     /// average of n last sample blocks
@@ -261,8 +233,7 @@ static void AudioNormalizer(int16_t * samples, int count)
 		if (avg > 0) {
 		    factor = ((INT16_MAX / 8) * 1000U) / (uint32_t) sqrt(avg);
 		    // smooth normalize
-		    AudioNormalizeFactor =
-			(AudioNormalizeFactor * 500 + factor * 500) / 1000;
+		    AudioNormalizeFactor = (AudioNormalizeFactor * 500 + factor * 500) / 1000;
 		    if (AudioNormalizeFactor < AudioMinNormalize) {
 			AudioNormalizeFactor = AudioMinNormalize;
 		    }
@@ -272,8 +243,8 @@ static void AudioNormalizer(int16_t * samples, int count)
 		} else {
 		    factor = 1000;
 		}
-		Debug(4, "audio/noramlize: avg %8d, fac=%6.3f, norm=%6.3f\n",
-		    avg, factor / 1000.0, AudioNormalizeFactor / 1000.0);
+		Debug(4, "audio/noramlize: avg %8d, fac=%6.3f, norm=%6.3f\n", avg, factor / 1000.0,
+		    AudioNormalizeFactor / 1000.0);
 	    }
 
 	    AudioNormIndex = (AudioNormIndex + 1) % AudioNormMaxIndex;
@@ -340,8 +311,7 @@ static void AudioCompressor(int16_t * samples, int count)
     if (max_sample > 0) {
 	factor = (INT16_MAX * 1000) / max_sample;
 	// smooth compression (FIXME: make configurable?)
-	AudioCompressionFactor =
-	    (AudioCompressionFactor * 950 + factor * 50) / 1000;
+	AudioCompressionFactor = (AudioCompressionFactor * 950 + factor * 50) / 1000;
 	if (AudioCompressionFactor > factor) {
 	    AudioCompressionFactor = factor;	// no clipping
 	}
@@ -352,8 +322,8 @@ static void AudioCompressor(int16_t * samples, int count)
 	return;				// silent nothing todo
     }
 
-    Debug(4, "audio/compress: max %5d, fac=%6.3f, com=%6.3f\n", max_sample,
-	factor / 1000.0, AudioCompressionFactor / 1000.0);
+    Debug(4, "audio/compress: max %5d, fac=%6.3f, com=%6.3f\n", max_sample, factor / 1000.0,
+	AudioCompressionFactor / 1000.0);
 
     // apply compression factor
     for (i = 0; i < count / AudioBytesProSample; ++i) {
@@ -461,27 +431,26 @@ static void AudioStereo2Mono(const int16_t * in, int frames, int16_t * out)
 **	@param frames	number of frames in sample buffer
 **	@param out	output sample buffer
 */
-static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
-    int16_t * out)
+static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames, int16_t * out)
 {
     while (frames--) {
 	int l;
 	int r;
 
 	switch (in_chan) {
-	    case 3:			// stereo or surround? =>stereo
+	    case 3:		       // stereo or surround? =>stereo
 		l = in[0] * 600;	// L
 		r = in[1] * 600;	// R
 		l += in[2] * 400;	// C
 		r += in[2] * 400;
 		break;
-	    case 4:			// quad or surround? =>quad
+	    case 4:		       // quad or surround? =>quad
 		l = in[0] * 600;	// L
 		r = in[1] * 600;	// R
 		l += in[2] * 400;	// Ls
 		r += in[3] * 400;	// Rs
 		break;
-	    case 5:			// 5.0
+	    case 5:		       // 5.0
 		l = in[0] * 500;	// L
 		r = in[1] * 500;	// R
 		l += in[2] * 200;	// Ls
@@ -489,7 +458,7 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 		l += in[4] * 300;	// C
 		r += in[4] * 300;
 		break;
-	    case 6:			// 5.1
+	    case 6:		       // 5.1
 		l = in[0] * 400;	// L
 		r = in[1] * 400;	// R
 		l += in[2] * 200;	// Ls
@@ -499,7 +468,7 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 		l += in[5] * 100;	// LFE
 		r += in[5] * 100;
 		break;
-	    case 7:			// 7.0
+	    case 7:		       // 7.0
 		l = in[0] * 400;	// L
 		r = in[1] * 400;	// R
 		l += in[2] * 200;	// Ls
@@ -509,7 +478,7 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 		l += in[5] * 100;	// RL
 		r += in[6] * 100;	// RR
 		break;
-	    case 8:			// 7.1
+	    case 8:		       // 7.1
 		l = in[0] * 400;	// L
 		r = in[1] * 400;	// R
 		l += in[2] * 150;	// Ls
@@ -541,13 +510,12 @@ static void AudioSurround2Stereo(const int16_t * in, int in_chan, int frames,
 **	@param out	output sample buffer
 **	@param out_chan	nr. of output channels
 */
-static void AudioUpmix(const int16_t * in, int in_chan, int frames,
-    int16_t * out, int out_chan)
+static void AudioUpmix(const int16_t * in, int in_chan, int frames, int16_t * out, int out_chan)
 {
     while (frames--) {
 	int i;
 
-	for (i = 0; i < in_chan; ++i) {	// copy existing channels
+	for (i = 0; i < in_chan; ++i) { // copy existing channels
 	    *out++ = *in++;
 	}
 	for (; i < out_chan; ++i) {	// silents missing channels
@@ -572,8 +540,7 @@ static void AudioUpmix(const int16_t * in, int in_chan, int frames,
 **	@param out	output sample buffer
 **	@param out_chan	nr. of output channels
 */
-static void AudioResample(const int16_t * in, int in_chan, int frames,
-    int16_t * out, int out_chan)
+static void AudioResample(const int16_t * in, int in_chan, int frames, int16_t * out, int out_chan)
 {
     switch (in_chan * 8 + out_chan) {
 	case 1 * 8 + 1:
@@ -583,7 +550,7 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 	case 5 * 8 + 5:
 	case 6 * 8 + 6:
 	case 7 * 8 + 7:
-	case 8 * 8 + 8:		// input = output channels
+	case 8 * 8 + 8:		       // input = output channels
 	    memcpy(out, in, frames * in_chan * AudioBytesProSample);
 	    break;
 	case 2 * 8 + 1:
@@ -608,8 +575,7 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 	    break;
 
 	default:
-	    Error("audio: unsupported %d -> %d channels resample\n", in_chan,
-		out_chan);
+	    Error("audio: unsupported %d -> %d channels resample\n", in_chan, out_chan);
 	    // play silence
 	    memset(out, 0, frames * out_chan * AudioBytesProSample);
 	    break;
@@ -619,7 +585,7 @@ static void AudioResample(const int16_t * in, int in_chan, int frames,
 #endif
 
 //----------------------------------------------------------------------------
-//	ring buffer
+//  ring buffer
 //----------------------------------------------------------------------------
 
 #define AUDIO_RING_MAX 8		///< number of audio ring buffers
@@ -681,7 +647,7 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
 	return -1;			// unsupported nr. of channels
     }
 
-    if (atomic_read(&AudioRingFilled) == AUDIO_RING_MAX) {	// no free slot
+    if (atomic_read(&AudioRingFilled) == AUDIO_RING_MAX) {  // no free slot
 	// FIXME: can wait for ring buffer empty
 	Error(_("audio: out of ring buffers\n"));
 	return -1;
@@ -698,8 +664,7 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
     AudioRing[AudioRingWrite].PTS = INT64_C(0x8000000000000000);
     RingBufferReset(AudioRing[AudioRingWrite].RingBuffer);
 
-    Debug(3, "audio: %d ring buffer prepared\n",
-	atomic_read(&AudioRingFilled) + 1);
+    Debug(3, "audio: %d ring buffer prepared\n", atomic_read(&AudioRingFilled) + 1);
 
     atomic_inc(&AudioRingFilled);
 
@@ -750,11 +715,11 @@ static void AudioRingExit(void)
 #ifdef USE_ALSA
 
 //============================================================================
-//	A L S A
+//  A L S A
 //============================================================================
 
 //----------------------------------------------------------------------------
-//	Alsa variables
+//  Alsa variables
 //----------------------------------------------------------------------------
 
 static snd_pcm_t *AlsaPCMHandle;	///< alsa pcm handle
@@ -762,11 +727,11 @@ static char AlsaCanPause;		///< hw supports pause
 static int AlsaUseMmap;			///< use mmap
 
 static snd_mixer_t *AlsaMixer;		///< alsa mixer handle
-static snd_mixer_elem_t *AlsaMixerElem;	///< alsa pcm mixer element
+static snd_mixer_elem_t *AlsaMixerElem; ///< alsa pcm mixer element
 static int AlsaRatio;			///< internal -> mixer ratio * 1000
 
 //----------------------------------------------------------------------------
-//	alsa pcm
+//  alsa pcm
 //----------------------------------------------------------------------------
 
 /**
@@ -796,14 +761,12 @@ static int AlsaPlayRingbuffer(void)
 	    if (n == -EAGAIN) {
 		continue;
 	    }
-	    Warning(_("audio/alsa: avail underrun error? '%s'\n"),
-		snd_strerror(n));
+	    Warning(_("audio/alsa: avail underrun error? '%s'\n"), snd_strerror(n));
 	    err = snd_pcm_recover(AlsaPCMHandle, n, 0);
 	    if (err >= 0) {
 		continue;
 	    }
-	    Error(_("audio/alsa: snd_pcm_avail_update(): %s\n"),
-		snd_strerror(n));
+	    Error(_("audio/alsa: snd_pcm_avail_update(): %s\n"), snd_strerror(n));
 	    return -1;
 	}
 	avail = snd_pcm_frames_to_bytes(AlsaPCMHandle, n);
@@ -812,23 +775,20 @@ static int AlsaPlayRingbuffer(void)
 		// happens with broken alsa drivers
 		if (AudioThread) {
 		    if (!AudioAlsaDriverBroken) {
-			Error(_("audio/alsa: broken driver %d state '%s'\n"),
-			    avail,
+			Error(_("audio/alsa: broken driver %d state '%s'\n"), avail,
 			    snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 		    }
 		    // try to recover
 		    if (snd_pcm_state(AlsaPCMHandle)
 			== SND_PCM_STATE_PREPARED) {
 			if ((err = snd_pcm_start(AlsaPCMHandle)) < 0) {
-			    Error(_("audio/alsa: snd_pcm_start(): %s\n"),
-				snd_strerror(err));
+			    Error(_("audio/alsa: snd_pcm_start(): %s\n"), snd_strerror(err));
 			}
 		    }
 		    usleep(5 * 1000);
 		}
 	    }
-	    Debug(4, "audio/alsa: break state '%s'\n",
-		snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+	    Debug(4, "audio/alsa: break state '%s'\n", snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 	    break;
 	}
 
@@ -849,8 +809,7 @@ static int AlsaPlayRingbuffer(void)
 	    break;
 	}
 	// muting pass-through AC-3, can produce disturbance
-	if (AudioMute || (AudioSoftVolume
-		&& !AudioRing[AudioRingRead].Passthrough)) {
+	if (AudioMute || (AudioSoftVolume && !AudioRing[AudioRingRead].Passthrough)) {
 	    // FIXME: quick&dirty cast
 	    AudioSoftAmplifier((int16_t *) p, avail);
 	    // FIXME: if not all are written, we double amplify them
@@ -881,14 +840,12 @@ static int AlsaPlayRingbuffer(void)
 		       goto again;
 		       }
 		     */
-		    Warning(_("audio/alsa: writei underrun error? '%s'\n"),
-			snd_strerror(err));
+		    Warning(_("audio/alsa: writei underrun error? '%s'\n"), snd_strerror(err));
 		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 		    if (err >= 0) {
 			return 0;
 		    }
-		    Error(_("audio/alsa: snd_pcm_writei failed: %s\n"),
-			snd_strerror(err));
+		    Error(_("audio/alsa: snd_pcm_writei failed: %s\n"), snd_strerror(err));
 		    return -1;
 		}
 		// this could happen, if underrun happened
@@ -931,7 +888,7 @@ static void AlsaFlushBuffers(void)
 #ifdef USE_AUDIO_THREAD
 
 //----------------------------------------------------------------------------
-//	thread playback
+//  thread playback
 //----------------------------------------------------------------------------
 
 /**
@@ -957,8 +914,7 @@ static int AlsaThread(void)
 	}
 	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
-	    Warning(_("audio/alsa: wait underrun error? '%s'\n"),
-		snd_strerror(err));
+	    Warning(_("audio/alsa: wait underrun error? '%s'\n"), snd_strerror(err));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 	    if (err >= 0) {
 		continue;
@@ -969,11 +925,11 @@ static int AlsaThread(void)
 	}
 	break;
     }
-    if (AudioPaused) {		// timeout or some commands
+    if (AudioPaused) {			// timeout or some commands
 	return 1;
     }
 
-    if ((err = AlsaPlayRingbuffer())) {	// empty or error
+    if ((err = AlsaPlayRingbuffer())) { // empty or error
 	snd_pcm_state_t state;
 
 	if (err < 0) {			// underrun error
@@ -982,8 +938,7 @@ static int AlsaThread(void)
 
 	state = snd_pcm_state(AlsaPCMHandle);
 	if (state != SND_PCM_STATE_RUNNING) {
-	    Debug(3, "audio/alsa: stopping play '%s'\n",
-		snd_pcm_state_name(state));
+	    Debug(3, "audio/alsa: stopping play '%s'\n", snd_pcm_state_name(state));
 	    return 0;
 	}
 
@@ -1014,35 +969,11 @@ static snd_pcm_t *AlsaOpenPCM(int passthrough)
 	device = "default";
     }
     if (!AudioDoingInit) {		// reduce blabla during init
-	Info(_("audio/alsa: using %sdevice '%s'\n"),
-	    passthrough ? "pass-through " : "", device);
-    }
-    //
-    // for AC3 pass-through try to set the non-audio bit, use AES0=6
-    //
-    if (passthrough && AudioAppendAES) {
-#if 0
-	// FIXME: not yet finished
-	char *buf;
-	const char *s;
-	int n;
-
-	n = strlen(device);
-	buf = alloca(n + sizeof(":AES0=6") + 1);
-	strcpy(buf, device);
-	if (!(s = strchr(buf, ':'))) {
-	    // no alsa parameters
-	    strcpy(buf + n, ":AES=6");
-	}
-	Debug(3, "audio/alsa: try '%s'\n", buf);
-#endif
+	Info(_("audio/alsa: using %sdevice '%s'\n"), passthrough ? "pass-through " : "", device);
     }
     // open none blocking; if device is already used, we don't want wait
-    if ((err =
-	    snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK,
-		SND_PCM_NONBLOCK)) < 0) {
-	Error(_("audio/alsa: playback open '%s' error: %s\n"), device,
-	    snd_strerror(err));
+    if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK)) < 0) {
+	Error(_("audio/alsa: playback open '%s' error: %s\n"), device, snd_strerror(err));
 	return NULL;
     }
 
@@ -1070,9 +1001,7 @@ static void AlsaInitPCM(void)
     snd_pcm_hw_params_alloca(&hw_params);
     // choose all parameters
     if ((err = snd_pcm_hw_params_any(handle, hw_params)) < 0) {
-	Error(_
-	    ("audio: snd_pcm_hw_params_any: no configurations available: %s\n"),
-	    snd_strerror(err));
+	Error(_("audio: snd_pcm_hw_params_any: no configurations available: %s\n"), snd_strerror(err));
     }
     AlsaCanPause = snd_pcm_hw_params_can_pause(hw_params);
     Info(_("audio/alsa: supports pause: %s\n"), AlsaCanPause ? "yes" : "no");
@@ -1081,7 +1010,7 @@ static void AlsaInitPCM(void)
 }
 
 //----------------------------------------------------------------------------
-//	Alsa Mixer
+//  Alsa Mixer
 //----------------------------------------------------------------------------
 
 /**
@@ -1125,8 +1054,7 @@ static void AlsaInitMixer(void)
     Debug(3, "audio/alsa: mixer %s - %s open\n", device, channel);
     snd_mixer_open(&alsa_mixer, 0);
     if (alsa_mixer && snd_mixer_attach(alsa_mixer, device) >= 0
-	&& snd_mixer_selem_register(alsa_mixer, NULL, NULL) >= 0
-	&& snd_mixer_load(alsa_mixer) >= 0) {
+	&& snd_mixer_selem_register(alsa_mixer, NULL, NULL) >= 0 && snd_mixer_load(alsa_mixer) >= 0) {
 
 	const char *const alsa_mixer_elem_name = channel;
 
@@ -1136,11 +1064,10 @@ static void AlsaInitMixer(void)
 
 	    name = snd_mixer_selem_get_name(alsa_mixer_elem);
 	    if (!strcasecmp(name, alsa_mixer_elem_name)) {
-		snd_mixer_selem_get_playback_volume_range(alsa_mixer_elem,
-		    &alsa_mixer_elem_min, &alsa_mixer_elem_max);
+		snd_mixer_selem_get_playback_volume_range(alsa_mixer_elem, &alsa_mixer_elem_min, &alsa_mixer_elem_max);
 		AlsaRatio = 1000 * (alsa_mixer_elem_max - alsa_mixer_elem_min);
-		Debug(3, "audio/alsa: PCM mixer found %ld - %ld ratio %d\n",
-		    alsa_mixer_elem_min, alsa_mixer_elem_max, AlsaRatio);
+		Debug(3, "audio/alsa: PCM mixer found %ld - %ld ratio %d\n", alsa_mixer_elem_min, alsa_mixer_elem_max,
+		    AlsaRatio);
 		break;
 	    }
 
@@ -1155,7 +1082,7 @@ static void AlsaInitMixer(void)
 }
 
 //----------------------------------------------------------------------------
-//	Alsa API
+//  Alsa API
 //----------------------------------------------------------------------------
 
 /**
@@ -1191,8 +1118,7 @@ static int64_t AlsaGetDelay(void)
 	delay = 0L;
     }
 
-    pts =
-	((int64_t) delay * 90 * 1000) / AudioRing[AudioRingRead].HwSampleRate;
+    pts = ((int64_t) delay * 90 * 1000) / AudioRing[AudioRingRead].HwSampleRate;
 
     return pts;
 }
@@ -1243,16 +1169,14 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
     for (;;) {
 	if ((err =
 		snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
-		    AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
-		    SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
+		    AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED : SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
 		    96 * 1000))) {
 	    // try reduced buffer size (needed for sunxi)
 	    // FIXME: alternativ make this configurable
 	    if ((err =
 		    snd_pcm_set_params(AlsaPCMHandle, SND_PCM_FORMAT_S16,
-			AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED :
-			SND_PCM_ACCESS_RW_INTERLEAVED, *channels, *freq, 1,
-			72 * 1000))) {
+			AlsaUseMmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED : SND_PCM_ACCESS_RW_INTERLEAVED, *channels,
+			*freq, 1, 72 * 1000))) {
 
 		/*
 		   if ( err == -EBADFD ) {
@@ -1263,8 +1187,7 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 		 */
 
 		if (!AudioDoingInit) {
-		    Error(_("audio/alsa: set params error: %s\n"),
-			snd_strerror(err));
+		    Error(_("audio/alsa: set params error: %s\n"), snd_strerror(err));
 		}
 		// FIXME: must stop sound, AudioChannels ... invalid
 		return -1;
@@ -1273,49 +1196,14 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	break;
     }
 
-    // this is disabled, no advantages!
-    if (0) {				// no underruns allowed, play silence
-	snd_pcm_sw_params_t *sw_params;
-	snd_pcm_uframes_t boundary;
-
-	snd_pcm_sw_params_alloca(&sw_params);
-	err = snd_pcm_sw_params_current(AlsaPCMHandle, sw_params);
-	if (err < 0) {
-	    Error(_("audio: snd_pcm_sw_params_current failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err = snd_pcm_sw_params_get_boundary(sw_params, &boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_get_boundary failed: %s\n"),
-		snd_strerror(err));
-	}
-	Debug(4, "audio/alsa: boundary %lu frames\n", boundary);
-	if ((err =
-		snd_pcm_sw_params_set_stop_threshold(AlsaPCMHandle, sw_params,
-		    boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err =
-		snd_pcm_sw_params_set_silence_size(AlsaPCMHandle, sw_params,
-		    boundary)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params_set_silence_size failed: %s\n"),
-		snd_strerror(err));
-	}
-	if ((err = snd_pcm_sw_params(AlsaPCMHandle, sw_params)) < 0) {
-	    Error(_("audio: snd_pcm_sw_params failed: %s\n"),
-		snd_strerror(err));
-	}
-    }
     // update buffer
 
     snd_pcm_get_params(AlsaPCMHandle, &buffer_size, &period_size);
-    Debug(3, "audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n",
-	buffer_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
-	    buffer_size) * 1000 / (*freq * *channels * AudioBytesProSample),
+    Debug(3, "audio/alsa: buffer size %lu %zdms, period size %lu %zdms\n", buffer_size,
+	snd_pcm_frames_to_bytes(AlsaPCMHandle, buffer_size) * 1000 / (*freq * *channels * AudioBytesProSample),
 	period_size, snd_pcm_frames_to_bytes(AlsaPCMHandle,
 	    period_size) * 1000 / (*freq * *channels * AudioBytesProSample));
-    Debug(3, "audio/alsa: state %s\n",
-	snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
+    Debug(3, "audio/alsa: state %s\n", snd_pcm_state_name(snd_pcm_state(AlsaPCMHandle)));
 
     AudioStartThreshold = snd_pcm_frames_to_bytes(AlsaPCMHandle, period_size);
     // buffer time/delay in ms
@@ -1323,10 +1211,8 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
     if (VideoAudioDelay > 0) {
 	delay += VideoAudioDelay / 90;
     }
-    if (AudioStartThreshold <
-	(*freq * *channels * AudioBytesProSample * delay) / 1000U) {
-	AudioStartThreshold =
-	    (*freq * *channels * AudioBytesProSample * delay) / 1000U;
+    if (AudioStartThreshold < (*freq * *channels * AudioBytesProSample * delay) / 1000U) {
+	AudioStartThreshold = (*freq * *channels * AudioBytesProSample * delay) / 1000U;
     }
     // no bigger, than 1/3 the buffer
     if (AudioStartThreshold > AudioRingBufferSize / 3) {
@@ -1448,11 +1334,11 @@ static const AudioModule AlsaModule = {
 #ifdef USE_OSS
 
 //============================================================================
-//	O S S
+//  O S S
 //============================================================================
 
 //----------------------------------------------------------------------------
-//	OSS variables
+//  OSS variables
 //----------------------------------------------------------------------------
 
 static int OssPcmFildes = -1;		///< pcm file descriptor
@@ -1461,7 +1347,7 @@ static int OssMixerChannel;		///< mixer channel index
 static int OssFragmentTime;		///< fragment time in ms
 
 //----------------------------------------------------------------------------
-//	OSS pcm
+//  OSS pcm
 //----------------------------------------------------------------------------
 
 /**
@@ -1482,8 +1368,7 @@ static int OssPlayRingbuffer(void)
 	int n;
 
 	if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
-	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
-		strerror(errno));
+	    Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"), strerror(errno));
 	    return -1;
 	}
 	Debug(4, "audio/oss: %d bytes free\n", bi.bytes);
@@ -1537,8 +1422,7 @@ static void OssFlushBuffers(void)
     if (OssPcmFildes != -1) {
 	// flush kernel buffers
 	if (ioctl(OssPcmFildes, SNDCTL_DSP_HALT_OUTPUT, NULL) < 0) {
-	    Error(_("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s\n"),
-		strerror(errno));
+	    Error(_("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s\n"), strerror(errno));
 	}
     }
 }
@@ -1546,7 +1430,7 @@ static void OssFlushBuffers(void)
 #ifdef USE_AUDIO_THREAD
 
 //----------------------------------------------------------------------------
-//	thread playback
+//  thread playback
 //----------------------------------------------------------------------------
 
 /**
@@ -1594,7 +1478,7 @@ static int OssThread(void)
 	    return -1;
 	}
 	sched_yield();
-	usleep(OssFragmentTime * 1000);	// let fill/empty the buffers
+	usleep(OssFragmentTime * 1000); // let fill/empty the buffers
 	return 0;
     }
 
@@ -1622,13 +1506,11 @@ static int OssOpenPCM(int passthrough)
 	device = "/dev/dsp";
     }
     if (!AudioDoingInit) {
-	Info(_("audio/oss: using %sdevice '%s'\n"),
-	    passthrough ? "pass-through " : "", device);
+	Info(_("audio/oss: using %sdevice '%s'\n"), passthrough ? "pass-through " : "", device);
     }
 
     if ((fildes = open(device, O_WRONLY)) < 0) {
-	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device,
-	    strerror(errno));
+	Error(_("audio/oss: can't open dsp device '%s': %s\n"), device, strerror(errno));
 	return -1;
     }
     return fildes;
@@ -1649,7 +1531,7 @@ static void OssInitPCM(void)
 }
 
 //----------------------------------------------------------------------------
-//	OSS Mixer
+//  OSS Mixer
 //----------------------------------------------------------------------------
 
 /**
@@ -1674,8 +1556,7 @@ static void OssSetVolume(int volume)
 /**
 **	Mixer channel name table.
 */
-static const char *OssMixerChannelNames[SOUND_MIXER_NRDEVICES] =
-    SOUND_DEVICE_NAMES;
+static const char *OssMixerChannelNames[SOUND_MIXER_NRDEVICES] = SOUND_DEVICE_NAMES;
 
 /**
 **	Initialize OSS mixer.
@@ -1701,14 +1582,12 @@ static void OssInitMixer(void)
     Debug(3, "audio/oss: mixer %s - %s open\n", device, channel);
 
     if ((fildes = open(device, O_RDWR)) < 0) {
-	Error(_("audio/oss: can't open mixer device '%s': %s\n"), device,
-	    strerror(errno));
+	Error(_("audio/oss: can't open mixer device '%s': %s\n"), device, strerror(errno));
 	return;
     }
     // search channel name
     if (ioctl(fildes, SOUND_MIXER_READ_DEVMASK, &devmask) < 0) {
-	Error(_("audio/oss: ioctl(SOUND_MIXER_READ_DEVMASK): %s\n"),
-	    strerror(errno));
+	Error(_("audio/oss: ioctl(SOUND_MIXER_READ_DEVMASK): %s\n"), strerror(errno));
 	close(fildes);
 	return;
     }
@@ -1728,7 +1607,7 @@ static void OssInitMixer(void)
 }
 
 //----------------------------------------------------------------------------
-//	OSS API
+//  OSS API
 //----------------------------------------------------------------------------
 
 /**
@@ -1752,8 +1631,7 @@ static int64_t OssGetDelay(void)
     // delay in bytes in kernel buffers
     delay = -1;
     if (ioctl(OssPcmFildes, SNDCTL_DSP_GETODELAY, &delay) == -1) {
-	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETODELAY): %s\n"),
-	    strerror(errno));
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETODELAY): %s\n"), strerror(errno));
 	return 0L;
     }
     if (delay < 0) {
@@ -1761,8 +1639,7 @@ static int64_t OssGetDelay(void)
     }
 
     pts = ((int64_t) delay * 90 * 1000)
-	/ (AudioRing[AudioRingRead].HwSampleRate *
-	AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
+	/ (AudioRing[AudioRingRead].HwSampleRate * AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
 
     return pts;
 }
@@ -1780,6 +1657,7 @@ static int64_t OssGetDelay(void)
 */
 static int OssSetup(int *sample_rate, int *channels, int passthrough)
 {
+    int fildes;
     int ret;
     int tmp;
     int delay;
@@ -1790,17 +1668,13 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 	return -1;
     }
 
-    if (1) {				// close+open for pcm / AC-3
-	int fildes;
-
-	fildes = OssPcmFildes;
-	OssPcmFildes = -1;
-	close(fildes);
-	if (!(fildes = OssOpenPCM(passthrough))) {
-	    return -1;
-	}
-	OssPcmFildes = fildes;
+    fildes = OssPcmFildes;
+    OssPcmFildes = -1;
+    close(fildes);
+    if (!(fildes = OssOpenPCM(passthrough))) {
+	return -1;
     }
+    OssPcmFildes = fildes;
 
     ret = 0;
 
@@ -1818,13 +1692,11 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 
     tmp = *channels;
     if (ioctl(OssPcmFildes, SNDCTL_DSP_CHANNELS, &tmp) == -1) {
-	Error(_("audio/oss: ioctl(SNDCTL_DSP_CHANNELS): %s\n"),
-	    strerror(errno));
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_CHANNELS): %s\n"), strerror(errno));
 	return -1;
     }
     if (tmp != *channels) {
-	Warning(_("audio/oss: device doesn't support %d channels.\n"),
-	    *channels);
+	Warning(_("audio/oss: device doesn't support %d channels.\n"), *channels);
 	*channels = tmp;
 	ret = 1;
     }
@@ -1835,8 +1707,7 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 	return -1;
     }
     if (tmp != *sample_rate) {
-	Warning(_("audio/oss: device doesn't support %dHz sample rate.\n"),
-	    *sample_rate);
+	Warning(_("audio/oss: device doesn't support %dHz sample rate.\n"), *sample_rate);
 	*sample_rate = tmp;
 	ret = 1;
     }
@@ -1850,8 +1721,7 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
 #endif
 
     if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
-	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"),
-	    strerror(errno));
+	Error(_("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s\n"), strerror(errno));
 	bi.fragsize = 4096;
 	bi.fragstotal = 16;
     } else {
@@ -1861,10 +1731,9 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
     OssFragmentTime = (bi.fragsize * 1000)
 	/ (*sample_rate * *channels * AudioBytesProSample);
 
-    Debug(3, "audio/oss: buffer size %d %dms, fragment size %d %dms\n",
-	bi.fragsize * bi.fragstotal, (bi.fragsize * bi.fragstotal * 1000)
-	/ (*sample_rate * *channels * AudioBytesProSample), bi.fragsize,
-	OssFragmentTime);
+    Debug(3, "audio/oss: buffer size %d %dms, fragment size %d %dms\n", bi.fragsize * bi.fragstotal,
+	(bi.fragsize * bi.fragstotal * 1000)
+	/ (*sample_rate * *channels * AudioBytesProSample), bi.fragsize, OssFragmentTime);
 
     // start when enough bytes for initial write
     AudioStartThreshold = (bi.fragsize - 1) * bi.fragstotal;
@@ -1874,10 +1743,8 @@ static int OssSetup(int *sample_rate, int *channels, int passthrough)
     if (VideoAudioDelay > 0) {
 	delay += VideoAudioDelay / 90;
     }
-    if (AudioStartThreshold <
-	(*sample_rate * *channels * AudioBytesProSample * delay) / 1000U) {
-	AudioStartThreshold =
-	    (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U;
+    if (AudioStartThreshold < (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U) {
+	AudioStartThreshold = (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U;
     }
     // no bigger, than 1/3 the buffer
     if (AudioStartThreshold > AudioRingBufferSize / 3) {
@@ -1951,7 +1818,7 @@ static const AudioModule OssModule = {
 #endif // USE_OSS
 
 //============================================================================
-//	Noop
+//  Noop
 //============================================================================
 
 /**
@@ -2012,7 +1879,7 @@ static const AudioModule NoopModule = {
 };
 
 //----------------------------------------------------------------------------
-//	thread playback
+//  thread playback
 //----------------------------------------------------------------------------
 
 #ifdef USE_AUDIO_THREAD
@@ -2034,8 +1901,7 @@ static int AudioNextRing(void)
     sample_rate = AudioRing[AudioRingRead].HwSampleRate;
     channels = AudioRing[AudioRingRead].HwChannels;
     if (AudioUsedModule->Setup(&sample_rate, &channels, passthrough)) {
-	Error(_("audio: can't set channels %d sample-rate %dHz\n"), channels,
-	    sample_rate);
+	Error(_("audio: can't set channels %d sample-rate %dHz\n"), channels, sample_rate);
 	// FIXME: handle error
 	AudioRing[AudioRingRead].HwSampleRate = 0;
 	AudioRing[AudioRingRead].InSampleRate = 0;
@@ -2048,8 +1914,7 @@ static int AudioNextRing(void)
 
     Debug(3, "audio: a/v next buf(%d,%4zdms)\n", atomic_read(&AudioRingFilled),
 	(RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer) * 1000)
-	/ (AudioRing[AudioRingWrite].HwSampleRate *
-	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
+	/ (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
     used = RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer);
     remain = RingBufferFreeBytes(AudioRing[AudioRingRead].RingBuffer);
@@ -2089,10 +1954,8 @@ static void *AudioPlayHandlerThread(void *dummy)
 	pthread_mutex_unlock(&AudioMutex);
 
 	Debug(3, "audio: ----> %dms start\n", (AudioUsedBytes() * 1000)
-	    / (!AudioRing[AudioRingWrite].HwSampleRate +
-		!AudioRing[AudioRingWrite].HwChannels +
-		AudioRing[AudioRingWrite].HwSampleRate *
-		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
+	    / (!AudioRing[AudioRingWrite].HwSampleRate + !AudioRing[AudioRingWrite].HwChannels +
+		AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
 	do {
 	    int filled;
@@ -2161,12 +2024,10 @@ static void *AudioPlayHandlerThread(void *dummy)
 		passthrough = AudioRing[AudioRingRead].Passthrough;
 		sample_rate = AudioRing[AudioRingRead].HwSampleRate;
 		channels = AudioRing[AudioRingRead].HwChannels;
-		Debug(3, "audio: thread channels %d frequency %dHz %s\n",
-		    channels, sample_rate, passthrough ? "pass-through" : "");
+		Debug(3, "audio: thread channels %d frequency %dHz %s\n", channels, sample_rate,
+		    passthrough ? "pass-through" : "");
 		// audio config changed?
-		if (old_passthrough != passthrough
-		    || old_sample_rate != sample_rate
-		    || old_channels != channels) {
+		if (old_passthrough != passthrough || old_sample_rate != sample_rate || old_channels != channels) {
 		    // FIXME: wait for buffer drain
 		    if (AudioNextRing()) {
 			break;
@@ -2196,7 +2057,7 @@ static void AudioInitThread(void)
     pthread_mutex_init(&ReadAdvance_mutex, NULL);
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
-    pthread_setname_np(AudioThread, "softhddev audio");
+    pthread_setname_np(AudioThread, "vaapidevice audio");
 }
 
 /**
@@ -2274,37 +2135,28 @@ void AudioEnqueue(const void *samples, int count)
     }
     // audio sample modification allowed and needed?
     buffer = (void *)samples;
-    if (!AudioRing[AudioRingWrite].Passthrough && (AudioCompression
-	    || AudioNormalize
-	    || AudioRing[AudioRingWrite].InChannels !=
-	    AudioRing[AudioRingWrite].HwChannels)) {
+    if (!AudioRing[AudioRingWrite].Passthrough && (AudioCompression || AudioNormalize
+	    || AudioRing[AudioRingWrite].InChannels != AudioRing[AudioRingWrite].HwChannels)) {
 	int frames;
 
 	// resample into ring-buffer is too complex in the case of a roundabout
 	// just use a temporary buffer
-	frames =
-	    count / (AudioRing[AudioRingWrite].InChannels *
-	    AudioBytesProSample);
-	buffer =
-	    alloca(frames * AudioRing[AudioRingWrite].HwChannels *
-	    AudioBytesProSample);
+	frames = count / (AudioRing[AudioRingWrite].InChannels * AudioBytesProSample);
+	buffer = alloca(frames * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
 #ifdef USE_AUDIO_MIXER
 	// Convert / resample input to hardware format
-	AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames,
-	    buffer, AudioRing[AudioRingWrite].HwChannels);
+	AudioResample(samples, AudioRing[AudioRingWrite].InChannels, frames, buffer,
+	    AudioRing[AudioRingWrite].HwChannels);
 #else
 #ifdef DEBUG
-	if (AudioRing[AudioRingWrite].InChannels !=
-	    AudioRing[AudioRingWrite].HwChannels) {
+	if (AudioRing[AudioRingWrite].InChannels != AudioRing[AudioRingWrite].HwChannels) {
 	    Debug(3, "audio: internal failure channels mismatch\n");
 	    return;
 	}
 #endif
 	memcpy(buffer, samples, count);
 #endif
-	count =
-	    frames * AudioRing[AudioRingWrite].HwChannels *
-	    AudioBytesProSample;
+	count = frames * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
 
 	if (AudioCompression) {		// in place operation
 	    AudioCompressor(buffer, count);
@@ -2333,11 +2185,9 @@ void AudioEnqueue(const void *samples, int count)
 	// FIXME: round to packet size
 
 	Debug(3, "audio: start? %4zdms skip %dms\n", (n * 1000)
-	    / (AudioRing[AudioRingWrite].HwSampleRate *
-		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
+	    / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
 	    (skip * 1000)
-	    / (AudioRing[AudioRingWrite].HwSampleRate *
-		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
+	    / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
 	if (skip) {
 	    if (n < (unsigned)skip) {
@@ -2363,8 +2213,7 @@ void AudioEnqueue(const void *samples, int count)
     // Update audio clock (stupid gcc developers thinks INT64_C is unsigned)
     if (AudioRing[AudioRingWrite].PTS != (int64_t) INT64_C(0x8000000000000000)) {
 	AudioRing[AudioRingWrite].PTS += ((int64_t) count * 90 * 1000)
-	    / (AudioRing[AudioRingWrite].HwSampleRate *
-	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
+	    / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
     }
     pthread_mutex_unlock(&PTS_mutex);
 }
@@ -2384,10 +2233,8 @@ void AudioVideoReady(int64_t pts)
 	return;
     }
     // no valid audio known
-    if (!AudioRing[AudioRingWrite].HwSampleRate
-	|| !AudioRing[AudioRingWrite].HwChannels
-	|| AudioRing[AudioRingWrite].PTS ==
-	(int64_t) INT64_C(0x8000000000000000)) {
+    if (!AudioRing[AudioRingWrite].HwSampleRate || !AudioRing[AudioRingWrite].HwChannels
+	|| AudioRing[AudioRingWrite].PTS == (int64_t) INT64_C(0x8000000000000000)) {
 	Debug(3, "audio: a/v start, no valid audio\n");
 	AudioVideoIsReady = 1;
 	return;
@@ -2397,27 +2244,22 @@ void AudioVideoReady(int64_t pts)
     used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
     audio_pts =
 	AudioRing[AudioRingWrite].PTS -
-	(used * 90 * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
-	AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample);
+	(used * 90 * 1000) / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels *
+	AudioBytesProSample);
 
-    Debug(3, "audio: a/v sync buf(%d,%4zdms) %s|%s = %dms %s\n",
-	atomic_read(&AudioRingFilled),
-	(used * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
-	    AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
-	Timestamp2String(pts), Timestamp2String(audio_pts),
-	(int)(pts - audio_pts) / 90, AudioRunning ? "running" : "ready");
+    Debug(3, "audio: a/v sync buf(%d,%4zdms) %s|%s = %dms %s\n", atomic_read(&AudioRingFilled),
+	(used * 1000) / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels *
+	    AudioBytesProSample), Timestamp2String(pts), Timestamp2String(audio_pts), (int)(pts - audio_pts) / 90,
+	AudioRunning ? "running" : "ready");
 
     if (!AudioRunning) {
 	int skip;
 
 	// buffer ~15 video frames
 	// FIXME: HDTV can use smaller video buffer
-	skip =
-	    pts - 15 * 20 * 90 - AudioBufferTime * 90 - audio_pts -
-	    VideoAudioDelay;
+	skip = pts - 15 * 20 * 90 - AudioBufferTime * 90 - audio_pts - VideoAudioDelay;
 #ifdef DEBUG
-	fprintf(stderr, "%dms %dms %dms\n", (int)(pts - audio_pts) / 90,
-	    VideoAudioDelay / 90, skip / 90);
+	fprintf(stderr, "%dms %dms %dms\n", (int)(pts - audio_pts) / 90, VideoAudioDelay / 90, skip / 90);
 #endif
 	// guard against old PTS
 	if (skip > 0 && skip < 2000 * 90) {
@@ -2425,8 +2267,7 @@ void AudioVideoReady(int64_t pts)
 		/ (1000 * 90))
 		* AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample;
 	    Debug(3, "audio: sync advance %dms %d/%zd\n",
-		(skip * 1000) / (AudioRing[AudioRingWrite].HwSampleRate *
-		    AudioRing[AudioRingWrite].HwChannels *
+		(skip * 1000) / (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels *
 		    AudioBytesProSample), skip, used);
 	    // FIXME: round to packet size
 	    if ((unsigned)skip > used) {
@@ -2447,46 +2288,6 @@ void AudioVideoReady(int64_t pts)
     }
 
     AudioVideoIsReady = 1;
-#if 0
-    if (AudioRing[AudioRingWrite].HwSampleRate
-	&& AudioRing[AudioRingWrite].HwChannels) {
-	if (pts != (int64_t) INT64_C(0x8000000000000000)
-	    && AudioRing[AudioRingWrite].PTS !=
-	    (int64_t) INT64_C(0x8000000000000000)) {
-	    Debug(3, "audio: a/v %d %s\n",
-		(int)(pts - AudioRing[AudioRingWrite].PTS) / 90,
-		AudioRunning ? "running" : "stopped");
-	}
-	Debug(3, "audio: start %4zdms %s|%s video ready\n",
-	    (RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer) * 1000)
-	    / (AudioRing[AudioRingWrite].HwSampleRate *
-		AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample),
-	    Timestamp2String(pts),
-	    Timestamp2String(AudioRing[AudioRingWrite].PTS));
-
-	if (!AudioRunning) {
-	    size_t used;
-
-	    used = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
-	    // enough video + audio buffered
-	    if (AudioStartThreshold < used) {
-		// too much audio buffered, skip it
-		if (AudioStartThreshold < used) {
-		    Debug(3, "audio: start %4zdms skip video ready\n",
-			((used - AudioStartThreshold) * 1000)
-			/ (AudioRing[AudioRingWrite].HwSampleRate *
-			    AudioRing[AudioRingWrite].HwChannels *
-			    AudioBytesProSample));
-		    RingBufferReadAdvance(AudioRing[AudioRingWrite].RingBuffer,
-			used - AudioStartThreshold);
-		}
-		AudioRunning = 1;
-		pthread_cond_signal(&AudioStartCond);
-	    }
-	}
-    }
-    AudioVideoIsReady = 1;
-#endif
 }
 
 /**
@@ -2546,20 +2347,11 @@ void AudioFlushBuffers(void)
 }
 
 /**
-**	Call back to play audio polled.
-*/
-void AudioPoller(void)
-{
-    // FIXME: write poller
-}
-
-/**
 **	Get free bytes in audio output.
 */
 int AudioFreeBytes(void)
 {
-    return AudioRing[AudioRingWrite].RingBuffer ?
-	RingBufferFreeBytes(AudioRing[AudioRingWrite].RingBuffer)
+    return AudioRing[AudioRingWrite].RingBuffer ? RingBufferFreeBytes(AudioRing[AudioRingWrite].RingBuffer)
 	: INT32_MAX;
 }
 
@@ -2569,8 +2361,7 @@ int AudioFreeBytes(void)
 int AudioUsedBytes(void)
 {
     // FIXME: not correct, if multiple buffer are in use
-    return AudioRing[AudioRingWrite].RingBuffer ?
-	RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer) : 0;
+    return AudioRing[AudioRingWrite].RingBuffer ? RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer) : 0;
 }
 
 /**
@@ -2593,10 +2384,10 @@ int64_t AudioGetDelay(void)
     }
     pts = AudioUsedModule->GetDelay();
     pts += ((int64_t) RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)
-	* 90 * 1000) / (AudioRing[AudioRingRead].HwSampleRate *
-	AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
-    Debug(4, "audio: hw+sw delay %zd %" PRId64 "ms\n",
-	RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer), pts / 90);
+	* 90 * 1000) / (AudioRing[AudioRingRead].HwSampleRate * AudioRing[AudioRingRead].HwChannels *
+	AudioBytesProSample);
+    Debug(4, "audio: hw+sw delay %zd %" PRId64 "ms\n", RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer),
+	pts / 90);
 
     return pts;
 }
@@ -2609,8 +2400,7 @@ int64_t AudioGetDelay(void)
 void AudioSetClock(int64_t pts)
 {
     if (AudioRing[AudioRingWrite].PTS != pts) {
-	Debug(3, "audio: sync set clock %s -> %s pts\n",
-	    Timestamp2String(AudioRing[AudioRingWrite].PTS),
+	Debug(3, "audio: sync set clock %s -> %s pts\n", Timestamp2String(AudioRing[AudioRingWrite].PTS),
 	    Timestamp2String(pts));
     }
     AudioRing[AudioRingWrite].PTS = pts;
@@ -2648,8 +2438,7 @@ void AudioSetVolume(int volume)
     AudioVolume = volume;
     AudioMute = !volume;
     // reduce loudness for stereo output
-    if (AudioStereoDescent && AudioRing[AudioRingRead].InChannels == 2
-	&& !AudioRing[AudioRingRead].Passthrough) {
+    if (AudioStereoDescent && AudioRing[AudioRingRead].InChannels == 2 && !AudioRing[AudioRingRead].Passthrough) {
 	volume -= AudioStereoDescent;
 	if (volume < 0) {
 	    volume = 0;
@@ -2678,8 +2467,7 @@ void AudioSetVolume(int volume)
 */
 int AudioSetup(int *freq, int *channels, int passthrough)
 {
-    Debug(3, "audio: setup channels %d frequency %dHz %s\n", *channels, *freq,
-	passthrough ? "pass-through" : "");
+    Debug(3, "audio: setup channels %d frequency %dHz %s\n", *channels, *freq, passthrough ? "pass-through" : "");
 
     // invalid parameter
     if (!freq || !channels || !*freq || !*channels) {
@@ -3019,12 +2807,9 @@ void AudioInit(void)
 	}
     }
     for (u = 0; u < AudioRatesMax; ++u) {
-	Info(_("audio: %6dHz supports %d %d %d %d %d %d %d %d channels\n"),
-	    AudioRatesTable[u], AudioChannelMatrix[u][1],
-	    AudioChannelMatrix[u][2], AudioChannelMatrix[u][3],
-	    AudioChannelMatrix[u][4], AudioChannelMatrix[u][5],
-	    AudioChannelMatrix[u][6], AudioChannelMatrix[u][7],
-	    AudioChannelMatrix[u][8]);
+	Info(_("audio: %6dHz supports %d %d %d %d %d %d %d %d channels\n"), AudioRatesTable[u],
+	    AudioChannelMatrix[u][1], AudioChannelMatrix[u][2], AudioChannelMatrix[u][3], AudioChannelMatrix[u][4],
+	    AudioChannelMatrix[u][5], AudioChannelMatrix[u][6], AudioChannelMatrix[u][7], AudioChannelMatrix[u][8]);
     }
 #ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
@@ -3055,137 +2840,3 @@ void AudioExit(void)
     AudioRunning = 0;
     AudioPaused = 0;
 }
-
-#ifdef AUDIO_TEST
-
-//----------------------------------------------------------------------------
-//	Test
-//----------------------------------------------------------------------------
-
-void AudioTest(void)
-{
-    for (;;) {
-	unsigned u;
-	uint8_t buffer[16 * 1024];	// some random data
-	int i;
-
-	for (u = 0; u < sizeof(buffer); u++) {
-	    buffer[u] = random() & 0xffff;
-	}
-
-	Debug(3, "audio/test: loop\n");
-	for (i = 0; i < 100; ++i) {
-	    while (RingBufferFreeBytes(AlsaRingBuffer) > sizeof(buffer)) {
-		AlsaEnqueue(buffer, sizeof(buffer));
-	    }
-	    usleep(20 * 1000);
-	}
-	break;
-    }
-}
-
-#include <getopt.h>
-
-/**
-**	Print version.
-*/
-static void PrintVersion(void)
-{
-    printf("audio_test: audio tester Version " VERSION
-#ifdef GIT_REV
-	"(GIT-" GIT_REV ")"
-#endif
-	",\n\t(c) 2009 - 2013 by Johns\n"
-	"\tLicense AGPLv3: GNU Affero General Public License version 3\n");
-}
-
-/**
-**	Print usage.
-*/
-static void PrintUsage(void)
-{
-    printf("Usage: audio_test [-?dhv]\n"
-	"\t-d\tenable debug, more -d increase the verbosity\n"
-	"\t-? -h\tdisplay this message\n" "\t-v\tdisplay version information\n"
-	"Only idiots print usage on stderr!\n");
-}
-
-/**
-**	Main entry point.
-**
-**	@param argc	number of arguments
-**	@param argv	arguments vector
-**
-**	@returns -1 on failures, 0 clean exit.
-*/
-int main(int argc, char *const argv[])
-{
-    LogLevel = 0;
-
-    //
-    //	Parse command line arguments
-    //
-    for (;;) {
-	switch (getopt(argc, argv, "hv?-c:d")) {
-	    case 'd':			// enabled debug
-		++LogLevel;
-		continue;
-
-	    case EOF:
-		break;
-	    case 'v':			// print version
-		PrintVersion();
-		return 0;
-	    case '?':
-	    case 'h':			// help usage
-		PrintVersion();
-		PrintUsage();
-		return 0;
-	    case '-':
-		PrintVersion();
-		PrintUsage();
-		fprintf(stderr, "\nWe need no long options\n");
-		return -1;
-	    case ':':
-		PrintVersion();
-		fprintf(stderr, "Missing argument for option '%c'\n", optopt);
-		return -1;
-	    default:
-		PrintVersion();
-		fprintf(stderr, "Unknown option '%c'\n", optopt);
-		return -1;
-	}
-	break;
-    }
-    if (optind < argc) {
-	PrintVersion();
-	while (optind < argc) {
-	    fprintf(stderr, "Unhandled argument '%s'\n", argv[optind++]);
-	}
-	return -1;
-    }
-    //
-    //	  main loop
-    //
-    AudioInit();
-    for (;;) {
-	unsigned u;
-	uint8_t buffer[16 * 1024];	// some random data
-
-	for (u = 0; u < sizeof(buffer); u++) {
-	    buffer[u] = random() & 0xffff;
-	}
-
-	Debug(3, "audio/test: loop\n");
-	for (;;) {
-	    while (RingBufferFreeBytes(AlsaRingBuffer) > sizeof(buffer)) {
-		AlsaEnqueue(buffer, sizeof(buffer));
-	    }
-	}
-    }
-    AudioExit();
-
-    return 0;
-}
-
-#endif
