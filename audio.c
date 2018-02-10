@@ -15,7 +15,6 @@
 /// @see http://manuals.opensound.com/developer/
 ///
 
-#define USE_AUDIO_THREAD		///< use thread for audio playback
 #define USE_AUDIO_MIXER			///< use audio module mixer
 
 #include <stdio.h>
@@ -50,12 +49,10 @@
 #include <errno.h>
 #endif
 
-#ifdef USE_AUDIO_THREAD
 #ifndef __USE_GNU
 #define __USE_GNU
 #endif
 #include <pthread.h>
-#endif
 
 #include "iatomic.h"			// portable atomic_t
 
@@ -114,16 +111,12 @@ static const int AudioBytesProSample = 2;   ///< number of bytes per sample
 
 static int AudioBufferTime = 336;	///< audio buffer time in ms
 
-#ifdef USE_AUDIO_THREAD
 static pthread_t AudioThread;		///< audio play thread
 static pthread_mutex_t AudioMutex;	///< audio condition mutex
 pthread_mutex_t PTS_mutex;		///< PTS mutex
 pthread_mutex_t ReadAdvance_mutex;	///< PTS mutex
 static pthread_cond_t AudioStartCond;	///< condition variable
 static char AudioThreadStop;		///< stop audio thread
-#else
-static const int AudioThread;		///< dummy audio thread
-#endif
 
 static char AudioSoftVolume;		///< flag use soft volume
 static char AudioNormalize;		///< flag use volume normalize
@@ -664,13 +657,11 @@ static int AudioRingAdd(unsigned sample_rate, int channels, int passthrough)
 
     atomic_inc(&AudioRingFilled);
 
-#ifdef USE_AUDIO_THREAD
     if (AudioThread) {
 	// tell thread, that there is something todo
 	AudioRunning = 1;
 	pthread_cond_signal(&AudioStartCond);
     }
-#endif
 
     return 0;
 }
@@ -881,8 +872,6 @@ static void AlsaFlushBuffers(void)
     }
 }
 
-#ifdef USE_AUDIO_THREAD
-
 //----------------------------------------------------------------------------
 //  thread playback
 //----------------------------------------------------------------------------
@@ -942,8 +931,6 @@ static int AlsaThread(void)
     }
     return 1;
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 
@@ -1312,9 +1299,7 @@ static void AlsaExit(void)
 */
 static const AudioModule AlsaModule = {
     .Name = "alsa",
-#ifdef USE_AUDIO_THREAD
     .Thread = AlsaThread,
-#endif
     .FlushBuffers = AlsaFlushBuffers,
     .GetDelay = AlsaGetDelay,
     .SetVolume = AlsaSetVolume,
@@ -1423,8 +1408,6 @@ static void OssFlushBuffers(void)
     }
 }
 
-#ifdef USE_AUDIO_THREAD
-
 //----------------------------------------------------------------------------
 //  thread playback
 //----------------------------------------------------------------------------
@@ -1480,8 +1463,6 @@ static int OssThread(void)
 
     return 1;
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 
@@ -1798,9 +1779,7 @@ static void OssExit(void)
 */
 static const AudioModule OssModule = {
     .Name = "oss",
-#ifdef USE_AUDIO_THREAD
     .Thread = OssThread,
-#endif
     .FlushBuffers = OssFlushBuffers,
     .GetDelay = OssGetDelay,
     .SetVolume = OssSetVolume,
@@ -1877,8 +1856,6 @@ static const AudioModule NoopModule = {
 //----------------------------------------------------------------------------
 //  thread playback
 //----------------------------------------------------------------------------
-
-#ifdef USE_AUDIO_THREAD
 
 /**
 **	Prepare next ring buffer.
@@ -2079,8 +2056,6 @@ static void AudioExitThread(void)
 	AudioThread = 0;
     }
 }
-
-#endif
 
 //----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
@@ -2807,11 +2782,9 @@ void AudioInit(void)
 	    AudioChannelMatrix[u][2], AudioChannelMatrix[u][3], AudioChannelMatrix[u][4], AudioChannelMatrix[u][5],
 	    AudioChannelMatrix[u][6], AudioChannelMatrix[u][7], AudioChannelMatrix[u][8]);
     }
-#ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
 	AudioInitThread();
     }
-#endif
     AudioDoingInit = 0;
 }
 
@@ -2824,11 +2797,9 @@ void AudioExit(void)
 
     Debug(3, "audio: %s", __FUNCTION__);
 
-#ifdef USE_AUDIO_THREAD
     if (AudioUsedModule->Thread) {	// supports threads
 	AudioExitThread();
     }
-#endif
     module = AudioUsedModule;
     AudioUsedModule = &NoopModule;
     module->Exit();
