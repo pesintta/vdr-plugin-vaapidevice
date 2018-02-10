@@ -56,6 +56,7 @@ extern "C"
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
+#warning "This branch of the plug-in is unmaintained. Please switch to master branch"
 
     /// vdr-plugin version number.
     /// Makefile extracts the version number for generating the file name

@@ -166,7 +166,19 @@ SRCS = $(wildcard $(OBJS:.o=.c)) $(PLUGIN).cpp
 
 ### The main target:
 
-all: $(SOFILE) i18n
+all: $(SOFILE) i18n deprecation
+
+### Deprecatin notice:
+
+deprecation:
+	@echo "        ======================================================"
+	@echo "        |               Deprecation notice                   |"
+	@echo "        |----------------------------------------------------|"
+	@echo "        | This branch of the plugin is now unmaintained!     |"
+	@echo "        | Plugin was renamed to vaapidevice.                 |"
+	@echo "        | https://github.com/pesintta/vdr-plugin-vaapidevice |"
+	@echo "        | Please use master branch to get the latest version |"
+	@echo "        ====================================================="
 
 ### Dependencies:
 
