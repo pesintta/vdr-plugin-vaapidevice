@@ -292,53 +292,29 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 */
 void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 {
-    AVCodecContext *video_ctx;
-    AVFrame *frame;
-    int used;
-    int got_frame;
-    AVPacket pkt[1];
+    AVCodecContext *video_ctx = decoder->VideoCtx;
 
-    video_ctx = decoder->VideoCtx;
-    frame = decoder->Frame;
-    *pkt = *avpkt;			// use copy
+    if (video_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+	int ret;
+	AVPacket pkt[1];
+	AVFrame *frame = decoder->Frame;
 
-  next_part:
-    // FIXME: this function can crash with bad packets
-    used = avcodec_decode_video2(video_ctx, frame, &got_frame, pkt);
-    Debug(4, "%s: %p %d -> %d %d", __FUNCTION__, pkt->data, pkt->size, used, got_frame);
-
-    if (used < 0) {
-	Debug(3, "codec: bad video frame");
-	return;
-    }
-
-    if (got_frame) {			// frame completed
-	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-    } else {
-	// some frames are needed for references, interlaced frames ...
-	// could happen with h264 dvb streams, just drop data.
-
-	Debug(4, "codec: %8d incomplete interlaced frame %d bytes used", video_ctx->frame_number, used);
-    }
-
-    // old code to support truncated or multi frame packets
-    if (used != pkt->size) {
-	// ffmpeg 0.8.7 dislikes our seq_end_h264 and enters endless loop here
-	if (used == 0 && pkt->size == 5 && pkt->data[4] == 0x0A) {
-	    Warning("codec: ffmpeg 0.8.x workaround used");
+	*pkt = *avpkt;			// use copy
+	ret = avcodec_send_packet(video_ctx, pkt);
+	if (ret < 0) {
+	    Debug(3, "codec: sending video packet failed");
 	    return;
 	}
-	if (used >= 0 && used < pkt->size) {
-	    // some tv channels, produce this
-	    Debug(4, "codec: ooops didn't use complete video packet used %d of %d", used, pkt->size);
-	    pkt->size -= used;
-	    pkt->data += used;
-	    // FIXME: align problem?
-	    goto next_part;
+	ret = avcodec_receive_frame(video_ctx, frame);
+	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+	    Debug(3, "codec: receiving video frame failed");
+	    return;
 	}
+	if (ret >= 0) {
+	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+	}
+	av_frame_unref(frame);
     }
-    // new AVFrame API
-    av_frame_unref(frame);
 }
 
 /**
@@ -922,75 +898,59 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 */
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
-    AVCodecContext *audio_ctx;
+    AVCodecContext *audio_ctx = audio_decoder->AudioCtx;
 
-    AVFrame *frame;
-    int got_frame;
-    int n;
+    if (audio_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
+	int ret;
+	AVPacket pkt[1];
+	AVFrame *frame = audio_decoder->Frame;
 
-    audio_ctx = audio_decoder->AudioCtx;
-
-    // FIXME: don't need to decode pass-through codecs
-
-    // new AVFrame API
-    frame = audio_decoder->Frame;
-    av_frame_unref(frame);
-
-    got_frame = 0;
-    n = avcodec_decode_audio4(audio_ctx, frame, &got_frame, (AVPacket *) avpkt);
-
-    if (n != avpkt->size) {
-	if (n == AVERROR(EAGAIN)) {
-	    Error("codec/audio: latm");
+	av_frame_unref(frame);
+	*pkt = *avpkt;			// use copy
+	ret = avcodec_send_packet(audio_ctx, pkt);
+	if (ret < 0) {
+	    Debug(3, "codec: sending audio packet failed");
 	    return;
 	}
-	if (n < 0) {			// no audio frame could be decompressed
-	    Error("codec/audio: bad audio frame");
+	ret = avcodec_receive_frame(audio_ctx, frame);
+	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+	    Debug(3, "codec: receiving audio frame failed");
 	    return;
 	}
-	Error("codec/audio: error more than one frame data");
-    }
-    if (!got_frame) {
-	Error("codec/audio: no frame");
-	return;
-    }
-    // update audio clock
-    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-	CodecAudioSetClock(audio_decoder, avpkt->pts);
-    }
-    // format change
-    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
-	|| audio_decoder->Channels != audio_ctx->channels) {
-	CodecAudioUpdateFormat(audio_decoder);
-    }
-
-    if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
-	return;				// unsupported sample format
-    }
-
-    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
-	return;
-    }
-    if (audio_decoder->Resample) {
-	uint8_t outbuf[8192 * 2 * 8];
-	uint8_t *out[1];
-
-	out[0] = outbuf;
-	n = swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
-	    (const uint8_t **)frame->extended_data, frame->nb_samples);
-	if (n > 0) {
-	    if (!(audio_decoder->Passthrough & CodecPCM)) {
-		CodecReorderAudioFrame((int16_t *) outbuf, n * 2 * audio_decoder->HwChannels,
-		    audio_decoder->HwChannels);
+	if (ret >= 0) {
+	    // update audio clock
+	    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
+		CodecAudioSetClock(audio_decoder, avpkt->pts);
 	    }
-	    AudioEnqueue(outbuf, n * 2 * audio_decoder->HwChannels);
+	    // format change
+	    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
+		|| audio_decoder->Channels != audio_ctx->channels) {
+		CodecAudioUpdateFormat(audio_decoder);
+	    }
+	    if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
+		return;			// unsupported sample format
+	    }
+	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
+		return;
+	    }
+	    if (audio_decoder->Resample) {
+		uint8_t outbuf[8192 * 2 * 8];
+		uint8_t *out[1];
+
+		out[0] = outbuf;
+		ret = swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+		    (const uint8_t **)frame->extended_data, frame->nb_samples);
+		if (ret > 0) {
+		    if (!(audio_decoder->Passthrough & CodecPCM)) {
+			CodecReorderAudioFrame((int16_t *) outbuf, ret * 2 * audio_decoder->HwChannels,
+			    audio_decoder->HwChannels);
+		    }
+		    AudioEnqueue(outbuf, ret * 2 * audio_decoder->HwChannels);
+		}
+		return;
+	    }
 	}
-	return;
     }
-#ifdef DEBUG
-    // should be never reached
-    fprintf(stderr, "oops");
-#endif
 }
 
 /**
