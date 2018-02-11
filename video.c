@@ -6907,7 +6907,8 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
 #else
     if (VideoUsedModule == &VaapiModule) {
 #endif
-	unsigned int len = VaapiDecoders[0]->MaxSupportedDeinterlacer;
+	// TODO: Supported deinterlacers may not be a linear table
+	unsigned int len = ARRAY_ELEMS(vaapi_deinterlace);
 
 	*long_table = vaapi_deinterlace;
 	*short_table = vaapi_deinterlace_short;
