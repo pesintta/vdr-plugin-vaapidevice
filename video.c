@@ -102,6 +102,7 @@ typedef enum
 #include <libswscale/swscale.h>
 #endif
 #include <libavcodec/vaapi.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/hwcontext.h>
 
@@ -440,7 +441,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
     }
     //av_opt_ptr(avcodec_get_frame_class(), frame, "best_effort_timestamp");
     //pts = frame->best_effort_timestamp;
-    pts = frame->pkt_pts;
+    pts = frame->pts;
     if (pts == (int64_t) AV_NOPTS_VALUE || !pts) {
 	// libav: 0.8pre didn't set pts
 	pts = frame->pkt_dts;
@@ -3582,7 +3583,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
 	    // try more simple formats, fallback to better
 	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264Baseline);
+		p = VaapiFindProfile(profiles, profile_n, VAProfileH264ConstrainedBaseline);
 		if (p == -1) {
 		    p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
 		}
@@ -4392,7 +4393,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     } else {
 	void *va_image_data;
 	int i;
-	AVPicture picture[1];
+	AVFrame picture[1];
 	int width;
 	int height;
 
@@ -4470,7 +4471,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    picture->data[2] = va_image_data + decoder->Image->offsets[2];
 	    picture->linesize[2] = decoder->Image->pitches[1];
 
-	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt, width, height);
+	    av_image_copy(picture->data, picture->linesize, (const uint8_t **)frame->data, frame->linesize,
+		video_ctx->pix_fmt, width, height);
 	} else if (decoder->Image->num_planes == 3) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
 	    picture->linesize[0] = decoder->Image->pitches[0];
@@ -4479,7 +4481,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    picture->data[2] = va_image_data + decoder->Image->offsets[1];
 	    picture->linesize[2] = decoder->Image->pitches[1];
 
-	    av_picture_copy(picture, (AVPicture *) frame, video_ctx->pix_fmt, width, height);
+	    av_image_copy(picture->data, picture->linesize, (const uint8_t **)frame->data, frame->linesize,
+		video_ctx->pix_fmt, width, height);
 	}
 
 	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf)
