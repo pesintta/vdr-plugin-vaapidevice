@@ -20,11 +20,10 @@
 #include <string.h>
 
 #include <libavcodec/avcodec.h>
-#include <libavutil/mem.h>
-
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
+#include <libavutil/mem.h>
 
 #ifndef __USE_GNU
 #define __USE_GNU

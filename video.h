@@ -122,12 +122,6 @@ extern int VideoGetDeinterlaceModes(const char * **long_table, const char * **sh
     /// Set deinterlace.
 extern void VideoSetDeinterlace(int[]);
 
-    /// Set skip chroma deinterlace.
-extern void VideoSetSkipChromaDeinterlace(int[]);
-
-    /// Set inverse telecine.
-extern void VideoSetInverseTelecine(int[]);
-
     /// Set scaling.
 extern void VideoSetScaling(int[]);
 

@@ -84,12 +84,6 @@ static int ConfigVideoStde = 0;		///< config video skin tone enhancement
     /// config deinterlace
 static int ConfigVideoDeinterlace[RESOLUTIONS];
 
-    /// config skip chroma
-static int ConfigVideoSkipChromaDeinterlace[RESOLUTIONS];
-
-    /// config inverse telecine
-static int ConfigVideoInverseTelecine[RESOLUTIONS];
-
     /// config denoise
 static int ConfigVideoDenoise[RESOLUTIONS];
 
@@ -588,8 +582,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int ResolutionShown[RESOLUTIONS];
     int Scaling[RESOLUTIONS];
     int Deinterlace[RESOLUTIONS];
-    int SkipChromaDeinterlace[RESOLUTIONS];
-    int InverseTelecine[RESOLUTIONS];
     int Denoise[RESOLUTIONS];
     int Sharpen[RESOLUTIONS];
     int CutTopBottom[RESOLUTIONS];
@@ -767,8 +759,8 @@ void cMenuSetupSoft::Create(void)
 
 	    // short hidden informations
 	    msg =
-		cString::sprintf("%s,%s%s%s%s,...", scaling_short[Scaling[i]], deinterlace_short[Deinterlace[i]],
-		SkipChromaDeinterlace[i] ? ",skip" : "", InverseTelecine[i] ? ",ITC" : "", Denoise[i] ? ",DN" : "");
+		cString::sprintf("%s,%s,%s", scaling_short[Scaling[i]], deinterlace_short[Deinterlace[i]],
+		Denoise[i] ? "D" : "N");
 	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
@@ -954,8 +946,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
 	ResolutionShown[i] = 0;
 	Scaling[i] = ConfigVideoScaling[i];
 	Deinterlace[i] = ConfigVideoDeinterlace[i];
-	SkipChromaDeinterlace[i] = ConfigVideoSkipChromaDeinterlace[i];
-	InverseTelecine[i] = ConfigVideoInverseTelecine[i];
 	Denoise[i] = ConfigVideoDenoise[i];
 	Sharpen[i] = ConfigVideoSharpen[i];
 
@@ -1082,10 +1072,6 @@ void cMenuSetupSoft::Store(void)
 	SetupStore(buf, ConfigVideoScaling[i] = Scaling[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Deinterlace");
 	SetupStore(buf, ConfigVideoDeinterlace[i] = Deinterlace[i]);
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SkipChromaDeinterlace");
-	SetupStore(buf, ConfigVideoSkipChromaDeinterlace[i] = SkipChromaDeinterlace[i]);
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "InverseTelecine");
-	SetupStore(buf, ConfigVideoInverseTelecine[i] = InverseTelecine[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
 	SetupStore(buf, ConfigVideoDenoise[i] = Denoise[i]);
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Sharpen");
@@ -1098,8 +1084,6 @@ void cMenuSetupSoft::Store(void)
     }
     VideoSetScaling(ConfigVideoScaling);
     VideoSetDeinterlace(ConfigVideoDeinterlace);
-    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
-    VideoSetInverseTelecine(ConfigVideoInverseTelecine);
     VideoSetDenoise(ConfigVideoDenoise);
     VideoSetSharpen(ConfigVideoSharpen);
     VideoSetCutTopBottom(ConfigVideoCutTopBottom);
@@ -2272,18 +2256,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
 	if (!strcasecmp(name, buf)) {
 	    ConfigVideoDeinterlace[i] = atoi(value);
 	    VideoSetDeinterlace(ConfigVideoDeinterlace);
-	    return true;
-	}
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "SkipChromaDeinterlace");
-	if (!strcasecmp(name, buf)) {
-	    ConfigVideoSkipChromaDeinterlace[i] = atoi(value);
-	    VideoSetSkipChromaDeinterlace(ConfigVideoSkipChromaDeinterlace);
-	    return true;
-	}
-	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "InverseTelecine");
-	if (!strcasecmp(name, buf)) {
-	    ConfigVideoInverseTelecine[i] = atoi(value);
-	    VideoSetInverseTelecine(ConfigVideoInverseTelecine);
 	    return true;
 	}
 	snprintf(buf, sizeof(buf), "%s.%s", Resolution[i], "Denoise");
