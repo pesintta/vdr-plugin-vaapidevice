@@ -88,8 +88,7 @@ Setup: /etc/vdr/setup.conf
 	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
 
 	vaapidevice.<res>.Deinterlace = 0
-	0 = bob, 1 = weave, 2 = temporal, 3 = temporal_spatial, 4 = software
-	(only 0, 1, 4 supported with VA-API)
+	0 = disabled, 1 = bob, 2 = weave, 3 = motion adaptive, 4 = motion compensated
 
 	vaapidevice.<res>.SkipChromaDeinterlace = 0
 	0 = disabled, 1 = enabled (for slower cards, poor quality)
