@@ -100,7 +100,6 @@ _CFLAGS += $(shell pkg-config --cflags libswscale)
 LIBS += $(shell pkg-config --libs libswscale)
 endif
 ifeq ($(SWRESAMPLE),1)
-CONFIG += -DUSE_SWRESAMPLE
 _CFLAGS += $(shell pkg-config --cflags libswresample)
 LIBS += $(shell pkg-config --libs libswresample)
 endif
