@@ -323,9 +323,6 @@ static int VideoSkinToneEnhancement = 0;
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
-    /// Default skip chroma deinterlace flag
-static char VideoSkipChromaDeinterlace[VideoResolutionMax];
-
     /// Default inverse telecine flag
 static char VideoInverseTelecine[VideoResolutionMax];
 
@@ -6943,19 +6940,6 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
     VideoDeinterlace[2] = mode[2];
     VideoDeinterlace[3] = mode[3];
     VideoDeinterlace[4] = mode[4];
-    VideoSurfaceModesChanged = 1;
-}
-
-///
-/// Set skip chroma deinterlace on/off.
-///
-void VideoSetSkipChromaDeinterlace(int onoff[VideoResolutionMax])
-{
-    VideoSkipChromaDeinterlace[0] = onoff[0];
-    VideoSkipChromaDeinterlace[1] = onoff[1];
-    VideoSkipChromaDeinterlace[2] = onoff[2];
-    VideoSkipChromaDeinterlace[3] = onoff[3];
-    VideoSkipChromaDeinterlace[4] = onoff[4];
     VideoSurfaceModesChanged = 1;
 }
 
