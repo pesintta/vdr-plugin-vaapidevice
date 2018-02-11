@@ -26,12 +26,10 @@
 #include <fcntl.h>
 
 #include <libavcodec/avcodec.h>
-#include <libavutil/mem.h>
-
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
-
+#include <libavutil/mem.h>
 #include <libavcodec/vaapi.h>
 #ifdef USE_SWRESAMPLE
 #include <libswresample/swresample.h>
@@ -51,10 +49,6 @@
 #include "video.h"
 #include "audio.h"
 #include "codec.h"
-
-//----------------------------------------------------------------------------
-
-#define FFMPEG_WORKAROUND_ARTIFACTS	1
 
 //----------------------------------------------------------------------------
 //  Global
@@ -273,9 +267,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     }
     // reset buggy ffmpeg/libav flag
     decoder->GetFormatDone = 0;
-#ifdef FFMPEG_WORKAROUND_ARTIFACTS
-    decoder->FirstKeyFrame = 1;
-#endif
 }
 
 /**
@@ -325,21 +316,7 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
     }
 
     if (got_frame) {			// frame completed
-#ifdef FFMPEG_WORKAROUND_ARTIFACTS
-	if (!CodecUsePossibleDefectFrames && decoder->FirstKeyFrame) {
-	    decoder->FirstKeyFrame++;
-	    if (frame->key_frame) {
-		Debug(3, "codec: key frame after %d frames", decoder->FirstKeyFrame);
-		decoder->FirstKeyFrame = 0;
-	    }
-	} else {
-	    //DisplayPts(video_ctx, frame);
-	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-	}
-#else
-	//DisplayPts(video_ctx, frame);
 	VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-#endif
     } else {
 	// some frames are needed for references, interlaced frames ...
 	// could happen with h264 dvb streams, just drop data.

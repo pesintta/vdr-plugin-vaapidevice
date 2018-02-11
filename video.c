@@ -95,13 +95,11 @@ typedef enum
 #endif
 
 #include <libavcodec/avcodec.h>
-#ifdef USE_SWSCALE
-#include <libswscale/swscale.h>
-#endif
-
-// support old ffmpeg versions <1.0
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
+#endif
+#ifdef USE_SWSCALE
+#include <libswscale/swscale.h>
 #endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/pixdesc.h>
