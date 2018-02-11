@@ -90,9 +90,6 @@ Setup: /etc/vdr/setup.conf
 	vaapidevice.<res>.Deinterlace = 0
 	0 = disabled, 1 = bob, 2 = weave, 3 = motion adaptive, 4 = motion compensated
 
-	vaapidevice.<res>.InverseTelecine = 0
-	0 = disabled, 1 = enabled
-
 	vaapidevice.<res>.Denoise = 0
 	0 .. 1000 noise reduction level (0 off, 1000 max)
 

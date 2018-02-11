@@ -323,9 +323,6 @@ static int VideoSkinToneEnhancement = 0;
     /// Default deinterlace mode.
 static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
 
-    /// Default inverse telecine flag
-static char VideoInverseTelecine[VideoResolutionMax];
-
     /// Default amount of noise reduction algorithm to apply (0 .. 1000).
 static int VideoDenoise[VideoResolutionMax];
 
@@ -6940,19 +6937,6 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
     VideoDeinterlace[2] = mode[2];
     VideoDeinterlace[3] = mode[3];
     VideoDeinterlace[4] = mode[4];
-    VideoSurfaceModesChanged = 1;
-}
-
-///
-/// Set inverse telecine on/off.
-///
-void VideoSetInverseTelecine(int onoff[VideoResolutionMax])
-{
-    VideoInverseTelecine[0] = onoff[0];
-    VideoInverseTelecine[1] = onoff[1];
-    VideoInverseTelecine[2] = onoff[2];
-    VideoInverseTelecine[3] = onoff[3];
-    VideoInverseTelecine[4] = onoff[4];
     VideoSurfaceModesChanged = 1;
 }
 
