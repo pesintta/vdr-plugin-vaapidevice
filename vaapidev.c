@@ -555,7 +555,7 @@ static void VideoPacketExit(VideoStream * stream)
     atomic_set(&stream->PacketsFilled, 0);
 
     for (i = 0; i < VIDEO_PACKET_MAX; ++i) {
-	av_free_packet(&stream->PacketRb[i]);
+	av_packet_unref(&stream->PacketRb[i]);
     }
 }
 
@@ -2809,7 +2809,7 @@ void SoftHdDeviceExit(void)
 	MyAudioDecoder = NULL;
     }
     NewAudioStream = 0;
-    av_free_packet(AudioAvPkt);
+    av_packet_unref(AudioAvPkt);
 
     StopVideo();
 
@@ -2985,7 +2985,7 @@ void Suspend(int video, int audio, int dox11)
 	    MyAudioDecoder = NULL;
 	}
 	NewAudioStream = 0;
-	av_free_packet(AudioAvPkt);
+	av_packet_unref(AudioAvPkt);
     }
     if (video) {
 	StopVideo();
