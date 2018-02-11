@@ -1533,9 +1533,6 @@ struct _vaapi_decoder_
 
     VASurfaceID PlaybackSurface;	///< Currently playing surface
 
-#ifdef VA_EXP
-    VASurfaceID LastSurface;		///< last surface
-#endif
     int SurfaceWrite;			///< write pointer
     int SurfaceRead;			///< read pointer
     atomic_t SurfacesFilled;		///< how many of the buffer is used
@@ -2062,10 +2059,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->vpp_saturation_idx = -1;
     decoder->vpp_hue_idx = -1;
 
-#ifdef VA_EXP
-    decoder->LastSurface = VA_INVALID_ID;
-#endif
-
     decoder->BlackSurface = VA_INVALID_ID;
 
     //
@@ -2175,10 +2168,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     }
     decoder->filter_n = 0;
     decoder->gpe_filter_n = 0;
-
-#ifdef VA_EXP
-    decoder->LastSurface = VA_INVALID_ID;
-#endif
 
     decoder->WrongInterlacedWarned = 0;
 
@@ -4588,31 +4577,15 @@ static void VaapiDisplayFrame(void)
 	decoder->FramesDisplayed++;
 	decoder->StartCounter++;
 
-#ifdef VA_EXP
-	// wait for display finished
-	if (decoder->LastSurface != VA_INVALID_ID) {
-	    if (vaSyncSurface(decoder->VaDisplay, decoder->LastSurface)
-		!= VA_STATUS_SUCCESS) {
-		Error("video/vaapi: vaSyncSurface failed");
-	    }
-	}
-#endif
-
 	filled = atomic_read(&decoder->SurfacesFilled);
 	// no surface availble show black with possible osd
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
-#ifdef VA_EXP
-	    decoder->LastSurface = decoder->BlackSurface;
-#endif
 	    VaapiMessage(3, "video/vaapi: black surface displayed");
 	    continue;
 	}
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
-#ifdef VA_EXP
-	decoder->LastSurface = surface;
-#endif
 #ifdef DEBUG
 	if (surface == VA_INVALID_ID) {
 	    printf("video/vaapi: invalid surface in ringbuffer");
