@@ -502,7 +502,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
 #ifdef DEBUG
-    fprintf(stderr, "ratio: %d:%d %d:%d", input_aspect_ratio.num, input_aspect_ratio.den, display_aspect_ratio.num,
+    Debug(4, "video: ratio %d:%d %d:%d", input_aspect_ratio.num, input_aspect_ratio.den, display_aspect_ratio.num,
 	display_aspect_ratio.den);
 #endif
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
@@ -4572,7 +4572,7 @@ static void VaapiDisplayFrame(void)
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
 #ifdef DEBUG
 	if (surface == VA_INVALID_ID) {
-	    printf("video/vaapi: invalid surface in ringbuffer");
+	    Debug(4, "video/vaapi: invalid surface in ringbuffer");
 	}
 	Debug(4, "video/vaapi: yy video surface %#010x displayed", surface);
 

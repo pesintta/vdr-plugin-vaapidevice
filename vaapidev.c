@@ -41,6 +41,7 @@
 #ifdef DEBUG
 static int DumpH264(const uint8_t * data, int size);
 static void DumpMpeg(const uint8_t * data, int size);
+static int ValidateMpeg(const uint8_t * data, int size);
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -587,9 +588,7 @@ static void VideoEnqueue(VideoStream * stream, int64_t pts, const void *data, in
 	// FIXME: out of memory!
 #ifdef DEBUG
 	if (avpkt->size <= avpkt->stream_index + size) {
-	    fprintf(stderr, "%d %d %d\n", avpkt->size, avpkt->stream_index, size);
-	    fflush(stderr);
-	    abort();
+	    Fatal("%d %d %d\n", avpkt->size, avpkt->stream_index, size);
 	}
 #endif
     }
@@ -807,9 +806,6 @@ static void VideoStreamClose(VideoStream * stream, int delhw)
 int VideoPollInput(VideoStream * stream)
 {
     if (!stream->Decoder) {		// closing
-#ifdef DEBUG
-	fprintf(stderr, "no decoder\n");
-#endif
 	return -1;
     }
 
@@ -851,9 +847,6 @@ int VideoDecodeInput(VideoStream * stream)
     int saved_size;
 
     if (!stream->Decoder) {		// closing
-#ifdef DEBUG
-	fprintf(stderr, "no decoder\n");
-#endif
 	return -1;
     }
 
@@ -1017,19 +1010,19 @@ static void DumpMpeg(const uint8_t * data, int size)
 */
 static int DumpH264(const uint8_t * data, int size)
 {
-    printf("H264:");
+    fprintf(stderr, "H264:");
     do {
 	if (size < 4) {
-	    printf("\n");
+	    fprintf(stderr, "\n");
 	    return -1;
 	}
 	if (!data[0] && !data[1] && data[2] == 0x01) {
-	    printf("%02x ", data[3]);
+	    fprintf(stderr, "%02x ", data[3]);
 	}
 	++data;
 	--size;
     } while (size);
-    printf("\n");
+    fprintf(stderr, "\n");
 
     return 0;
 }
@@ -1048,7 +1041,7 @@ static int ValidateMpeg(const uint8_t * data, int size)
 	    return -1;
 	}
 	if (data[0] || data[1] || data[2] != 0x01) {
-	    printf("%02x: %02x %02x %02x %02x %02x\n", data[-1], data[0], data[1], data[2], data[3], data[4]);
+	    fprintf(stderr, "%02x: %02x %02x %02x %02x %02x\n", data[-1], data[0], data[1], data[2], data[3], data[4]);
 	    return -1;
 	}
 
