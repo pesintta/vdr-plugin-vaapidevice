@@ -134,18 +134,6 @@ typedef enum _video_resolutions_
 } VideoResolutions;
 
 ///
-/// Video deinterlace modes.
-///
-typedef enum _video_deinterlace_modes_
-{
-    VideoDeinterlaceNone,		///< no deinterlace
-    VideoDeinterlaceBob,		///< bob deinterlace
-    VideoDeinterlaceWeave,		///< weave deinterlace
-    VideoDeinterlaceTemporal,		///< temporal deinterlace
-    VideoDeinterlaceTemporalSpatial,	///< temporal spatial deinterlace
-} VideoDeinterlaceModes;
-
-///
 /// Video scaling modes.
 ///
 typedef enum _video_scaling_modes_
@@ -322,7 +310,7 @@ static char VideoStudioLevels;		///< flag use studio levels
 static int VideoSkinToneEnhancement = 0;
 
     /// Default deinterlace mode.
-static VideoDeinterlaceModes VideoDeinterlace[VideoResolutionMax];
+static VAProcDeinterlacingType VideoDeinterlace[VideoResolutionMax];
 
     /// Default amount of noise reduction algorithm to apply (0 .. 1000).
 static int VideoDenoise[VideoResolutionMax];
@@ -514,7 +502,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
 #ifdef DEBUG
-    fprintf(stderr, "ratio: %d:%d %d:%d", input_aspect_ratio.num, input_aspect_ratio.den, display_aspect_ratio.num,
+    Debug(4, "video: ratio %d:%d %d:%d", input_aspect_ratio.num, input_aspect_ratio.den, display_aspect_ratio.num,
 	display_aspect_ratio.den);
 #endif
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
@@ -1560,7 +1548,7 @@ struct _vaapi_decoder_
     VABufferID gpe_filters[VAProcFilterCount];	///< video postprocessing filters via gpe
     unsigned filter_n;			///< number of postprocessing filters
     unsigned gpe_filter_n;		///< number of gpe postprocessing filters
-    unsigned MaxSupportedDeinterlacer;	///< greatest supported deinterlacing method
+    unsigned SupportedDeinterlacers[VAProcDeinterlacingCount];	///< supported deinterlacing methods
     VABufferID *vpp_deinterlace_buf;	///< video postprocessing deinterlace buffer
     VABufferID *vpp_denoise_buf;	///< video postprocessing denoise buffer
     VABufferID *vpp_cbal_buf;		///< video color balance filters via vpp
@@ -1922,29 +1910,20 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
 		break;
 	}
 
-	// deinterlace flags (not yet supported by libva)
+	// deinterlace flags
 	switch (VideoDeinterlace[i]) {
-	    case VideoDeinterlaceNone:
-		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingNone;
-		break;
-	    case VideoDeinterlaceBob:
-		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingBob;
-		break;
-	    case VideoDeinterlaceWeave:
-		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingWeave;
-		break;
-	    case VideoDeinterlaceTemporal:
-		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingMotionAdaptive;
-		break;
-	    case VideoDeinterlaceTemporalSpatial:
-		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingMotionCompensated;
+	    case VAProcDeinterlacingNone:
+	    case VAProcDeinterlacingBob:
+	    case VAProcDeinterlacingWeave:
+	    case VAProcDeinterlacingMotionAdaptive:
+	    case VAProcDeinterlacingMotionCompensated:
+		decoder->SurfaceDeintTable[i] = VideoDeinterlace[i];
 		break;
 	    default:
+		Error("Selected deinterlacer for resolution %d is not supported by HW", i);
+		decoder->SurfaceDeintTable[i] = VAProcDeinterlacingNone;
 		break;
 	}
-	if (decoder->SurfaceDeintTable[i] > decoder->MaxSupportedDeinterlacer)
-	    Error("Selected deinterlacer for resolution %d is not supported by HW", i);
-
     }
     if (decoder->vpp_denoise_buf) {
 	VAProcFilterParameterBuffer *denoise_param;
@@ -2048,7 +2027,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->filter_n = 0;
     decoder->gpe_filter_n = 0;
 
-    decoder->MaxSupportedDeinterlacer = 0;
+    memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
 
     decoder->vpp_deinterlace_buf = NULL;
     decoder->vpp_denoise_buf = NULL;
@@ -2727,10 +2706,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
 		if (!decoder->Interlaced)
 		    continue;
-		if (deinterlace->algorithm == VAProcDeinterlacingNone
-		    || deinterlace->algorithm == VAProcDeinterlacingWeave)
-		    continue;
-		if (deinterlace->algorithm > decoder->MaxSupportedDeinterlacer)
+		if (deinterlace->algorithm == VAProcDeinterlacingNone)
 		    continue;
 	    }
 
@@ -3255,6 +3231,10 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		deinterlacing_cap_n = VAProcDeinterlacingCount;
 		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx, VAProcFilterDeinterlacing, deinterlacing_caps,
 		    &deinterlacing_cap_n);
+
+		memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
+		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;  // always enable none
+
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
 
 		    /* Deinterlacing parameters */
@@ -3264,22 +3244,27 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    switch (deinterlacing_caps[v].type) {
 			case VAProcDeinterlacingNone:
 			    Info("video/vaapi: none deinterlace supported");
+			    decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;
 			    deinterlace.algorithm = VAProcDeinterlacingNone;
 			    break;
 			case VAProcDeinterlacingBob:
 			    Info("video/vaapi: bob deinterlace supported");
+			    decoder->SupportedDeinterlacers[VAProcDeinterlacingBob] = 1;
 			    deinterlace.algorithm = VAProcDeinterlacingBob;
 			    break;
 			case VAProcDeinterlacingWeave:
 			    Info("video/vaapi: weave deinterlace supported");
+			    decoder->SupportedDeinterlacers[VAProcDeinterlacingWeave] = 1;
 			    deinterlace.algorithm = VAProcDeinterlacingWeave;
 			    break;
 			case VAProcDeinterlacingMotionAdaptive:
 			    Info("video/vaapi: motion adaptive deinterlace supported");
+			    decoder->SupportedDeinterlacers[VAProcDeinterlacingMotionAdaptive] = 1;
 			    deinterlace.algorithm = VAProcDeinterlacingMotionAdaptive;
 			    break;
 			case VAProcDeinterlacingMotionCompensated:
 			    Info("video/vaapi: motion compensated deinterlace supported");
+			    decoder->SupportedDeinterlacers[VAProcDeinterlacingMotionCompensated] = 1;
 			    deinterlace.algorithm = VAProcDeinterlacingMotionCompensated;
 			    break;
 			default:
@@ -3289,7 +3274,6 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		}
 		/* Enabling the deint algorithm that was seen last */
 		Info("Enabling Deint (pos = %d)", decoder->filter_n);
-		decoder->MaxSupportedDeinterlacer = deinterlace.algorithm;
 		va_status =
 		    vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(deinterlace),
 		    1, &deinterlace, &filter_buf_id);
@@ -3768,7 +3752,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     uint32_t e;
 
     // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceNone) {
+    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone ) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
@@ -3835,7 +3819,7 @@ static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface, int 
     //uint32_t end;
 
     // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VideoDeinterlaceNone) {
+    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
@@ -4588,7 +4572,7 @@ static void VaapiDisplayFrame(void)
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
 #ifdef DEBUG
 	if (surface == VA_INVALID_ID) {
-	    printf("video/vaapi: invalid surface in ringbuffer");
+	    Debug(4, "video/vaapi: invalid surface in ringbuffer");
 	}
 	Debug(4, "video/vaapi: yy video surface %#010x displayed", surface);
 
@@ -6579,7 +6563,8 @@ void VideoSetHue(int hue)
 {
     // FIXME: test to check if working, than make module function
 #ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) && VaapiDecoders[0]->vpp_hue_idx >= 0) {
+    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
+	&& VaapiDecoders[0]->vpp_hue_idx >= 0) {
 #else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_idx >= 0) {
 #endif
@@ -6857,20 +6842,22 @@ int VideoGetScalingModes(const char * **long_table, const char * **short_table)
 ///
 /// Get deinterlace modes.
 ///
-static const char *vaapi_deinterlace[] = {
-    "None",				///< VideoDeinterlaceNone
-    "Bob",				///< VideoDeinterlaceBob
-    "Weave",				///< VideoDeinterlaceWeave
-    "MotionAdaptive",			///< VideoDeinterlaceTemporal
-    "MotionCompensated",		///< VideoDeinterlaceTemporalSpatial
+static const char *vaapi_deinterlace_default[VAProcDeinterlacingCount] = {
+    "None",				///< VAProcDeinterlacingNone
+    "Bob",				///< VAProcDeinterlacingBob
+    "Weave",				///< VAProcDeinterlacingWeave
+    "Motion Adaptive",			///< VAProcDeinterlacingMotionAdaptive
+    "Motion Compensated",		///< VAProcDeinterlacingMotionCompensated
 };
 
-static const char *vaapi_deinterlace_short[] = {
-    "N",				///< VideoDeinterlaceNone
-    "B",				///< VideoDeinterlaceBob
-    "W",				///< VideoDeinterlaceWeave
-    "MADI",				///< VideoDeinterlaceTemporal
-    "MCDI"				///< VideoDeinterlaceTemporalSpatial
+static const char *vaapi_deinterlace_long[VAProcDeinterlacingCount];
+
+static const char *vaapi_deinterlace_short[VAProcDeinterlacingCount] = {
+    "N",				///< VAProcDeinterlacingNone
+    "B",				///< VAProcDeinterlacingBob
+    "W",				///< VAProcDeinterlacingWeave
+    "MADI",				///< VAProcDeinterlacingMotionAdaptive
+    "MCDI"				///< VAProcDeinterlacingMotionCompensated
 };
 
 int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_table)
@@ -6881,12 +6868,16 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
     if (VideoUsedModule == &VaapiModule) {
 #endif
 	// TODO: Supported deinterlacers may not be a linear table
-	unsigned int len = ARRAY_ELEMS(vaapi_deinterlace);
+	unsigned int len = ARRAY_ELEMS(vaapi_deinterlace_default);
 
-	*long_table = vaapi_deinterlace;
+	for (unsigned int i = 0; i < len; ++i) {
+	    if (VaapiDecoders[0]->SupportedDeinterlacers[i])
+		vaapi_deinterlace_long[i] = vaapi_deinterlace_default[i];
+	    else
+		vaapi_deinterlace_long[i] = "Not supported";
+	}
+	*long_table = vaapi_deinterlace_long;
 	*short_table = vaapi_deinterlace_short;
-	if (len > ARRAY_ELEMS(vaapi_deinterlace))
-	    len = ARRAY_ELEMS(vaapi_deinterlace);
 	return len;
     }
     return 0;
@@ -6902,11 +6893,9 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
 #else
     if (VideoUsedModule == &VaapiModule) {
 #endif
-	int i;
-
-	for (i = 0; i < VideoResolutionMax; ++i) {
-	    if (mode[i] > (int)VaapiDecoders[0]->MaxSupportedDeinterlacer)
-		mode[i] = VaapiDecoders[0]->MaxSupportedDeinterlacer;
+	for (int i = 0; i < VideoResolutionMax; ++i) {
+	    if (!VaapiDecoders[0]->SupportedDeinterlacers[mode[i]])
+		mode[i] = VAProcDeinterlacingNone;
 	}
     }
     VideoDeinterlace[0] = mode[0];

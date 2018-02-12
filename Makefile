@@ -23,8 +23,7 @@ SWSCALE ?= $(shell pkg-config --exists libswscale && echo 1)
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
 
-#CONFIG := -DDEBUG		# enable debug output+functions
-#CONFIG += -DSTILL_DEBUG=2	# still picture debug verbose level
+#CONFIG := -DDEBUG			# enable debug output+functions
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 
 ### The version number of this plugin (taken from the main source file):

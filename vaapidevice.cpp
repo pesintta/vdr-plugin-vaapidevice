@@ -1344,7 +1344,6 @@ static void HandleHotkey(int code)
 	    break;
 	case 15:
 	    ConfigAudioDownmix ^= 1;
-	    fprintf(stderr, "toggle downmix\n");
 	    CodecSetAudioDownmix(ConfigAudioDownmix);
 	    if (ConfigAudioDownmix) {
 		Skins.QueueMessage(mtInfo, tr("surround downmix enabled"));

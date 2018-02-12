@@ -2210,7 +2210,7 @@ void AudioVideoReady(int64_t pts)
 	// FIXME: HDTV can use smaller video buffer
 	skip = pts - 15 * 20 * 90 - AudioBufferTime * 90 - audio_pts - VideoAudioDelay;
 #ifdef DEBUG
-	fprintf(stderr, "%dms %dms %dms", (int)(pts - audio_pts) / 90, VideoAudioDelay / 90, skip / 90);
+	Debug(4, "audio: skip %dms %dms %dms", (int)(pts - audio_pts) / 90, VideoAudioDelay / 90, skip / 90);
 #endif
 	// guard against old PTS
 	if (skip > 0 && skip < 2000 * 90) {

@@ -724,7 +724,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	    // fscod2
 	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
 	}
-	// fprintf(stderr, "repeat %d %d", repeat, avpkt->size);
 
 	// copy original data for output
 	// pack upto repeat EAC-3 pakets into one IEC 61937 burst
@@ -871,7 +870,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16 && audio_ctx->sample_rate == audio_decoder->HwSampleRate
 	&& !CodecAudioDrift) {
 	// FIXME: use Resample only, when it is needed!
-	fprintf(stderr, "no resample needed");
+	Debug(4, "no resample needed");
     }
 #endif
 
@@ -938,7 +937,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		uint8_t *out[1];
 
 		out[0] = outbuf;
-		ret = swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+		ret =
+		    swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
 		    (const uint8_t **)frame->extended_data, frame->nb_samples);
 		if (ret > 0) {
 		    if (!(audio_decoder->Passthrough & CodecPCM)) {
