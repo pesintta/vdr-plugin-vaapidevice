@@ -512,9 +512,6 @@ static VideoStream MyVideoStream[1];	///< normal video stream
 uint32_t VideoSwitch;			///< debug video switch ticks
 static int VideoMaxPacketSize;		///< biggest used packet buffer
 #endif
-#ifdef STILL_DEBUG
-static char InStillPicture;		///< flag still picture
-#endif
 
 const char *X11DisplayName;		///< x11 display name
 static volatile char Usr1Signal;	///< true got usr1 signal
@@ -691,18 +688,8 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
     *tmp = *avpkt;
 
     first = 1;
-#if STILL_DEBUG>1
-    if (InStillPicture) {
-	fprintf(stderr, "fix(%d): ", n);
-    }
-#endif
 
     while (n > 3) {
-#if STILL_DEBUG>1
-	if (InStillPicture && !p[0] && !p[1] && p[2] == 0x01) {
-	    fprintf(stderr, " %02x", p[3]);
-	}
-#endif
 	// scan for picture header 0x00000100
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
 	    if (first) {
@@ -713,12 +700,6 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 	    }
 	    // packet has already an picture header
 	    tmp->size = p - tmp->data;
-#if STILL_DEBUG>1
-	    if (InStillPicture) {
-		fprintf(stderr, "\nfix:%9d,%02x %02x %02x %02x\n", tmp->size, tmp->data[0], tmp->data[1], tmp->data[2],
-		    tmp->data[3]);
-	    }
-#endif
 	    CodecVideoDecode(vdecoder, tmp);
 	    // time-stamp only valid for first packet
 	    tmp->pts = AV_NOPTS_VALUE;
@@ -730,12 +711,6 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 	++p;
     }
 
-#if STILL_DEBUG>1
-    if (InStillPicture) {
-	fprintf(stderr, "\nfix:%9d.%02x %02x %02x %02x\n", tmp->size, tmp->data[0], tmp->data[1], tmp->data[2],
-	    tmp->data[3]);
-    }
-#endif
     CodecVideoDecode(vdecoder, tmp);
 }
 
@@ -2334,9 +2309,6 @@ void StillPicture(const uint8_t * data, int size)
 	Error("[vaapidevice] invalid still video packet");
 	return;
     }
-#ifdef STILL_DEBUG
-    InStillPicture = 1;
-#endif
     VideoSetTrickSpeed(MyVideoStream->HwDecoder, 1);
     VideoResetPacket(MyVideoStream);
     old_video_hardware_decoder = VideoHardwareDecoder;
@@ -2352,9 +2324,6 @@ void StillPicture(const uint8_t * data, int size)
     }
     // FIXME: can check video backend, if a frame was produced.
     // output for max reference frames
-#ifdef STILL_DEBUG
-    fprintf(stderr, "still-picture");
-#endif
     for (i = 0; i < (MyVideoStream->CodecID == AV_CODEC_ID_HEVC ? 3 : 4); ++i) {
 	// FIXME: vdr pes recordings sends mixed audio/video
 	if ((data[3] & 0xF0) == 0xE0) { // PES packet
@@ -2413,9 +2382,6 @@ void StillPicture(const uint8_t * data, int size)
 	usleep(10 * 1000);
     }
     Debug(3, "[vaapidevice]%s: buffers %d %dms", __FUNCTION__, VideoGetBuffers(MyVideoStream), i * 10);
-#ifdef STILL_DEBUG
-    InStillPicture = 0;
-#endif
     if (VideoHardwareDecoder != old_video_hardware_decoder) {
 	VideoHardwareDecoder = old_video_hardware_decoder;
 	VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);   // close last stream
