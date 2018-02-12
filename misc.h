@@ -139,7 +139,6 @@ static inline uint64_t GetNsTicks(void)
     return (tspec.tv_sec * 1000 * 1000 * 1000) + tspec.tv_nsec;
 }
 
-
 /**
 **	Get ticks in us.
 **

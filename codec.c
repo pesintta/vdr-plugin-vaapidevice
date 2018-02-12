@@ -938,7 +938,8 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		uint8_t *out[1];
 
 		out[0] = outbuf;
-		ret = swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+		ret =
+		    swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
 		    (const uint8_t **)frame->extended_data, frame->nb_samples);
 		if (ret > 0) {
 		    if (!(audio_decoder->Passthrough & CodecPCM)) {
