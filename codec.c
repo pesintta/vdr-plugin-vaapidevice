@@ -237,18 +237,16 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->opaque = decoder;    // our structure
 
     Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
-    if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
+    if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets");
     }
     // FIXME: own memory management for video frames.
-    if (video_codec->capabilities & CODEC_CAP_DR1) {
+    if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
 	Debug(3, "codec: can use own buffer management");
     }
-#ifdef CODEC_CAP_FRAME_THREADS
-    if (video_codec->capabilities & CODEC_CAP_FRAME_THREADS) {
+    if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
 	Debug(3, "codec: codec supports frame threads");
     }
-#endif
     decoder->VideoCtx->get_format = Codec_get_format;
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
     decoder->VideoCtx->thread_count = 1;
@@ -458,7 +456,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'", audio_decoder->AudioCodec->long_name);
 
-    if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
+    if (audio_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: audio can use truncated packets");
 	// we send only complete frames
 	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
