@@ -2354,7 +2354,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "AudioBufferTime")) {
 	ConfigAudioBufferTime = atoi(value);
-	AudioSetBufferTime(ConfigAudioBufferTime);
 	return true;
     }
     if (!strcasecmp(name, "AudioAutoAES")) {
