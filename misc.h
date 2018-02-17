@@ -76,7 +76,7 @@ static inline void Syslog(const int level, const char *format, ...)
 /**
 **	Show error.
 */
-#define Error(fmt...)	Syslog(0, fmt)
+#define Error(fmt...)	Syslog(LOG_ERR, fmt)
 
 /**
 **	Show fatal error.
@@ -86,12 +86,12 @@ static inline void Syslog(const int level, const char *format, ...)
 /**
 **	Show warning.
 */
-#define Warning(fmt...)	Syslog(1, fmt)
+#define Warning(fmt...)	Syslog(LOG_WARNING, fmt)
 
 /**
 **	Show info.
 */
-#define Info(fmt...)	Syslog(2, fmt)
+#define Info(fmt...)	Syslog(LOG_INFO, fmt)
 
 /**
 **	Show debug.
