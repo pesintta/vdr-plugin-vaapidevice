@@ -899,57 +899,55 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx = audio_decoder->AudioCtx;
 
-    if (audio_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
-	int ret;
-	AVPacket pkt[1];
-	AVFrame *frame = audio_decoder->Frame;
+    int ret;
+    AVFrame *frame = audio_decoder->Frame;
 
-	av_frame_unref(frame);
-	*pkt = *avpkt;			// use copy
-	ret = avcodec_send_packet(audio_ctx, pkt);
-	if (ret < 0) {
-	    Debug(3, "codec: sending audio packet failed");
-	    return;
-	}
-	ret = avcodec_receive_frame(audio_ctx, frame);
-	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-	    Debug(3, "codec: receiving audio frame failed");
-	    return;
-	}
-	if (ret >= 0) {
-	    // update audio clock
-	    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-		CodecAudioSetClock(audio_decoder, avpkt->pts);
-	    }
-	    // format change
-	    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
-		|| audio_decoder->Channels != audio_ctx->channels) {
-		CodecAudioUpdateFormat(audio_decoder);
-	    }
-	    if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
-		return;			// unsupported sample format
-	    }
-	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
-		return;
-	    }
-	    if (audio_decoder->Resample) {
-		uint8_t outbuf[8192 * 2 * 8];
-		uint8_t *out[1];
+    av_frame_unref(frame);
+    if (avpkt) {
+        ret = avcodec_send_packet(audio_ctx, avpkt);
+        if (ret < 0) {
+            Debug(3, "codec: sending audio packet failed");
+            return;
+        }
+    }
+    ret = avcodec_receive_frame(audio_ctx, frame);
+    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+        Debug(3, "codec: receiving audio frame failed");
+        return;
+    }
+    if (ret >= 0) {
+        // update audio clock
+        if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
+            CodecAudioSetClock(audio_decoder, avpkt->pts);
+        }
+        // format change
+        if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
+            || audio_decoder->Channels != audio_ctx->channels) {
+            CodecAudioUpdateFormat(audio_decoder);
+        }
+        if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
+            return;                     // unsupported sample format
+        }
+        if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
+            return;
+        }
+        if (audio_decoder->Resample) {
+            uint8_t outbuf[8192 * 2 * 8];
+            uint8_t *out[1];
 
-		out[0] = outbuf;
-		ret =
-		    swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
-		    (const uint8_t **)frame->extended_data, frame->nb_samples);
-		if (ret > 0) {
-		    if (!(audio_decoder->Passthrough & CodecPCM)) {
-			CodecReorderAudioFrame((int16_t *) outbuf, ret * 2 * audio_decoder->HwChannels,
-			    audio_decoder->HwChannels);
-		    }
-		    AudioEnqueue(outbuf, ret * 2 * audio_decoder->HwChannels);
-		}
-		return;
-	    }
-	}
+            out[0] = outbuf;
+            ret =
+                swr_convert(audio_decoder->Resample, out, sizeof(outbuf) / (2 * audio_decoder->HwChannels),
+                (const uint8_t **)frame->extended_data, frame->nb_samples);
+            if (ret > 0) {
+                if (!(audio_decoder->Passthrough & CodecPCM)) {
+                    CodecReorderAudioFrame((int16_t *) outbuf, ret * 2 * audio_decoder->HwChannels,
+                        audio_decoder->HwChannels);
+                }
+                AudioEnqueue(outbuf, ret * 2 * audio_decoder->HwChannels);
+            }
+            return;
+        }
     }
 }
 
