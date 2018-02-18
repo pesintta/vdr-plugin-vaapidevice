@@ -722,7 +722,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	    // fscod2
 	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
 	}
-
 	// copy original data for output
 	// pack upto repeat EAC-3 pakets into one IEC 61937 burst
 	// FIXME: not 100% sure, if endian is correct on not intel hardware

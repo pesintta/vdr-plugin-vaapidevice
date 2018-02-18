@@ -1744,13 +1744,11 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     //
     VaapiDeassociate(decoder);
 
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree, decoder->SurfaceFreeN)
-	!= VA_STATUS_SUCCESS) {
+    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree, decoder->SurfaceFreeN) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceFreeN);
     }
     decoder->SurfaceFreeN = 0;
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesUsed, decoder->SurfaceUsedN)
-	!= VA_STATUS_SUCCESS) {
+    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesUsed, decoder->SurfaceUsedN) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceUsedN);
     }
     decoder->SurfaceUsedN = 0;
@@ -1774,8 +1772,7 @@ static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
     // try to use oldest surface
     for (i = 0; i < decoder->SurfaceFreeN; ++i) {
 	surface = decoder->SurfacesFree[i];
-	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status)
-	    != VA_STATUS_SUCCESS) {
+	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status) != VA_STATUS_SUCCESS) {
 	    // this fails with mpeg softdecoder
 	    Error("video/vaapi: vaQuerySurface failed");
 	    status = VASurfaceReady;
@@ -1834,9 +1831,6 @@ static void VaapiPrintFrames(const VaapiDecoder * decoder)
 {
     Debug(3, "video/vaapi: %d missed, %d duped, %d dropped frames of %d,%d", decoder->FramesMissed,
 	decoder->FramesDuped, decoder->FramesDropped, decoder->FrameCounter, decoder->FramesDisplayed);
-#ifndef DEBUG
-    (void)decoder;
-#endif
 }
 
 ///
@@ -3234,7 +3228,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    &deinterlacing_cap_n);
 
 		memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
-		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;  // always enable none
+		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;	// always enable none
 
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
 
@@ -3595,10 +3589,10 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	    goto slow_path;
     }
     if (p == -1) {
-	Debug(3, "\tno profile found");
+	Debug(3, "codec: no profile found");
 	goto slow_path;
     }
-    Debug(3, "\tprofile %d", p);
+    Debug(3, "codec: profile %d", p);
 
     // prepare va-api entry points
     if (vaQueryConfigEntrypoints(VaDisplay, p, entrypoints, &entrypoint_n)) {
@@ -3608,7 +3602,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
     Debug(3, "codec: %d entrypoints", entrypoint_n);
     //	look through formats
     for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
-	Debug(3, "\t%#010x %s", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
+	Debug(3, "codec: %#010x %s", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
 	// check supported pixel format with entry point
 	switch (*fmt_idx) {
 	    case AV_PIX_FMT_VAAPI_VLD:
@@ -3621,7 +3615,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 		continue;
 	}
 	if (e != -1) {
-	    Debug(3, "\tentry point %d", e);
+	    Debug(3, "codec: entry point %d", e);
 	    break;
 	}
     }
@@ -3753,7 +3747,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     uint32_t e;
 
     // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone ) {
+    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
@@ -3908,8 +3902,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	Error("video/vaapi: can't get auto-crop image %d", i);
 	return;
     }
-    if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data)
-	!= VA_STATUS_SUCCESS) {
+    if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't map auto-crop image!");
 	return;
     }
@@ -3925,8 +3918,7 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	Error("video/vaapi: can't unmap auto-crop image!");
     }
     if (!decoder->GetPutImage) {
-	if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
-	    != VA_STATUS_SUCCESS) {
+	if (vaDestroyImage(VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't destroy image!");
 	}
 	decoder->Image->image_id = VA_INVALID_ID;
@@ -4411,8 +4403,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	//
 	//  Copy data from frame to image
 	//
-	if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data)
-	    != VA_STATUS_SUCCESS) {
+	if (vaMapBuffer(VaDisplay, decoder->Image->buf, &va_image_data) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't map the image!");
 	}
 	// crazy: intel mixes YV12 and NV12 with mpeg
@@ -4459,8 +4450,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 		video_ctx->pix_fmt, width, height);
 	}
 
-	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf)
-	    != VA_STATUS_SUCCESS) {
+	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't unmap the image!");
 	}
 
@@ -4474,8 +4464,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	}
 
 	if (!decoder->GetPutImage) {
-	    if (vaDestroyImage(VaDisplay, decoder->Image->image_id)
-		!= VA_STATUS_SUCCESS) {
+	    if (vaDestroyImage(VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't destroy image!");
 	    }
 	    decoder->Image->image_id = VA_INVALID_ID;
@@ -4603,15 +4592,6 @@ static void VaapiDisplayFrame(void)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec)) / (1000 * 1000));
 	    Debug(4, "video/vaapi: put1 %2u put2 %2u", put1 - start, put2 - put1);
 	}
-#ifdef noDEBUG
-	Debug(3, "video/vaapi: time/frame %ldms", ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
-		* 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec)) / (1000 * 1000));
-	if (put2 > start + 20) {
-	    Debug(3, "video/vaapi: putsurface too long %ums", put2 - start);
-	}
-	Debug(4, "video/vaapi: put1 %2u put2 %2u", put1 - start, put2 - put1);
-#endif
-
 	decoder->FrameTime = nowtime;
     }
 
@@ -5087,8 +5067,7 @@ static void VaapiOsdClear(void)
 	OsdDirtyHeight = VaOsdImage.height - OsdDirtyY;
 
     // map osd surface/image into memory.
-    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer)
-	!= VA_STATUS_SUCCESS) {
+    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't map osd image buffer");
 	return;
     }
@@ -5156,8 +5135,7 @@ static void VaapiOsdDrawARGB(int xi, int yi, int width, int height, int pitch, c
     start = GetMsTicks();
 #endif
     // map osd surface/image into memory.
-    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer)
-	!= VA_STATUS_SUCCESS) {
+    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't map osd image buffer");
 	return;
     }
@@ -6215,10 +6193,6 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 	Warning("vaapidevice: grab unsupported");
     }
 
-    (void)size;
-    (void)width;
-    (void)height;
-    (void)write_header;
     return NULL;
 }
 
