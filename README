@@ -19,7 +19,6 @@ A VA-API output device plugin for VDR.
     o Video decoder CPU / VAAPI
     o Video output VAAPI
     o Audio FFMpeg / Alsa / Analog / Digital
-    o Audio FFMpeg / OSS / Analog
     o HDMI/SPDIF pass-through
     o VDR ScaleVideo API
     o Autocrop
@@ -35,8 +34,8 @@ Install:
 	make
 	make install
 
-	You can edit Makefile to enable/disable Alsa / OSS
-	support. The default is to autodetect as much as possible.
+	You can edit Makefile to enable/disable Alsa support.
+	The default is to autodetect as much as possible.
 
 Setup:	environment
 ------
@@ -45,7 +44,8 @@ Setup:	environment
 	DISPLAY=:0.0
 		x11 display name
 
-    only if alsa is configured
+	Only if alsa is configured:
+
 	ALSA_DEVICE=default
 		alsa PCM device name
 	ALSA_PASSTHROUGH_DEVICE=
@@ -54,16 +54,6 @@ Setup:	environment
 		alsa control device name
 	ALSA_MIXER_CHANNEL=PCM
 		alsa control channel name
-
-    only if oss is configured
-	OSS_AUDIODEV=/dev/dsp
-		oss dsp device name
-	OSS_PASSTHROUGHDEV=
-		oss pass-though (AC-3,E-AC-3,DTS,...) device name
-	OSS_MIXERDEV=/dev/mixer
-		oss mixer device name
-	OSS_MIXER_CHANNEL=pcm
-		oss mixer channel name
 
 Setup: /etc/vdr/setup.conf
 ------
@@ -221,8 +211,6 @@ Commandline:
 
 	Selects audio output module and device.
 	""		to disable audio output
-	/...		to use oss audio module (if compiled with oss
-			support)
 	other		to use alsa audio module (if compiled with alsa
 			support)
 
@@ -277,8 +265,6 @@ Requires:
 	media-libs/alsa-lib
 		Advanced Linux Sound Architecture Library
 		http://www.alsa-project.org
-    or
-	kernel support for oss/oss4 or alsa oss emulation
 
 	x11-libs/libva (version >=2.0.0)
 		Video Acceleration (VA) API for Linux

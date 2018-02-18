@@ -662,36 +662,75 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
 }
 
 /**
-**	Fix packet for FFMpeg.
+**     Place mpeg video data in packet ringbuffer.
 **
-**	Some tv-stations sends mulitple pictures in a single PES packet.
-**	Current ffmpeg 0.10 and libav-0.8 has problems with this.
-**	Split the packet into single picture packets.
+**     Some tv-stations sends mulitple pictures in a single PES packet.
+**     Split the packet into single picture packets.
+**     Nick/CC, Viva, MediaShop, Deutsches Music Fernsehen
 **
-**	FIXME: there are stations which have multiple pictures and
-**	the last picture incomplete in the PES packet.
+**     FIXME: this code can be written much faster
 **
-**	FIXME: move function call into PlayVideo, than the hardware
-**	decoder didn't need to support multiple frames decoding.
-**
-**	@param avpkt	ffmpeg a/v packet
+**     @param stream   video stream
+**     @param pts      presentation timestamp of pes packet
+**     @param data     data of pes packet
+**     @param size     size of pes packet
 */
-static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
+static void VideoMpegEnqueue(VideoStream * stream, int64_t pts, const void *data, int size)
 {
-    uint8_t *p;
+    static const char startcode[3] = { 0x00, 0x00, 0x01 };
+    const uint8_t *p;
     int n;
-    AVPacket tmp[1];
     int first;
 
-    p = avpkt->data;
-    n = avpkt->size;
-    *tmp = *avpkt;
+    // first scan
+    first = !stream->PacketRb[stream->PacketWrite].stream_index;
+    p = data;
+    n = size;
 
-    first = 1;
+    switch (stream->StartCodeState) {	// prefix starting in last packet
+	case 3:			       // 0x00 0x00 0x01 seen
+	    if (!p[0] || p[0] == 0xb3) {
+		stream->PacketRb[stream->PacketWrite].stream_index -= 3;
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 3);
+		first = p[0] == 0xb3;
+		p++;
+		n--;
+		pts = AV_NOPTS_VALUE;
+	    }
+	    break;
+	case 2:			       // 0x00 0x00 seen
+	    if (p[0] == 0x01 && (!p[1] || p[1] == 0xb3)) {
+		stream->PacketRb[stream->PacketWrite].stream_index -= 2;
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 2);
+		first = p[1] == 0xb3;
+		p += 2;
+		n -= 2;
+		pts = AV_NOPTS_VALUE;
+	    }
+	    break;
+	case 1:			       // 0x00 seen
+	    if (!p[0] && p[1] == 0x01 && (!p[2] || p[2] == 0xb3)) {
+		stream->PacketRb[stream->PacketWrite].stream_index -= 1;
+		VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
+		VideoEnqueue(stream, pts, startcode, 1);
+		first = p[2] == 0xb3;
+		p += 3;
+		n -= 3;
+		pts = AV_NOPTS_VALUE;
+	    }
+	case 0:
+	    break;
+    }
 
+    // b3 b4 b8 00 b5 ... 00 b5 ...
     while (n > 3) {
 	// scan for picture header 0x00000100
+	// FIXME: not perfect, must split at 0xb3 also
 	if (!p[0] && !p[1] && p[2] == 0x01 && !p[3]) {
+	    const uint8_t *p2 = data;
+
 	    if (first) {
 		first = 0;
 		n -= 4;
@@ -699,19 +738,43 @@ static void FixPacketForFFMpeg(VideoDecoder * vdecoder, AVPacket * avpkt)
 		continue;
 	    }
 	    // packet has already an picture header
-	    tmp->size = p - tmp->data;
-	    CodecVideoDecode(vdecoder, tmp);
+	    // first packet goes only upto picture header
+	    VideoEnqueue(stream, pts, data, p - p2);
+	    VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
+	    data = p;
+	    size = n;
+
 	    // time-stamp only valid for first packet
-	    tmp->pts = AV_NOPTS_VALUE;
-	    tmp->dts = AV_NOPTS_VALUE;
-	    tmp->data = p;
-	    tmp->size = n;
+	    pts = AV_NOPTS_VALUE;
+	    n -= 4;
+	    p += 4;
+	    continue;
 	}
 	--n;
 	++p;
     }
 
-    CodecVideoDecode(vdecoder, tmp);
+    stream->StartCodeState = 0;
+    switch (n) {			// handle packet border start code
+	case 3:
+	    if (!p[0] && !p[1] && p[2] == 0x01) {
+		stream->StartCodeState = 3;
+	    }
+	    break;
+	case 2:
+	    if (!p[0] && !p[1]) {
+		stream->StartCodeState = 2;
+	    }
+	    break;
+	case 1:
+	    if (!p[0]) {
+		stream->StartCodeState = 1;
+	    }
+	    break;
+	case 0:
+	    break;
+    }
+    VideoEnqueue(stream, pts, data, size);
 }
 
 /**
@@ -894,9 +957,7 @@ int VideoDecodeInput(VideoStream * stream)
     avpkt->stream_index = 0;
 
     // old version
-    if (stream->LastCodecID == AV_CODEC_ID_MPEG2VIDEO) {
-	FixPacketForFFMpeg(stream->Decoder, avpkt);
-    } else {
+    if (stream->Decoder) {
 	CodecVideoDecode(stream->Decoder, avpkt);
     }
 
@@ -1361,7 +1422,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			    Debug(3, "vaapidevice/video: invalid mpeg2 video packet");
 			}
 #endif
-			VideoEnqueue(MyVideoStream, pesdx->PTS, check - 2, l + 2);
+			VideoMpegEnqueue(MyVideoStream, pesdx->PTS, check - 2, l + 2);
 			pesdx->Skip += n;
 			pesdx->PTS = AV_NOPTS_VALUE;
 			break;
@@ -1373,8 +1434,11 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			pesdx->PTS = AV_NOPTS_VALUE;
 			break;
 		    }
-		    // SKIP PES header
-		    VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
+		    if (MyVideoStream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
+			VideoMpegEnqueue(MyVideoStream, pesdx->PTS, q, n);
+		    } else {
+			VideoEnqueue(MyVideoStream, pesdx->PTS, q, n);
+		    }
 		    pesdx->Skip += n;
 		}
 		break;
@@ -1989,7 +2053,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	}
 #endif
 	// SKIP PES header, begin of start code
-	VideoEnqueue(stream, pts, check - 2, l + 2);
+	VideoMpegEnqueue(stream, pts, check - 2, l + 2);
 	return size;
     }
     // this happens when vdr sends incomplete packets
@@ -1997,16 +2061,12 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	Debug(3, "video: not detected");
 	return size;
     }
-    // SKIP PES header
-    VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
-
-    // incomplete packets produce artefacts after channel switch
-    // packet < 65526 is the last split packet, detect it here for
-    // better latency
-    if (size < 65526 && stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
-	// mpeg codec supports incomplete packets
-	// waiting for a full complete packages, increases needed delays
-	VideoNextPacket(stream, AV_CODEC_ID_MPEG2VIDEO);
+    if (stream->CodecID == AV_CODEC_ID_MPEG2VIDEO) {
+	// SKIP PES header
+	VideoMpegEnqueue(stream, pts, data + 9 + n, size - 9 - n);
+    } else {
+	// SKIP PES header
+	VideoEnqueue(stream, pts, data + 9 + n, size - 9 - n);
     }
 
     return size;

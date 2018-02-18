@@ -237,18 +237,16 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->opaque = decoder;    // our structure
 
     Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
-    if (video_codec->capabilities & CODEC_CAP_TRUNCATED) {
+    if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: video can use truncated packets");
     }
     // FIXME: own memory management for video frames.
-    if (video_codec->capabilities & CODEC_CAP_DR1) {
+    if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
 	Debug(3, "codec: can use own buffer management");
     }
-#ifdef CODEC_CAP_FRAME_THREADS
-    if (video_codec->capabilities & CODEC_CAP_FRAME_THREADS) {
+    if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
 	Debug(3, "codec: codec supports frame threads");
     }
-#endif
     decoder->VideoCtx->get_format = Codec_get_format;
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
     decoder->VideoCtx->thread_count = 1;
@@ -458,7 +456,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
     pthread_mutex_unlock(&CodecLockMutex);
     Debug(3, "codec: audio '%s'", audio_decoder->AudioCodec->long_name);
 
-    if (audio_codec->capabilities & CODEC_CAP_TRUNCATED) {
+    if (audio_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
 	Debug(3, "codec: audio can use truncated packets");
 	// we send only complete frames
 	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
@@ -724,7 +722,6 @@ static int CodecAudioPassthroughHelper(AudioDecoder * audio_decoder, const AVPac
 	    // fscod2
 	    repeat = eac3_repeat[(avpkt->data[4] & 0x30) >> 4];
 	}
-
 	// copy original data for output
 	// pack upto repeat EAC-3 pakets into one IEC 61937 burst
 	// FIXME: not 100% sure, if endian is correct on not intel hardware
@@ -763,7 +760,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t tim_diff;
     int64_t pts_diff;
     int drift;
-    int corr;
+    int corr = 0;
     static int c;
 
     AudioSetClock(pts);
@@ -804,9 +801,6 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	// drift too big, pts changed?
 	Debug(3, "codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
-#ifdef DEBUG
-	corr = 0;			// keep gcc happy
-#endif
     } else {
 
 	drift += audio_decoder->Drift;

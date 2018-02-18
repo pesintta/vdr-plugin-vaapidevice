@@ -11,8 +11,6 @@
 ///
 /// @note alsa async playback is broken, don't use it!
 ///
-/// OSS PCM/Mixer api is supported.
-/// @see http://manuals.opensound.com/developer/
 ///
 
 #include <stdio.h>
@@ -25,26 +23,6 @@
 
 #ifdef USE_ALSA
 #include <alsa/asoundlib.h>
-#endif
-#ifdef USE_OSS
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
-#include <sys/soundcard.h>
-// SNDCTL_DSP_HALT_OUTPUT compatibility
-#ifndef SNDCTL_DSP_HALT_OUTPUT
-#  if defined(SNDCTL_DSP_RESET_OUTPUT)
-#    define SNDCTL_DSP_HALT_OUTPUT SNDCTL_DSP_RESET_OUTPUT
-#  elif defined(SNDCTL_DSP_RESET)
-#    define SNDCTL_DSP_HALT_OUTPUT SNDCTL_DSP_RESET
-#  else
-#    error "No valid SNDCTL_DSP_HALT_OUTPUT found."
-#  endif
-#endif
-#include <poll.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
 #endif
 
 #ifndef __USE_GNU
@@ -1302,486 +1280,6 @@ static const AudioModule AlsaModule = {
 
 #endif // USE_ALSA
 
-#ifdef USE_OSS
-
-//============================================================================
-//  O S S
-//============================================================================
-
-//----------------------------------------------------------------------------
-//  OSS variables
-//----------------------------------------------------------------------------
-
-static int OssPcmFildes = -1;		///< pcm file descriptor
-static int OssMixerFildes = -1;		///< mixer file descriptor
-static int OssMixerChannel;		///< mixer channel index
-static int OssFragmentTime;		///< fragment time in ms
-
-//----------------------------------------------------------------------------
-//  OSS pcm
-//----------------------------------------------------------------------------
-
-/**
-**	Play samples from ringbuffer.
-**
-**	@retval	0	ok
-**	@retval 1	ring buffer empty
-**	@retval -1	underrun error
-*/
-static int OssPlayRingbuffer(void)
-{
-    int first;
-
-    first = 1;
-    for (;;) {
-	audio_buf_info bi;
-	const void *p;
-	int n;
-
-	if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
-	    Error("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s", strerror(errno));
-	    return -1;
-	}
-	Debug(4, "audio/oss: %d bytes free", bi.bytes);
-
-	n = RingBufferGetReadPointer(AudioRing[AudioRingRead].RingBuffer, &p);
-	if (!n) {			// ring buffer empty
-	    if (first) {		// only error on first loop
-		return 1;
-	    }
-	    return 0;
-	}
-	if (n < bi.bytes) {		// not enough bytes in ring buffer
-	    bi.bytes = n;
-	}
-	if (bi.bytes <= 0) {		// full or buffer empty
-	    break;			// bi.bytes could become negative!
-	}
-
-	if (AudioSoftVolume && !AudioRing[AudioRingRead].Passthrough) {
-	    // FIXME: quick&dirty cast
-	    AudioSoftAmplifier((int16_t *) p, bi.bytes);
-	    // FIXME: if not all are written, we double amplify them
-	}
-	for (;;) {
-	    n = write(OssPcmFildes, p, bi.bytes);
-	    if (n != bi.bytes) {
-		if (n < 0) {
-		    if (n == EAGAIN) {
-			continue;
-		    }
-		    Error("audio/oss: write error: %s", strerror(errno));
-		    return 1;
-		}
-		Warning("audio/oss: error not all bytes written");
-	    }
-	    break;
-	}
-	// advance how many could written
-	RingBufferReadAdvance(AudioRing[AudioRingRead].RingBuffer, n);
-	first = 0;
-    }
-
-    return 0;
-}
-
-/**
-**	Flush OSS buffers.
-*/
-static void OssFlushBuffers(void)
-{
-    if (OssPcmFildes != -1) {
-	// flush kernel buffers
-	if (ioctl(OssPcmFildes, SNDCTL_DSP_HALT_OUTPUT, NULL) < 0) {
-	    Error("audio/oss: ioctl(SNDCTL_DSP_HALT_OUTPUT): %s", strerror(errno));
-	}
-    }
-}
-
-//----------------------------------------------------------------------------
-//  thread playback
-//----------------------------------------------------------------------------
-
-/**
-**	OSS thread
-**
-**	@retval -1	error
-**	@retval 0	underrun
-**	@retval 1	running
-*/
-static int OssThread(void)
-{
-    int err;
-
-    if (!OssPcmFildes) {
-	usleep(OssFragmentTime * 1000);
-	return -1;
-    }
-    for (;;) {
-	struct pollfd fds[1];
-
-	if (AudioPaused) {
-	    return 1;
-	}
-	// wait for space in kernel buffers
-	fds[0].fd = OssPcmFildes;
-	fds[0].events = POLLOUT | POLLERR;
-	// wait for space in kernel buffers
-	err = poll(fds, 1, OssFragmentTime);
-	if (err < 0) {
-	    if (err == EAGAIN) {
-		continue;
-	    }
-	    Error("audio/oss: error poll %s", strerror(errno));
-	    usleep(OssFragmentTime * 1000);
-	    return -1;
-	}
-	break;
-    }
-    if (!err || AudioPaused) {		// timeout or some commands
-	return 1;
-    }
-
-    if ((err = OssPlayRingbuffer())) {	// empty / error
-	if (err < 0) {			// underrun error
-	    return -1;
-	}
-	sched_yield();
-	usleep(OssFragmentTime * 1000); // let fill/empty the buffers
-	return 0;
-    }
-
-    return 1;
-}
-
-//----------------------------------------------------------------------------
-
-/**
-**	Open OSS pcm device.
-**
-**	@param passthrough	use pass-through (AC-3, ...) device
-*/
-static int OssOpenPCM(int passthrough)
-{
-    const char *device;
-    int fildes;
-
-    // &&|| hell
-    if (!(passthrough && ((device = AudioPassthroughDevice)
-		|| (device = getenv("OSS_PASSTHROUGHDEV"))))
-	&& !(device = AudioPCMDevice) && !(device = getenv("OSS_AUDIODEV"))) {
-	device = "/dev/dsp";
-    }
-    if (!AudioDoingInit) {
-	Info("audio/oss: using %sdevice '%s'", passthrough ? "pass-through " : "", device);
-    }
-
-    if ((fildes = open(device, O_WRONLY)) < 0) {
-	Error("audio/oss: can't open dsp device '%s': %s", device, strerror(errno));
-	return -1;
-    }
-    return fildes;
-}
-
-/**
-**	Initialize OSS pcm device.
-**
-**	@see AudioPCMDevice
-*/
-static void OssInitPCM(void)
-{
-    int fildes;
-
-    fildes = OssOpenPCM(0);
-
-    OssPcmFildes = fildes;
-}
-
-//----------------------------------------------------------------------------
-//  OSS Mixer
-//----------------------------------------------------------------------------
-
-/**
-**	Set OSS mixer volume (0-1000)
-**
-**	@param volume	volume (0 .. 1000)
-*/
-static void OssSetVolume(int volume)
-{
-    int v;
-
-    if (OssMixerFildes != -1) {
-	v = (volume * 255) / 1000;
-	v &= 0xff;
-	v = (v << 8) | v;
-	if (ioctl(OssMixerFildes, MIXER_WRITE(OssMixerChannel), &v) < 0) {
-	    Error("audio/oss: ioctl(MIXER_WRITE): %s", strerror(errno));
-	}
-    }
-}
-
-/**
-**	Mixer channel name table.
-*/
-static const char *OssMixerChannelNames[SOUND_MIXER_NRDEVICES] = SOUND_DEVICE_NAMES;
-
-/**
-**	Initialize OSS mixer.
-*/
-static void OssInitMixer(void)
-{
-    const char *device;
-    const char *channel;
-    int fildes;
-    int devmask;
-    int i;
-
-    if (!(device = AudioMixerDevice)) {
-	if (!(device = getenv("OSS_MIXERDEV"))) {
-	    device = "/dev/mixer";
-	}
-    }
-    if (!(channel = AudioMixerChannel)) {
-	if (!(channel = getenv("OSS_MIXER_CHANNEL"))) {
-	    channel = "pcm";
-	}
-    }
-    Debug(3, "audio/oss: mixer %s - %s open", device, channel);
-
-    if ((fildes = open(device, O_RDWR)) < 0) {
-	Error("audio/oss: can't open mixer device '%s': %s", device, strerror(errno));
-	return;
-    }
-    // search channel name
-    if (ioctl(fildes, SOUND_MIXER_READ_DEVMASK, &devmask) < 0) {
-	Error("audio/oss: ioctl(SOUND_MIXER_READ_DEVMASK): %s", strerror(errno));
-	close(fildes);
-	return;
-    }
-    for (i = 0; i < SOUND_MIXER_NRDEVICES; ++i) {
-	if (!strcasecmp(OssMixerChannelNames[i], channel)) {
-	    if (devmask & (1 << i)) {
-		OssMixerFildes = fildes;
-		OssMixerChannel = i;
-		return;
-	    }
-	    Error("audio/oss: channel '%s' not supported", channel);
-	    break;
-	}
-    }
-    Error("audio/oss: channel '%s' not found", channel);
-    close(fildes);
-}
-
-//----------------------------------------------------------------------------
-//  OSS API
-//----------------------------------------------------------------------------
-
-/**
-**	Get OSS audio delay in time stamps.
-**
-**	@returns audio delay in time stamps.
-*/
-static int64_t OssGetDelay(void)
-{
-    int delay;
-    int64_t pts;
-
-    // setup failure
-    if (OssPcmFildes == -1 || !AudioRing[AudioRingRead].HwSampleRate) {
-	return 0L;
-    }
-    if (!AudioRunning) {		// audio not running
-	Error("audio/oss: should not happen");
-	return 0L;
-    }
-    // delay in bytes in kernel buffers
-    delay = -1;
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_GETODELAY, &delay) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_GETODELAY): %s", strerror(errno));
-	return 0L;
-    }
-    if (delay < 0) {
-	delay = 0;
-    }
-
-    pts = ((int64_t) delay * 90 * 1000)
-	/ (AudioRing[AudioRingRead].HwSampleRate * AudioRing[AudioRingRead].HwChannels * AudioBytesProSample);
-
-    return pts;
-}
-
-/**
-**	Setup OSS audio for requested format.
-**
-**	@param sample_rate	sample rate/frequency
-**	@param channels		number of channels
-**	@param passthrough	use pass-through (AC-3, ...) device
-**
-**	@retval 0	everything ok
-**	@retval 1	didn't support frequency/channels combination
-**	@retval -1	something gone wrong
-*/
-static int OssSetup(int *sample_rate, int *channels, int passthrough)
-{
-    int fildes;
-    int ret;
-    int tmp;
-    int delay;
-    audio_buf_info bi;
-
-    if (OssPcmFildes == -1) {		// OSS not ready
-	// FIXME: if open fails for fe. pass-through, we never recover
-	return -1;
-    }
-
-    fildes = OssPcmFildes;
-    OssPcmFildes = -1;
-    close(fildes);
-    if (!(fildes = OssOpenPCM(passthrough))) {
-	return -1;
-    }
-    OssPcmFildes = fildes;
-
-    ret = 0;
-
-    tmp = AFMT_S16_NE;			// native 16 bits
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_SETFMT, &tmp) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_SETFMT): %s", strerror(errno));
-	// FIXME: stop player, set setup failed flag
-	return -1;
-    }
-    if (tmp != AFMT_S16_NE) {
-	Error("audio/oss: device doesn't support 16 bit sample format");
-	// FIXME: stop player, set setup failed flag
-	return -1;
-    }
-
-    tmp = *channels;
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_CHANNELS, &tmp) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_CHANNELS): %s", strerror(errno));
-	return -1;
-    }
-    if (tmp != *channels) {
-	Warning("audio/oss: device doesn't support %d channels", *channels);
-	*channels = tmp;
-	ret = 1;
-    }
-
-    tmp = *sample_rate;
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_SPEED, &tmp) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_SPEED): %s", strerror(errno));
-	return -1;
-    }
-    if (tmp != *sample_rate) {
-	Warning("audio/oss: device doesn't support %dHz sample rate", *sample_rate);
-	*sample_rate = tmp;
-	ret = 1;
-    }
-#ifdef SNDCTL_DSP_POLICY
-    tmp = 3;
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_POLICY, &tmp) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_POLICY): %s", strerror(errno));
-    } else {
-	Info("audio/oss: set policy to %d", tmp);
-    }
-#endif
-
-    if (ioctl(OssPcmFildes, SNDCTL_DSP_GETOSPACE, &bi) == -1) {
-	Error("audio/oss: ioctl(SNDCTL_DSP_GETOSPACE): %s", strerror(errno));
-	bi.fragsize = 4096;
-	bi.fragstotal = 16;
-    } else {
-	Debug(3, "audio/oss: %d bytes buffered", bi.bytes);
-    }
-
-    OssFragmentTime = (bi.fragsize * 1000)
-	/ (*sample_rate * *channels * AudioBytesProSample);
-
-    Debug(3, "audio/oss: buffer size %d %dms, fragment size %d %dms", bi.fragsize * bi.fragstotal,
-	(bi.fragsize * bi.fragstotal * 1000)
-	/ (*sample_rate * *channels * AudioBytesProSample), bi.fragsize, OssFragmentTime);
-
-    // start when enough bytes for initial write
-    AudioStartThreshold = (bi.fragsize - 1) * bi.fragstotal;
-
-    // buffer time/delay in ms
-    delay = AudioBufferTime + 300;
-    if (VideoAudioDelay > 0) {
-	delay += VideoAudioDelay / 90;
-    }
-    if (AudioStartThreshold < (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U) {
-	AudioStartThreshold = (*sample_rate * *channels * AudioBytesProSample * delay) / 1000U;
-    }
-    // no bigger, than 1/3 the buffer
-    if (AudioStartThreshold > AudioRingBufferSize / 3) {
-	AudioStartThreshold = AudioRingBufferSize / 3;
-    }
-
-    if (!AudioDoingInit) {
-	Info("audio/oss: delay %ums", (AudioStartThreshold * 1000)
-	    / (*sample_rate * *channels * AudioBytesProSample));
-    }
-
-    return ret;
-}
-
-/**
-**	Play audio.
-*/
-static void OssPlay(void)
-{
-}
-
-/**
-**	Pause audio.
-*/
-void OssPause(void)
-{
-}
-
-/**
-**	Initialize OSS audio output module.
-*/
-static void OssInit(void)
-{
-    OssInitPCM();
-    OssInitMixer();
-}
-
-/**
-**	Cleanup OSS audio output module.
-*/
-static void OssExit(void)
-{
-    if (OssPcmFildes != -1) {
-	close(OssPcmFildes);
-	OssPcmFildes = -1;
-    }
-    if (OssMixerFildes != -1) {
-	close(OssMixerFildes);
-	OssMixerFildes = -1;
-    }
-}
-
-/**
-**	OSS module.
-*/
-static const AudioModule OssModule = {
-    .Name = "oss",
-    .Thread = OssThread,
-    .FlushBuffers = OssFlushBuffers,
-    .GetDelay = OssGetDelay,
-    .SetVolume = OssSetVolume,
-    .Setup = OssSetup,
-    .Play = OssPlay,
-    .Pause = OssPause,
-    .Init = OssInit,
-    .Exit = OssExit,
-};
-
-#endif // USE_OSS
-
 //============================================================================
 //  Noop
 //============================================================================
@@ -2057,9 +1555,6 @@ static const AudioModule *AudioModules[] = {
 #ifdef USE_ALSA
     &AlsaModule,
 #endif
-#ifdef USE_OSS
-    &OssModule,
-#endif
     &NoopModule,
 };
 
@@ -2073,17 +1568,6 @@ void AudioEnqueue(const void *samples, int count)
 {
     size_t n;
     int16_t *buffer;
-
-#ifdef noDEBUG
-    static uint32_t last_tick;
-    uint32_t tick;
-
-    tick = GetMsTicks();
-    if (tick - last_tick > 101) {
-	Debug(3, "audio: enqueue %4d %dms", count, tick - last_tick);
-    }
-    last_tick = tick;
-#endif
 
     if (!AudioRing[AudioRingWrite].HwSampleRate) {
 	Debug(3, "audio: enqueue not ready");
@@ -2540,16 +2024,14 @@ void AudioSetStereoDescent(int delta)
 **
 **	@param device	name of pcm device (fe. "hw:0,9" or "/dev/dsp")
 **
-**	@note this is currently used to select alsa/OSS output module.
+**	@note this is currently used to select alsa output module.
 */
 void AudioSetDevice(const char *device)
 {
     if (!AudioModuleName) {
-	AudioModuleName = "alsa";	// detect alsa/OSS
+	AudioModuleName = "alsa";	// detect alsa
 	if (!device[0]) {
 	    AudioModuleName = "noop";
-	} else if (device[0] == '/') {
-	    AudioModuleName = "oss";
 	}
     }
     AudioPCMDevice = device;
@@ -2565,11 +2047,9 @@ void AudioSetDevice(const char *device)
 void AudioSetPassthroughDevice(const char *device)
 {
     if (!AudioModuleName) {
-	AudioModuleName = "alsa";	// detect alsa/OSS
+	AudioModuleName = "alsa";	// detect alsa
 	if (!device[0]) {
 	    AudioModuleName = "noop";
-	} else if (device[0] == '/') {
-	    AudioModuleName = "oss";
 	}
     }
     AudioPassthroughDevice = device;
@@ -2580,7 +2060,7 @@ void AudioSetPassthroughDevice(const char *device)
 **
 **	@param channel	name of the mixer channel (fe. PCM or Master)
 **
-**	@note this is currently used to select alsa/OSS output module.
+**	@note this is currently used to select alsa output module.
 */
 void AudioSetChannel(const char *channel)
 {

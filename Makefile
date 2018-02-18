@@ -12,8 +12,6 @@ PLUGIN = vaapidevice
 
     # support alsa audio output module
 ALSA ?= $(shell pkg-config --exists alsa && echo 1)
-    # support OSS audio output module
-OSS ?= 1
     # support VA-API video output module
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
@@ -76,9 +74,6 @@ ifeq ($(ALSA),1)
 CONFIG += -DUSE_ALSA
 _CFLAGS += $(shell pkg-config --cflags alsa)
 LIBS += $(shell pkg-config --libs alsa)
-endif
-ifeq ($(OSS),1)
-CONFIG += -DUSE_OSS
 endif
 ifeq ($(VAAPI),1)
 _CFLAGS += $(shell pkg-config --cflags libva-x11 libva)
