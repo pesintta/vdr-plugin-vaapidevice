@@ -2074,17 +2074,6 @@ void AudioEnqueue(const void *samples, int count)
     size_t n;
     int16_t *buffer;
 
-#ifdef noDEBUG
-    static uint32_t last_tick;
-    uint32_t tick;
-
-    tick = GetMsTicks();
-    if (tick - last_tick > 101) {
-	Debug(3, "audio: enqueue %4d %dms", count, tick - last_tick);
-    }
-    last_tick = tick;
-#endif
-
     if (!AudioRing[AudioRingWrite].HwSampleRate) {
 	Debug(3, "audio: enqueue not ready");
 	return;				// no setup yet
