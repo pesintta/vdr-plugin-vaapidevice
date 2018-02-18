@@ -3616,6 +3616,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	    case AV_PIX_FMT_VAAPI_MOCO:
 	    case AV_PIX_FMT_VAAPI_IDCT:
 		Debug(3, "codec: this VA-API pixel format is not supported");
+		break
 	    default:
 		continue;
 	}
