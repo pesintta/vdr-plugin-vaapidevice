@@ -899,15 +899,19 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
     AVCodecContext *audio_ctx = audio_decoder->AudioCtx;
 
-    if (audio_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
-	int ret;
-	AVPacket pkt[1];
-	AVFrame *frame = audio_decoder->Frame;
+        int ret;
+        AVFrame *frame = audio_decoder->Frame;
 
-	av_frame_unref(frame);
-	*pkt = *avpkt;			// use copy
-	ret = avcodec_send_packet(audio_ctx, pkt);
-	if (ret < 0) {
+        av_frame_unref(frame);
+        if(avpkt) {
+                ret = avcodec_send_packet(audio_ctx, avpkt);
+                if (ret < 0) {
+                Debug(3, "codec: sending audio packet failed");
+                return;
+                }
+        }
+        ret = avcodec_receive_frame(audio_ctx, frame);
+        if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 	    Debug(3, "codec: sending audio packet failed");
 	    return;
 	}
@@ -950,7 +954,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		return;
 	    }
 	}
-    }
 }
 
 /**
