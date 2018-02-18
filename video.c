@@ -3032,7 +3032,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
     int width;
     int height;
-    VAStatus status;
     VAImageFormat format[1];
 
     // create initial black surface and display
@@ -3065,6 +3064,8 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 
 #ifdef USE_GLX
     if (GlxEnabled) {
+	VAStatus status;
+
 	// FIXME: destroy old context
 	GLXContext prevcontext = glXGetCurrentContext();
 

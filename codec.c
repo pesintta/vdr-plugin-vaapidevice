@@ -761,7 +761,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     int64_t tim_diff;
     int64_t pts_diff;
     int drift;
-    int corr;
+    int corr = 0;
     static int c;
 
     AudioSetClock(pts);
@@ -802,9 +802,6 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	// drift too big, pts changed?
 	Debug(3, "codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
-#ifdef DEBUG
-	corr = 0;			// keep gcc happy
-#endif
     } else {
 
 	drift += audio_decoder->Drift;
