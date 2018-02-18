@@ -3616,6 +3616,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	    case AV_PIX_FMT_VAAPI_MOCO:
 	    case AV_PIX_FMT_VAAPI_IDCT:
 		Debug(3, "codec: this VA-API pixel format is not supported");
+		break
 	    default:
 		continue;
 	}
@@ -5693,7 +5694,7 @@ static void VideoEvent(void)
 
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify");
-	    // µwm workaround
+	    // Âµwm workaround
 	    VideoThreadLock();
 	    xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR, &VideoBlankCursor);
 	    VideoThreadUnlock();
