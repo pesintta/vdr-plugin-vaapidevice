@@ -293,28 +293,25 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 {
     AVCodecContext *video_ctx = decoder->VideoCtx;
+    AVFrame *frame = decoder->Frame;
+    int ret;
 
-    if (video_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
-	int ret;
-	AVPacket pkt[1];
-	AVFrame *frame = decoder->Frame;
-
-	*pkt = *avpkt;			// use copy
-	ret = avcodec_send_packet(video_ctx, pkt);
-	if (ret < 0) {
-	    Debug(3, "codec: sending video packet failed");
-	    return;
-	}
-	ret = avcodec_receive_frame(video_ctx, frame);
-	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-	    Debug(3, "codec: receiving video frame failed");
-	    return;
-	}
-	if (ret >= 0) {
-	    VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
-	}
-	av_frame_unref(frame);
+    if (avpkt) {
+        ret = avcodec_send_packet(video_ctx, avpkt);
+        if (ret < 0) {
+            Debug(3, "codec: sending video packet failed");
+            return;
+        }
     }
+    ret = avcodec_receive_frame(video_ctx, frame);
+    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+        Debug(3, "codec: receiving video frame failed");
+        return;
+    }
+    if (ret >= 0) {
+        VideoRenderFrame(decoder->HwDecoder, video_ctx, frame);
+    }
+    av_frame_unref(frame);
 }
 
 /**
