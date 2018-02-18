@@ -3233,7 +3233,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    &deinterlacing_cap_n);
 
 		memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
-		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;  // always enable none
+		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;	// always enable none
 
 		for (v = 0; v < deinterlacing_cap_n; ++v) {
 
@@ -3752,7 +3752,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     uint32_t e;
 
     // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone ) {
+    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone) {
 	if (top_field_first) {
 	    if (field) {
 		type = VA_BOTTOM_FIELD;
