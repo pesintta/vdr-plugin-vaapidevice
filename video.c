@@ -1725,7 +1725,7 @@ static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 
     if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width, height, decoder->PostProcSurfacesRb,
 	    POSTPROC_SURFACES_MAX, NULL, 0) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't create %d postproc surfaces", VIDEO_SURFACES_MAX);
+	Fatal("video/vaapi: can't create %d postproc surfaces", POSTPROC_SURFACES_MAX);
     }
 
 }
@@ -5693,7 +5693,7 @@ static void VideoEvent(void)
 
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify");
-	    // µwm workaround
+	    // Âµwm workaround
 	    VideoThreadLock();
 	    xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR, &VideoBlankCursor);
 	    VideoThreadUnlock();
