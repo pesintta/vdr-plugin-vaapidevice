@@ -3,18 +3,6 @@
 ///
 /// SPDX-License-Identifier: AGPL-3.0-only
 
-#define GCC_VERSION (__GNUC__ * 10000 \
-	+ __GNUC_MINOR__ * 100 \
-	+ __GNUC_PATCHLEVEL__)
-
-//  gcc before 4.7 didn't support atomic builtins,
-//  use alsa atomic functions.
-#if GCC_VERSION < 40700
-
-#include <alsa/iatomic.h>
-
-#else
-
 //////////////////////////////////////////////////////////////////////////////
 //  Defines
 //////////////////////////////////////////////////////////////////////////////
@@ -71,5 +59,3 @@ typedef volatile int atomic_t;
 ///
 #define atomic_sub(val, ptr) \
     __atomic_sub_fetch(ptr, val, __ATOMIC_SEQ_CST)
-
-#endif
