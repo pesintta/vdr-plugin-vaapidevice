@@ -71,7 +71,6 @@ SOFILE = libvdr-$(PLUGIN).so
 ### Parse vaapidevice config
 
 ifeq ($(ALSA),1)
-CONFIG += -DUSE_ALSA
 _CFLAGS += $(shell pkg-config --cflags alsa)
 LIBS += $(shell pkg-config --libs alsa)
 endif
