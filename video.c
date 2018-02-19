@@ -98,9 +98,6 @@ typedef enum
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
-#ifdef USE_SWSCALE
-#include <libswscale/swscale.h>
-#endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
@@ -231,6 +228,7 @@ typedef struct _video_config_values_
 #define CODEC_SURFACES_MPEG2	3	///< 1 decode, up to  2 references
 #define CODEC_SURFACES_MPEG4	3	///< 1 decode, up to  2 references
 #define CODEC_SURFACES_H264	21	    ///< 1 decode, up to 20 references
+#define CODEC_SURFACES_HEVC	21	    ///< 1 decode, up to 20 references
 #define CODEC_SURFACES_VC1	3	    ///< 1 decode, up to  2 references
 
 #define VIDEO_SURFACES_MAX	4	    ///< video output surfaces for queue
@@ -1420,12 +1418,6 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 }
 
 //----------------------------------------------------------------------------
-//  software - deinterlace
-//----------------------------------------------------------------------------
-
-// FIXME: move general software deinterlace functions to here.
-
-//----------------------------------------------------------------------------
 //  VA-API
 //----------------------------------------------------------------------------
 
@@ -2434,8 +2426,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 	    // intel: NV12 is native format for H.264 decoded surfaces
 	case AV_PIX_FMT_YUV420P:
 	case AV_PIX_FMT_YUVJ420P:
-	    // fourcc = VA_FOURCC_YV12; // YVU
-	    fourcc = VA_FOURCC('I', '4', '2', '0'); // YUV
+	    fourcc = VA_FOURCC_I420;	// aka. VA_FOURCC_IYUV
 	    break;
 	case AV_PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
@@ -3563,7 +3554,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	    }
 	    break;
 	case AV_CODEC_ID_HEVC:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
+	    decoder->SurfacesNeeded = CODEC_SURFACES_HEVC + VIDEO_SURFACES_MAX + 2;
 	    // try more simple formats, fallback to better
 	    if (video_ctx->profile == FF_PROFILE_HEVC_MAIN_10) {
 		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
@@ -3706,7 +3697,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	VaapiSetupVideoProcessing(decoder);
     }
 
-    Debug(3, "\t%#010x %s", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
+    Debug(3, "video/vaapi: %#010x %s", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
     return *fmt_idx;
 
   slow_path:
@@ -4408,8 +4399,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	}
 	// crazy: intel mixes YV12 and NV12 with mpeg
 	if (decoder->Image->format.fourcc == VA_FOURCC_NV12) {
-	    int x;
-
 	    // intel NV12 convert YV12 to NV12
 
 	    // copy Y
@@ -4419,7 +4408,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    }
 	    // copy UV
 	    for (i = 0; i < height / 2; ++i) {
-		for (x = 0; x < width / 2; ++x) {
+		for (int x = 0; x < width / 2; ++x) {
 		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
 			+ decoder->Image->pitches[1] * i + x * 2 + 0]
 			= frame->data[1][i * frame->linesize[1] + x];
@@ -4428,7 +4417,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 			= frame->data[2][i * frame->linesize[2] + x];
 		}
 	    }
-	} else if (decoder->Image->format.fourcc == VA_FOURCC('I', '4', '2', '0')) {
+	} else if (decoder->Image->format.fourcc == VA_FOURCC_I420) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
 	    picture->linesize[0] = decoder->Image->pitches[0];
 	    picture->data[1] = va_image_data + decoder->Image->offsets[1];

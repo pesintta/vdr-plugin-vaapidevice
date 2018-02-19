@@ -16,8 +16,6 @@ ALSA ?= $(shell pkg-config --exists alsa && echo 1)
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
     # support glx output
 OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
-    # use ffmpeg libswscale
-SWSCALE ?= $(shell pkg-config --exists libswscale && echo 1)
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
 
@@ -71,7 +69,6 @@ SOFILE = libvdr-$(PLUGIN).so
 ### Parse vaapidevice config
 
 ifeq ($(ALSA),1)
-CONFIG += -DUSE_ALSA
 _CFLAGS += $(shell pkg-config --cflags alsa)
 LIBS += $(shell pkg-config --libs alsa)
 endif
@@ -87,11 +84,6 @@ ifeq ($(OPENGL),1)
 CONFIG += -DUSE_GLX
 _CFLAGS += $(shell pkg-config --cflags gl glu)
 LIBS += $(shell pkg-config --libs gl glu)
-endif
-ifeq ($(SWSCALE),1)
-CONFIG += -DUSE_SWSCALE
-_CFLAGS += $(shell pkg-config --cflags libswscale)
-LIBS += $(shell pkg-config --libs libswscale)
 endif
 ifeq ($(SWRESAMPLE),1)
 _CFLAGS += $(shell pkg-config --cflags libswresample)

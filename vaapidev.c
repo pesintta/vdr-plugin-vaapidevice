@@ -2971,9 +2971,6 @@ void MainThreadHook(void)
 //  Suspend/Resume
 //////////////////////////////////////////////////////////////////////////////
 
-    /// call VDR support function
-extern void DelPip(void);
-
 /**
 **	Suspend plugin.
 **

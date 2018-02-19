@@ -21,9 +21,7 @@
 #include <math.h>
 #include <sched.h>
 
-#ifdef USE_ALSA
 #include <alsa/asoundlib.h>
-#endif
 
 #ifndef __USE_GNU
 #define __USE_GNU
@@ -666,8 +664,6 @@ static void AudioRingExit(void)
     AudioRingWrite = 0;
 }
 
-#ifdef USE_ALSA
-
 //============================================================================
 //  A L S A
 //============================================================================
@@ -1278,8 +1274,6 @@ static const AudioModule AlsaModule = {
     .Exit = AlsaExit,
 };
 
-#endif // USE_ALSA
-
 //============================================================================
 //  Noop
 //============================================================================
@@ -1552,9 +1546,7 @@ static void AudioExitThread(void)
     **	Table of all audio modules.
     */
 static const AudioModule *AudioModules[] = {
-#ifdef USE_ALSA
     &AlsaModule,
-#endif
     &NoopModule,
 };
 
