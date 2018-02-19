@@ -80,6 +80,7 @@ typedef enum
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
+#include <libswscale/swscale.h>
 #include <libavcodec/vaapi.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
@@ -2644,7 +2645,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	}
     }
 
-    return  avcodec_default_get_format(video_ctx, fmt);
+    return avcodec_default_get_format(video_ctx, fmt);
 }
 
 ///
@@ -3267,22 +3268,22 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	// crazy: intel mixes YV12 and NV12 with mpeg
 	if (decoder->Image->format.fourcc == VA_FOURCC_NV12) {
 	    // intel NV12 convert YV12 to NV12
+	    struct SwsContext *img_convert_ctx =
+		sws_getContext(video_ctx->width, video_ctx->height, frame->format, video_ctx->width, video_ctx->height,
+		AV_PIX_FMT_NV12, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
-	    // copy Y
-	    for (i = 0; i < height; ++i) {
-		memcpy(va_image_data + decoder->Image->offsets[0] + decoder->Image->pitches[0] * i,
-		    frame->data[0] + frame->linesize[0] * i, frame->linesize[0]);
-	    }
-	    // copy UV
-	    for (i = 0; i < height / 2; ++i) {
-		for (int x = 0; x < width / 2; ++x) {
-		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
-			+ decoder->Image->pitches[1] * i + x * 2 + 0]
-			= frame->data[1][i * frame->linesize[1] + x];
-		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
-			+ decoder->Image->pitches[1] * i + x * 2 + 1]
-			= frame->data[2][i * frame->linesize[2] + x];
-		}
+	    if (img_convert_ctx) {
+		picture->data[0] = va_image_data + decoder->Image->offsets[0];
+		picture->linesize[0] = decoder->Image->pitches[0];
+		picture->data[1] = va_image_data + decoder->Image->offsets[1];
+		picture->linesize[1] = decoder->Image->pitches[1];
+		picture->data[2] = va_image_data + decoder->Image->offsets[2];
+		picture->linesize[2] = decoder->Image->pitches[2];
+		sws_scale(img_convert_ctx, (const uint8_t * const *)frame->data, frame->linesize, 0, video_ctx->height,
+		    picture->data, picture->linesize);
+		sws_freeContext(img_convert_ctx);
+	    } else {
+		Error("video/vaapi: can't create context for image conversion!");
 	    }
 	} else if (decoder->Image->format.fourcc == VA_FOURCC_I420) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
