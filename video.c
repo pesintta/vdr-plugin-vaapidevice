@@ -98,9 +98,6 @@ typedef enum
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
-#ifdef USE_SWSCALE
-#include <libswscale/swscale.h>
-#endif
 #include <libavcodec/vaapi.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
