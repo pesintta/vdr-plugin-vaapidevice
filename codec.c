@@ -31,6 +31,8 @@
 #endif
 #include <libavutil/mem.h>
 #include <libavcodec/vaapi.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
 #include <libswresample/swresample.h>
 #if LIBSWRESAMPLE_VERSION_INT < AV_VERSION_INT(0,15,100)
 #error "libswresample is too old - please, upgrade!"
@@ -119,7 +121,7 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 	Codec_get_format(video_ctx, fmts);
     }
     // VA-API:
-    if (video_ctx->hwaccel_context) {
+    if (frame->format == AV_PIX_FMT_VAAPI) {
 	unsigned surface;
 
 	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
@@ -147,7 +149,7 @@ static void Codec_free_buffer(void *opaque, uint8_t * data)
     AVCodecContext *video_ctx = (AVCodecContext *) opaque;
 
     // VA-API
-    if (video_ctx->hwaccel_context) {
+    if (video_ctx->hw_frames_ctx) {
 	VideoDecoder *decoder;
 	unsigned surface;
 
@@ -199,6 +201,9 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
+    AVBufferRef *hw_device_ctx;
+    AVBufferRef *hw_frames_ctx;
+
 
     Debug(3, "codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
@@ -215,6 +220,26 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
 	Fatal("codec: can't allocate video codec context");
     }
+
+    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, NULL, NULL, 0)) {
+	Fatal("codec: can't allocate HW video codec context");
+    }
+    decoder->VideoCtx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+
+    decoder->HwDeviceConfig = av_hwdevice_hwconfig_alloc(decoder->VideoCtx->hw_device_ctx);
+    if (!decoder->HwDeviceConfig) {
+	Fatal("codec: can't allocate video HW configuration");
+    }
+
+    if (!(hw_frames_ctx = av_hwframe_ctx_alloc(hw_device_ctx))) {
+	Fatal("codec: can't allocate video HW frames");
+    }
+    decoder->VideoCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
+    TO_AVHW_FRAMES_CTX(decoder->VideoCtx->hw_frames_ctx)->sw_format =
+	(decoder->VideoCtx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12);
+
+    av_hwframe_ctx_init(decoder->VideoCtx->hw_frames_ctx);
+
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
     pthread_mutex_lock(&CodecLockMutex);
@@ -252,7 +277,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->thread_count = 1;
     decoder->VideoCtx->active_thread_type = 0;
     decoder->VideoCtx->draw_horiz_band = NULL;
-    decoder->VideoCtx->hwaccel_context = VideoGetHwAccelContext(decoder->HwDecoder);
 
     //
     //	Prepare frame buffer for decoder
@@ -280,6 +304,9 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 	av_freep(&video_decoder->VideoCtx);
 	pthread_mutex_unlock(&CodecLockMutex);
     }
+
+    av_buffer_unref(&video_decoder->HwDeviceContext);
+    av_freep(&video_decoder->HwDeviceConfig);
 }
 
 /**

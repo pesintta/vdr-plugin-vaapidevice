@@ -102,6 +102,7 @@ typedef enum
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
 
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
@@ -178,7 +179,6 @@ typedef struct _video_module_
     void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
     enum AVPixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *, const enum AVPixelFormat *);
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *, const AVFrame *);
-    void *(*const GetHwAccelContext)(VideoHwDecoder *);
     void (*const SetClock) (VideoHwDecoder *, int64_t);
      int64_t(*const GetClock) (const VideoHwDecoder *);
     void (*const SetClosing) (const VideoHwDecoder *);
@@ -1470,7 +1470,6 @@ struct _vaapi_decoder_
     VAProfile Profile;			///< VA-API profile
     VAEntrypoint Entrypoint;		///< VA-API entrypoint
     VAEntrypoint VppEntrypoint;		///< VA-API postprocessing entrypoint
-    struct vaapi_context VaapiContext[1];   ///< ffmpeg VA-API context
 
     VAConfigID VppConfig;		///< VPP Config
     VAContextID vpp_ctx;		///< VPP Context
@@ -2034,9 +2033,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->VppEntrypoint = VA_INVALID_ID;
     decoder->VppConfig = VA_INVALID_ID;
     decoder->vpp_ctx = VA_INVALID_ID;
-    decoder->VaapiContext->display = VaDisplay;
-    decoder->VaapiContext->config_id = VA_INVALID_ID;
-    decoder->VaapiContext->context_id = VA_INVALID_ID;
 
 #ifdef USE_GLX
     decoder->GlxSurfaces[0] = NULL;
@@ -2142,23 +2138,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	    Error("video/vaapi: can't destroy image!");
 	}
 	decoder->Image->image_id = VA_INVALID_ID;
-    }
-    //	cleanup context and config
-    if (decoder->VaapiContext) {
-
-	if (decoder->VaapiContext->context_id != VA_INVALID_ID) {
-	    if (vaDestroyContext(VaDisplay, decoder->VaapiContext->context_id) != VA_STATUS_SUCCESS) {
-		Error("video/vaapi: can't destroy context!");
-	    }
-	    decoder->VaapiContext->context_id = VA_INVALID_ID;
-	}
-
-	if (decoder->VaapiContext->config_id != VA_INVALID_ID) {
-	    if (vaDestroyConfig(VaDisplay, decoder->VaapiContext->config_id) != VA_STATUS_SUCCESS) {
-		Error("video/vaapi: can't destroy config!");
-	    }
-	    decoder->VaapiContext->config_id = VA_INVALID_ID;
-	}
     }
 
     if (vaDestroyContext(VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
@@ -3668,20 +3647,6 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	VaapiSetup(decoder, video_ctx);
 
 	// FIXME: move the following into VaapiSetup
-	// create a configuration for the decode pipeline
-	if ((status = vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1, &decoder->VaapiContext->config_id))) {
-	    Error("codec: can't create config '%s'", vaErrorStr(status));
-	    goto slow_path;
-	}
-	// bind surfaces to context
-	if ((status =
-		vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id, video_ctx->width,
-		    video_ctx->height, VA_PROGRESSIVE, decoder->SurfacesFree, decoder->SurfaceFreeN,
-		    &decoder->VaapiContext->context_id))) {
-	    Error("codec: can't create context '%s'", vaErrorStr(status));
-	    goto slow_path;
-	}
-
 	status =
 	    vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
 	if (status != VA_STATUS_SUCCESS) {
@@ -3706,13 +3671,11 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
     decoder->Entrypoint = VA_INVALID_ID;
     decoder->VppEntrypoint = VA_INVALID_ID;
     decoder->VppConfig = VA_INVALID_ID;
-    decoder->VaapiContext->config_id = VA_INVALID_ID;
     decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
     decoder->PixFmt = AV_PIX_FMT_NONE;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
-    video_ctx->hwaccel_context = NULL;
 
     return avcodec_default_get_format(video_ctx, fmt);
 }
@@ -4332,7 +4295,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     //
     // Hardware render
     //
-    if (video_ctx->hwaccel_context) {
+    if (video_ctx->hw_frames_ctx) {
 
 	if (video_ctx->height != decoder->InputHeight || video_ctx->width != decoder->InputWidth) {
 	    Error("video/vaapi: stream <-> surface size mismatch");
@@ -4465,16 +4428,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     if (decoder->Interlaced) {
 	++decoder->FrameCounter;
     }
-}
-
-///
-/// Get hwaccel context for ffmpeg.
-///
-/// @param decoder  VA-API hw decoder
-///
-static void *VaapiGetHwAccelContext(VaapiDecoder * decoder)
-{
-    return decoder->VaapiContext;
 }
 
 ///
@@ -5276,8 +5229,6 @@ static const VideoModule VaapiModule = {
 	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
-    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
-	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
@@ -5315,8 +5266,6 @@ static const VideoModule VaapiGlxModule = {
 	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
-    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
-	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
@@ -6000,18 +5949,6 @@ void VideoRenderFrame(VideoHwDecoder * hw_decoder, const AVCodecContext * video_
 	Warning("video: repeated pict %d found, but not handled", frame->repeat_pict);
     }
     VideoUsedModule->RenderFrame(hw_decoder, video_ctx, frame);
-}
-
-///
-/// Get hwaccel context for ffmpeg.
-///
-/// FIXME: new ffmpeg supports hw context
-///
-/// @param hw_decoder	video hardware decoder (must be VA-API)
-///
-void *VideoGetHwAccelContext(VideoHwDecoder * hw_decoder)
-{
-    return VideoUsedModule->GetHwAccelContext(hw_decoder);
 }
 
 ///
@@ -7228,3 +7165,4 @@ void VideoExit(void)
 }
 
 #endif
+

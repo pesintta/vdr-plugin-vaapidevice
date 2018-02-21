@@ -7,6 +7,9 @@
 //  Defines
 //----------------------------------------------------------------------------
 
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
+
 #define CodecPCM 0x01			///< PCM bit mask
 #define CodecMPA 0x02			///< MPA bit mask (planned)
 #define CodecAC3 0x04			///< AC-3 bit mask
@@ -14,6 +17,12 @@
 #define CodecDTS 0x10			///< DTS bit mask (planned)
 
 #define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
+
+#define TO_AVHW_DEVICE_CTX(x) ((AVHWDeviceContext*)x->data)
+#define TO_AVHW_FRAMES_CTX(x) ((AVHWFramesContext*)x->data)
+
+#define TO_VAAPI_DEVICE_CTX(x) ((AVVAAPIDeviceContext*)TO_AVHW_DEVICE_CTX(x)->hwctx)
+#define TO_VAAPI_FRAMES_CTX(x) ((AVVAAPIFramesContext*)TO_AVHW_FRAMES_CTX(x)->hwctx)
 
 enum HWAccelID
 {
@@ -49,6 +58,9 @@ struct _video_decoder_
     enum AVPixelFormat hwaccel_output_format;
 
     /* hwaccel context */
+    AVBufferRef *HwDeviceContext;	///< ffmpeg HW-Accelerated (VA-API) context
+    AVVAAPIHWConfig *HwDeviceConfig;	///< ffmpeg HW-Accelerated (VA-API) config
+
     enum HWAccelID active_hwaccel_id;
     void *hwaccel_ctx;
     void (*hwaccel_uninit) (AVCodecContext * s);
