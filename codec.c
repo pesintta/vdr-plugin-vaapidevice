@@ -235,6 +235,8 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
     decoder->VideoCtx->draw_horiz_band = NULL;
 
+    av_opt_set_int(decoder->VideoCtx, "refcounted_frames", 1, 0);
+
     //
     //	Prepare frame buffer for decoder
     //
