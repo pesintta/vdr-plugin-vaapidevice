@@ -112,6 +112,12 @@ typedef enum
 
 #define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
+#define TO_AVHW_DEVICE_CTX(x) ((AVHWDeviceContext*)x->data)
+#define TO_AVHW_FRAMES_CTX(x) ((AVHWFramesContext*)x->data)
+
+#define TO_VAAPI_DEVICE_CTX(x) ((AVVAAPIDeviceContext*)TO_AVHW_DEVICE_CTX(x)->hwctx)
+#define TO_VAAPI_FRAMES_CTX(x) ((AVVAAPIFramesContext*)TO_AVHW_FRAMES_CTX(x)->hwctx)
+
 #ifdef USE_XLIB_XCB
 
 //----------------------------------------------------------------------------
