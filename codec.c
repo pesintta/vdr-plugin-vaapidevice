@@ -92,7 +92,6 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enu
 	Error("codec/video: ffmpeg/libav buggy: width or height zero");
     }
 
-    decoder->GetFormatDone = 1;
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
 
@@ -112,28 +111,8 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 
     decoder = video_ctx->opaque;
 
-    if (!decoder->GetFormatDone) {	// get_format missing
-	enum AVPixelFormat fmts[2];
+    VideoGetSurface(decoder->HwDecoder, video_ctx);
 
-	Warning("codec: buggy libav, use ffmpeg");
-	fmts[0] = video_ctx->pix_fmt;
-	fmts[1] = AV_PIX_FMT_NONE;
-	Codec_get_format(video_ctx, fmts);
-    }
-    // VA-API:
-    if (frame->format == AV_PIX_FMT_VAAPI) {
-	unsigned surface;
-
-	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
-
-	// vaapi needs both fields set
-	frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
-	frame->data[0] = frame->buf[0]->data;
-	frame->data[3] = frame->data[0];
-
-	return 0;
-    }
-    //Debug(3, "codec: fallback to default get_buffer");
     return avcodec_default_get_buffer2(video_ctx, frame, flags);
 }
 
@@ -202,8 +181,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
     AVBufferRef *hw_device_ctx;
-    AVBufferRef *hw_frames_ctx;
-
 
     Debug(3, "codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
@@ -226,31 +203,13 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     }
     decoder->VideoCtx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
 
-    decoder->HwDeviceConfig = av_hwdevice_hwconfig_alloc(decoder->VideoCtx->hw_device_ctx);
-    if (!decoder->HwDeviceConfig) {
-	Fatal("codec: can't allocate video HW configuration");
-    }
-
-    if (!(hw_frames_ctx = av_hwframe_ctx_alloc(hw_device_ctx))) {
-	Fatal("codec: can't allocate video HW frames");
-    }
-    decoder->VideoCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
-    TO_AVHW_FRAMES_CTX(decoder->VideoCtx->hw_frames_ctx)->sw_format =
-	(decoder->VideoCtx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12);
-
-    av_hwframe_ctx_init(decoder->VideoCtx->hw_frames_ctx);
-
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
-    if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
-	Debug(3, "codec: video mpeg hack active");
-	// HACK around badly placed checks in mpeg_mc_decode_init
-	// taken from mplayer vd_ffmpeg.c
-	decoder->VideoCtx->slice_flags = SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->active_thread_type = 0;
+    if (video_codec->capabilities & (CODEC_CAP_AUTO_THREADS)) {
+	printf("Auto threads!\n");
+	decoder->VideoCtx->thread_count = 0;
     }
 
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
@@ -274,8 +233,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     }
     decoder->VideoCtx->get_format = Codec_get_format;
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
-    decoder->VideoCtx->thread_count = 1;
-    decoder->VideoCtx->active_thread_type = 0;
     decoder->VideoCtx->draw_horiz_band = NULL;
 
     //
@@ -284,8 +241,6 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     if (!(decoder->Frame = av_frame_alloc())) {
 	Fatal("codec: can't allocate video decoder frame buffer");
     }
-    // reset buggy ffmpeg/libav flag
-    decoder->GetFormatDone = 0;
 }
 
 /**
@@ -306,7 +261,6 @@ void CodecVideoClose(VideoDecoder * video_decoder)
     }
 
     av_buffer_unref(&video_decoder->HwDeviceContext);
-    av_freep(&video_decoder->HwDeviceConfig);
 }
 
 /**

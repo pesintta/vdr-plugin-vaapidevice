@@ -46,7 +46,6 @@ struct _video_decoder_
 {
     VideoHwDecoder *HwDecoder;		///< video hardware decoder
 
-    int GetFormatDone;			///< flag get format called!
     AVCodec *VideoCodec;		///< video codec
     AVCodecContext *VideoCtx;		///< video codec context
     int FirstKeyFrame;			///< flag first frame
@@ -59,7 +58,6 @@ struct _video_decoder_
 
     /* hwaccel context */
     AVBufferRef *HwDeviceContext;	///< ffmpeg HW-Accelerated (VA-API) context
-    AVVAAPIHWConfig *HwDeviceConfig;	///< ffmpeg HW-Accelerated (VA-API) config
 
     enum HWAccelID active_hwaccel_id;
     void *hwaccel_ctx;

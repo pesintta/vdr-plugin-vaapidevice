@@ -234,7 +234,6 @@ typedef struct _video_config_values_
 #define VIDEO_SURFACES_MAX	4	    ///< video output surfaces for queue
 #define POSTPROC_SURFACES_MAX	8	///< video postprocessing surfaces for queue
 #define FIELD_SURFACES_MAX	POSTPROC_SURFACES_MAX / 2   ///< video postprocessing surfaces for queue
-#define OUTPUT_SURFACES_MAX	4	    ///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
 //  Variables
@@ -1467,8 +1466,6 @@ struct _vaapi_decoder_
     int GetPutImage;			///< flag get/put image can be used
     VAImage Image[1];			///< image buffer to update surface
 
-    VAProfile Profile;			///< VA-API profile
-    VAEntrypoint Entrypoint;		///< VA-API entrypoint
     VAEntrypoint VppEntrypoint;		///< VA-API postprocessing entrypoint
 
     VAConfigID VppConfig;		///< VPP Config
@@ -1613,56 +1610,7 @@ static int VaapiMessage(int level, const char *format, ...)
 ///
 static void VaapiAssociate(VaapiDecoder * decoder)
 {
-    int x;
-    int y;
-    int w;
-    int h;
-    VAStatus va_status;
 
-    if (VaOsdSubpicture == VA_INVALID_ID) {
-	Warning("video/vaapi: no osd subpicture yet");
-	return;
-    }
-
-    x = 0;
-    y = 0;
-    w = VaOsdImage.width;
-    h = VaOsdImage.height;
-
-    // FIXME: associate only if osd is displayed
-    if (VaapiUnscaledOsd) {
-	if (decoder->SurfaceFreeN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w,
-		h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-	if (decoder->SurfaceUsedN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w,
-		h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-    } else {
-	if (decoder->SurfaceFreeN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w,
-		h, decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-	if (decoder->SurfaceUsedN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w,
-		h, decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-    }
-
-    va_status =
-	vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w,
-	h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
-    if (va_status != VA_STATUS_SUCCESS)
-	Error("video/vaapi: can't associate subpicture");
 }
 
 ///
@@ -1698,27 +1646,10 @@ static void VaapiDeassociate(VaapiDecoder * decoder)
 ///
 static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 {
-#ifdef DEBUG
-    if (!decoder->SurfacesNeeded) {
-	Error("video/vaapi: surface needed not set");
-	decoder->SurfacesNeeded = 3 + VIDEO_SURFACES_MAX;
-    }
-#endif
-    Debug(3, "video/vaapi: %s: %dx%d * %d", __FUNCTION__, width, height, decoder->SurfacesNeeded);
-
-    decoder->SurfaceFreeN = decoder->SurfacesNeeded;
-    // VA_RT_FORMAT_YUV420 VA_RT_FORMAT_YUV422 VA_RT_FORMAT_YUV444
-    if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width, height, decoder->SurfacesFree,
-	    decoder->SurfaceFreeN, NULL, 0) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't create %d surfaces", decoder->SurfaceFreeN);
-	// FIXME: write error handler / fallback
-    }
-
     if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width, height, decoder->PostProcSurfacesRb,
 	    POSTPROC_SURFACES_MAX, NULL, 0) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't create %d postproc surfaces", POSTPROC_SURFACES_MAX);
     }
-
 }
 
 ///
@@ -1735,16 +1666,9 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     //
     VaapiDeassociate(decoder);
 
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree, decoder->SurfaceFreeN) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceFreeN);
-    }
-    decoder->SurfaceFreeN = 0;
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesUsed, decoder->SurfaceUsedN) != VA_STATUS_SUCCESS) {
+    if (vaDestroySurfaces(decoder->VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceUsedN);
     }
-    decoder->SurfaceUsedN = 0;
-
-    // FIXME surfaces used for output
 }
 
 ///
@@ -1800,6 +1724,7 @@ static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 {
     int i;
 
+    return;
     for (i = 0; i < decoder->SurfaceUsedN; ++i) {
 	if (decoder->SurfacesUsed[i] == surface) {
 	    // no problem, with last used
@@ -2028,8 +1953,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     //
     //	Setup ffmpeg vaapi context
     //
-    decoder->Profile = VA_INVALID_ID;
-    decoder->Entrypoint = VA_INVALID_ID;
     decoder->VppEntrypoint = VA_INVALID_ID;
     decoder->VppConfig = VA_INVALID_ID;
     decoder->vpp_ctx = VA_INVALID_ID;
@@ -2230,13 +2153,6 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
     free(decoder);
 }
 
-#ifdef DEBUG				// currently unused, keep it for later
-
-static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n, VAProfile profile);
-static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsigned n, VAEntrypoint entrypoint);
-
-#endif
-
 ///
 /// VA-API setup.
 ///
@@ -2246,73 +2162,9 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsign
 ///
 static int VaapiInit(const char *display_name)
 {
-    int major;
-    int minor;
-    VADisplayAttribute attr;
-    const char *s;
-
     VaOsdImage.image_id = VA_INVALID_ID;
     VaOsdSubpicture = VA_INVALID_ID;
 
-#ifdef USE_GLX
-    if (GlxEnabled) {			// support glx
-	VaDisplay = vaGetDisplayGLX(XlibDisplay);
-    } else
-#endif
-    {
-	VaDisplay = vaGetDisplay(XlibDisplay);
-    }
-    if (!VaDisplay) {
-	Error("video/vaapi: Can't connect VA-API to X11 server on '%s'", display_name);
-	return 0;
-    }
-    // XvBA needs this:
-    setenv("DISPLAY", display_name, 1);
-
-#ifndef DEBUG
-    vaSetErrorCallback(VaDisplay, NULL, NULL);
-    vaSetInfoCallback(VaDisplay, NULL, NULL);
-#endif
-    if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: Can't inititialize VA-API on '%s'", display_name);
-	vaTerminate(VaDisplay);
-	VaDisplay = NULL;
-	return 0;
-    }
-    s = vaQueryVendorString(VaDisplay);
-    Info("video/vaapi: libva %d.%d (%s) initialized", major, minor, s);
-
-    //
-    //	check which attributes are supported
-    //
-    attr.type = VADisplayAttribBackgroundColor;
-    attr.flags = VA_DISPLAY_ATTRIB_SETTABLE;
-    if (vaGetDisplayAttributes(VaDisplay, &attr, 1) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: Can't get background-color attribute");
-	attr.value = 1;
-    }
-    Info("video/vaapi: background-color is %s", attr.value ? "supported" : "unsupported");
-
-    // FIXME: VaapiSetBackground(VideoBackground);
-
-    //
-    //	check vpp support
-    //
-    {
-	VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
-	int entrypoint_n;
-
-	VaapiVideoProcessing = 0;
-	if (!vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n)) {
-	    for (int i = 0; i < entrypoint_n; i++) {
-		if (entrypoints[i] == VAEntrypointVideoProc) {
-		    Info("video/vaapi: supports video processing");
-		    VaapiVideoProcessing = 1;
-		    break;
-		}
-	    }
-	}
-    }
     return 1;
 }
 
@@ -2987,6 +2839,8 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width, int *ret_h
     return bgra;
 }
 
+static void VaapiSetupVideoProcessing(VaapiDecoder * decoder);
+
 ///
 /// Configure VA-API for new video format.
 ///
@@ -2996,6 +2850,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
     int width;
     int height;
+    VAStatus status;
     VAImageFormat format[1];
 
     // create initial black surface and display
@@ -3024,7 +2879,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 
     // FIXME: interlaced not valid here?
     decoder->Resolution = VideoResolutionGroup(width, height, decoder->Interlaced);
-    VaapiCreateSurfaces(decoder, width, height);
+    VaapiCreateSurfaces(decoder, VideoWindowWidth, VideoWindowHeight);
 
 #ifdef USE_GLX
     if (GlxEnabled) {
@@ -3060,6 +2915,22 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 	    glXMakeCurrent(XlibDisplay, None, NULL);
     }
 #endif
+
+    status = vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
+    if (status != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
+	abort();
+    }
+    status =
+	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth /*video_ctx->width */ ,
+	VideoWindowHeight /*video_ctx->height */ ,
+	VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
+    if (status != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
+    }
+
+    VaapiSetupVideoProcessing(decoder);
+
     VaapiUpdateOutput(decoder);
 
     //
@@ -3409,63 +3280,57 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 }
 
 ///
-/// Get a free surface.	 Called from ffmpeg.
+/// Called from ffmpeg.
 ///
 /// @param decoder  VA-API decoder
 /// @param video_ctx	ffmpeg video codec context
 ///
-/// @returns the oldest free surface
 ///
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
-    (void)video_ctx;
-    return VaapiGetSurface0(decoder);
-}
+    int num_surfaces = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces;
+    int x = 0;
+    int y = 0;
+    int w = video_ctx->width;
+    int h = video_ctx->height;
 
-///
-/// Find VA-API profile.
-///
-/// Check if the requested profile is supported by VA-API.
-///
-/// @param profiles a table of all supported profiles
-/// @param n	number of supported profiles
-/// @param profile  requested profile
-///
-/// @returns the profile if supported, -1 if unsupported.
-///
-static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n, VAProfile profile)
-{
-    unsigned u;
+    if (VaOsdImage.image_id != VA_INVALID_ID)
+	return VA_INVALID_ID;
 
-    for (u = 0; u < n; ++u) {
-	if (profiles[u] == profile) {
-	    return profile;
+    if (!num_surfaces)
+	return VA_INVALID_ID;
+
+    if (OsdConfigWidth && OsdConfigHeight) {
+	OsdWidth = OsdConfigWidth;
+	OsdHeight = OsdConfigHeight;
+    } else {
+	OsdWidth = VideoWindowWidth;
+	OsdHeight = VideoWindowHeight;
+    }
+
+    VideoUsedModule->OsdInit(VideoWindowWidth, VideoWindowHeight);
+
+    // FIXME: associate only if osd is displayed
+    if (VaapiUnscaledOsd) {
+	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, x, y, w, h, 0, 0,
+		VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+	    != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't associate subpicture");
+	}
+    } else {
+	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, video_ctx->width, y, w, h,
+		decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
+	    != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't associate subpicture");
 	}
     }
-    return -1;
-}
 
-///
-/// Find VA-API entry point.
-///
-/// Check if the requested entry point is supported by VA-API.
-///
-/// @param entrypoints	a table of all supported entrypoints
-/// @param n	    number of supported entrypoints
-/// @param entrypoint	requested entrypoint
-///
-/// @returns the entry point if supported, -1 if unsupported.
-///
-static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsigned n, VAEntrypoint entrypoint)
-{
-    unsigned u;
+    vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w, h,
+	0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
 
-    for (u = 0; u < n; ++u) {
-	if (entrypoints[u] == entrypoint) {
-	    return entrypoint;
-	}
-    }
-    return -1;
+    return VA_INVALID_ID;
 }
 
 ///
@@ -3475,209 +3340,50 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsign
 /// it is terminated by -1 as 0 is a valid format, the
 /// formats are ordered by quality.
 ///
-/// @note + 2 surface for software deinterlace
-///
 static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContext * video_ctx,
     const enum AVPixelFormat *fmt)
 {
     const enum AVPixelFormat *fmt_idx;
-    VAProfile profiles[vaMaxNumProfiles(VaDisplay)];
-    int profile_n;
     VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
     int entrypoint_n;
-    int p;
-    int e;
-    int i;
-    VAConfigAttrib attrib;
 
-    if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO && VideoHardwareDecoder == 1)
-	) {				// hardware disabled by config
-	Debug(3, "codec: hardware acceleration disabled");
-	goto slow_path;
-    }
+    for (fmt_idx = fmt; *fmt_idx != -1; fmt_idx++) {
+	if (*fmt_idx == AV_PIX_FMT_VAAPI) {
 
-    p = -1;
-    e = -1;
+	    if (video_ctx->width && video_ctx->height) {
+		decoder->InputWidth = video_ctx->width;
+		decoder->InputHeight = video_ctx->height;
+		decoder->InputAspect = video_ctx->sample_aspect_ratio;
 
-    //	prepare va-api profiles
-    if (vaQueryConfigProfiles(VaDisplay, profiles, &profile_n)) {
-	Error("codec: vaQueryConfigProfiles failed");
-	goto slow_path;
-    }
-    Debug(3, "codec: %d profiles", profile_n);
+		decoder->VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
+		VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
 
-    // check profile
-    switch (video_ctx->codec_id) {
-	case AV_CODEC_ID_MPEG2VIDEO:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG2Main);
-	    break;
-	case AV_CODEC_ID_MPEG4:
-	case AV_CODEC_ID_H263:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG4AdvancedSimple);
-	    break;
-	case AV_CODEC_ID_H264:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
-	    // try more simple formats, fallback to better
-	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264ConstrainedBaseline);
-		if (p == -1) {
-		    p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
+		VaapiVideoProcessing = 0;
+		if (!vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n)) {
+		    for (int i = 0; i < entrypoint_n; i++) {
+			if (entrypoints[i] == VAEntrypointVideoProc) {
+			    Info("video/vaapi: supports video processing");
+			    decoder->VppEntrypoint = entrypoints[i];
+			    VaapiVideoProcessing = 1;
+			    break;
+			}
+		    }
 		}
-	    } else if (video_ctx->profile == FF_PROFILE_H264_MAIN) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
+
+		if (decoder->VppEntrypoint == VA_INVALID_ID)
+		    Error("Could not locate Vpp EntryPoint!!");
+		else
+		    Info("Using entrypoint for vpp: %d", decoder->VppEntrypoint);
+
+		VaapiSetup(decoder, video_ctx);
 	    }
-	    if (p == -1) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
-	    }
-	    break;
-	case AV_CODEC_ID_HEVC:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_HEVC + VIDEO_SURFACES_MAX + 2;
-	    // try more simple formats, fallback to better
-	    if (video_ctx->profile == FF_PROFILE_HEVC_MAIN_10) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
-		if (p == -1) {
-		    p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
-		}
-	    } else if (video_ctx->profile == FF_PROFILE_HEVC_MAIN) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
-	    }
-	    if (p == -1) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
-	    }
-	    break;
-	case AV_CODEC_ID_WMV3:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
-	    break;
-	case AV_CODEC_ID_VC1:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
-	    break;
-	default:
-	    goto slow_path;
-    }
-    if (p == -1) {
-	Debug(3, "codec: no profile found");
-	goto slow_path;
-    }
-    Debug(3, "codec: profile %d", p);
 
-    // prepare va-api entry points
-    if (vaQueryConfigEntrypoints(VaDisplay, p, entrypoints, &entrypoint_n)) {
-	Error("codec: vaQueryConfigEntrypoints failed");
-	goto slow_path;
-    }
-    Debug(3, "codec: %d entrypoints", entrypoint_n);
-    //	look through formats
-    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
-	Debug(3, "codec: %#010x %s", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
-	// check supported pixel format with entry point
-	switch (*fmt_idx) {
-	    case AV_PIX_FMT_VAAPI_VLD:
-		e = VaapiFindEntrypoint(entrypoints, entrypoint_n, VAEntrypointVLD);
-		break;
-	    case AV_PIX_FMT_VAAPI_MOCO:
-	    case AV_PIX_FMT_VAAPI_IDCT:
-		Debug(3, "codec: this VA-API pixel format is not supported");
-	    default:
-		continue;
-	}
-	if (e != -1) {
-	    Debug(3, "codec: entry point %d", e);
-	    break;
-	}
-    }
-    if (e == -1) {
-	Warning("codec: unsupported: slow path");
-	goto slow_path;
-    }
-    //
-    //	prepare decoder config
-    //
-    memset(&attrib, 0, sizeof(attrib));
-    attrib.type = VAConfigAttribRTFormat;
-    if (vaGetConfigAttributes(decoder->VaDisplay, p, e, &attrib, 1)) {
-	Error("codec: can't get attributes");
-	goto slow_path;
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV420) {
-	Info("codec: YUV 420 supported");
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV422) {
-	Info("codec: YUV 422 supported");
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV444) {
-	Info("codec: YUV 444 supported");
-    }
-
-    if (!(attrib.value & VA_RT_FORMAT_YUV420)) {
-	Warning("codec: YUV 420 not supported");
-	goto slow_path;
-    }
-
-    vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n);
-
-    for (i = 0; i < entrypoint_n; i++) {
-	if (entrypoints[i] == VAEntrypointVideoProc) {
-	    decoder->VppEntrypoint = entrypoints[i];
-	    break;
+	    return *fmt_idx;
 	}
     }
 
-    if (decoder->VppEntrypoint == VA_INVALID_ID)
-	Error("Could not locate Vpp EntryPoint!!");
-    else
-	Info("Using entrypoint for vpp: %d", decoder->VppEntrypoint);
-
-    decoder->Profile = p;
-    decoder->Entrypoint = e;
-    decoder->PixFmt = *fmt_idx;
-    decoder->InputWidth = 0;
-    decoder->InputHeight = 0;
-
-    if (video_ctx->width && video_ctx->height) {
-	VAStatus status;
-
-	decoder->InputWidth = video_ctx->width;
-	decoder->InputHeight = video_ctx->height;
-	decoder->InputAspect = video_ctx->sample_aspect_ratio;
-
-	VaapiSetup(decoder, video_ctx);
-
-	// FIXME: move the following into VaapiSetup
-	status =
-	    vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
-	}
-	status =
-	    vaCreateContext(decoder->VaDisplay, decoder->VppConfig, video_ctx->width, video_ctx->height,
-	    VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
-	}
-
-	VaapiSetupVideoProcessing(decoder);
-    }
-
-    Debug(3, "video/vaapi: %#010x %s", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
-    return *fmt_idx;
-
-  slow_path:
-    // no accelerated format found
-    decoder->Profile = VA_INVALID_ID;
-    decoder->Entrypoint = VA_INVALID_ID;
-    decoder->VppEntrypoint = VA_INVALID_ID;
-    decoder->VppConfig = VA_INVALID_ID;
-    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = AV_PIX_FMT_NONE;
-
-    decoder->InputWidth = 0;
-    decoder->InputHeight = 0;
-
-    return avcodec_default_get_format(video_ctx, fmt);
+    Error("Failed to get HW surface format\n");
+    return AV_PIX_FMT_NONE;
 }
 
 ///
@@ -4302,7 +4008,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    return;
 	}
 
-	surface = (unsigned)(size_t) frame->data[3];
+	surface = (VASurfaceID) (uintptr_t) frame->data[3];
 	Debug(4, "video/vaapi: hw render hw surface %#010x", surface);
 
 	VaapiQueueSurface(decoder, surface, 0);
