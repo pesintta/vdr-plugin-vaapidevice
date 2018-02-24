@@ -1986,6 +1986,8 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     return decoder;
 }
 
+static void VaapiOsdExit();
+
 ///
 /// Cleanup VA-API.
 ///
@@ -2024,8 +2026,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
-    //	cleanup surfaces
-    VaapiDestroySurfaces(decoder);
+    vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
     for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
     }
@@ -2077,6 +2078,10 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     }
     decoder->VppConfig = VA_INVALID_ID;
 
+    //	cleanup surfaces
+    if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
+	VaapiDestroySurfaces(decoder);
+    }
 
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
@@ -2848,15 +2853,18 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder);
 ///
 static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
+    int width;
+    int height;
+    VAStatus status;
     VAImageFormat format[1];
-    int width = video_ctx->width;
-    int height = video_ctx->height;
 
     // create initial black surface and display
     VaapiBlackSurface(decoder);
     // cleanup last context
     VaapiCleanup(decoder);
 
+    width = video_ctx->width;
+    height = video_ctx->height;
 #ifdef DEBUG
     // FIXME: remove this if
     if (decoder->Image->image_id != VA_INVALID_ID) {
