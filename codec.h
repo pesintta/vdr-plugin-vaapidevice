@@ -49,15 +49,6 @@ struct _video_decoder_
 
     /* hwaccel context */
     AVBufferRef *HwDeviceContext;	///< ffmpeg HW-Accelerated (VA-API) context
-
-    enum HWAccelID active_hwaccel_id;
-    void *hwaccel_ctx;
-    void (*hwaccel_uninit) (AVCodecContext * s);
-    int (*hwaccel_get_buffer) (AVCodecContext * s, AVFrame * frame, int flags);
-    int (*hwaccel_retrieve_data) (AVCodecContext * s, AVFrame * frame);
-    enum AVPixelFormat hwaccel_pix_fmt;
-    enum AVPixelFormat hwaccel_retrieved_pix_fmt;
-    AVBufferRef *hw_frames_ctx;
 };
 
 //----------------------------------------------------------------------------
