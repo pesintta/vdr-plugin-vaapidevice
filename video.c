@@ -3388,7 +3388,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	}
     }
 
-    Error("Failed to get HW surface format\n");
+    Error("Failed to get HW surface format");
     return AV_PIX_FMT_NONE;
 }
 
