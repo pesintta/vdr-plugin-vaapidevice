@@ -195,7 +195,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	Fatal("codec: can't allocate video codec context");
     }
 
-    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, NULL, NULL, 0)) {
+    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, X11DisplayName, NULL, 0)) {
 	Fatal("codec: can't allocate HW video codec context");
     }
     decoder->VideoCtx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
