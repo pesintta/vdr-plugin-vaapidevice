@@ -3291,19 +3291,32 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 /// @param video_ctx	ffmpeg video codec context
 ///
 ///
+static int gSurfacePtr = 0;
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
     int num_surfaces = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces;
+    VASurfaceID surface;
     int x = 0;
     int y = 0;
     int w = video_ctx->width;
     int h = video_ctx->height;
 
-    if (VaOsdImage.image_id != VA_INVALID_ID)
+    if (!TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids)
 	return VA_INVALID_ID;
 
-    if (!num_surfaces)
+    if (!num_surfaces || num_surfaces < 0)
 	return VA_INVALID_ID;
+
+    if (!(gSurfacePtr % num_surfaces) || gSurfacePtr > num_surfaces)
+	gSurfacePtr = 0;
+
+    // Use ffmpeg internal surface structure as a ringbuffer to return least recently used surface
+    // This is opposite of what ffmpeg does which by default returns most recently used one
+    surface = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids[gSurfacePtr++];
+
+    // Handle OSD creation and association if not done already. Otherwise just pack it up here
+    if (VaOsdImage.image_id != VA_INVALID_ID)
+	return surface;
 
     if (OsdConfigWidth && OsdConfigHeight) {
 	OsdWidth = OsdConfigWidth;
@@ -3335,7 +3348,7 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext 
     vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w, h,
 	0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
 
-    return VA_INVALID_ID;
+    return surface;
 }
 
 ///

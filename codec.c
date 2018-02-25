@@ -95,7 +95,17 @@ static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enu
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }
 
-static void Codec_free_buffer(void *opaque, uint8_t * data);
+/**
+**	Video buffer management, release buffer for frame.
+**	Called to release buffers which were allocated with get_buffer.
+**
+**	@param opaque	opaque data
+**	@param data		buffer data
+*/
+static void Codec_free_buffer(void *opaque, uint8_t * data)
+{
+
+}
 
 /**
 **	Video buffer management, get buffer for frame.
@@ -107,39 +117,25 @@ static void Codec_free_buffer(void *opaque, uint8_t * data);
 */
 static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int flags)
 {
-    VideoDecoder *decoder;
+    unsigned surface;
+    VideoDecoder *decoder = video_ctx->opaque;
 
-    decoder = video_ctx->opaque;
+    if (frame->format != AV_PIX_FMT_VAAPI || !video_ctx->hw_frames_ctx
+	|| !(decoder->VideoCodec->capabilities & AV_CODEC_CAP_DR1))
+	return avcodec_default_get_buffer2(video_ctx, frame, flags);
 
-    VideoGetSurface(decoder->HwDecoder, video_ctx);
+    pthread_mutex_lock(&CodecLockMutex);
 
-    return avcodec_default_get_buffer2(video_ctx, frame, flags);
-}
+    surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
 
-/**
-**	Video buffer management, release buffer for frame.
-**	Called to release buffers which were allocated with get_buffer.
-**
-**	@param opaque	opaque data
-**	@param data		buffer data
-*/
-static void Codec_free_buffer(void *opaque, uint8_t * data)
-{
-    AVCodecContext *video_ctx = (AVCodecContext *) opaque;
+    // vaapi needs both fields set
+    frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
+    frame->data[0] = frame->buf[0]->data;
+    frame->data[3] = frame->data[0];
 
-    // VA-API
-    if (video_ctx->hw_frames_ctx) {
-	VideoDecoder *decoder;
-	unsigned surface;
+    pthread_mutex_unlock(&CodecLockMutex);
 
-	decoder = video_ctx->opaque;
-	surface = (unsigned)(size_t) data;
-
-	//Debug(3, "codec: release surface %#010x", surface);
-	VideoReleaseSurface(decoder->HwDecoder, surface);
-
-	return;
-    }
+    return 0;
 }
 
 /**
