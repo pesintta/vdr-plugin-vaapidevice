@@ -30,6 +30,7 @@
 #error "libavcodec is too old - please, upgrade!"
 #endif
 #include <libavutil/mem.h>
+#include <libavutil/opt.h>
 #include <libavcodec/vaapi.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vaapi.h>
@@ -204,7 +205,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
     if (video_codec->capabilities & (CODEC_CAP_AUTO_THREADS)) {
-	printf("Auto threads!\n");
+	Debug(3, "Auto threads enabled");
 	decoder->VideoCtx->thread_count = 0;
     }
 
