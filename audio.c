@@ -205,7 +205,7 @@ static void AudioNormalizer(int16_t * samples, int count)
 		} else {
 		    factor = 1000;
 		}
-		Debug(4, "audio/noramlize: avg %8d, fac=%6.3f, norm=%6.3f", avg, factor / 1000.0,
+		Debug(4, "audio/normalize: avg %8d, fac=%6.3f, norm=%6.3f", avg, factor / 1000.0,
 		    AudioNormalizeFactor / 1000.0);
 	    }
 
@@ -777,18 +777,12 @@ static int AlsaPlayRingbuffer(void)
 	    } else {
 		err = snd_pcm_writei(AlsaPCMHandle, p, frames);
 	    }
-	    //Debug(3, "audio/alsa: wrote %d/%d frames", err, frames);
 	    if (err != frames) {
 		if (err < 0) {
 		    pthread_mutex_unlock(&ReadAdvance_mutex);
 		    if (err == -EAGAIN) {
 			continue;
 		    }
-		    /*
-		       if (err == -EBADFD) {
-		       goto again;
-		       }
-		     */
 		    Warning("audio/alsa: writei underrun error? '%s'", snd_strerror(err));
 		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 		    if (err >= 0) {
@@ -1049,14 +1043,8 @@ static int64_t AlsaGetDelay(void)
     }
     // delay in frames in alsa + kernel buffers
     if ((err = snd_pcm_delay(AlsaPCMHandle, &delay)) < 0) {
-	//Debug(3, "audio/alsa: no hw delay");
 	delay = 0L;
-#ifdef DEBUG
-    } else if (snd_pcm_state(AlsaPCMHandle) != SND_PCM_STATE_RUNNING) {
-	//Debug(3, "audio/alsa: %ld frames delay ok, but not running", delay);
-#endif
     }
-    //Debug(3, "audio/alsa: %ld frames hw delay", delay);
 
     // delay can be negative, when underrun occur
     if (delay < 0) {
@@ -1096,7 +1084,6 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 
 	handle = AlsaPCMHandle;
 	// no lock needed, thread exit in main loop only
-	//Debug(3, "audio: %s [", __FUNCTION__);
 	AlsaPCMHandle = NULL;		// other threads should check handle
 	snd_pcm_close(handle);
 	if (AudioAlsaCloseOpenDelay) {
@@ -1107,7 +1094,6 @@ static int AlsaSetup(int *freq, int *channels, int passthrough)
 	    return -1;
 	}
 	AlsaPCMHandle = handle;
-	//Debug(3, "audio: %s ]", __FUNCTION__);
     }
 
     for (;;) {

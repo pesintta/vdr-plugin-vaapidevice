@@ -4261,7 +4261,7 @@ static void VideoEvent(void)
 
 	case MapNotify:
 	    Debug(3, "video/event: MapNotify");
-	    // µwm workaround
+	    // uwm workaround
 	    VideoThreadLock();
 	    xcb_change_window_attributes(Connection, VideoWindow, XCB_CW_CURSOR, &VideoBlankCursor);
 	    VideoThreadUnlock();

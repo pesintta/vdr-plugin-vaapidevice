@@ -567,8 +567,6 @@ static void VideoEnqueue(VideoStream * stream, int64_t pts, int64_t dts, const v
 {
     AVPacket *avpkt;
 
-    // Debug(3, "video: enqueue %d", size);
-
     avpkt = &stream->PacketRb[stream->PacketWrite];
     if (!avpkt->stream_index) {		// add pts only for first added
 	avpkt->pts = pts;
@@ -1709,7 +1707,6 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	AudioAvPkt->pts =
 	    (int64_t) (data[9] & 0x0E) << 29 | data[10] << 22 | (data[11] & 0xFE) << 14 | data[12] << 7 | (data[13] &
 	    0xFE) >> 1;
-	//Debug(3, "audio: pts %#012" PRIx64, AudioAvPkt->pts);
     }
 
     p = data + 9 + n;
