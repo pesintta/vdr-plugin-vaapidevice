@@ -11,6 +11,10 @@
 //  Defines
 //////////////////////////////////////////////////////////////////////////////
 
+#ifndef AV_NOPTS_VALUE
+#define AV_NOPTS_VALUE INT64_C(0x8000000000000000)
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 //  Declares
 //////////////////////////////////////////////////////////////////////////////
@@ -19,92 +23,23 @@
 //  Variables
 //////////////////////////////////////////////////////////////////////////////
 
-extern int LogLevel;			///< how much information wanted
+extern int TraceMode;			///< trace mode for debugging
 
 //////////////////////////////////////////////////////////////////////////////
 //  Prototypes
 //////////////////////////////////////////////////////////////////////////////
 
-static inline void Syslog(const int, const char *format, ...)
-    __attribute__ ((format(printf, 2, 3)));
+extern void log_message(int trace, int level, const char *format, ...) __attribute__ ((format(printf, 3, 4)));
 
 //////////////////////////////////////////////////////////////////////////////
 //  Inlines
 //////////////////////////////////////////////////////////////////////////////
 
-#ifdef DEBUG
-#define DebugLevel 4			/// private debug level
-#else
-#define DebugLevel 0			/// private debug level
-#endif
-
-/**
-**	Syslog output function.
-**
-**	- 0	fatal errors and errors
-**	- 1	warnings
-**	- 2	info
-**	- 3	important debug and fixme's
-*/
-static inline void Syslog(const int level, const char *format, ...)
-{
-    if (LogLevel > level || DebugLevel > level) {
-	va_list ap;
-	int priority = LOG_DEBUG;
-
-	switch (level) {
-	    case 0:
-		priority = LOG_ERR;
-		break;
-	    case 1:
-		priority = LOG_WARNING;
-		break;
-	    case 2:
-		priority = LOG_INFO;
-		break;
-	    default:
-		priority = LOG_DEBUG;
-		break;
-	}
-
-	va_start(ap, format);
-	vsyslog(priority, format, ap);
-	va_end(ap);
-    }
-}
-
-/**
-**	Show error.
-*/
-#define Error(fmt...)	Syslog(LOG_ERR, fmt)
-
-/**
-**	Show fatal error.
-*/
-#define Fatal(fmt...)	do { Error(fmt); abort(); } while (0)
-
-/**
-**	Show warning.
-*/
-#define Warning(fmt...)	Syslog(LOG_WARNING, fmt)
-
-/**
-**	Show info.
-*/
-#define Info(fmt...)	Syslog(LOG_INFO, fmt)
-
-/**
-**	Show debug.
-*/
-#ifdef DEBUG
-#define Debug(level, fmt...)	Syslog(level, fmt)
-#else
-#define Debug(level, fmt...)		/* disabled */
-#endif
-
-#ifndef AV_NOPTS_VALUE
-#define AV_NOPTS_VALUE INT64_C(0x8000000000000000)
-#endif
+#define Error(a...) log_message(0, 0, a)
+#define Fatal(a...)  do { log_message(0, 0, a); abort(); } while (0)
+#define Warning(a...) log_message(0, 0, a)
+#define Info(a...) log_message(0, 1, a)
+#define Debug(trace, a...) log_message(trace, 2, a)
 
 /**
 **	Nice time-stamp string.

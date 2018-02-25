@@ -11,6 +11,7 @@
 #include <vdr/osd.h>
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
+#include <vdr/tools.h>
 
 #include "vaapidevice.h"
 
@@ -131,6 +132,41 @@ volatile char SoftIsPlayingVideo;	///< stream contains video data
 //////////////////////////////////////////////////////////////////////////////
 //  C Callbacks
 //////////////////////////////////////////////////////////////////////////////
+
+/**
+**	Logging function with thread information
+*/
+extern "C" void log_message(int trace, int level, const char *format, ...)
+{
+    if (SysLogLevel > level) {
+	va_list ap;
+	char fmt[256];
+	int priority, mask;
+	const char *prefix = "VAAPI";
+
+	switch (level) {
+	    case 0:		       // ERROR
+		priority = LOG_ERR;
+		break;
+	    case 1:		       // INFO
+		priority = LOG_INFO;
+		break;
+	    case 2:		       // DEBUG
+		mask = (1 << (trace - 1)) & 0xFFFF;
+		if (!(mask & TraceMode))
+		    return;
+		priority = LOG_DEBUG;
+		break;
+	    default:
+		priority = LOG_DEBUG;
+		break;
+	}
+	snprintf(fmt, sizeof(fmt), "[%d] %s: %s", cThread::ThreadId(), prefix, format);
+	va_start(ap, format);
+	vsyslog(priority, fmt, ap);
+	va_end(ap);
+    }
+}
 
 /**
 **	Soft device plugin remote class.
@@ -2323,7 +2359,8 @@ static const char *SVDRPHelpText[] = {
 	"    SUSPEND_EXTERNAL == -1  (909)\n" "	   NOT_SUSPENDED    ==	0  (910)\n"
 	"    SUSPEND_NORMAL   ==  1  (911)\n" "	   SUSPEND_DETACHED ==	2  (912)\n",
     "RAIS\n" "\040	 Raise vaapidevice window\n\n" "	If Xserver is not started by vaapidevice, the window which\n"
-	"    contains the vaapidevice frontend will be raised to the front.\n",
+	"    contains the vaapidevice frontend will be raised to the front.\n" "TRAC [ <mode> ]\n"
+	"    gets and/or sets used tracing mode.\n",
     NULL
 };
 
@@ -2498,6 +2535,11 @@ cString cPluginVaapiDevice::SVDRPCommand(const char *command, const char *option
 	    return "Raise not possible";
 	}
 	return "Window raised";
+    }
+    if (!strcasecmp(command, "TRAC")) {
+	if (option && *option)
+	    TraceMode = strtol(option, NULL, 0) & 0xFFFF;
+	return cString::sprintf("tracing mode: 0x%04X\n", TraceMode);
     }
 
     return NULL;

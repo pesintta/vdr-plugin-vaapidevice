@@ -870,12 +870,14 @@ static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 
 //----------------------------------------------------------------------------
 
+extern int SysLogLevel;			///< VDR's global log level
+
 ///
 /// Output video messages.
 ///
 /// Reduce output.
 ///
-/// @param level    message level (Error, Warning, Info, Debug, ...)
+/// @param level    message level (Error, Info, Debug, ...)
 /// @param format   printf format string (NULL to flush messages)
 /// @param ...	printf arguments
 ///
@@ -883,7 +885,7 @@ static void VaapiReleaseSurface(VaapiDecoder *, VASurfaceID);
 ///
 static int VaapiMessage(int level, const char *format, ...)
 {
-    if (LogLevel > level || DebugLevel > level) {
+    if (SysLogLevel > level) {
 	static const char *last_format;
 	static char buf[256];
 	va_list ap;
@@ -891,13 +893,13 @@ static int VaapiMessage(int level, const char *format, ...)
 	va_start(ap, format);
 	if (format != last_format) {	// don't repeat same message
 	    if (buf[0]) {		// print last repeated message
-		syslog(LOG_ERR, "%s", buf);
+		Error("%s", buf);
 		buf[0] = '\0';
 	    }
 
 	    if (format) {
 		last_format = format;
-		vsyslog(LOG_ERR, format, ap);
+		Error(format, ap);
 	    }
 	    va_end(ap);
 	    return 1;
@@ -3117,8 +3119,9 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     if (put1 - sync > 2000) {
 	Error("video/vaapi: gpu hung %dms %d", put1 - sync, decoder->FrameCounter);
     }
+#ifdef DEBUG
     Debug(4, "video/vaapi: sync %2u put1 %2u", sync - start, put1 - sync);
-
+#endif
     usleep(1 * 1000);
 }
 
@@ -3372,7 +3375,7 @@ static void VaapiDisplayFrame(void)
 	// no surface availble show black with possible osd
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
-	    VaapiMessage(3, "video/vaapi: black surface displayed");
+	    VaapiMessage(2, "video/vaapi: black surface displayed");
 	    continue;
 	}
 
@@ -3542,7 +3545,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
     // FIXME: video waits for audio, audio for video
     if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames && video_clock != (int64_t) AV_NOPTS_VALUE
 	&& (audio_clock == (int64_t) AV_NOPTS_VALUE || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
-	err = VaapiMessage(3, "video: initial slow down video, frame %d", decoder->StartCounter);
+	err = VaapiMessage(2, "video: initial slow down video, frame %d", decoder->StartCounter);
 	goto out;
     }
 
@@ -3563,24 +3566,24 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	}
 
 	if (abs(diff) > 5000 * 90) {	// more than 5s
-	    err = VaapiMessage(2, "video: audio/video difference too big");
+	    err = VaapiMessage(1, "video: audio/video difference too big");
 	} else if (diff > 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
-	    err = VaapiMessage(2, "video: slow down video, duping frame");
+	    err = VaapiMessage(1, "video: slow down video, duping frame");
 	    ++decoder->FramesDuped;
 	    if (VideoSoftStartSync) {
 		decoder->SyncCounter = 1;
 		goto out;
 	    }
 	} else if (diff > 55 * 90) {
-	    err = VaapiMessage(2, "video: slow down video, duping frame");
+	    err = VaapiMessage(1, "video: slow down video, duping frame");
 	    ++decoder->FramesDuped;
 	    if (VideoSoftStartSync) {
 		decoder->SyncCounter = 1;
 		goto out;
 	    }
 	} else if (diff < lower_limit * 90 && filled > 1 + 2 * decoder->Interlaced) {
-	    err = VaapiMessage(2, "video: speed up video, droping frame");
+	    err = VaapiMessage(1, "video: speed up video, droping frame");
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
 	    if (VideoSoftStartSync) {
@@ -3606,7 +3609,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    ++decoder->FramesDuped;
 	    // FIXME: don't warn after stream start, don't warn during pause
 	    err =
-		VaapiMessage(1, "video: decoder buffer empty, duping frame (%d/%d) %d v-buf", decoder->FramesDuped,
+		VaapiMessage(0, "video: decoder buffer empty, duping frame (%d/%d) %d v-buf", decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
 	    // some time no new picture
 	    if (decoder->Closing < -300) {

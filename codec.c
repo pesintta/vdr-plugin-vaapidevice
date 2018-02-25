@@ -936,13 +936,18 @@ void CodecAudioFlushBuffers(AudioDecoder * decoder)
 //----------------------------------------------------------------------------
 
 /**
-**	Empty log callback
+**	FFMPEG log callback
 */
-static void CodecNoopCallback( __attribute__ ((unused))
-    void *ptr, __attribute__ ((unused))
-    int level, __attribute__ ((unused))
-    const char *fmt, __attribute__ ((unused)) va_list vl)
+static void FFmpegLogCallback(void *ptr, int level, const char *fmt, va_list vargs)
 {
+    if (level >= AV_LOG_VERBOSE)
+       Debug(5, fmt, vargs);
+    else if (level >= AV_LOG_INFO)
+       Debug(6, fmt, vargs);
+    else if (level >= AV_LOG_WARNING)
+       Debug(7, fmt, vargs);
+    else if (level >= AV_LOG_ERROR)
+       Debug(8, fmt, vargs);
 }
 
 /**
@@ -951,12 +956,8 @@ static void CodecNoopCallback( __attribute__ ((unused))
 void CodecInit(void)
 {
     pthread_mutex_init(&CodecLockMutex, NULL);
-#ifndef DEBUG
-    // disable display ffmpeg error messages
-    av_log_set_callback(CodecNoopCallback);
-#else
-    (void)CodecNoopCallback;
-#endif
+    av_log_set_level(AV_LOG_VERBOSE);
+    av_log_set_callback(FFmpegLogCallback);
     avcodec_register_all();		// register all formats and codecs
 }
 

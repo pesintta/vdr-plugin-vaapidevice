@@ -58,8 +58,7 @@ static pthread_mutex_t SuspendLockMutex;    ///< suspend lock mutex
 
 static volatile char StreamFreezed;	///< stream freezed
 
-extern int SysLogLevel;			///< VDR's global log level
-int LogLevel = 0;			///< our local log level
+int TraceMode = 0;			///< Tracing mode for debugging
 
 //////////////////////////////////////////////////////////////////////////////
 //  Audio
@@ -1931,7 +1930,9 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
 	return 0;
     }
     if (stream->NewStream) {		// channel switched
+#ifdef DEBUG
 	Debug(3, "video: new stream %dms", GetMsTicks() - VideoSwitch);
+#endif
 	if (atomic_read(&stream->PacketsFilled) >= VIDEO_PACKET_MAX - 1) {
 	    Debug(3, "video: new video stream lost");
 	    return 0;
@@ -2136,7 +2137,9 @@ int PlayTsVideo(const uint8_t * data, int size)
 	return 0;
     }
     if (MyVideoStream->NewStream) {	// channel switched
+#ifdef DEBUG
 	Debug(3, "video: new stream %dms", GetMsTicks() - VideoSwitch);
+#endif
 	if (atomic_read(&MyVideoStream->PacketsFilled) >= VIDEO_PACKET_MAX - 1) {
 	    Debug(3, "video: new video stream lost");
 	    return 0;
@@ -2584,8 +2587,7 @@ const char *CommandLineHelp(void)
 	"  -p device\taudio device for pass-through (hw:0,1 or /dev/dsp1)\n"
 	"  -c channel\taudio mixer channel name (fe. PCM)\n" "	-d display\tdisplay of x11 server (fe. :0.0)\n"
 	"  -f\t\tstart with fullscreen window (only with window manager)\n"
-	"  -g geometry\tx11 window geometry wxh+x+y\n"
-	"  -l loglevel\tset the log level (0=none, 1=errors, 2=info, 3=debug)\n"
+	"  -g geometry\tx11 window geometry wxh+x+y\n" "  -t tracemode\tset the trace mode for debugging\n"
 	"  -v device\tvideo driver device (vaapi, noop)\n" "  -s\t\tstart in suspended mode\n"
 	"  -x\t\tstart x11 server, with -xx try to connect, if this fails\n"
 	"  -X args\tX11 server arguments (f.e. -nocursor)\n" "	-w workaround\tenable/disable workarounds\n"
@@ -2617,10 +2619,8 @@ int ProcessArgs(int argc, char *const argv[])
     }
 #endif
 
-    LogLevel = SysLogLevel;		// default is the global log level
-
     for (;;) {
-	switch (getopt(argc, argv, "-a:c:d:fg:l:p:sv:w:xDX:")) {
+	switch (getopt(argc, argv, "-a:c:d:fg:t:p:sv:w:xDX:")) {
 	    case 'a':		       // audio device for pcm
 		AudioSetDevice(optarg);
 		continue;
@@ -2643,8 +2643,8 @@ int ProcessArgs(int argc, char *const argv[])
 		    return 0;
 		}
 		continue;
-	    case 'l':		       // logging
-		LogLevel = atoi(optarg);
+	    case 't':		       // trace mode for debugging
+		TraceMode = strtol(optarg, NULL, 0) & 0xFFFF;
 		continue;
 	    case 'v':		       // video driver
 		VideoSetDevice(optarg);
