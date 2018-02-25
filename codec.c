@@ -165,7 +165,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
 
-    Debug(3, "codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
+    Debug4("codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
     if (decoder->VideoCtx) {
 	Error("codec: missing close");
@@ -191,28 +191,28 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
     if (video_codec->capabilities & (AV_CODEC_CAP_AUTO_THREADS)) {
-	Debug(3, "Auto threads enabled");
+	Debug4("codec: auto threads enabled");
 	decoder->VideoCtx->thread_count = 0;
     }
 
     decoder->VideoCtx->opaque = decoder;    // our structure
 
-    Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
+    Debug4("codec: video '%s'", decoder->VideoCodec->long_name);
     if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: supports truncated packets");
+	Debug4("codec: supports truncated packets");
 	//decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
     // FIXME: own memory management for video frames.
     if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
-	Debug(3, "codec: can use own buffer management");
+	Debug4("codec: can use own buffer management");
     }
     if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
-	Debug(3, "codec: supports frame threads");
+	Debug4("codec: supports frame threads");
 	decoder->VideoCtx->thread_count = 0;
 	decoder->VideoCtx->thread_type |= FF_THREAD_FRAME;
     }
     if (video_codec->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
-	Debug(3, "codec: supports slice threads");
+	Debug4("codec: supports slice threads");
 	decoder->VideoCtx->thread_count = 0;
 	decoder->VideoCtx->thread_type |= FF_THREAD_SLICE;
     }
@@ -273,12 +273,12 @@ void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
 	*pkt = *avpkt;			// use copy
 	ret = avcodec_send_packet(video_ctx, pkt);
 	if (ret < 0) {
-	    Debug(3, "codec: sending video packet failed");
+	    Debug4("codec: sending video packet failed");
 	    return;
 	}
 	ret = avcodec_receive_frame(video_ctx, frame);
 	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-	    Debug(3, "codec: receiving video frame failed");
+	    Debug4("codec: receiving video frame failed");
 	    return;
 	}
 	if (ret >= 0) {
@@ -396,7 +396,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 {
     AVCodec *audio_codec;
 
-    Debug(3, "codec: using audio codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
+    Debug4("codec: using audio codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
     if (!(audio_codec = avcodec_find_decoder(codec_id))) {
 	Fatal("codec: codec ID %#06x not found", codec_id);
@@ -427,10 +427,10 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 	av_dict_free(&av_dict);
     }
     pthread_mutex_unlock(&CodecLockMutex);
-    Debug(3, "codec: audio '%s'", audio_decoder->AudioCodec->long_name);
+    Debug4("codec: audio '%s'", audio_decoder->AudioCodec->long_name);
 
     if (audio_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: audio can use truncated packets");
+	Debug4("codec: audio can use truncated packets");
 	// we send only complete frames
 	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
@@ -566,11 +566,10 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
     int err;
 
     audio_ctx = audio_decoder->AudioCtx;
-    Debug(3, "codec/audio: format change %s %dHz *%d channels%s%s%s%s%s",
-	av_get_sample_fmt_name(audio_ctx->sample_fmt), audio_ctx->sample_rate, audio_ctx->channels,
-	(CodecPassthrough & CodecPCM) ? " PCM" : "", (CodecPassthrough & CodecMPA) ? " MPA" : "",
-	(CodecPassthrough & CodecAC3) ? " AC-3" : "", (CodecPassthrough & CodecEAC3) ? " E-AC-3" : "",
-	CodecPassthrough ? " pass-through" : "");
+    Debug4("codec/audio: format change %s %dHz *%d channels%s%s%s%s%s", av_get_sample_fmt_name(audio_ctx->sample_fmt),
+	audio_ctx->sample_rate, audio_ctx->channels, (CodecPassthrough & CodecPCM) ? " PCM" : "",
+	(CodecPassthrough & CodecMPA) ? " MPA" : "", (CodecPassthrough & CodecAC3) ? " AC-3" : "",
+	(CodecPassthrough & CodecEAC3) ? " E-AC-3" : "", CodecPassthrough ? " pass-through" : "");
 
     *passthrough = 0;
     audio_decoder->SampleRate = audio_ctx->sample_rate;
@@ -599,7 +598,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
 	if (audio_ctx->codec_id != AV_CODEC_ID_EAC3
 	    || (err = AudioSetup(&audio_decoder->HwSampleRate, &audio_decoder->HwChannels, *passthrough))) {
 
-	    Debug(3, "codec/audio: audio setup error");
+	    Debug4("codec/audio: audio setup error");
 	    // FIXME: handle errors
 	    audio_decoder->HwChannels = 0;
 	    audio_decoder->HwSampleRate = 0;
@@ -607,7 +606,7 @@ static int CodecAudioUpdateHelper(AudioDecoder * audio_decoder, int *passthrough
 	}
     }
 
-    Debug(3, "codec/audio: resample %s %dHz *%d -> %s %dHz *%d", av_get_sample_fmt_name(audio_ctx->sample_fmt),
+    Debug4("codec/audio: resample %s %dHz *%d -> %s %dHz *%d", av_get_sample_fmt_name(audio_ctx->sample_fmt),
 	audio_ctx->sample_rate, audio_ctx->channels, av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
 	audio_decoder->HwSampleRate, audio_decoder->HwChannels);
 
@@ -749,7 +748,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	audio_decoder->LastDelay = delay;
 	audio_decoder->Drift = 0;
 	audio_decoder->DriftFrac = 0;
-	Debug(3, "codec/audio: inital drift delay %" PRId64 "ms", delay / 90);
+	Debug4("codec/audio: initial drift delay %" PRId64 "ms", delay / 90);
 	return;
     }
     // collect over some time
@@ -772,7 +771,7 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
     // underruns and av_resample have the same time :(((
     if (abs(drift) > 10 * 90) {
 	// drift too big, pts changed?
-	Debug(3, "codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
+	Debug4("codec/audio: drift(%6d) %3dms reset", audio_decoder->DriftCorr, drift / 90);
 	audio_decoder->LastDelay = 0;
     } else {
 
@@ -804,12 +803,12 @@ static void CodecAudioSetClock(AudioDecoder * audio_decoder, int64_t pts)
 	    distance = (pts_diff * audio_decoder->HwSampleRate) / (90 * 1000);
 	}
 	if (swr_set_compensation(audio_decoder->Resample, audio_decoder->DriftCorr / 10, distance)) {
-	    Debug(3, "codec/audio: swr_set_compensation failed");
+	    Debug4("codec/audio: swr_set_compensation failed");
 	}
     }
 
     if (!(c++ % 10)) {
-	Debug(3, "codec/audio: drift(%6d) %8dus %5d", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
+	Debug4("codec/audio: drift(%6d) %8dus %5d", audio_decoder->DriftCorr, drift * 1000 / 90, corr);
     }
 }
 
@@ -837,7 +836,7 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
     if (audio_ctx->sample_fmt == AV_SAMPLE_FMT_S16 && audio_ctx->sample_rate == audio_decoder->HwSampleRate
 	&& !CodecAudioDrift) {
 	// FIXME: use Resample only, when it is needed!
-	Debug(4, "no resample needed");
+	Debug4("codec/audio: no resample needed");
     }
 #endif
 
@@ -875,12 +874,12 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	*pkt = *avpkt;			// use copy
 	ret = avcodec_send_packet(audio_ctx, pkt);
 	if (ret < 0) {
-	    Debug(3, "codec: sending audio packet failed");
+	    Debug4("codec: sending audio packet failed");
 	    return;
 	}
 	ret = avcodec_receive_frame(audio_ctx, frame);
 	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-	    Debug(3, "codec: receiving audio frame failed");
+	    Debug4("codec: receiving audio frame failed");
 	    return;
 	}
 	if (ret >= 0) {
@@ -941,13 +940,13 @@ void CodecAudioFlushBuffers(AudioDecoder * decoder)
 static void FFmpegLogCallback(void *ptr, int level, const char *fmt, va_list vargs)
 {
     if (level >= AV_LOG_VERBOSE)
-       Debug(5, fmt, vargs);
+	Debug9(fmt, vargs);
     else if (level >= AV_LOG_INFO)
-       Debug(6, fmt, vargs);
+	Debug10(fmt, vargs);
     else if (level >= AV_LOG_WARNING)
-       Debug(7, fmt, vargs);
+	Debug11(fmt, vargs);
     else if (level >= AV_LOG_ERROR)
-       Debug(8, fmt, vargs);
+	Debug12(fmt, vargs);
 }
 
 /**
