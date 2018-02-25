@@ -35,9 +35,8 @@ extern void log_message(int trace, int level, const char *format, ...) __attribu
 //  Inlines
 //////////////////////////////////////////////////////////////////////////////
 
-#define Error(a...) log_message(0, 0, a)
 #define Fatal(a...)  do { log_message(0, 0, a); abort(); } while (0)
-#define Warning(a...) log_message(0, 0, a)
+#define Error(a...) log_message(0, 0, a)
 #define Info(a...) log_message(0, 1, a)
 #define Debug(trace, a...) log_message(trace, 2, a)
 

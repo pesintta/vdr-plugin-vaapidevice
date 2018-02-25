@@ -710,7 +710,7 @@ static int AlsaPlayRingbuffer(void)
 	    if (n == -EAGAIN) {
 		continue;
 	    }
-	    Warning("audio/alsa: avail underrun error? '%s'", snd_strerror(n));
+	    Error("audio/alsa: avail underrun error? '%s'", snd_strerror(n));
 	    err = snd_pcm_recover(AlsaPCMHandle, n, 0);
 	    if (err >= 0) {
 		continue;
@@ -783,7 +783,7 @@ static int AlsaPlayRingbuffer(void)
 		    if (err == -EAGAIN) {
 			continue;
 		    }
-		    Warning("audio/alsa: writei underrun error? '%s'", snd_strerror(err));
+		    Error("audio/alsa: writei underrun error? '%s'", snd_strerror(err));
 		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 		    if (err >= 0) {
 			return 0;
@@ -792,7 +792,7 @@ static int AlsaPlayRingbuffer(void)
 		    return -1;
 		}
 		// this could happen, if underrun happened
-		Warning("audio/alsa: not all frames written");
+		Error("audio/alsa: not all frames written");
 		avail = snd_pcm_frames_to_bytes(AlsaPCMHandle, err);
 	    }
 	    break;
@@ -856,7 +856,7 @@ static int AlsaThread(void)
 	}
 	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
-	    Warning("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
+	    Error("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 	    if (err >= 0) {
 		continue;

@@ -574,7 +574,7 @@ static void VideoEnqueue(VideoStream * stream, int64_t pts, int64_t dts, const v
     }
     if (avpkt->stream_index + size >= avpkt->size) {
 
-	Warning("video: packet buffer too small for %d", avpkt->stream_index + size);
+	Error("video: packet buffer too small for %d", avpkt->stream_index + size);
 
 	// new + grow reserves AV_INPUT_BUFFER_PADDING_SIZE
 	av_grow_packet(avpkt, ((size + VIDEO_BUFFER_SIZE / 2)
@@ -1342,7 +1342,6 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 
 		    while (!*check) {	// count leading zeros
 			if (l < 3) {
-//  Warning("[vaapidevice] empty video packet %d bytes", n);
 			    z = 0;
 			    break;
 			}
@@ -1696,7 +1695,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 
     if (size < 9 + n + 4) {		// wrong size
 	if (size == 9 + n) {
-	    Warning("[vaapidevice] empty audio packet");
+	    Error("[vaapidevice] empty audio packet");
 	} else {
 	    Error("[vaapidevice] invalid audio packet %d bytes", size);
 	}
@@ -1961,7 +1960,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     n = data[8];			// header size
     if (size <= 9 + n) {		// wrong size
 	if (size == 9 + n) {
-	    Warning("[vaapidevice] empty video packet");
+	    Error("[vaapidevice] empty video packet");
 	} else {
 	    Error("[vaapidevice] invalid video packet %d/%d bytes", 9 + n, size);
 	}
@@ -1992,7 +1991,7 @@ int PlayVideo3(VideoStream * stream, const uint8_t * data, int size)
     z = 0;
     while (!*check) {			// count leading zeros
 	if (l < 3) {
-	    Warning("[vaapidevice] empty video packet %d bytes", size);
+	    Error("[vaapidevice] empty video packet %d bytes", size);
 	    z = 0;
 	    break;
 	}
@@ -2251,7 +2250,7 @@ int64_t GetSTC(void)
 	return VideoGetClock(MyVideoStream->HwDecoder);
     }
     // could happen during dettached
-    Warning("vaapidevice: %s called without hw decoder", __FUNCTION__);
+    Error("vaapidevice: %s called without hw decoder", __FUNCTION__);
     return AV_NOPTS_VALUE;
 }
 

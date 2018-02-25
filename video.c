@@ -1834,7 +1834,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 
     status = vaDeriveImage(decoder->VaDisplay, src, &image);
     if (status != VA_STATUS_SUCCESS) {
-	Warning("video/vaapi: Failed to derive image: %s\n Falling back to GetImage", vaErrorStr(status));
+	Error("video/vaapi: Failed to derive image: %s\n Falling back to GetImage", vaErrorStr(status));
 
 	if (!decoder->GetPutImage) {
 	    Error("video/vaapi: Image grabbing not supported by HW");
@@ -2936,7 +2936,7 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface, int s
 
     if (atomic_read(&decoder->SurfacesFilled) >= VIDEO_SURFACES_MAX - 1) {
 	++decoder->FramesDropped;
-	Warning("video: output buffer full, dropping frame (%d/%d)", decoder->FramesDropped, decoder->FrameCounter);
+	Error("video: output buffer full, dropping frame (%d/%d)", decoder->FramesDropped, decoder->FrameCounter);
 	if (!(decoder->FramesDisplayed % 300)) {
 	    VaapiPrintFrames(decoder);
 	}
@@ -3018,7 +3018,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 
     // wait until we have osd subpicture
     if (VaOsdSubpicture == VA_INVALID_ID) {
-	Warning("video/vaapi: no osd subpicture yet");
+	Error("video/vaapi: no osd subpicture yet");
 	return;
     }
 
@@ -4289,7 +4289,7 @@ static void VideoEvent(void)
 	    }
 	    letter[letter_len] = '\0';
 	    if (keysym == NoSymbol) {
-		Warning("video/event: No symbol for %d", event.xkey.keycode);
+		Error("video/event: No symbol for %d", event.xkey.keycode);
 		break;
 	    }
 	    VideoThreadLock();
@@ -4575,7 +4575,7 @@ enum AVPixelFormat Video_get_format(VideoHwDecoder * hw_decoder, AVCodecContext 
 void VideoRenderFrame(VideoHwDecoder * hw_decoder, const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     if (frame->repeat_pict && !VideoIgnoreRepeatPict) {
-	Warning("video: repeated pict %d found, but not handled", frame->repeat_pict);
+	Error("video: repeated pict %d found, but not handled", frame->repeat_pict);
     }
     VideoUsedModule->RenderFrame(hw_decoder, video_ctx, frame);
 }
@@ -4745,7 +4745,7 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 
 	return rgb;
     } else {
-	Warning("vaapidevice: grab unsupported");
+	Error("vaapidevice: grab unsupported");
     }
 
     return NULL;
