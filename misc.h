@@ -29,31 +29,31 @@ extern int TraceMode;			///< trace mode for debugging
 //  Prototypes
 //////////////////////////////////////////////////////////////////////////////
 
-extern void log_message(int trace, int level, const char *format, ...) __attribute__ ((format(printf, 3, 4)));
+extern void LogMessage(int trace, int level, const char *format, ...) __attribute__ ((format(printf, 3, 4)));
 
 //////////////////////////////////////////////////////////////////////////////
 //  Inlines
 //////////////////////////////////////////////////////////////////////////////
 
-#define Fatal(a...)   do { log_message(0, 0, a); abort(); } while (0)
-#define Error(a...)   log_message(0,  0, a)
-#define Info(a...)    log_message(0,  1, a)
-#define Debug1(a...)  log_message(1,  2, a)	// Device
-#define Debug2(a...)  log_message(2,  2, a)	// X11
-#define Debug3(a...)  log_message(3,  2, a)	// Demuxer
-#define Debug4(a...)  log_message(4,  2, a)	// Codec
-#define Debug5(a...)  log_message(5,  2, a)	// Audio
-#define Debug6(a...)  log_message(6,  2, a)	// Audio: extra
-#define Debug7(a...)  log_message(7,  2, a)	// Video
-#define Debug8(a...)  log_message(8,  2, a)	// Video: extra
-#define Debug9(a...)  log_message(9,  2, a)	// FFMPEG: verbose
-#define Debug10(a...) log_message(10, 2, a)	// FFMPEG: info
-#define Debug11(a...) log_message(11, 2, a)	// FFMPEG: warning
-#define Debug12(a...) log_message(12, 2, a)	// FFMPEG: error
-#define Debug13(a...) log_message(13, 2, a)	// TBD
-#define Debug14(a...) log_message(14, 2, a)	// TBD
-#define Debug15(a...) log_message(14, 2, a)	// TBD
-#define Debug16(a...) log_message(16, 2, a)	// TBD
+#define Fatal(a...)   do { LogMessage(0, 0, a); abort(); } while (0)
+#define Error(a...)   LogMessage(0,  0, a)
+#define Info(a...)    LogMessage(0,  1, a)
+#define Debug1(a...)  LogMessage(1,  2, a)	// Device
+#define Debug2(a...)  LogMessage(2,  2, a)	// X11
+#define Debug3(a...)  LogMessage(3,  2, a)	// Demuxer
+#define Debug4(a...)  LogMessage(4,  2, a)	// Codec
+#define Debug5(a...)  LogMessage(5,  2, a)	// Audio
+#define Debug6(a...)  LogMessage(6,  2, a)	// Audio: extra
+#define Debug7(a...)  LogMessage(7,  2, a)	// Video
+#define Debug8(a...)  LogMessage(8,  2, a)	// Video: extra
+#define Debug9(a...)  LogMessage(9,  2, a)	// FFMPEG: verbose
+#define Debug10(a...) LogMessage(10, 2, a)	// FFMPEG: info
+#define Debug11(a...) LogMessage(11, 2, a)	// FFMPEG: warning
+#define Debug12(a...) LogMessage(12, 2, a)	// FFMPEG: error
+#define Debug13(a...) LogMessage(13, 2, a)	// TBD
+#define Debug14(a...) LogMessage(14, 2, a)	// TBD
+#define Debug15(a...) LogMessage(14, 2, a)	// TBD
+#define Debug16(a...) LogMessage(16, 2, a)	// TBD
 
 /**
 **	Nice time-stamp string.

@@ -136,7 +136,7 @@ volatile char SoftIsPlayingVideo;	///< stream contains video data
 /**
 **	Logging function with thread information
 */
-extern "C" void log_message(int trace, int level, const char *format, ...)
+extern "C" void LogMessage(int trace, int level, const char *format, ...)
 {
     if (SysLogLevel > level) {
 	va_list ap;
