@@ -2917,9 +2917,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 	Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
 	abort();
     }
-    status =
-	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth /*video_ctx->width */ ,
-	VideoWindowHeight /*video_ctx->height */ ,
+    status = vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth, VideoWindowHeight,
 	VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
@@ -3317,27 +3315,18 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext 
 	OsdHeight = VideoWindowHeight;
     }
 
-    VideoUsedModule->OsdInit(VideoWindowWidth, VideoWindowHeight);
+    VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
 
     // FIXME: associate only if osd is displayed
-    if (VaapiUnscaledOsd) {
-	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, x, y, w, h, 0, 0,
-		VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-    } else {
-	if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, video_ctx->width, y, w, h,
-		decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
+    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
+	TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, x, y, w, h, 0, 0, OsdWidth,
+	    OsdHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+	!= VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't associate subpicture");
     }
 
-    vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w, h,
-	0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
+    vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y,
+	OsdWidth, OsdHeight, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
 
     return surface;
 }
