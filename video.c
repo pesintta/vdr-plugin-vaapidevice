@@ -1679,40 +1679,31 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 ///
 /// @returns the oldest free surface
 ///
-static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
+static VASurfaceID VaapiGetPluginSurface(VaapiDecoder * decoder)
 {
+    VAStatus va_status;
     VASurfaceID surface;
     VASurfaceStatus status;
-    int i;
 
-    // try to use oldest surface
-    for (i = 0; i < decoder->SurfaceFreeN; ++i) {
-	surface = decoder->SurfacesFree[i];
-	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status) != VA_STATUS_SUCCESS) {
-	    // this fails with mpeg softdecoder
-	    Error("video/vaapi: vaQuerySurface failed");
-	    status = VASurfaceReady;
-	}
-	// surface still in use, try next
-	if (status != VASurfaceReady) {
-	    Debug(4, "video/vaapi: surface %#010x not ready: %d", surface, status);
-	    continue;
-	}
-	// copy remaining surfaces down
-	decoder->SurfaceFreeN--;
-	for (; i < decoder->SurfaceFreeN; ++i) {
-	    decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
-	}
-	decoder->SurfacesFree[i] = VA_INVALID_ID;
-
-	// save as used
-	decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
-
-	return surface;
+    /* Get next postproc surface to write from ring buffer */
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
+    surface = decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+    if (surface == VA_INVALID_ID) {
+	Debug(4, "video/vaapi: surface at %d (%#010x) not initialized", decoder->PostProcSurfaceWrite, surface);
+	return VA_INVALID_ID;
+    }
+    va_status = vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status);
+    if (va_status != VA_STATUS_SUCCESS) {
+	// this fails with mpeg softdecoder
+	Error("video/vaapi: vaQuerySurface failed: %s", vaErrorStr(va_status));
+	status = VASurfaceReady;
+    }
+    if (status != VASurfaceReady) {
+	Debug(4, "video/vaapi: surface %#010x not ready: %d", surface, status);
+	return VA_INVALID_ID;
     }
 
-    Error("video/vaapi: out of surfaces");
-    return VA_INVALID_ID;
+    return surface;
 }
 
 ///
@@ -4064,7 +4055,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	// FIXME: can/must insert auto-crop here (is done after upload)
 
 	// get a free surface and upload the image
-	surface = VaapiGetSurface0(decoder);
+	surface = VaapiGetPluginSurface(decoder);
 	Debug(4, "video/vaapi: video surface %#010x displayed", surface);
 
 	if (!decoder->GetPutImage && vaDeriveImage(decoder->VaDisplay, surface, decoder->Image) != VA_STATUS_SUCCESS) {
