@@ -9,13 +9,6 @@
 /// Uses Xlib where it is needed for VA-API.  XCB is used for
 /// everything else.
 ///
-/// - X11
-/// - OpenGL rendering
-/// - OpenGL rendering with GLX texture-from-pixmap
-/// - Xrender rendering
-///
-/// @todo FIXME: use vaErrorStr for all VA-API errors.
-///
 
 #define USE_XLIB_XCB			///< use xlib/xcb backend
 #ifndef AV_INFO_TIME

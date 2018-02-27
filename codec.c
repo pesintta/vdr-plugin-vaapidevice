@@ -7,9 +7,6 @@
 /// This module contains all decoder and codec functions.
 /// It is uses ffmpeg (http://ffmpeg.org) as backend.
 ///
-/// It may work with libav (http://libav.org), but the tests show
-/// many bugs and incompatiblity in it.	 Don't use this shit.
-///
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,14 +81,7 @@ char CodecUsePossibleDefectFrames;
 */
 static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
-    VideoDecoder *decoder;
-
-    decoder = video_ctx->opaque;
-
-    // bug in ffmpeg 1.1.1, called with zero width or height
-    if (!video_ctx->width || !video_ctx->height) {
-	Error("codec/video: ffmpeg/libav buggy: width or height zero");
-    }
+    VideoDecoder *decoder = video_ctx->opaque;
 
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
 }

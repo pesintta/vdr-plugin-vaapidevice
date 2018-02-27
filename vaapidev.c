@@ -562,7 +562,7 @@ static void VideoPacketExit(VideoStream * stream)
 **
 **	@param stream	video stream
 **	@param pts	presentation timestamp of pes packet
-**	@param dts	presentation timestamp of pes packet
+**	@param dts	decode timestamp of pes packet
 **	@param data	data of pes packet
 **	@param size	size of pes packet
 */
