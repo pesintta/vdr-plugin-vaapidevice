@@ -2644,8 +2644,7 @@ static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContex
 	}
     }
 
-    Error("Failed to get HW surface format");
-    return AV_PIX_FMT_NONE;
+    return  avcodec_default_get_format(video_ctx, fmt);
 }
 
 ///
@@ -3315,9 +3314,9 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 
 	if (decoder->GetPutImage
 	    && (i =
-		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0, width, height, 0, 0, width,
-		    height)) != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't put image err:%d!", i);
+		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0, width, height, 0, 0, VideoWindowWidth,
+		    VideoWindowHeight)) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't put image err:%s!", vaErrorStr(i));
 	}
 
 	if (!decoder->GetPutImage) {
