@@ -67,8 +67,6 @@ static char ConfigSuspendX11;		///< suspend should stop x11
 static char Config4to3DisplayFormat = 1;    ///< config 4:3 display format
 static char ConfigOtherDisplayFormat = 1;   ///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
-static int ConfigOsdWidth;		///< config OSD width
-static int ConfigOsdHeight;		///< config OSD height
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
@@ -556,9 +554,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int MakePrimary;
     int HideMainMenuEntry;
     int DetachFromMainMenu;
-    int OsdSize;
-    int OsdWidth;
-    int OsdHeight;
     int SuspendClose;
     int SuspendX11;
 
@@ -656,9 +651,6 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag, con
 */
 void cMenuSetupSoft::Create(void)
 {
-    static const char *const osd_size[] = {
-	"auto", "3840x2160", "1920x1080", "1280x720", "custom",
-    };
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
     };
@@ -704,14 +696,6 @@ void cMenuSetupSoft::Create(void)
     if (General) {
 	Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &HideMainMenuEntry, trVDR("no"), trVDR("yes")));
-	//
-	//  osd
-	//
-	Add(new cMenuEditStraItem(tr("Osd size"), &OsdSize, 5, osd_size));
-	if (OsdSize == 4) {
-	    Add(new cMenuEditIntItem(tr("Osd width"), &OsdWidth, 0, 4096));
-	    Add(new cMenuEditIntItem(tr("Osd height"), &OsdHeight, 0, 4096));
-	}
 	//
 	//  suspend
 	//
@@ -823,7 +807,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_video;
     int old_audio;
 
-    int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
     int old_denoise[RESOLUTIONS];
     int old_sharpen[RESOLUTIONS];
@@ -836,7 +819,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_general = General;
     old_video = Video;
     old_audio = Audio;
-    old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
@@ -850,7 +832,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
-	if (old_general != General || old_video != Video || old_audio != Audio || old_osd_size != OsdSize) {
+	if (old_general != General || old_video != Video || old_audio != Audio) {
 	    Create();			// update menu
 	} else {
 	    for (int i = 0; i < RESOLUTIONS; ++i) {
@@ -899,22 +881,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     MakePrimary = ConfigMakePrimary;
     HideMainMenuEntry = ConfigHideMainMenuEntry;
     DetachFromMainMenu = ConfigDetachFromMainMenu;
-    //
-    //	osd
-    //
-    OsdWidth = ConfigOsdWidth;
-    OsdHeight = ConfigOsdHeight;
-    if (!OsdWidth && !OsdHeight) {
-	OsdSize = 0;
-    } else if (OsdWidth == 3840 && OsdHeight == 2160) {
-	OsdSize = 1;
-    } else if (OsdWidth == 1920 && OsdHeight == 1080) {
-	OsdSize = 2;
-    } else if (OsdWidth == 1280 && OsdHeight == 720) {
-	OsdSize = 3;
-    } else {
-	OsdSize = 4;
-    }
     //
     //	suspend
     //
@@ -1007,31 +973,6 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry = HideMainMenuEntry);
     SetupStore("DetachFromMainMenu", ConfigDetachFromMainMenu = DetachFromMainMenu);
-    switch (OsdSize) {
-	case 0:
-	    OsdWidth = 0;
-	    OsdHeight = 0;
-	    break;
-	case 1:
-	    OsdWidth = 3840;
-	    OsdHeight = 2160;
-	    break;
-	case 2:
-	    OsdWidth = 1920;
-	    OsdHeight = 1080;
-	    break;
-	case 3:
-	    OsdWidth = 1280;
-	    OsdHeight = 720;
-	default:
-	    break;
-    }
-    if (ConfigOsdWidth != OsdWidth || ConfigOsdHeight != OsdHeight) {
-	VideoSetOsdSize(ConfigOsdWidth = OsdWidth, ConfigOsdHeight = OsdHeight);
-	// FIXME: shown osd size not updated
-    }
-    SetupStore("Osd.Width", ConfigOsdWidth);
-    SetupStore("Osd.Height", ConfigOsdHeight);
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
@@ -2168,16 +2109,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "DetachFromMainMenu")) {
 	ConfigDetachFromMainMenu = atoi(value);
-	return true;
-    }
-    if (!strcasecmp(name, "Osd.Width")) {
-	ConfigOsdWidth = atoi(value);
-	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
-	return true;
-    }
-    if (!strcasecmp(name, "Osd.Height")) {
-	ConfigOsdHeight = atoi(value);
-	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
 	return true;
     }
     if (!strcasecmp(name, "Suspend.Close")) {

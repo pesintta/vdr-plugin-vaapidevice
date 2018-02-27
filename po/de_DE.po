@@ -37,15 +37,6 @@ msgstr "Erzeuge primäres Gerät"
 msgid "Hide main menu entry"
 msgstr "Verstecke Hauptmenüeintrag"
 
-msgid "Osd size"
-msgstr "OSD Größe"
-
-msgid "Osd width"
-msgstr "OSD Breite"
-
-msgid "Osd height"
-msgstr "OSD Höhe"
-
 msgid "Suspend"
 msgstr "Unterbrechen"
 

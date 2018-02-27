@@ -204,7 +204,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     decoder->VideoCtx->thread_count = 1;
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
-    if (video_codec->capabilities & (CODEC_CAP_AUTO_THREADS)) {
+    if (video_codec->capabilities & (AV_CODEC_CAP_AUTO_THREADS)) {
 	Debug(3, "Auto threads enabled");
 	decoder->VideoCtx->thread_count = 0;
     }

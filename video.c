@@ -371,11 +371,7 @@ static pthread_mutex_t VideoDisplayLockMutex;	///< video lock mutex
 
 #endif
 
-static int OsdConfigWidth;		///< osd configured width
-static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
-static int OsdWidth;			///< osd width
-static int OsdHeight;			///< osd height
 static int OsdDirtyX;			///< osd dirty area x
 static int OsdDirtyY;			///< osd dirty area y
 static int OsdDirtyWidth;		///< osd dirty area width
@@ -493,8 +489,8 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 
     *crop_x = VideoCutLeftRight[resolution];
     *crop_y = VideoCutTopBottom[resolution];
-    *crop_width = input_width - VideoCutLeftRight[resolution] * 2;
-    *crop_height = input_height - VideoCutTopBottom[resolution] * 2;
+    *crop_width = VideoWindowWidth - VideoCutLeftRight[resolution] * 2;
+    *crop_height = VideoWindowHeight - VideoCutTopBottom[resolution] * 2;
 
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
@@ -828,19 +824,19 @@ static void GlxOsdDrawARGB(int xi, int yi, int width, int height, int pitch, con
 
     int copywidth, copyheight;
 
-    if (OsdWidth < width + x || OsdHeight < height + y) {
-	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, OsdWidth, height,
-	    y, OsdHeight);
+    if ((int)VideoWindowWidth < width + x || (int)VideoWindowHeight < height + y) {
+	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, VideoWindowWidth,
+	    height, y, VideoWindowHeight);
     }
-    if (OsdWidth < x || OsdHeight < y)
+    if ((int)VideoWindowWidth < x || (int)VideoWindowHeight < y)
 	return;
 
     copywidth = width;
     copyheight = height;
-    if (OsdWidth < width + x)
-	copywidth = OsdWidth - x;
-    if (OsdHeight < height + y)
-	copyheight = OsdHeight - y;
+    if ((int)VideoWindowWidth < width + x)
+	copywidth = VideoWindowWidth - x;
+    if ((int)VideoWindowHeight < height + y)
+	copyheight = VideoWindowHeight - y;
 
 #ifdef DEBUG
     if (!GlxEnabled) {
@@ -905,8 +901,8 @@ static void GlxOsdClear(void)
 	return;
     }
 
-    texbuf = calloc(OsdWidth * OsdHeight, 4);
-    GlxUploadOsdTexture(0, 0, OsdWidth, OsdHeight, texbuf);
+    texbuf = calloc(VideoWindowWidth * VideoWindowHeight, 4);
+    GlxUploadOsdTexture(0, 0, VideoWindowWidth, VideoWindowHeight, texbuf);
     glXMakeCurrent(XlibDisplay, None, NULL);
 
     free(texbuf);
@@ -2917,8 +2913,9 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 	Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
 	abort();
     }
-    status = vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth, VideoWindowHeight,
-	VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
+    status =
+	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth, VideoWindowHeight, VA_PROGRESSIVE,
+	decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
     }
@@ -3307,26 +3304,19 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext 
     if (VaOsdImage.image_id != VA_INVALID_ID)
 	return surface;
 
-    if (OsdConfigWidth && OsdConfigHeight) {
-	OsdWidth = OsdConfigWidth;
-	OsdHeight = OsdConfigHeight;
-    } else {
-	OsdWidth = VideoWindowWidth;
-	OsdHeight = VideoWindowHeight;
-    }
-
-    VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
+    VideoUsedModule->OsdInit(VideoWindowWidth, VideoWindowHeight);
 
     // FIXME: associate only if osd is displayed
-    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture,
-	TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids, num_surfaces, x, y, w, h, 0, 0, OsdWidth,
-	    OsdHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+    if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids,
+	    num_surfaces, x, y, w, h, 0, 0, VideoWindowWidth, VideoWindowHeight,
+	    VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
 	!= VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't associate subpicture");
     }
 
     vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y,
-	OsdWidth, OsdHeight, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
+	VideoWindowWidth, VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight,
+	VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
 
     return surface;
 }
@@ -5132,8 +5122,8 @@ void VideoOsdClear(void)
     VideoThreadLock();
     VideoUsedModule->OsdClear();
 
-    OsdDirtyX = OsdWidth;		// reset dirty area
-    OsdDirtyY = OsdHeight;
+    OsdDirtyX = VideoWindowWidth;	// reset dirty area
+    OsdDirtyY = VideoWindowHeight;
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
     OsdShown = 0;
@@ -5192,27 +5182,8 @@ void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const ui
 ///
 void VideoGetOsdSize(int *width, int *height)
 {
-    *width = 1920;
-    *height = 1080;			// unknown default
-    if (OsdWidth && OsdHeight) {
-	*width = OsdWidth;
-	*height = OsdHeight;
-    }
-}
-
-/// Set OSD Size.
-///
-/// @param width    OSD width
-/// @param height   OSD height
-///
-void VideoSetOsdSize(int width, int height)
-{
-    if (OsdConfigWidth != width || OsdConfigHeight != height) {
-	VideoOsdExit();
-	OsdConfigWidth = width;
-	OsdConfigHeight = height;
-	VideoOsdInit();
-    }
+    *width = VideoWindowWidth;
+    *height = VideoWindowHeight;
 }
 
 ///
@@ -5223,16 +5194,8 @@ void VideoSetOsdSize(int width, int height)
 ///
 void VideoOsdInit(void)
 {
-    if (OsdConfigWidth && OsdConfigHeight) {
-	OsdWidth = OsdConfigWidth;
-	OsdHeight = OsdConfigHeight;
-    } else {
-	OsdWidth = VideoWindowWidth;
-	OsdHeight = VideoWindowHeight;
-    }
-
     VideoThreadLock();
-    VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
+    VideoUsedModule->OsdInit(VideoWindowWidth, VideoWindowHeight);
     VideoThreadUnlock();
     VideoOsdClear();
 }
@@ -6243,21 +6206,13 @@ int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalu
 ///
 void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width, int height)
 {
-    if (!OsdWidth || !OsdHeight) {
-	return;
-    }
     if (!width || !height) {
 	// restore full size
+	x = 0;
+	y = 0;
 	width = VideoWindowWidth;
 	height = VideoWindowHeight;
-    } else {
-	// convert OSD coordinates to window coordinates
-	x = (x * VideoWindowWidth) / OsdWidth;
-	width = (width * VideoWindowWidth) / OsdWidth;
-	y = (y * VideoWindowHeight) / OsdHeight;
-	height = (height * VideoWindowHeight) / OsdHeight;
     }
-
     // FIXME: add function to module class
     if (VideoUsedModule == &VaapiModule) {
 	// check values to be able to avoid
@@ -6273,7 +6228,6 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width
 	VaapiUpdateOutput(&hw_decoder->Vaapi);
 	VideoThreadUnlock();
     }
-    (void)hw_decoder;
 }
 
 ///
@@ -6339,7 +6293,6 @@ void VideoSet4to3DisplayFormat(int format)
 
     VideoThreadLock();
     Video4to3ZoomMode = format;
-    // FIXME: need only VideoUsedModule->UpdateOutput();
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
 
@@ -6378,7 +6331,6 @@ void VideoSetOtherDisplayFormat(int format)
 
     VideoThreadLock();
     VideoOtherZoomMode = format;
-    // FIXME: need only VideoUsedModule->UpdateOutput();
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
 
@@ -6617,12 +6569,14 @@ void VideoSetScaling(int mode[VideoResolutionMax])
 ///
 void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
 {
+    VideoThreadLock();
     VideoCutTopBottom[0] = pixels[0];
     VideoCutTopBottom[1] = pixels[1];
     VideoCutTopBottom[2] = pixels[2];
     VideoCutTopBottom[3] = pixels[3];
     VideoCutTopBottom[4] = pixels[4];
-    // FIXME: update output
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
 }
 
 ///
@@ -6632,12 +6586,14 @@ void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
 ///
 void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
 {
+    VideoThreadLock();
     VideoCutLeftRight[0] = pixels[0];
     VideoCutLeftRight[1] = pixels[1];
     VideoCutLeftRight[2] = pixels[2];
     VideoCutLeftRight[3] = pixels[3];
     VideoCutLeftRight[4] = pixels[4];
-    // FIXME: update output
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
 }
 
 ///
@@ -6869,4 +6825,3 @@ void VideoExit(void)
 }
 
 #endif
-

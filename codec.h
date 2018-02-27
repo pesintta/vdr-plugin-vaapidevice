@@ -15,19 +15,6 @@
 
 #define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
 
-enum HWAccelID
-{
-    HWACCEL_NONE = 0,
-    HWACCEL_AUTO,
-    HWACCEL_VDPAU,
-    HWACCEL_DXVA2,
-    HWACCEL_VDA,
-    HWACCEL_VIDEOTOOLBOX,
-    HWACCEL_QSV,
-    HWACCEL_VAAPI,
-    HWACCEL_CUVID,
-};
-
 AVBufferRef *hw_device_ctx;
 
 ///
@@ -43,7 +30,6 @@ struct _video_decoder_
     AVFrame *Frame;			///< decoded video frame
 
     /* hwaccel options */
-    enum HWAccelID hwaccel_id;
     char *hwaccel_device;
     enum AVPixelFormat hwaccel_output_format;
 

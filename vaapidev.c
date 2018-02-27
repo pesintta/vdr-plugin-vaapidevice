@@ -581,7 +581,7 @@ static void VideoEnqueue(VideoStream * stream, int64_t pts, int64_t dts, const v
 
 	Warning("video: packet buffer too small for %d", avpkt->stream_index + size);
 
-	// new + grow reserves FF_INPUT_BUFFER_PADDING_SIZE
+	// new + grow reserves AV_INPUT_BUFFER_PADDING_SIZE
 	av_grow_packet(avpkt, ((size + VIDEO_BUFFER_SIZE / 2)
 		/ (VIDEO_BUFFER_SIZE / 2)) * (VIDEO_BUFFER_SIZE / 2));
 	// FIXME: out of memory!
@@ -648,7 +648,7 @@ static void VideoNextPacket(VideoStream * stream, int codec_id)
 	return;
     }
     // clear area for decoder, always enough space allocated
-    memset(avpkt->data + avpkt->stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+    memset(avpkt->data + avpkt->stream_index, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 
     stream->CodecIDRb[stream->PacketWrite] = codec_id;
     //DumpH264(avpkt->data, avpkt->stream_index);
@@ -1201,7 +1201,7 @@ static void PesInit(PesDemux * pesdx)
 {
     memset(pesdx, 0, sizeof(*pesdx));
     pesdx->Size = PES_MAX_PAYLOAD;
-    pesdx->Buffer = av_malloc(PES_MAX_PAYLOAD + FF_INPUT_BUFFER_PADDING_SIZE);
+    pesdx->Buffer = av_malloc(PES_MAX_PAYLOAD + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!pesdx->Buffer) {
 	Fatal("pesdemux: out of memory");
     }
