@@ -1797,8 +1797,7 @@ int64_t AudioGetDelay(void)
     pts += ((int64_t) RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer)
 	* 90 * 1000) / (AudioRing[AudioRingRead].HwSampleRate * AudioRing[AudioRingRead].HwChannels *
 	AudioBytesProSample);
-    Debug6("audio: hw+sw delay %zd %" PRId64 "ms", RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer),
-	pts / 90);
+    Debug6("audio: hw+sw delay %zd %" PRId64 "ms", RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer), pts / 90);
 
     return pts;
 }

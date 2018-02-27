@@ -142,10 +142,11 @@ extern "C" void LogMessage(int trace, int level, const char *format, ...)
 	va_list ap;
 	char fmt[256];
 	int priority, mask;
-	const char *prefix = "VAAPI";
+	const char *prefix = "VAAPI: ";
 
 	switch (level) {
 	    case 0:		       // ERROR
+		prefix = "VAAPI-ERROR: ";
 		priority = LOG_ERR;
 		break;
 	    case 1:		       // INFO
@@ -161,7 +162,7 @@ extern "C" void LogMessage(int trace, int level, const char *format, ...)
 		priority = LOG_DEBUG;
 		break;
 	}
-	snprintf(fmt, sizeof(fmt), "[%d] %s: %s", cThread::ThreadId(), prefix, format);
+	snprintf(fmt, sizeof(fmt), "[%d] %s%s", cThread::ThreadId(), prefix, format);
 	va_start(ap, format);
 	vsyslog(priority, fmt, ap);
 	va_end(ap);

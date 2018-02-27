@@ -893,13 +893,33 @@ static int VaapiMessage(int level, const char *format, ...)
 	va_start(ap, format);
 	if (format != last_format) {	// don't repeat same message
 	    if (buf[0]) {		// print last repeated message
-		Error("%s", buf);
+		switch (level) {
+		    case 0:
+			Error("%s", buf);
+			break;
+		    case 1:
+			Info("%s", buf);
+			break;
+		    default:
+			Debug("%s", buf);
+			break;
+		}
 		buf[0] = '\0';
 	    }
 
 	    if (format) {
 		last_format = format;
-		Error(format, ap);
+		switch (level) {
+		    case 0:
+			Error(format, ap);
+			break;
+		    case 1:
+			Info(format, ap);
+			break;
+		    default:
+			Debug(format, ap);
+			break;
+		}
 	    }
 	    va_end(ap);
 	    return 1;
@@ -1023,8 +1043,8 @@ static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 ///
 static void VaapiPrintFrames(const VaapiDecoder * decoder)
 {
-    Debug7("video/vaapi: %d missed, %d duped, %d dropped frames of %d,%d", decoder->FramesMissed,
-	decoder->FramesDuped, decoder->FramesDropped, decoder->FrameCounter, decoder->FramesDisplayed);
+    Debug7("video/vaapi: %d missed, %d duped, %d dropped frames of %d,%d", decoder->FramesMissed, decoder->FramesDuped,
+	decoder->FramesDropped, decoder->FrameCounter, decoder->FramesDisplayed);
 }
 
 ///
@@ -1484,8 +1504,8 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 	Error("video/vaapi: vaQueryImageFormats failed");
 	return 0;
     }
-    Debug7("video/vaapi: search format %c%c%c%c in %d image formats", fourcc, fourcc >> 8, fourcc >> 16,
-	fourcc >> 24, imgfrmt_n);
+    Debug7("video/vaapi: search format %c%c%c%c in %d image formats", fourcc, fourcc >> 8, fourcc >> 16, fourcc >> 24,
+	imgfrmt_n);
     Debug7("video/vaapi: supported image formats:");
     for (i = 0; i < imgfrmt_n; ++i) {
 	Debug7("video/vaapi:\t%c%c%c%c\t%d", imgfrmts[i].fourcc, imgfrmts[i].fourcc >> 8, imgfrmts[i].fourcc >> 16,
@@ -2783,8 +2803,8 @@ static void VaapiAutoCrop(VaapiDecoder * decoder)
 	return;
     }
 
-    Debug7("video: crop aspect %d:%d %d/%d %+d%+d", decoder->InputAspect.num, decoder->InputAspect.den, crop14,
-	crop16, decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
+    Debug7("video: crop aspect %d:%d %d/%d %+d%+d", decoder->InputAspect.num, decoder->InputAspect.den, crop14, crop16,
+	decoder->AutoCrop->Y1, decoder->InputHeight - decoder->AutoCrop->Y2);
 
     Debug7("video: crop aspect %d -> %d", decoder->AutoCrop->State, next_state);
 

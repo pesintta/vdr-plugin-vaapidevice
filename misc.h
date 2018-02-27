@@ -38,22 +38,23 @@ extern void LogMessage(int trace, int level, const char *format, ...) __attribut
 #define Fatal(a...)   do { LogMessage(0, 0, a); abort(); } while (0)
 #define Error(a...)   LogMessage(0,  0, a)
 #define Info(a...)    LogMessage(0,  1, a)
-#define Debug1(a...)  LogMessage(1,  2, a)	// Device
-#define Debug2(a...)  LogMessage(2,  2, a)	// X11
-#define Debug3(a...)  LogMessage(3,  2, a)	// Demuxer
-#define Debug4(a...)  LogMessage(4,  2, a)	// Codec
-#define Debug5(a...)  LogMessage(5,  2, a)	// Audio
-#define Debug6(a...)  LogMessage(6,  2, a)	// Audio: extra
-#define Debug7(a...)  LogMessage(7,  2, a)	// Video
-#define Debug8(a...)  LogMessage(8,  2, a)	// Video: extra
-#define Debug9(a...)  LogMessage(9,  2, a)	// FFMPEG: verbose
-#define Debug10(a...) LogMessage(10, 2, a)	// FFMPEG: info
-#define Debug11(a...) LogMessage(11, 2, a)	// FFMPEG: warning
-#define Debug12(a...) LogMessage(12, 2, a)	// FFMPEG: error
-#define Debug13(a...) LogMessage(13, 2, a)	// TBD
-#define Debug14(a...) LogMessage(14, 2, a)	// TBD
-#define Debug15(a...) LogMessage(14, 2, a)	// TBD
-#define Debug16(a...) LogMessage(16, 2, a)	// TBD
+#define Debug(a...)   LogMessage(0,  3, a)
+#define Debug1(a...)  LogMessage(1,  2, a)  // Device
+#define Debug2(a...)  LogMessage(2,  2, a)  // X11
+#define Debug3(a...)  LogMessage(3,  2, a)  // Demuxer
+#define Debug4(a...)  LogMessage(4,  2, a)  // Codec
+#define Debug5(a...)  LogMessage(5,  2, a)  // Audio
+#define Debug6(a...)  LogMessage(6,  2, a)  // Audio: extra
+#define Debug7(a...)  LogMessage(7,  2, a)  // Video
+#define Debug8(a...)  LogMessage(8,  2, a)  // Video: extra
+#define Debug9(a...)  LogMessage(9,  2, a)  // FFMPEG: verbose
+#define Debug10(a...) LogMessage(10, 2, a)  // FFMPEG: info
+#define Debug11(a...) LogMessage(11, 2, a)  // FFMPEG: warning
+#define Debug12(a...) LogMessage(12, 2, a)  // FFMPEG: error
+#define Debug13(a...) LogMessage(13, 2, a)  // TBD
+#define Debug14(a...) LogMessage(14, 2, a)  // TBD
+#define Debug15(a...) LogMessage(14, 2, a)  // TBD
+#define Debug16(a...) LogMessage(16, 2, a)  // TBD
 
 /**
 **	Nice time-stamp string.

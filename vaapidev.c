@@ -1541,7 +1541,7 @@ static void PesParse(PesDemux * pesdx, const uint8_t * data, int size, int is_st
 			    (int64_t) (data[14] & 0x0E) << 29 | data[15] << 22 | (data[16] & 0xFE) << 14 | data[17] <<
 			    7 | (data[18] & 0xFE) >> 1;
 			pesdx->DTS = dts;
-			Debug3("pesdemux: pts %#012" PRIx64 " %#012" PRIx64, pts, dts);
+			Debug3("pesdemux: pts %#012" PRIx64 " dts %#012" PRIx64, pts, dts);
 		    }
 
 		  empty_header:
