@@ -49,9 +49,6 @@
 #include <X11/keysym.h>
 
 #include <xcb/xcb.h>
-#ifdef xcb_USE_GLX
-#include <xcb/glx.h>
-#endif
 
 #include <xcb/xcb_icccm.h>
 #ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
@@ -73,21 +70,11 @@ typedef enum
 #endif
 #endif
 
-#ifdef USE_GLX
-#include <GL/gl.h>			// For GL_COLOR_BUFFER_BIT
-#include <GL/glx.h>
-// only for gluErrorString
-#include <GL/glu.h>
-#endif
-
 #include <va/va_x11.h>
 #if !VA_CHECK_VERSION(1,0,0)
 #error "libva is too old - please, upgrade!"
 #endif
 #include <va/va_vpp.h>
-#ifdef USE_GLX
-#include <va/va_glx.h>
-#endif
 
 #include <libavcodec/avcodec.h>
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
@@ -593,618 +580,6 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 }
 
 //----------------------------------------------------------------------------
-//  GLX
-//----------------------------------------------------------------------------
-
-#ifdef USE_GLX
-
-static int GlxEnabled;			///< use GLX
-static int GlxVSyncEnabled;		///< enable/disable v-sync
-static GLXContext GlxSharedContext;	///< shared gl context
-static GLXContext GlxContext;		///< our gl context
-
-static GLXContext GlxThreadContext;	///< our gl context for the thread
-
-static GLXFBConfig *GlxFBConfigs;	///< our gl fb configs
-static XVisualInfo *GlxVisualInfo;	///< our gl visual
-
-static GLuint OsdGlTextures[2];		///< gl texture for OSD
-static int OsdIndex;			///< index into OsdGlTextures
-
-///
-/// GLX extension functions
-///@{
-#ifdef GLX_MESA_swap_control
-static PFNGLXSWAPINTERVALMESAPROC GlxSwapIntervalMESA;
-#endif
-#ifdef GLX_SGI_video_sync
-static PFNGLXGETVIDEOSYNCSGIPROC GlxGetVideoSyncSGI;
-#endif
-#ifdef GLX_SGI_swap_control
-static PFNGLXSWAPINTERVALSGIPROC GlxSwapIntervalSGI;
-#endif
-
-///@}
-
-///
-/// GLX check error.
-///
-static void GlxCheck(void)
-{
-    GLenum err;
-
-    if ((err = glGetError()) != GL_NO_ERROR) {
-	Debug(3, "video/glx: error %d '%s'", err, gluErrorString(err));
-    }
-}
-
-///
-/// GLX check if a GLX extension is supported.
-///
-/// @param ext	extension to query
-/// @returns true if supported, false otherwise
-///
-static int GlxIsExtensionSupported(const char *ext)
-{
-    const char *extensions;
-
-    if ((extensions = glXQueryExtensionsString(XlibDisplay, DefaultScreen(XlibDisplay)))) {
-	const char *s;
-	int l;
-
-	s = strstr(extensions, ext);
-	l = strlen(ext);
-	return s && (s[l] == ' ' || s[l] == '\0');
-    }
-    return 0;
-}
-
-///
-/// Setup GLX decoder
-///
-/// @param width    input video textures width
-/// @param height   input video textures height
-/// @param[OUT] textures    created and prepared textures
-///
-static void GlxSetupDecoder(int width, int height, GLuint * textures)
-{
-    int i;
-
-    glEnable(GL_TEXTURE_2D);		// create 2d texture
-    glGenTextures(2, textures);
-    GlxCheck();
-    for (i = 0; i < 2; ++i) {
-	glBindTexture(GL_TEXTURE_2D, textures[i]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-	glBindTexture(GL_TEXTURE_2D, 0);
-    }
-    glDisable(GL_TEXTURE_2D);
-
-    GlxCheck();
-}
-
-///
-/// Render texture.
-///
-/// @param texture  2d texture
-/// @param x	window x
-/// @param y	window y
-/// @param width    window width
-/// @param height   window height
-///
-static inline void GlxRenderTexture(GLuint texture, int x, int y, int width, int height)
-{
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);	// no color
-    glBegin(GL_QUADS); {
-	glTexCoord2f(1.0f, 1.0f);
-	glVertex2i(x + width, y + height);
-	glTexCoord2f(0.0f, 1.0f);
-	glVertex2i(x, y + height);
-	glTexCoord2f(0.0f, 0.0f);
-	glVertex2i(x, y);
-	glTexCoord2f(1.0f, 0.0f);
-	glVertex2i(x + width, y);
-    }
-    glEnd();
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-}
-
-///
-/// Upload OSD texture.
-///
-/// @param x	x coordinate texture
-/// @param y	y coordinate texture
-/// @param width    argb image width
-/// @param height   argb image height
-/// @param argb argb image
-///
-static void GlxUploadOsdTexture(int x, int y, int width, int height, const uint8_t * argb)
-{
-    // FIXME: use other / faster uploads
-    // ARB_pixelbuffer_object GL_PIXEL_UNPACK_BUFFER glBindBufferARB()
-    // glMapBuffer() glUnmapBuffer()
-
-    glEnable(GL_TEXTURE_2D);		// upload 2d texture
-
-    glBindTexture(GL_TEXTURE_2D, OsdGlTextures[OsdIndex]);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA, GL_UNSIGNED_BYTE, argb);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    glDisable(GL_TEXTURE_2D);
-}
-
-///
-/// GLX initialize OSD.
-///
-/// @param width    osd width
-/// @param height   osd height
-///
-static void GlxOsdInit(int width, int height)
-{
-    int i;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-#endif
-
-    Debug(3, "video/glx: osd init context %p <-> %p", glXGetCurrentContext(), GlxContext);
-
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Fatal("video/glx: can't make glx osd context current");
-    }
-    //
-    //	create a RGBA texture.
-    //
-    glEnable(GL_TEXTURE_2D);		// create 2d texture(s)
-
-    glGenTextures(2, OsdGlTextures);
-    for (i = 0; i < 2; ++i) {
-	glBindTexture(GL_TEXTURE_2D, OsdGlTextures[i]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-    }
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-    glXMakeCurrent(XlibDisplay, None, NULL);
-
-}
-
-///
-/// GLX cleanup osd.
-///
-static void GlxOsdExit(void)
-{
-    if (OsdGlTextures[0]) {
-	glDeleteTextures(2, OsdGlTextures);
-	OsdGlTextures[0] = 0;
-	OsdGlTextures[1] = 0;
-    }
-}
-
-///
-/// Upload ARGB image to texture.
-///
-/// @param xi	x-coordinate in argb image
-/// @param yi	y-coordinate in argb image
-/// @paran height   height in pixel in argb image
-/// @paran width    width in pixel in argb image
-/// @param pitch    pitch of argb image
-/// @param argb 32bit ARGB image data
-/// @param x	x-coordinate on screen of argb image
-/// @param y	y-coordinate on screen of argb image
-///
-/// @note looked by caller
-///
-static void GlxOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const uint8_t * argb, int x, int y)
-{
-    uint8_t *tmp;
-
-#ifdef DEBUG
-    uint32_t start;
-    uint32_t end;
-#endif
-
-    int copywidth, copyheight;
-
-    if ((int)VideoWindowWidth < width + x || (int)VideoWindowHeight < height + y) {
-	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, VideoWindowWidth,
-	    height, y, VideoWindowHeight);
-    }
-    if ((int)VideoWindowWidth < x || (int)VideoWindowHeight < y)
-	return;
-
-    copywidth = width;
-    copyheight = height;
-    if ((int)VideoWindowWidth < width + x)
-	copywidth = VideoWindowWidth - x;
-    if ((int)VideoWindowHeight < height + y)
-	copyheight = VideoWindowHeight - y;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-    start = GetMsTicks();
-    Debug(3, "video/glx: osd context %p <-> %p", glXGetCurrentContext(), GlxContext);
-#endif
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Error("video/glx: can't make glx context current");
-	return;
-    }
-    // FIXME: faster way
-    tmp = malloc(copywidth * copyheight * 4);
-    if (tmp) {
-	int i;
-
-	for (i = 0; i < copyheight; ++i) {
-	    memcpy(tmp + i * copywidth * 4, argb + xi * 4 + (i + yi) * pitch, copywidth * 4);
-	}
-
-	GlxUploadOsdTexture(x, y, copywidth, copyheight, tmp);
-	glXMakeCurrent(XlibDisplay, None, NULL);
-
-	free(tmp);
-    }
-#ifdef DEBUG
-    end = GetMsTicks();
-
-    Debug(3, "video/glx: osd upload %dx%d%+d%+d %dms %d", width, height, x, y, end - start, width * height * 4);
-#endif
-}
-
-///
-/// Clear OSD texture.
-///
-/// @note looked by caller
-///
-static void GlxOsdClear(void)
-{
-    void *texbuf;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-
-    Debug(3, "video/glx: osd context %p <-> %p", glXGetCurrentContext(), GlxContext);
-#endif
-
-    // FIXME: any opengl function to clear an area?
-    // FIXME: if not; use zero buffer
-    // FIXME: if not; use dirty area
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Error("video/glx: can't make glx context current");
-	return;
-    }
-
-    texbuf = calloc(VideoWindowWidth * VideoWindowHeight, 4);
-    GlxUploadOsdTexture(0, 0, VideoWindowWidth, VideoWindowHeight, texbuf);
-    glXMakeCurrent(XlibDisplay, None, NULL);
-
-    free(texbuf);
-}
-
-///
-/// Setup GLX window.
-///
-/// @param window   xcb window id
-/// @param width    window width
-/// @param height   window height
-/// @param context  GLX context
-///
-static void GlxSetupWindow(xcb_window_t window, int width, int height, GLXContext context)
-{
-#ifdef DEBUG
-    uint32_t end;
-    int i;
-    unsigned count;
-#endif
-
-    Debug(3, "video/glx: %s %x %dx%d context:%p", __FUNCTION__, window, width, height, context);
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, window, context)) {
-	Error("video/glx: can't make glx context current");
-	GlxEnabled = 0;
-	return;
-    }
-
-    Debug(3, "video/glx: ok");
-
-#ifdef DEBUG
-    // check if v-sync is working correct
-    end = GetMsTicks();
-    for (i = 0; i < 10; ++i) {
-	uint32_t start = end;
-
-	glClear(GL_COLOR_BUFFER_BIT);
-	glXSwapBuffers(XlibDisplay, window);
-	end = GetMsTicks();
-
-	GlxGetVideoSyncSGI(&count);
-	Debug(3, "video/glx: %5d frame rate %dms", count, end - start);
-	// nvidia can queue 5 swaps
-	if (i > 5 && (end - start) < 15) {
-	    Warning("video/glx: no v-sync");
-	}
-    }
-#endif
-
-    // viewpoint
-    GlxCheck();
-    glViewport(0, 0, width, height);
-    glDepthRange(-1.0, 1.0);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glClearDepth(1.0);
-    GlxCheck();
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, width, height, 0.0, -1.0, 1.0);
-    GlxCheck();
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    glDisable(GL_DEPTH_TEST);		// setup 2d drawing
-    glDepthMask(GL_FALSE);
-    glDisable(GL_CULL_FACE);
-    glDrawBuffer(GL_BACK);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-#ifdef DEBUG
-    glDrawBuffer(GL_FRONT);
-    glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glDrawBuffer(GL_BACK);
-#endif
-
-    // clear
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);   // intial background color
-    glClear(GL_COLOR_BUFFER_BIT);
-#ifdef DEBUG
-    glClearColor(1.0f, 1.0f, 0.0f, 1.0f);   // background color
-#endif
-    GlxCheck();
-}
-
-///
-/// Initialize GLX.
-///
-static void GlxInit(void)
-{
-    static GLint fb_attr[] = {
-	GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
-	GLX_RENDER_TYPE, GLX_RGBA_BIT,
-	GLX_RED_SIZE, 8,
-	GLX_GREEN_SIZE, 8,
-	GLX_BLUE_SIZE, 8,
-	GLX_DOUBLEBUFFER, True,
-	None
-    };
-    XVisualInfo *vi;
-    GLXContext context;
-    GLXFBConfig *fbconfigs;
-    int numconfigs;
-    int major;
-    int minor;
-    int glx_GLX_EXT_swap_control;
-    int glx_GLX_MESA_swap_control;
-    int glx_GLX_SGI_swap_control;
-    int glx_GLX_SGI_video_sync;
-
-    if (!glXQueryVersion(XlibDisplay, &major, &minor)) {
-	Error("video/glx: no GLX support");
-	GlxEnabled = 0;
-	return;
-    }
-    Info("video/glx: glx version %d.%d", major, minor);
-
-    //
-    //	check which extension are supported
-    //
-    glx_GLX_EXT_swap_control = GlxIsExtensionSupported("GLX_EXT_swap_control");
-    glx_GLX_MESA_swap_control = GlxIsExtensionSupported("GLX_MESA_swap_control");
-    glx_GLX_SGI_swap_control = GlxIsExtensionSupported("GLX_SGI_swap_control");
-    glx_GLX_SGI_video_sync = GlxIsExtensionSupported("GLX_SGI_video_sync");
-
-#ifdef GLX_MESA_swap_control
-    if (glx_GLX_MESA_swap_control) {
-	GlxSwapIntervalMESA = (PFNGLXSWAPINTERVALMESAPROC)
-	    glXGetProcAddress((const GLubyte *)"glXSwapIntervalMESA");
-    }
-    Debug(3, "video/glx: GlxSwapIntervalMESA=%p", GlxSwapIntervalMESA);
-#endif
-#ifdef GLX_SGI_swap_control
-    if (glx_GLX_SGI_swap_control) {
-	GlxSwapIntervalSGI = (PFNGLXSWAPINTERVALSGIPROC)
-	    glXGetProcAddress((const GLubyte *)"glXSwapIntervalSGI");
-    }
-    Debug(3, "video/glx: GlxSwapIntervalSGI=%p", GlxSwapIntervalSGI);
-#endif
-#ifdef GLX_SGI_video_sync
-    if (glx_GLX_SGI_video_sync) {
-	GlxGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)
-	    glXGetProcAddress((const GLubyte *)"glXGetVideoSyncSGI");
-    }
-    Debug(3, "video/glx: GlxGetVideoSyncSGI=%p", GlxGetVideoSyncSGI);
-#endif
-    // glXGetVideoSyncSGI glXWaitVideoSyncSGI
-
-    // create glx context
-    glXMakeCurrent(XlibDisplay, None, NULL);
-    fbconfigs = glXChooseFBConfig(XlibDisplay, DefaultScreen(XlibDisplay), fb_attr, &numconfigs);
-    if (!fbconfigs || !numconfigs) {
-	Error("video/glx: can't get FB configs");
-	GlxEnabled = 0;
-	return;
-    }
-    vi = glXGetVisualFromFBConfig(XlibDisplay, fbconfigs[0]);
-    if (!vi) {
-	Error("video/glx: can't get a RGB visual");
-	GlxEnabled = 0;
-	return;
-    }
-    if (!vi->visual) {
-	Error("video/glx: no valid visual found");
-	GlxEnabled = 0;
-	return;
-    }
-    if (vi->bits_per_rgb < 8) {
-	Error("video/glx: need atleast 8-bits per RGB");
-	GlxEnabled = 0;
-	return;
-    }
-    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, NULL, GL_TRUE);
-    if (!context) {
-	Error("video/glx: can't create shared glx context");
-	GlxEnabled = 0;
-	return;
-    }
-    GlxSharedContext = context;
-    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, GlxSharedContext, GL_TRUE);
-    if (!context) {
-	Error("video/glx: can't create glx context");
-	GlxEnabled = 0;
-	glXDestroyContext(XlibDisplay, GlxSharedContext);
-	GlxSharedContext = 0;
-	return;
-    }
-    GlxContext = context;
-    GlxFBConfigs = fbconfigs;
-    GlxVisualInfo = vi;
-    Debug(3, "video/glx: visual %#02x depth %u", (unsigned)vi->visualid, vi->depth);
-
-    //
-    //	query default v-sync state
-    //
-    if (glx_GLX_EXT_swap_control) {
-	unsigned tmp;
-
-	tmp = -1;
-	glXQueryDrawable(XlibDisplay, DefaultRootWindow(XlibDisplay), GLX_SWAP_INTERVAL_EXT, &tmp);
-	GlxCheck();
-
-	Debug(3, "video/glx: default v-sync is %d", tmp);
-    } else {
-	Debug(3, "video/glx: default v-sync is unknown");
-    }
-
-    //
-    //	disable wait on v-sync
-    //
-    // FIXME: sleep before swap / busy waiting hardware
-    // FIXME: 60hz lcd panel
-    // FIXME: config: default, on, off
-#ifdef GLX_SGI_swap_control
-    if (GlxVSyncEnabled < 0 && GlxSwapIntervalSGI) {
-	if (GlxSwapIntervalSGI(0)) {
-	    GlxCheck();
-	    Warning("video/glx: can't disable v-sync");
-	} else {
-	    Info("video/glx: v-sync disabled");
-	}
-    } else
-#endif
-#ifdef GLX_MESA_swap_control
-    if (GlxVSyncEnabled < 0 && GlxSwapIntervalMESA) {
-	if (GlxSwapIntervalMESA(0)) {
-	    GlxCheck();
-	    Warning("video/glx: can't disable v-sync");
-	} else {
-	    Info("video/glx: v-sync disabled");
-	}
-    }
-#endif
-
-    //
-    //	enable wait on v-sync
-    //
-#ifdef GLX_SGI_swap_control
-    if (GlxVSyncEnabled > 0 && GlxSwapIntervalMESA) {
-	if (GlxSwapIntervalMESA(1)) {
-	    GlxCheck();
-	    Warning("video/glx: can't enable v-sync");
-	} else {
-	    Info("video/glx: v-sync enabled");
-	}
-    } else
-#endif
-#ifdef GLX_MESA_swap_control
-    if (GlxVSyncEnabled > 0 && GlxSwapIntervalSGI) {
-	if (GlxSwapIntervalSGI(1)) {
-	    GlxCheck();
-	    Warning("video/glx: can't enable v-sync");
-	} else {
-	    Info("video/glx: v-sync enabled");
-	}
-    }
-#endif
-}
-
-///
-/// Cleanup GLX.
-///
-static void GlxExit(void)
-{
-    Debug(3, "video/glx: %s", __FUNCTION__);
-
-    glFinish();
-
-    // must destroy glx
-    if (glXGetCurrentContext() == GlxContext) {
-	// if currently used, set to none
-	glXMakeCurrent(XlibDisplay, None, NULL);
-    }
-    if (GlxSharedContext) {
-	glXDestroyContext(XlibDisplay, GlxSharedContext);
-    }
-    if (GlxContext) {
-	glXDestroyContext(XlibDisplay, GlxContext);
-    }
-    if (GlxThreadContext) {
-	glXDestroyContext(XlibDisplay, GlxThreadContext);
-    }
-    if (GlxVisualInfo) {
-	XFree(GlxVisualInfo);
-	GlxVisualInfo = NULL;
-    }
-    if (GlxFBConfigs) {
-	XFree(GlxFBConfigs);
-	GlxFBConfigs = NULL;
-    }
-}
-
-#endif
-
-//----------------------------------------------------------------------------
 //  common functions
 //----------------------------------------------------------------------------
 
@@ -1486,10 +861,6 @@ struct _vaapi_decoder_
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
-#ifdef USE_GLX
-    GLuint GlTextures[2];		///< gl texture for VA-API
-    void *GlxSurfaces[2];		///< VA-API/GLX surface
-#endif
     VASurfaceID BlackSurface;		///< empty black surface
 
     /// video surface ring buffer
@@ -1945,14 +1316,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->VppConfig = VA_INVALID_ID;
     decoder->vpp_ctx = VA_INVALID_ID;
 
-#ifdef USE_GLX
-    decoder->GlxSurfaces[0] = NULL;
-    decoder->GlxSurfaces[1] = NULL;
-    if (GlxEnabled) {
-	// FIXME: create GLX context here
-    }
-#endif
-
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
 
@@ -2120,25 +1483,6 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	    Error("video/vaapi: can't destroy a surface");
 	}
     }
-#ifdef USE_GLX
-    if (decoder->GlxSurfaces[0]) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[0])
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy glx surface!");
-	}
-	decoder->GlxSurfaces[0] = NULL;
-    }
-    if (decoder->GlxSurfaces[1]) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[1])
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy glx surface!");
-	}
-	decoder->GlxSurfaces[0] = NULL;
-    }
-    if (decoder->GlTextures[0]) {
-	glDeleteTextures(2, decoder->GlTextures);
-    }
-#endif
 
     VaapiPrintFrames(decoder);
 
@@ -2159,32 +1503,6 @@ static int VaapiInit(const char *display_name)
 
     return 1;
 }
-
-#ifdef USE_GLX
-
-///
-/// VA-API GLX setup.
-///
-/// @param display_name x11/xcb display name
-///
-/// @returns true if VA-API could be initialized, false otherwise.
-///
-static int VaapiGlxInit(const char *display_name)
-{
-    GlxEnabled = 1;
-
-    GlxInit();
-    if (GlxEnabled) {
-	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight, GlxContext);
-    }
-    if (!GlxEnabled) {
-	Error("video/glx: glx error");
-    }
-
-    return VaapiInit(display_name);
-}
-
-#endif
 
 ///
 /// VA-API cleanup
@@ -2873,41 +2191,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
     decoder->Resolution = VideoResolutionGroup(width, height, decoder->Interlaced);
     VaapiCreateSurfaces(decoder, VideoWindowWidth, VideoWindowHeight);
 
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	VAStatus status;
-
-	// FIXME: destroy old context
-	GLXContext prevcontext = glXGetCurrentContext();
-
-	if (!prevcontext) {
-	    if (GlxThreadContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
-		    GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    } else if (GlxContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    }
-	}
-
-	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight, decoder->GlTextures);
-	// FIXME: try two textures
-	status =
-	    vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D, decoder->GlTextures[0], &decoder->GlxSurfaces[0]);
-	if (status != VA_STATUS_SUCCESS) {
-	    Fatal("video/glx: can't create glx surfaces (0x%X): %s", status, vaErrorStr(status));
-	    // FIXME: no fatal here
-	}
-	if (!prevcontext)
-	    glXMakeCurrent(XlibDisplay, None, NULL);
-    }
-#endif
-
     status = vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
@@ -2927,11 +2210,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
     //
     //	update OSD associate
     //
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	return;
-    }
-#endif
     VaapiAssociate(decoder);
 }
 
@@ -3440,63 +2718,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     }
 }
 
-#ifdef USE_GLX
-
-///
-/// Draw surface of the VA-API decoder with glx.
-///
-/// @param decoder  VA-API decoder
-/// @param surface  VA-API surface id
-/// @param interlaced	flag interlaced source
-/// @param deinterlaced flag source was deinterlaced
-/// @param top_field_first  flag top_field_first for interlaced source
-/// @param field    interlaced draw: 0 first field, 1 second field
-///
-static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface, int interlaced, int deinterlaced,
-    int top_field_first, int field)
-{
-    unsigned type;
-
-    //uint32_t start;
-    //uint32_t copy;
-    //uint32_t end;
-
-    // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone) {
-	if (top_field_first) {
-	    if (field) {
-		type = VA_BOTTOM_FIELD;
-	    } else {
-		type = VA_TOP_FIELD;
-	    }
-	} else {
-	    if (field) {
-		type = VA_TOP_FIELD;
-	    } else {
-		type = VA_BOTTOM_FIELD;
-	    }
-	}
-    } else {
-	type = VA_FRAME_PICTURE;
-    }
-
-    //start = GetMsTicks();
-    if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurfaces[0], surface,
-	    type | decoder->SurfaceFlagsTable[decoder->Resolution]) != VA_STATUS_SUCCESS) {
-	Error("video/glx: vaCopySurfaceGLX failed");
-	return;
-    }
-    //copy = GetMsTicks();
-    // hardware surfaces are always busy
-    // FIXME: CropX, ...
-    GlxRenderTexture(decoder->GlTextures[0], decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
-	decoder->OutputHeight);
-    //end = GetMsTicks();
-    //Debug(3, "video/vaapi/glx: %d copy %d render", copy - start, end - copy);
-}
-
-#endif
-
 ///
 /// VA-API auto-crop support.
 ///
@@ -3839,12 +3060,6 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 #endif
     uint32_t sync;
     uint32_t put1;
-
-#ifdef USE_GLX
-    if (GlxEnabled) {			// already done
-	return;
-    }
-#endif
 
     // wait until we have osd subpicture
     if (VaOsdSubpicture == VA_INVALID_ID) {
@@ -4205,16 +3420,8 @@ static void VaapiDisplayFrame(void)
 	start = GetMsTicks();
 #endif
 
-#ifdef USE_GLX
-	if (GlxEnabled) {
-	    VaapiPutSurfaceGLX(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
-		decoder->SurfaceField);
-	} else
-#endif
-	{
-	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
-		decoder->SurfaceField);
-	}
+	VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
+	    decoder->SurfaceField);
 #ifdef DEBUG
 	put1 = GetMsTicks();
 	put2 = put1;
@@ -4230,40 +3437,6 @@ static void VaapiDisplayFrame(void)
 	}
 	decoder->FrameTime = nowtime;
     }
-
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GLXContext prevcontext = glXGetCurrentContext();
-
-	if (!prevcontext) {
-	    if (GlxThreadContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
-		    GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    } else if (GlxContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    }
-	}
-	//
-	//  add OSD
-	//
-	if (OsdShown) {
-	    GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth, VideoWindowHeight);
-	    // FIXME: toggle osd
-	}
-	//glFinish();
-	glXSwapBuffers(XlibDisplay, VideoWindow);
-
-	GlxCheck();
-	//glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-    }
-#endif
 }
 
 ///
@@ -4943,45 +4116,6 @@ static const VideoModule VaapiModule = {
     .Exit = VaapiExit,
 };
 
-#ifdef USE_GLX
-
-///
-/// VA-API module.
-///
-static const VideoModule VaapiGlxModule = {
-    .Name = "va-api-glx",
-    .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
-    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
-	    const AVCodecContext *))VaapiGetSurface,
-    .ReleaseSurface = (void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
-    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
-    .RenderFrame = (void (*const) (VideoHwDecoder *,
-	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
-    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
-    .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
-    .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
-    .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
-    .SetTrickSpeed = (void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
-    .GrabOutput = VaapiGrabOutputSurface,
-    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
-	    int *))VaapiGetStats,
-    .SetBackground = VaapiSetBackground,
-    .SetVideoMode = VaapiSetVideoMode,
-    .ResetAutoCrop = VaapiResetAutoCrop,
-    .DisplayHandlerThread = VaapiDisplayHandlerThread,
-    .OsdClear = GlxOsdClear,
-    .OsdDrawARGB = GlxOsdDrawARGB,
-    .OsdInit = GlxOsdInit,
-    .OsdExit = GlxOsdExit,
-    .Init = VaapiGlxInit,
-    .Exit = VaapiExit,
-};
-
-#endif
-
 //----------------------------------------------------------------------------
 //  NOOP
 //----------------------------------------------------------------------------
@@ -5399,22 +4533,6 @@ static void *VideoDisplayHandlerThread(void *dummy)
 {
     Debug(3, "video: display thread started");
 
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	Debug(3, "video/glx: thread context %p <-> %p", glXGetCurrentContext(), GlxThreadContext);
-	Debug(3, "video/glx: context %p <-> %p", glXGetCurrentContext(), GlxContext);
-
-	GlxThreadContext = glXCreateNewContext(XlibDisplay, GlxFBConfigs[0], GLX_RGBA_TYPE, GlxSharedContext, GL_TRUE);
-
-	if (!GlxThreadContext) {
-	    Error("video/glx: can't create glx context");
-	    return NULL;
-	}
-	// set glx context
-	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight, GlxThreadContext);
-    }
-#endif
-
     for (;;) {
 	// fix dead-lock
 	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -5434,9 +4552,6 @@ static void *VideoDisplayHandlerThread(void *dummy)
 ///
 static void VideoThreadInit(void)
 {
-#ifdef USE_GLX
-    glXMakeCurrent(XlibDisplay, None, NULL);
-#endif
     pthread_mutex_init(&VideoMutex, NULL);
     pthread_mutex_init(&VideoLockMutex, NULL);
     pthread_cond_init(&VideoWakeupCond, NULL);
@@ -5496,9 +4611,6 @@ void VideoDisplayWakeup(void)
 ///
 static const VideoModule *VideoModules[] = {
     &VaapiModule,
-#ifdef USE_GLX
-    &VaapiGlxModule,
-#endif
     &NoopModule
 };
 
@@ -6019,12 +5131,7 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, int Index, float val
 void VideoSetBrightness(int brightness)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_brightness_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx,
 	    VideoConfigClamp(&VaapiConfigBrightness, brightness) * VaapiConfigBrightness.scale);
     }
@@ -6035,11 +5142,7 @@ void VideoSetBrightness(int brightness)
 ///
 int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigBrightness.min_value;
 	*defvalue = VaapiConfigBrightness.def_value;
 	*maxvalue = VaapiConfigBrightness.max_value;
@@ -6056,12 +5159,7 @@ int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetContrast(int contrast)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_contrast_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx,
 	    VideoConfigClamp(&VaapiConfigContrast, contrast) * VaapiConfigContrast.scale);
     }
@@ -6072,11 +5170,7 @@ void VideoSetContrast(int contrast)
 ///
 int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigContrast.min_value;
 	*defvalue = VaapiConfigContrast.def_value;
 	*maxvalue = VaapiConfigContrast.max_value;
@@ -6093,12 +5187,7 @@ int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSaturation(int saturation)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_saturation_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx,
 	    VideoConfigClamp(&VaapiConfigSaturation, saturation) * VaapiConfigSaturation.scale);
     }
@@ -6109,11 +5198,7 @@ void VideoSetSaturation(int saturation)
 ///
 int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigSaturation.min_value;
 	*defvalue = VaapiConfigSaturation.def_value;
 	*maxvalue = VaapiConfigSaturation.max_value;
@@ -6130,12 +5215,7 @@ int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetHue(int hue)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_hue_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx,
 	    VideoConfigClamp(&VaapiConfigHue, hue) * VaapiConfigHue.scale);
     }
@@ -6146,11 +5226,7 @@ void VideoSetHue(int hue)
 ///
 int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigHue.min_value;
 	*defvalue = VaapiConfigHue.def_value;
 	*maxvalue = VaapiConfigHue.max_value;
@@ -6167,11 +5243,7 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSkinToneEnhancement(int stde)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
     VideoSurfaceModesChanged = 1;
@@ -6182,11 +5254,7 @@ void VideoSetSkinToneEnhancement(int stde)
 ///
 int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigStde.min_value;
 	*defvalue = VaapiConfigStde.def_value;
 	*maxvalue = VaapiConfigStde.max_value;
@@ -6384,11 +5452,7 @@ static const char *vaapi_scaling_short[] = {
 
 int VideoGetScalingModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*long_table = vaapi_scaling;
 	*short_table = vaapi_scaling_short;
 	return ARRAY_ELEMS(vaapi_scaling);
@@ -6419,11 +5483,7 @@ static const char *vaapi_deinterlace_short[VAProcDeinterlacingCount] = {
 
 int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	// TODO: Supported deinterlacers may not be a linear table
 	unsigned int len = ARRAY_ELEMS(vaapi_deinterlace_default);
 
@@ -6445,11 +5505,7 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
 ///
 void VideoSetDeinterlace(int mode[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    if (!VaapiDecoders[0]->SupportedDeinterlacers[mode[i]])
 		mode[i] = VAProcDeinterlacingNone;
@@ -6468,14 +5524,8 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
 ///
 void VideoSetDenoise(int level[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
-	int i;
-
-	for (i = 0; i < VideoResolutionMax; ++i) {
+	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    level[i] = VideoConfigClamp(&VaapiConfigDenoise, level[i]);
 	}
     }
@@ -6492,11 +5542,7 @@ void VideoSetDenoise(int level[VideoResolutionMax])
 ///
 int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigDenoise.min_value;
 	*defvalue = VaapiConfigDenoise.def_value;
 	*maxvalue = VaapiConfigDenoise.max_value;
@@ -6510,14 +5556,8 @@ int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 ///
 void VideoSetSharpen(int level[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
-	int i;
-
-	for (i = 0; i < VideoResolutionMax; ++i) {
+	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    level[i] = VideoConfigClamp(&VaapiConfigSharpen, level[i]);
 	}
     }
@@ -6534,11 +5574,7 @@ void VideoSetSharpen(int level[VideoResolutionMax])
 ///
 int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigSharpen.min_value;
 	*defvalue = VaapiConfigSharpen.def_value;
 	*maxvalue = VaapiConfigSharpen.max_value;
@@ -6680,11 +5716,6 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-#ifdef USE_GLX_not_needed_done_with_locks
-    if (!XInitThreads()) {
-	Error("video: Can't initialize X11 thread support on '%s'", display_name);
-    }
-#endif
     // Register error handler
     XSetIOErrorHandler(VideoIOErrorHandler);
 
@@ -6696,9 +5727,6 @@ void VideoInit(const char *display_name)
     }
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
-#ifdef xcb_USE_GLX
-    xcb_prefetch_extension_data(Connection, &xcb_glx_id);
-#endif
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
     //xcb_prefetch_extension_data(Connection, &xcb_shm_id);
     //xcb_prefetch_extension_data(Connection, &xcb_xv_id);
@@ -6784,11 +5812,6 @@ void VideoExit(void)
     VideoThreadExit();
     VideoUsedModule->Exit();
     VideoUsedModule = &NoopModule;
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GlxExit();
-    }
-#endif
 
     //
     //	FIXME: cleanup.

@@ -14,8 +14,6 @@ PLUGIN = vaapidevice
 ALSA ?= $(shell pkg-config --exists alsa && echo 1)
     # support VA-API video output module
 VAAPI ?= $(shell pkg-config --exists libva && echo 1)
-    # support glx output
-OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
     # use ffmpeg libswresample
 SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
 
@@ -75,15 +73,6 @@ endif
 ifeq ($(VAAPI),1)
 _CFLAGS += $(shell pkg-config --cflags libva-x11 libva)
 LIBS += $(shell pkg-config --libs libva-x11 libva)
-ifeq ($(OPENGL),1)
-_CFLAGS += $(shell pkg-config --cflags libva-glx)
-LIBS += $(shell pkg-config --libs libva-glx)
-endif
-endif
-ifeq ($(OPENGL),1)
-CONFIG += -DUSE_GLX
-_CFLAGS += $(shell pkg-config --cflags gl glu)
-LIBS += $(shell pkg-config --libs gl glu)
 endif
 ifeq ($(SWRESAMPLE),1)
 _CFLAGS += $(shell pkg-config --cflags libswresample)
