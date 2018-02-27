@@ -2558,12 +2558,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 static int gSurfacePtr = 0;
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
-    int num_surfaces = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces;
     VASurfaceID surface;
-    int x = 0;
-    int y = 0;
-    int w = video_ctx->width;
-    int h = video_ctx->height;
+    int num_surfaces = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces;
 
     if (!TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids)
 	return VA_INVALID_ID;
@@ -2586,13 +2582,13 @@ static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext 
 
     // FIXME: associate only if osd is displayed
     if (vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids,
-	    num_surfaces, x, y, w, h, 0, 0, VideoWindowWidth, VideoWindowHeight,
+	    num_surfaces, 0, 0, VideoWindowWidth, VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight,
 	    VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
 	!= VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't associate subpicture");
     }
 
-    vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y,
+    vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, 0, 0,
 	VideoWindowWidth, VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight,
 	VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
 
@@ -4067,14 +4063,11 @@ static void VaapiOsdExit(void)
     }
 
     if (VaOsdSubpicture != VA_INVALID_ID) {
-	int i;
-
-	for (i = 0; i < VaapiDecoderN; ++i) {
+	for (int i = 0; i < VaapiDecoderN; ++i) {
 	    VaapiDeassociate(VaapiDecoders[i]);
 	}
 
-	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
-	    != VA_STATUS_SUCCESS) {
+	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't destroy subpicture");
 	}
 	VaOsdSubpicture = VA_INVALID_ID;
