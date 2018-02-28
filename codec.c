@@ -199,30 +199,39 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	decoder->VideoCtx->thread_count = 0;
     }
 
-    if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
-	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal("codec: can't open video codec!");
-    }
-    pthread_mutex_unlock(&CodecLockMutex);
-
     decoder->VideoCtx->opaque = decoder;    // our structure
 
     Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
     if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: video can use truncated packets");
+	Debug(3, "codec: supports truncated packets");
+	//decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
     // FIXME: own memory management for video frames.
     if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
 	Debug(3, "codec: can use own buffer management");
     }
     if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
-	Debug(3, "codec: codec supports frame threads");
+	Debug(3, "codec: supports frame threads");
+	decoder->VideoCtx->thread_count = 0;
+	decoder->VideoCtx->thread_type |= FF_THREAD_FRAME;
     }
+    if (video_codec->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
+	Debug(3, "codec: supports slice threads");
+	decoder->VideoCtx->thread_count = 0;
+	decoder->VideoCtx->thread_type |= FF_THREAD_SLICE;
+    }
+    decoder->VideoCtx->thread_safe_callbacks = 1;
     decoder->VideoCtx->get_format = Codec_get_format;
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
     decoder->VideoCtx->draw_horiz_band = NULL;
 
     av_opt_set_int(decoder->VideoCtx, "refcounted_frames", 1, 0);
+
+    if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
+	pthread_mutex_unlock(&CodecLockMutex);
+	Fatal("codec: can't open video codec!");
+    }
+    pthread_mutex_unlock(&CodecLockMutex);
 
     //
     //	Prepare frame buffer for decoder
