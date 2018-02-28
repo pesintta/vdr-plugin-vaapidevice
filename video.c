@@ -3415,24 +3415,20 @@ static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 ///
 static void VaapiDisplayFrame(void)
 {
-    struct timespec nowtime;
-
 #ifdef DEBUG
     uint32_t start;
-    uint32_t put1;
-    uint32_t put2;
 #endif
-    int i;
+    struct timespec nowtime;
     VaapiDecoder *decoder;
 
     if (VideoSurfaceModesChanged) {	// handle changed modes
 	VideoSurfaceModesChanged = 0;
-	for (i = 0; i < VaapiDecoderN; ++i) {
+	for (int i = 0; i < VaapiDecoderN; ++i) {
 	    VaapiInitSurfaceFlags(VaapiDecoders[i]);
 	}
     }
     // look if any stream have a new surface available
-    for (i = 0; i < VaapiDecoderN; ++i) {
+    for (int i = 0; i < VaapiDecoderN; ++i) {
 	VASurfaceID surface;
 	int filled;
 
@@ -3454,15 +3450,12 @@ static void VaapiDisplayFrame(void)
 	    Debug(4, "video/vaapi: invalid surface in ringbuffer");
 	}
 	Debug(4, "video/vaapi: yy video surface %#010x displayed", surface);
-
 	start = GetMsTicks();
 #endif
-
 	VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
 	    decoder->SurfaceField);
 #ifdef DEBUG
-	put1 = GetMsTicks();
-	put2 = put1;
+	Debug(4, "video/vaapi: put %2ums", GetMsTicks() - start);
 #endif
 	clock_gettime(CLOCK_MONOTONIC, &nowtime);
 	// FIXME: 31 only correct for 50Hz
@@ -3471,7 +3464,6 @@ static void VaapiDisplayFrame(void)
 	    // FIXME: ignore still-frame, trick-speed
 	    Debug(3, "video/vaapi: time/frame too long %ldms", ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec)) / (1000 * 1000));
-	    Debug(4, "video/vaapi: put1 %2u put2 %2u", put1 - start, put2 - put1);
 	}
 	decoder->FrameTime = nowtime;
     }
