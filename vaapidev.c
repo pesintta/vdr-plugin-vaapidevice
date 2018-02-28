@@ -54,7 +54,6 @@ char ConfigStartX11Server;		///< flag start the x11 server
 static signed char ConfigStartSuspended;    ///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
 static const char *X11ServerArguments;	///< default command arguments
-static char ConfigStillDecoder;		///< hw/sw decoder for still picture
 
 static pthread_mutex_t SuspendLockMutex;    ///< suspend lock mutex
 
@@ -2379,7 +2378,6 @@ void StillPicture(const uint8_t * data, int size)
     // H265 NAL End of Sequence
     static uint8_t seq_end_h265[] = { 0x00, 0x00, 0x00, 0x01, 0x48, 0x01 }; //0x48 = end of seq	  0x4a = end of stream
     int i;
-    int old_video_hardware_decoder;
 
     // might be called in Suspended Mode
     if (!MyVideoStream->Decoder || MyVideoStream->SkipStream) {
@@ -2392,12 +2390,6 @@ void StillPicture(const uint8_t * data, int size)
     }
     VideoSetTrickSpeed(MyVideoStream->HwDecoder, 1);
     VideoResetPacket(MyVideoStream);
-    old_video_hardware_decoder = VideoHardwareDecoder;
-    // enable/disable hardware decoder for still picture
-    if (VideoHardwareDecoder != ConfigStillDecoder) {
-	VideoHardwareDecoder = ConfigStillDecoder;
-	VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);   // close last stream
-    }
 
     if (MyVideoStream->CodecID == AV_CODEC_ID_NONE) {
 	// FIXME: should detect codec, see PlayVideo
@@ -2463,10 +2455,6 @@ void StillPicture(const uint8_t * data, int size)
 	usleep(10 * 1000);
     }
     Debug(3, "[vaapidevice]%s: buffers %d %dms", __FUNCTION__, VideoGetBuffers(MyVideoStream), i * 10);
-    if (VideoHardwareDecoder != old_video_hardware_decoder) {
-	VideoHardwareDecoder = old_video_hardware_decoder;
-	VideoNextPacket(MyVideoStream, AV_CODEC_ID_NONE);   // close last stream
-    }
     VideoSetTrickSpeed(MyVideoStream->HwDecoder, 0);
 }
 
@@ -2676,18 +2664,7 @@ int ProcessArgs(int argc, char *const argv[])
 		ConfigStartSuspended = -1;
 		continue;
 	    case 'w':		       // workarounds
-		if (!strcasecmp("no-hw-decoder", optarg)) {
-		    VideoHardwareDecoder = 0;
-		} else if (!strcasecmp("no-mpeg-hw-decoder", optarg)) {
-		    VideoHardwareDecoder = 1;
-		    if (ConfigStillDecoder) {
-			ConfigStillDecoder = 1;
-		    }
-		} else if (!strcasecmp("still-hw-decoder", optarg)) {
-		    ConfigStillDecoder = -1;
-		} else if (!strcasecmp("still-h264-hw-decoder", optarg)) {
-		    ConfigStillDecoder = 1;
-		} else if (!strcasecmp("alsa-driver-broken", optarg)) {
+		if (!strcasecmp("alsa-driver-broken", optarg)) {
 		    AudioAlsaDriverBroken = 1;
 		} else if (!strcasecmp("alsa-no-close-open", optarg)) {
 		    AudioAlsaNoCloseOpen = 1;

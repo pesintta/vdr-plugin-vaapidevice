@@ -278,8 +278,6 @@ static const VideoModule NoopModule;	///< forward definition of noop module
     /// selected video module
 static const VideoModule *VideoUsedModule = &NoopModule;
 
-signed char VideoHardwareDecoder = -1;	///< flag use hardware decoder
-
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
 static uint32_t VideoBackground;	///< video background color
@@ -5769,13 +5767,6 @@ void VideoInit(const char *display_name)
     VideoUsedModule = &NoopModule;
 
   found:
-    // FIXME: make it configurable from gui
-    if (getenv("NO_MPEG_HW")) {
-	VideoHardwareDecoder = 1;
-    }
-    if (getenv("NO_HW")) {
-	VideoHardwareDecoder = 0;
-    }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
 
