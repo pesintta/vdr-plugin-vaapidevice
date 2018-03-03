@@ -1622,6 +1622,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
 
     /* Skip postprocessing if queue is not deinterlaceable */
     for (i = 0; i < *num_brefs; ++i) {
+	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
+	if (brefs[i] == VA_INVALID_ID)
+	    continue;
 	va_status = vaQuerySurfaceStatus(VaDisplay, brefs[i], &va_surf_status);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("vaapi/vpp: Surface %d query status failed (0x%X): %s", i, va_status, vaErrorStr(va_status));
@@ -1634,6 +1637,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
     }
 
     for (i = 0; i < *num_frefs; ++i) {
+	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
+	if (frefs[i] == VA_INVALID_ID)
+	    continue;
 	va_status = vaQuerySurfaceStatus(VaDisplay, frefs[i], &va_surf_status);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("Surface %d query status = 0x%X: %s", i, va_status, vaErrorStr(va_status));
