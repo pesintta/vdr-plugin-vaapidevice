@@ -203,16 +203,6 @@ typedef struct _video_config_values_
 //  Defines
 //----------------------------------------------------------------------------
 
-#define CODEC_SURFACES_MAX	31	    ///< maximal of surfaces
-
-#define CODEC_SURFACES_DEFAULT	21	///< default of surfaces
-
-#define CODEC_SURFACES_MPEG2	3	///< 1 decode, up to  2 references
-#define CODEC_SURFACES_MPEG4	3	///< 1 decode, up to  2 references
-#define CODEC_SURFACES_H264	21	    ///< 1 decode, up to 20 references
-#define CODEC_SURFACES_HEVC	21	    ///< 1 decode, up to 20 references
-#define CODEC_SURFACES_VC1	3	    ///< 1 decode, up to  2 references
-
 #define VIDEO_SURFACES_MAX	4	    ///< video output surfaces for queue
 #define POSTPROC_SURFACES_MAX	8	///< video postprocessing surfaces for queue
 
@@ -834,14 +824,6 @@ struct _vaapi_decoder_
     VAConfigID VppConfig;		///< VPP Config
     VAContextID vpp_ctx;		///< VPP Context
 
-    int SurfacesNeeded;			///< number of surface to request
-    int SurfaceUsedN;			///< number of used surfaces
-    /// used surface ids
-    VASurfaceID SurfacesUsed[CODEC_SURFACES_MAX];
-    int SurfaceFreeN;			///< number of free surfaces
-    /// free surface ids
-    VASurfaceID SurfacesFree[CODEC_SURFACES_MAX];
-
     int InputWidth;			///< video input width
     int InputHeight;			///< video input height
     AVRational InputAspect;		///< video input aspect ratio
@@ -978,20 +960,6 @@ static void VaapiAssociate(VaapiDecoder * decoder)
 static void VaapiDeassociate(VaapiDecoder * decoder)
 {
     if (VaOsdSubpicture != VA_INVALID_ID) {
-	if (decoder->SurfaceFreeN
-	    && vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->SurfacesFree,
-		decoder->SurfaceFreeN)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceFreeN);
-	}
-
-	if (decoder->SurfaceUsedN
-	    && vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed,
-		decoder->SurfaceUsedN)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceUsedN);
-	}
-
 	vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb,
 	    POSTPROC_SURFACES_MAX);
     }
@@ -1027,7 +995,7 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     VaapiDeassociate(decoder);
 
     if (vaDestroySurfaces(decoder->VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceUsedN);
+	Error("video/vaapi: can't destroy %d surfaces", POSTPROC_SURFACES_MAX);
     }
 }
 
@@ -1073,18 +1041,7 @@ static VASurfaceID VaapiGetPluginSurface(VaapiDecoder * decoder)
 ///
 static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 {
-    int i;
 
-    return;
-    for (i = 0; i < decoder->SurfaceUsedN; ++i) {
-	if (decoder->SurfacesUsed[i] == surface) {
-	    // no problem, with last used
-	    decoder->SurfacesUsed[i] = decoder->SurfacesUsed[--decoder->SurfaceUsedN];
-	    decoder->SurfacesFree[decoder->SurfaceFreeN++] = surface;
-	    return;
-	}
-    }
-    Error("video/vaapi: release surface %#010x, which is not in use", surface);
 }
 
 //  Init/Exit ------------------------------------------------------------
@@ -1246,11 +1203,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     VaapiInitSurfaceFlags(decoder);
 
     decoder->Image->image_id = VA_INVALID_ID;
-
-    for (i = 0; i < CODEC_SURFACES_MAX; ++i) {
-	decoder->SurfacesUsed[i] = VA_INVALID_ID;
-	decoder->SurfacesFree[i] = VA_INVALID_ID;
-    }
 
     // setup video surface ring buffer
     atomic_set(&decoder->SurfacesFilled, 0);
