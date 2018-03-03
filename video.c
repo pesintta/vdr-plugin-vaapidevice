@@ -779,6 +779,8 @@ static VAImage VaOsdImage = {
     .image_id = VA_INVALID_ID
 };					///< osd VA-API image
 
+static uint8_t* VaOsdCache;		///< osd cache when image is not available
+
 static VASubpictureID VaOsdSubpicture = VA_INVALID_ID;	///< osd VA-API subpicture
 static char VaapiUnscaledOsd;		///< unscaled osd supported
 
@@ -1403,6 +1405,11 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	}
     }
 
+    if (VaOsdCache) {
+	free(VaOsdCache);
+	VaOsdCache = NULL;
+    }
+
     VaapiPrintFrames(decoder);
 
     free(decoder);
@@ -1419,6 +1426,7 @@ static int VaapiInit(const char *display_name)
 {
     VaOsdImage.image_id = VA_INVALID_ID;
     VaOsdSubpicture = VA_INVALID_ID;
+    VaOsdCache = NULL;
 
     return 1;
 }
@@ -2090,6 +2098,7 @@ static void VaapiOsdInit(int width, int height)
     unsigned u;
     unsigned v;
     static uint32_t wanted_formats[] = { VA_FOURCC_BGRA, VA_FOURCC_RGBA };
+    void* image_buffer;
 
     if (VaOsdImage.image_id != VA_INVALID_ID) {
 	Debug(3, "video/vaapi: osd already setup");
@@ -2141,6 +2150,17 @@ static void VaapiOsdInit(int width, int height)
 	Error("video/vaapi: can't create osd image");
 	return;
     }
+    if (VaOsdCache) {
+	if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't map osd image buffer");
+	    return;
+	} else {
+	    memcpy(image_buffer, VaOsdCache, VaOsdImage.data_size);
+	    vaUnmapBuffer(VaDisplay, VaOsdImage.image_id);
+	}
+	free(VaOsdCache);
+	VaOsdCache = NULL;
+    }
     if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id, &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create subpicture");
 
@@ -2159,6 +2179,16 @@ static void VaapiOsdInit(int width, int height)
 static void VaapiOsdExit(void)
 {
     if (VaOsdImage.image_id != VA_INVALID_ID) {
+	void *image_buf;
+	if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buf) == VA_STATUS_SUCCESS) {
+
+	    if (!VaOsdCache) {
+		VaOsdCache = malloc(VaOsdImage.data_size);
+	    }
+	    memcpy(VaOsdCache, image_buf, VaOsdImage.data_size);
+	    vaUnmapBuffer(VaDisplay, VaOsdImage.buf);
+	}
+
 	if (vaDestroyImage(VaDisplay, VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't destroy image!");
 	}
@@ -3844,44 +3874,60 @@ static void VaapiDisplayHandlerThread(void)
 static void VaapiOsdClear(void)
 {
     void *image_buffer;
+    int dst_width, dst_height;
 
     // osd image available?
     if (VaOsdImage.image_id == VA_INVALID_ID) {
-	return;
+	if (!VaOsdCache)
+	    return;
+
+	dst_width = VideoWindowWidth;
+	dst_height = VideoWindowHeight;
+	image_buffer = VaOsdCache;
+    } else {
+	dst_width = VaOsdImage.width;
+	dst_height = VaOsdImage.height;
     }
 
     Debug(3, "video/vaapi: clear image");
 
-    if (VaOsdImage.width < OsdDirtyWidth + OsdDirtyX || VaOsdImage.height < OsdDirtyHeight + OsdDirtyY) {
+    if (dst_width < OsdDirtyWidth + OsdDirtyX || dst_height < OsdDirtyHeight + OsdDirtyY) {
 	Debug(3, "video/vaapi: OSD dirty area will not fit");
     }
-    if (VaOsdImage.width < OsdDirtyX || VaOsdImage.height < OsdDirtyY)
+    if (dst_width < OsdDirtyX || dst_height < OsdDirtyY)
 	return;
 
-    if (VaOsdImage.width < OsdDirtyWidth + OsdDirtyX)
-	OsdDirtyWidth = VaOsdImage.width - OsdDirtyX;
-    if (VaOsdImage.height < OsdDirtyHeight + OsdDirtyY)
-	OsdDirtyHeight = VaOsdImage.height - OsdDirtyY;
+    if (dst_width < OsdDirtyWidth + OsdDirtyX)
+	OsdDirtyWidth = dst_width - OsdDirtyX;
+    if (dst_height < OsdDirtyHeight + OsdDirtyY)
+	OsdDirtyHeight = dst_height - OsdDirtyY;
 
-    // map osd surface/image into memory.
-    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't map osd image buffer");
-	return;
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+	// map osd surface/image into memory.
+	if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't map osd image buffer");
+	    return;
+	}
     }
     // have dirty area.
     if (OsdDirtyWidth && OsdDirtyHeight) {
 	int o;
 
 	for (o = 0; o < OsdDirtyHeight; ++o) {
-	    memset(image_buffer + (OsdDirtyX + (o + OsdDirtyY) * VaOsdImage.width) * 4, 0x00, OsdDirtyWidth * 4);
+	    memset(image_buffer + (OsdDirtyX + (o + OsdDirtyY) * dst_width) * 4, 0x00, OsdDirtyWidth * 4);
 	}
     } else {
 	// 100% transparent
-	memset(image_buffer, 0x00, VaOsdImage.data_size);
+	if (VaOsdImage.image_id != VA_INVALID_ID)
+	    memset(image_buffer, 0x00, VaOsdImage.data_size);
+	else
+	    memset(image_buffer, 0x00, VideoWindowWidth * VideoWindowHeight * sizeof(uint32_t));
     }
 
-    if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't unmap osd image buffer");
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+	if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't unmap osd image buffer");
+	}
     }
 }
 
@@ -3905,42 +3951,56 @@ static void VaapiOsdDrawARGB(int xi, int yi, int width, int height, int pitch, c
     uint32_t start;
     uint32_t end;
 #endif
-    void *image_buffer;
+    void *image_buffer = NULL;
     int o;
     int copywidth, copyheight;
+    int dst_width, dst_height;
 
-    // osd image available?
     if (VaOsdImage.image_id == VA_INVALID_ID) {
-	return;
+	dst_width = VideoWindowWidth;
+	dst_height = VideoWindowHeight;
+    } else {
+	dst_width = VaOsdImage.width;
+	dst_height = VaOsdImage.height;
     }
 
-    if (VaOsdImage.width < width + x || VaOsdImage.height < height + y) {
+    if (dst_width < width + x || dst_height < height + y) {
 	Error("video/vaapi: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x,
-	    VaOsdImage.width, height, y, VaOsdImage.height);
+	    dst_width, height, y, dst_height);
     }
-    if (VaOsdImage.width < x || VaOsdImage.height < y)
-	return;
 
     copywidth = width;
     copyheight = height;
-    if (VaOsdImage.width < width + x)
+    if (dst_width < width + x)
 	copywidth = VaOsdImage.width - x;
-    if (VaOsdImage.height < height + y)
+    if (dst_height < height + y)
 	copyheight = VaOsdImage.height - y;
 
 #ifdef DEBUG
     start = GetMsTicks();
 #endif
-    // map osd surface/image into memory.
-    if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't map osd image buffer");
-	return;
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+
+	if (VaOsdImage.width < x || VaOsdImage.height < y)
+	    return;
+
+	// map osd surface/image into memory.
+	if (vaMapBuffer(VaDisplay, VaOsdImage.buf, &image_buffer) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't map osd image buffer");
+	    return;
+	}
+    } else {
+	// no osd image available? use cache
+	if (!VaOsdCache) {
+	    VaOsdCache = malloc(VideoWindowWidth * VideoWindowHeight * sizeof(uint32_t));
+	}
+	image_buffer = VaOsdCache;
     }
     // FIXME: convert image from ARGB to subpicture format, if not argb
 
     // copy argb to image
     for (o = 0; o < copyheight; ++o) {
-	memcpy(image_buffer + (x + (y + o) * VaOsdImage.width) * 4, argb + xi * 4 + (o + yi) * pitch, copywidth * 4);
+	memcpy(image_buffer + (x + (y + o) * dst_width) * 4, argb + xi * 4 + (o + yi) * pitch, copywidth * 4);
     }
 
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
