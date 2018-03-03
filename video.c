@@ -15,8 +15,6 @@
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
 
-//#define USE_VIDEO_THREAD2 ///< run decoder+display in own threads
-
 #include <sys/time.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
@@ -328,15 +326,6 @@ static pthread_mutex_t VideoMutex;	///< video condition mutex
 static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 extern pthread_mutex_t PTS_mutex;	///< PTS mutex
 extern pthread_mutex_t ReadAdvance_mutex;   ///< PTS mutex
-
-#ifdef USE_VIDEO_THREAD2
-
-static pthread_t VideoDisplayThread;	///< video decode thread
-static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
-static pthread_mutex_t VideoDisplayMutex;   ///< video condition mutex
-static pthread_mutex_t VideoDisplayLockMutex;	///< video lock mutex
-
-#endif
 
 static char OsdShown;			///< flag show osd
 static int OsdDirtyX;			///< osd dirty area x
