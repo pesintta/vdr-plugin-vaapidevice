@@ -311,7 +311,6 @@ static VideoZoomModes VideoOtherZoomMode;
 static char Video60HzMode;		///< handle 60hz displays
 static char VideoSoftStartSync;		///< soft start sync audio/video
 static const int VideoSoftStartFrames = 100;	///< soft start frames
-static char VideoShowBlackPicture;	///< flag show black picture
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
@@ -3634,8 +3633,8 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    err =
 		VaapiMessage(1, "video: decoder buffer empty, duping frame (%d/%d) %d v-buf", decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
-	    // some time no new picture or black video configured
-	    if (decoder->Closing < -300 || (VideoShowBlackPicture && decoder->Closing)) {
+	    // some time no new picture
+	    if (decoder->Closing < -300) {
 		// clear ring buffer to trigger black picture
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
@@ -4955,16 +4954,6 @@ void VideoSet60HzMode(int onoff)
 void VideoSetSoftStartSync(int onoff)
 {
     VideoSoftStartSync = onoff;
-}
-
-///
-/// Set show black picture during channel switch.
-///
-/// @param onoff    enable / disable black picture.
-///
-void VideoSetBlackPicture(int onoff)
-{
-    VideoShowBlackPicture = onoff;
 }
 
 ///

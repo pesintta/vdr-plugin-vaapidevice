@@ -49,7 +49,6 @@ static int ValidateMpeg(const uint8_t * data, int size);
 //////////////////////////////////////////////////////////////////////////////
 
 extern int ConfigAudioBufferTime;	///< config size ms of audio buffer
-extern int ConfigVideoClearOnSwitch;	///< clear decoder on channel switch
 char ConfigStartX11Server;		///< flag start the x11 server
 static signed char ConfigStartSuspended;    ///< flag to start in suspend mode
 static char ConfigFullscreen;		///< fullscreen modus
@@ -2202,7 +2201,7 @@ int SetPlayMode(int play_mode)
 	    // tell video parser we get new stream
 	    if (MyVideoStream->Decoder && !MyVideoStream->SkipStream) {
 		// clear buffers on close configured always or replay only
-		if (ConfigVideoClearOnSwitch || MyVideoStream->ClearClose) {
+		if (MyVideoStream->ClearClose) {
 		    Clear();		// flush all buffers
 		    MyVideoStream->ClearClose = 0;
 		}

@@ -64,12 +64,6 @@ msgstr "60Hz Anzeigemodus"
 msgid "Soft start a/v sync"
 msgstr "Sanftanlauf A/V Sync"
 
-msgid "Black during channel switch"
-msgstr "Schwarz während Kanalwechsel"
-
-msgid "Clear decoder on channel switch"
-msgstr "Decoder bei Kanalwechsel leeren"
-
 #, c-format
 msgid "Brightness (%d..[%d]..%d)"
 msgstr "Helligkeit (%d..[%d]..%d)"
@@ -175,9 +169,6 @@ msgstr "Reduziere Steropegel (/1000)"
 
 msgid "Audio buffer size (ms)"
 msgstr "Audio Puffergröße (ms)"
-
-msgid "Enable automatic AES"
-msgstr "Aktiviere automatiche AES"
 
 msgid "Detach VA-API Device"
 msgstr ""

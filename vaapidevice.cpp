@@ -70,8 +70,6 @@ static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
-static char ConfigVideoBlackPicture;	///< config enable black picture mode
-char ConfigVideoClearOnSwitch;		///< config enable Clear on channel switch
 
 static int ConfigVideoBrightness;	///< config video brightness
 static int ConfigVideoContrast = 1000;	///< config video contrast
@@ -114,7 +112,6 @@ static char ConfigAudioCompression;	///< config use volume compression
 static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 int ConfigAudioBufferTime;		///< config size ms of audio buffer
-static int ConfigAudioAutoAES;		///< config automatic AES handling
 
 static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
@@ -565,8 +562,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
-    int BlackPicture;
-    int ClearOnSwitch;
 
     int Brightness;
     int Contrast;
@@ -601,7 +596,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioMaxCompression;
     int AudioStereoDescent;
     int AudioBufferTime;
-    int AudioAutoAES;
 
     /// @}
   private:
@@ -719,8 +713,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"), (int *)&BackgroundAlpha, 0, 0xFF));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Black during channel switch"), &BlackPicture, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Clear decoder on channel switch"), &ClearOnSwitch, trVDR("no"), trVDR("yes")));
 
 	if (brightness_active)
 	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Brightness (%d..[%d]..%d)"), brightness_min, brightness_def,
@@ -790,7 +782,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("  Max compression factor (/1000)"), &AudioMaxCompression, 0, 10000));
 	Add(new cMenuEditIntItem(tr("Reduce stereo volume (/1000)"), &AudioStereoDescent, 0, 1000));
 	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"), &AudioBufferTime, 0, 1000));
-	Add(new cMenuEditBoolItem(tr("Enable automatic AES"), &AudioAutoAES, trVDR("no"), trVDR("yes")));
     }
 
     SetCurrent(Get(current));		// restore selected menu entry
@@ -899,8 +890,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     StudioLevels = ConfigVideoStudioLevels;
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
-    BlackPicture = ConfigVideoBlackPicture;
-    ClearOnSwitch = ConfigVideoClearOnSwitch;
 
     Brightness = ConfigVideoBrightness;
     Contrast = ConfigVideoContrast;
@@ -943,7 +932,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioMaxCompression = ConfigAudioMaxCompression;
     AudioStereoDescent = ConfigAudioStereoDescent;
     AudioBufferTime = ConfigAudioBufferTime;
-    AudioAutoAES = ConfigAudioAutoAES;
 
     Create();
 }
@@ -991,9 +979,6 @@ void cMenuSetupSoft::Store(void)
     VideoSet60HzMode(ConfigVideo60HzMode);
     SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
-    SetupStore("BlackPicture", ConfigVideoBlackPicture = BlackPicture);
-    VideoSetBlackPicture(ConfigVideoBlackPicture);
-    SetupStore("ClearOnSwitch", ConfigVideoClearOnSwitch = ClearOnSwitch);
 
     SetupStore("Brightness", ConfigVideoBrightness = Brightness);
     VideoSetBrightness(ConfigVideoBrightness);
@@ -1070,8 +1055,6 @@ void cMenuSetupSoft::Store(void)
     SetupStore("AudioStereoDescent", ConfigAudioStereoDescent = AudioStereoDescent);
     AudioSetStereoDescent(ConfigAudioStereoDescent);
     SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime);
-    SetupStore("AudioAutoAES", ConfigAudioAutoAES = AudioAutoAES);
-    AudioSetAutoAES(ConfigAudioAutoAES);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2146,14 +2129,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
 	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
 	return true;
     }
-    if (!strcasecmp(name, "BlackPicture")) {
-	VideoSetBlackPicture(ConfigVideoBlackPicture = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "ClearOnSwitch")) {
-	ConfigVideoClearOnSwitch = atoi(value);
-	return true;
-    }
     if (!strcasecmp(name, "Brightness")) {
 	VideoSetBrightness(ConfigVideoBrightness = atoi(value));
 	return true;
@@ -2287,11 +2262,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     if (!strcasecmp(name, "AudioBufferTime")) {
 	ConfigAudioBufferTime = atoi(value);
 	AudioSetBufferTime(ConfigAudioBufferTime);
-	return true;
-    }
-    if (!strcasecmp(name, "AudioAutoAES")) {
-	ConfigAudioAutoAES = atoi(value);
-	AudioSetAutoAES(ConfigAudioAutoAES);
 	return true;
     }
     return false;
