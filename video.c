@@ -979,18 +979,21 @@ static void VaapiDeassociate(VaapiDecoder * decoder)
 {
     if (VaOsdSubpicture != VA_INVALID_ID) {
 	if (decoder->SurfaceFreeN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN)
+	    && vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->SurfacesFree,
+		decoder->SurfaceFreeN)
 	    != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceFreeN);
 	}
 
 	if (decoder->SurfaceUsedN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN)
+	    && vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed,
+		decoder->SurfaceUsedN)
 	    != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceUsedN);
 	}
 
-	vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
+	vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb,
+	    POSTPROC_SURFACES_MAX);
     }
 }
 
@@ -1185,7 +1188,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
     }
     if (decoder->vpp_denoise_buf) {
 	VAProcFilterParameterBuffer *denoise_param;
-	VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_denoise_buf, (void **)&denoise_param);
+	VAStatus va_status = vaMapBuffer(decoder->VaDisplay, *decoder->vpp_denoise_buf, (void **)&denoise_param);
 
 	if (va_status == VA_STATUS_SUCCESS) {
 
@@ -1365,8 +1368,8 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
     // Free & clear vpp filter chain
     for (unsigned int i = 0; i < decoder->filter_n; ++i) {
-	vaDestroyBuffer(VaDisplay, decoder->filters[i]);
-	vaDestroyBuffer(VaDisplay, decoder->gpe_filters[i]);
+	vaDestroyBuffer(decoder->VaDisplay, decoder->filters[i]);
+	vaDestroyBuffer(decoder->VaDisplay, decoder->gpe_filters[i]);
 	decoder->filters[i] = VA_INVALID_ID;
 	decoder->gpe_filters[i] = VA_INVALID_ID;
     }
@@ -1377,18 +1380,18 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
     //	cleanup image
     if (decoder->Image->image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
+	if (vaDestroyImage(decoder->VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't destroy image!");
 	}
 	decoder->Image->image_id = VA_INVALID_ID;
     }
 
-    if (vaDestroyContext(VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
+    if (vaDestroyContext(decoder->VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy postproc context!");
     }
     decoder->vpp_ctx = VA_INVALID_ID;
 
-    if (vaDestroyConfig(VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
+    if (vaDestroyConfig(decoder->VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy config!");
     }
     decoder->VppConfig = VA_INVALID_ID;
@@ -1437,7 +1440,8 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	//  update OSD associate
 	//
 	if (VaOsdSubpicture != VA_INVALID_ID) {
-	    if (vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, &decoder->BlackSurface, 1) != VA_STATUS_SUCCESS) {
+	    if (vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, &decoder->BlackSurface,
+		    1) != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't deassociate black surfaces");
 	    }
 	}
@@ -1483,11 +1487,6 @@ static void VaapiExit(void)
 	}
     }
     VaapiDecoderN = 0;
-
-    if (!VaDisplay) {
-	vaTerminate(VaDisplay);
-	VaDisplay = NULL;
-    }
 }
 
 //----------------------------------------------------------------------------
@@ -1778,7 +1777,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     /* Map deinterlace buffer and handle field ordering */
     if (decoder->vpp_deinterlace_buf) {
-	va_status = vaMapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf, (void **)&deinterlace);
+	va_status = vaMapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf, (void **)&deinterlace);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("deint map buffer va_status = 0x%X", va_status);
 	    return NULL;
@@ -1825,7 +1824,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    filters_to_run[filter_count++] = decoder->filters[i];
 	}
 
-	vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
+	vaUnmapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
     if (!filter_count)
@@ -1856,7 +1855,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
 	return surface;
 
-    vaSyncSurface(VaDisplay, *surface);
+    vaSyncSurface(decoder->VaDisplay, *surface);
 
     /* Get postproc surface for gpe pipeline */
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
@@ -1906,7 +1905,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
     uint8_t *image_buffer = NULL;
     uint8_t *bgra = NULL;
 
-    status = vaDeriveImage(VaDisplay, src, &image);
+    status = vaDeriveImage(decoder->VaDisplay, src, &image);
     if (status != VA_STATUS_SUCCESS) {
 	Warning("video/vaapi: Failed to derive image: %s\n Falling back to GetImage", vaErrorStr(status));
 
@@ -1920,13 +1919,13 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 	    return NULL;
 	}
 
-	status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+	status = vaCreateImage(decoder->VaDisplay, format, *ret_width, *ret_height, &image);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: Failed to create image for grab: %s", vaErrorStr(status));
 	    return NULL;
 	}
 
-	status = vaGetImage(VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
+	status = vaGetImage(decoder->VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: Failed to capture image: %s", vaErrorStr(status));
 	    goto out_destroy;
@@ -1940,7 +1939,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 	goto out_destroy;
     }
 
-    status = vaMapBuffer(VaDisplay, image.buf, (void **)&image_buffer);
+    status = vaMapBuffer(decoder->VaDisplay, image.buf, (void **)&image_buffer);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Could not map grabbed image for access: %s", vaErrorStr(status));
 	goto out_destroy;
@@ -2021,19 +2020,19 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder, VASurfaceID src
 	return NULL;
     }
 
-    status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+    status = vaCreateImage(decoder->VaDisplay, format, *ret_width, *ret_height, &image);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Failed to create image for grab: %s", vaErrorStr(status));
 	return NULL;
     }
 
-    status = vaGetImage(VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
+    status = vaGetImage(decoder->VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Failed to capture image: %s", vaErrorStr(status));
 	return NULL;
     }
 
-    status = vaMapBuffer(VaDisplay, image.buf, (void **)&image_buffer);
+    status = vaMapBuffer(decoder->VaDisplay, image.buf, (void **)&image_buffer);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Could not map grabbed image for access: %s", vaErrorStr(status));
 	goto out_destroy;
@@ -2050,9 +2049,9 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder, VASurfaceID src
     }
 
   out_unmap:
-    vaUnmapBuffer(VaDisplay, image.buf);
+    vaUnmapBuffer(decoder->VaDisplay, image.buf);
   out_destroy:
-    vaDestroyImage(VaDisplay, image.image_id);
+    vaDestroyImage(decoder->VaDisplay, image.image_id);
     return bgra;
 }
 
@@ -2087,25 +2086,25 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width, int *ret_h
     *ret_size = *ret_width * *ret_height * 4;
 
     status =
-	vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, *ret_width, *ret_height, scaled, ARRAY_ELEMS(scaled), NULL,
-	0);
+	vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, *ret_width, *ret_height, scaled, ARRAY_ELEMS(scaled),
+	NULL, 0);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create scaling surface for grab: %s", vaErrorStr(status));
     }
 
     status =
-	vaCreateContext(VaDisplay, decoder->VppConfig, *ret_width, *ret_height, VA_PROGRESSIVE, scaled,
+	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, *ret_width, *ret_height, VA_PROGRESSIVE, scaled,
 	ARRAY_ELEMS(scaled), &scaling_ctx);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create scaling context for grab: %s", vaErrorStr(status));
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
 	scaled[0] = VA_INVALID_ID;
     }
 
     status = VaapiRunScaling(scaling_ctx, grabbing, scaled[0]);
     if (status != VA_STATUS_SUCCESS) {
-	vaDestroyContext(VaDisplay, scaling_ctx);
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroyContext(decoder->VaDisplay, scaling_ctx);
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
 	scaled[0] = VA_INVALID_ID;
     } else {
 	grabbing = scaled[0];
@@ -2116,8 +2115,8 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width, int *ret_h
 	bgra = VaapiGrabOutputSurfaceYUV(decoder, grabbing, ret_size, ret_width, ret_height);
 
     if (scaled[0] != VA_INVALID_ID) {
-	vaDestroyContext(VaDisplay, scaling_ctx);
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroyContext(decoder->VaDisplay, scaling_ctx);
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
     }
 
     return bgra;
@@ -2242,7 +2241,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     unsigned int cap_n = 1;
     VAProcFilterCap caps[cap_n];
 
-    VAStatus va_status = vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
+    VAStatus va_status = vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx,
 	type, caps, &cap_n);
 
     if (va_status != VA_STATUS_SUCCESS) {
@@ -2285,8 +2284,8 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     param_buf.type = type;
     param_buf.value = value;
     va_status =
-	vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(param_buf), 1, &param_buf,
-	&filter_buf_id);
+	vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(param_buf), 1,
+	&param_buf, &filter_buf_id);
 
     if (va_status != VA_STATUS_SUCCESS) {
 	Error("Could not create buffer for filter #%02x: %s", type, vaErrorStr(va_status));
@@ -2327,7 +2326,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     //	display and filter infos.
     //
     filtertype_n = VAProcFilterCount;	// API break this must be done
-    vaQueryVideoProcFilters(VaDisplay, decoder->vpp_ctx, filtertypes, &filtertype_n);
+    vaQueryVideoProcFilters(decoder->VaDisplay, decoder->vpp_ctx, filtertypes, &filtertype_n);
 
     for (u = 0; u < filtertype_n; ++u) {
 	switch (filtertypes[u]) {
@@ -2347,8 +2346,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		Info("video/vaapi: deinterlacing supported");
 
 		deinterlacing_cap_n = VAProcDeinterlacingCount;
-		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx, VAProcFilterDeinterlacing, deinterlacing_caps,
-		    &deinterlacing_cap_n);
+		vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterDeinterlacing,
+		    deinterlacing_caps, &deinterlacing_cap_n);
 
 		memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
 		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;	// always enable none
@@ -2393,8 +2392,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		/* Enabling the deint algorithm that was seen last */
 		Info("Enabling Deint (pos = %d)", decoder->filter_n);
 		va_status =
-		    vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(deinterlace),
-		    1, &deinterlace, &filter_buf_id);
+		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
+		    sizeof(deinterlace), 1, &deinterlace, &filter_buf_id);
 		decoder->vpp_deinterlace_buf = &decoder->filters[decoder->filter_n];
 		decoder->filters[decoder->filter_n++] = filter_buf_id;
 		break;
@@ -2414,8 +2413,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 	    case VAProcFilterColorBalance:
 		Info("video/vaapi: enabling color balance filters");
 		colorbalance_cap_n = VAProcColorBalanceCount;
-		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx, VAProcFilterColorBalance, colorbalance_caps,
-		    &colorbalance_cap_n);
+		vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterColorBalance,
+		    colorbalance_caps, &colorbalance_cap_n);
 
 		Info("video/vaapi: Supported color balance filter count: %d", colorbalance_cap_n);
 
@@ -2505,7 +2504,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    cbal_param[v].value = colorbalance_caps[v].range.default_value;
 		}
 		va_status =
-		    vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
+		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
 		    sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n, &cbal_param, &filter_buf_id);
 		if (va_status != VA_STATUS_SUCCESS) {
 		    Error("video/vaapi: Could not create buffer for color balance settings: %s",
@@ -2543,7 +2542,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     pipeline_caps.num_output_color_standards = ARRAY_ELEMS(out_color_standards);
 
     va_status =
-	vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx, decoder->filters, decoder->filter_n, &pipeline_caps);
+	vaQueryVideoProcPipelineCaps(decoder->VaDisplay, decoder->vpp_ctx, decoder->filters, decoder->filter_n,
+	&pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
 	Fatal("Failed to query proc pipeline caps, error = %s", vaErrorStr(va_status));
     }
@@ -2574,7 +2574,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
     VAEntrypoint entrypoints[vaMaxNumEntrypoints(decoder->VaDisplay)];
 
     if (decoder->VppEntrypoint == VA_INVALID_ID) {
-	status = vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n);
+	status = vaQueryConfigEntrypoints(decoder->VaDisplay, VAProfileNone, entrypoints, &entrypoint_n);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't query entrypoints: %s", vaErrorStr(status));
 	} else {
@@ -2595,7 +2595,7 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 
     // FIXME: this image is only needed for software decoder and auto-crop
     if (decoder->GetPutImage
-	&& vaCreateImage(VaDisplay, format, video_ctx->width, video_ctx->height,
+	&& vaCreateImage(decoder->VaDisplay, format, video_ctx->width, video_ctx->height,
 	    decoder->Image) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create image!");
     }
@@ -3122,14 +3122,14 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    VAImageFormat format[1];
 
 	    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
-	    status = vaCreateImage(VaDisplay, format, VideoWindowWidth, VideoWindowHeight, decoder->Image);
+	    status = vaCreateImage(decoder->VaDisplay, format, VideoWindowWidth, VideoWindowHeight, decoder->Image);
 	    if (status != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't create image: %s", vaErrorStr(status));
 		return;
 	    }
 	}
 
-	status = vaMapBuffer(VaDisplay, decoder->Image->buf, (void **)&va_image_data);
+	status = vaMapBuffer(decoder->VaDisplay, decoder->Image->buf, (void **)&va_image_data);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't map the image: %s", vaErrorStr(status));
 	    return;
@@ -3150,13 +3150,13 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    }
 	}
 
-	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
+	if (vaUnmapBuffer(decoder->VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't unmap the image!");
 	}
 
 	if (decoder->GetPutImage) {
 	    status =
-		vaPutImage(VaDisplay, decoder->BlackSurface, decoder->Image->image_id, 0, 0, VideoWindowWidth,
+		vaPutImage(decoder->VaDisplay, decoder->BlackSurface, decoder->Image->image_id, 0, 0, VideoWindowWidth,
 		VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight);
 	    if (status != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't put image!");
