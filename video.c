@@ -10,7 +10,6 @@
 /// everything else.
 ///
 
-#define USE_XLIB_XCB			///< use xlib/xcb backend
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
@@ -33,33 +32,13 @@
 #include <signal.h>
 #endif
 
-#ifdef USE_XLIB_XCB
 #include <X11/Xlib-xcb.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
-
 #include <xcb/xcb.h>
-
 #include <xcb/xcb_icccm.h>
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 #include <xcb/xcb_ewmh.h>
-#else // compatibility hack for old xcb-util
-
-/**
- * @brief Action on the _NET_WM_STATE property
- */
-typedef enum
-{
-    /* Remove/unset property */
-    XCB_EWMH_WM_STATE_REMOVE = 0,
-    /* Add/set property */
-    XCB_EWMH_WM_STATE_ADD = 1,
-    /* Toggle property	*/
-    XCB_EWMH_WM_STATE_TOGGLE = 2
-} xcb_ewmh_wm_state_action_t;
-#endif
-#endif
 
 #include <va/va_x11.h>
 #if !VA_CHECK_VERSION(1,0,0)
@@ -91,8 +70,6 @@ typedef enum
 
 #define TO_VAAPI_DEVICE_CTX(x) ((AVVAAPIDeviceContext*)TO_AVHW_DEVICE_CTX(x)->hwctx)
 #define TO_VAAPI_FRAMES_CTX(x) ((AVVAAPIFramesContext*)TO_AVHW_FRAMES_CTX(x)->hwctx)
-
-#ifdef USE_XLIB_XCB
 
 //----------------------------------------------------------------------------
 //  Declarations
@@ -4835,18 +4812,9 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual, uint8_
 	VideoWindowHeight, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
 	XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
 
-    // define only available with xcb-utils-0.3.8
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
     // FIXME: utf _NET_WM_NAME
     xcb_icccm_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING, 8, sizeof("vaapidevice") - 1, "vaapidevice");
     xcb_icccm_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING, 8, sizeof("vaapidevice") - 1, "vaapidevice");
-#endif
-    // define only available with xcb-utils-0.3.6
-#ifdef XCB_NUM_WM_HINTS_ELEMENTS
-    // FIXME: utf _NET_WM_NAME
-    xcb_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING, sizeof("vaapidevice") - 1, "vaapidevice");
-    xcb_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING, sizeof("vaapidevice") - 1, "vaapidevice");
-#endif
 
     // FIXME: size hints
 
@@ -4859,12 +4827,7 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual, uint8_
 	if ((reply =
 		xcb_intern_atom_reply(Connection, xcb_intern_atom(Connection, 0, sizeof("WM_PROTOCOLS") - 1,
 			"WM_PROTOCOLS"), NULL))) {
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 	    xcb_icccm_set_wm_protocols(Connection, VideoWindow, reply->atom, 1, &WmDeleteWindowAtom);
-#endif
-#ifdef XCB_NUM_WM_HINTS_ELEMENTS
-	    xcb_set_wm_protocols(Connection, reply->atom, VideoWindow, 1, &WmDeleteWindowAtom);
-#endif
 	    free(reply);
 	}
     }
@@ -5689,5 +5652,3 @@ void VideoExit(void)
 	Connection = 0;
     }
 }
-
-#endif
