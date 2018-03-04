@@ -61,7 +61,6 @@ static pthread_mutex_t CodecLockMutex;
 
     /// Flag prefer fast channel switch
 char CodecUsePossibleDefectFrames;
-
 //----------------------------------------------------------------------------
 //  Video
 //----------------------------------------------------------------------------
@@ -167,7 +166,6 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 {
     AVCodec *video_codec;
-    AVBufferRef *hw_device_ctx;
 
     Debug(3, "codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
 
@@ -185,10 +183,10 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	Fatal("codec: can't allocate video codec context");
     }
 
-    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, X11DisplayName, NULL, 0)) {
-	Fatal("codec: can't allocate HW video codec context");
+    if (!HwDeviceContext) {
+	Fatal("codec: no hw device context to be used");
     }
-    decoder->VideoCtx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+    decoder->VideoCtx->hw_device_ctx = av_buffer_ref(HwDeviceContext);
 
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
@@ -257,8 +255,6 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 	av_freep(&video_decoder->VideoCtx);
 	pthread_mutex_unlock(&CodecLockMutex);
     }
-
-    av_buffer_unref(&video_decoder->HwDeviceContext);
 }
 
 /**

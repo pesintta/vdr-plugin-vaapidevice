@@ -738,6 +738,8 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 //  VA-API
 //----------------------------------------------------------------------------
 
+AVBufferRef *HwDeviceContext;		///< ffmpeg HW device context
+
 static VADisplay *VaDisplay;		///< VA-API display
 
 static VAImage VaOsdImage = {
@@ -1150,6 +1152,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 {
     VaapiDecoder *decoder;
     int i;
+    AVBufferRef *hw_device_ctx;
 
     if (VaapiDecoderN == 1) {
 	Fatal("video/vaapi: out of decoders");
@@ -1158,6 +1161,13 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
 	Fatal("video/vaapi: out of memory");
     }
+
+    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, X11DisplayName, NULL, 0)) {
+	Fatal("codec: can't allocate HW video codec context");
+    }
+    HwDeviceContext = av_buffer_ref(hw_device_ctx);
+
+    VaDisplay = TO_VAAPI_DEVICE_CTX(HwDeviceContext)->display;
     decoder->VaDisplay = VaDisplay;
     decoder->Window = VideoWindow;
     decoder->VideoX = 0;
@@ -1258,8 +1268,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	    decoder->SurfaceWrite, atomic_read(&decoder->SurfacesFilled));
     }
 #endif
-
-    VaapiOsdExit();
 
     // clear ring buffer
     // the surfaces here are owned/destroyed by ffmpeg
@@ -1370,6 +1378,7 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 
     VaapiPrintFrames(decoder);
 
+    av_buffer_unref(&HwDeviceContext);
     free(decoder);
 }
 
@@ -2536,9 +2545,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 
     VaapiSetupVideoProcessing(decoder);
 
-    // Ensure OSD image is created
-    VaapiOsdInit(VideoWindowWidth, VideoWindowHeight);
-
     VaapiUpdateOutput(decoder);
 
     //
@@ -3122,6 +3128,10 @@ static int VaapiIsPictureChanged(VaapiDecoder * decoder, const AVCodecContext * 
     if (video_ctx->width != decoder->InputWidth || video_ctx->height != decoder->InputHeight
 	|| video_ctx->pix_fmt != decoder->PixFmt) {
 	Debug(3, "video/vaapi: Picture change detected");
+	return 1;
+    }
+
+    if (decoder->Closing < 0) {
 	return 1;
     }
 

@@ -3,6 +3,8 @@
 ///
 /// SPDX-License-Identifier: AGPL-3.0-only
 
+#include <libavutil/hwcontext.h>
+
 //----------------------------------------------------------------------------
 //  Defines
 //----------------------------------------------------------------------------
@@ -15,8 +17,6 @@
 
 #define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
 
-AVBufferRef *hw_device_ctx;
-
 ///
 /// Video decoder structure.
 ///
@@ -28,13 +28,6 @@ struct _video_decoder_
     AVCodecContext *VideoCtx;		///< video codec context
     int FirstKeyFrame;			///< flag first frame
     AVFrame *Frame;			///< decoded video frame
-
-    /* hwaccel options */
-    char *hwaccel_device;
-    enum AVPixelFormat hwaccel_output_format;
-
-    /* hwaccel context */
-    AVBufferRef *HwDeviceContext;	///< ffmpeg HW-Accelerated (VA-API) context
 };
 
 //----------------------------------------------------------------------------
@@ -57,6 +50,8 @@ extern const char *X11DisplayName;
     /// Flag prefer fast xhannel switch
 extern char CodecUsePossibleDefectFrames;
 
+    /// HW device context from video module
+extern AVBufferRef *HwDeviceContext;
 //----------------------------------------------------------------------------
 //  Prototypes
 //----------------------------------------------------------------------------
