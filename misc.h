@@ -51,7 +51,7 @@ extern void LogMessage(int trace, int level, const char *format, ...) __attribut
 #define Debug10(a...) LogMessage(10, 2, a)  // FFMPEG: info
 #define Debug11(a...) LogMessage(11, 2, a)  // FFMPEG: warning
 #define Debug12(a...) LogMessage(12, 2, a)  // FFMPEG: error
-#define Debug13(a...) LogMessage(13, 2, a)  // TBD
+#define Debug13(a...) LogMessage(13, 2, a)  // libva
 #define Debug14(a...) LogMessage(14, 2, a)  // TBD
 #define Debug15(a...) LogMessage(14, 2, a)  // TBD
 #define Debug16(a...) LogMessage(16, 2, a)  // TBD
