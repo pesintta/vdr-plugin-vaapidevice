@@ -7,6 +7,9 @@
 extern "C"
 {
 #endif
+    /// C plugin logging
+    extern void LogMessage(int trace, int level, const char *format, ...) __attribute__ ((format(printf, 3, 4)));
+
     /// C callback feed key press
     extern void FeedKeyPress(const char *, const char *, int, int, const char *);
 

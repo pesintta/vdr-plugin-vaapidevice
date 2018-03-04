@@ -199,12 +199,17 @@ Commandline:
 
 	Use vdr -h to see the command line arguments supported by the plugin.
 
-    -a audio_device
+	-a audio_device
 
 	Selects audio output module and device.
 	""		to disable audio output
 	other		to use alsa audio module (if compiled with alsa
 			support)
+
+	-t trace_mode
+
+	Sets the default tracing bitmask for debug message categories. The
+	available categories can be found in the "misc.h" header file.
 
 SVDRP:
 ------

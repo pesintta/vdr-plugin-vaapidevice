@@ -11,6 +11,7 @@
 #include <vdr/osd.h>
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
+#include <vdr/tools.h>
 
 #include "vaapidevice.h"
 
@@ -133,6 +134,42 @@ volatile char SoftIsPlayingVideo;	///< stream contains video data
 //////////////////////////////////////////////////////////////////////////////
 
 /**
+**	Logging function with thread information
+*/
+extern "C" void LogMessage(int trace, int level, const char *format, ...)
+{
+    if (SysLogLevel > level) {
+	va_list ap;
+	char fmt[256];
+	int priority, mask;
+	const char *prefix = "VAAPI: ";
+
+	switch (level) {
+	    case 0:		       // ERROR
+		prefix = "VAAPI-ERROR: ";
+		priority = LOG_ERR;
+		break;
+	    case 1:		       // INFO
+		priority = LOG_INFO;
+		break;
+	    case 2:		       // DEBUG
+		mask = (1 << (trace - 1)) & 0xFFFF;
+		if (!(mask & TraceMode))
+		    return;
+		priority = LOG_DEBUG;
+		break;
+	    default:
+		priority = LOG_DEBUG;
+		break;
+	}
+	snprintf(fmt, sizeof(fmt), "[%d] %s%s", cThread::ThreadId(), prefix, format);
+	va_start(ap, format);
+	vsyslog(priority, fmt, ap);
+	va_end(ap);
+    }
+}
+
+/**
 **	Soft device plugin remote class.
 */
 class cSoftRemote:public cRemote
@@ -187,7 +224,7 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat, in
     if (remote) {
 	csoft = reinterpret_cast < cSoftRemote * >(remote);
     } else {
-	Debug(3, "[vaapidevice]%s: remote '%s' not found\n", __FUNCTION__, keymap);
+	Debug1("%s: remote '%s' not found", __FUNCTION__, keymap);
 	csoft = new cSoftRemote(keymap);
     }
 
@@ -387,7 +424,7 @@ void cSoftOsd::Flush(void)
 	    }
 #ifdef DEBUG
 	    if (w > bitmap->Width() || h > bitmap->Height()) {
-		Error("[vaapidevice]: dirty area too big");
+		Error("Dirty area too big");
 		abort();
 	    }
 #endif
@@ -530,7 +567,7 @@ cSoftOsdProvider::cSoftOsdProvider(void)
 **	Destroy cOsdProvider class.
 cSoftOsdProvider::~cSoftOsdProvider()
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s", __FUNCTION__);
 }
 */
 
@@ -1145,7 +1182,7 @@ cSoftHdControl::~cSoftHdControl()
 	SuspendMode = NOT_SUSPENDED;
     }
 
-    Debug(3, "[vaapidevice]%s: dummy player stopped\n", __FUNCTION__);
+    Debug1("%s: dummy player stopped", __FUNCTION__);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1330,7 +1367,7 @@ static void HandleHotkey(int code)
 	    VideoSetOtherDisplayFormat(-1);
 	    break;
 	default:
-	    Error("[vaapidevice]: hot key %d is not supported", code);
+	    Error("Hot key %d is not supported", code);
 	    break;
     }
 }
@@ -1368,13 +1405,13 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		HotkeyCode *= 10;
 		HotkeyCode += key - k0;
 		HotkeyState = HksInitial;
-		Debug(3, "[vaapidevice]%s: hot-key %d\n", __FUNCTION__, HotkeyCode);
+		Debug1("%s: Hot key %d", __FUNCTION__, HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
 	    }
 	    if (key == kOk) {
 		HotkeyState = HksInitial;
-		Debug(3, "[vaapidevice]%s: hot-key %d\n", __FUNCTION__, HotkeyCode);
+		Debug1("%s: Hot key %d", __FUNCTION__, HotkeyCode);
 		HandleHotkey(HotkeyCode);
 		return osEnd;
 	    }
@@ -1408,7 +1445,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		    SuspendMode = SUSPEND_NORMAL;
 		}
 		if (ShutdownHandler.GetUserInactiveTime()) {
-		    Debug(3, "[vaapidevice]%s: set user inactive\n", __FUNCTION__);
+		    Debug1("%s: set user inactive", __FUNCTION__);
 		    ShutdownHandler.SetUserInactive();
 		}
 	    }
@@ -1495,7 +1532,7 @@ cVaapiDevice::~cVaapiDevice(void)
 */
 void cVaapiDevice::MakePrimaryDevice(bool on)
 {
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, on);
+    Debug1("%s: %d", __FUNCTION__, on);
 
     cDevice::MakePrimaryDevice(on);
     if (on) {
@@ -1519,7 +1556,7 @@ void cVaapiDevice::MakePrimaryDevice(bool on)
 */
 cSpuDecoder *cVaapiDevice::GetSpuDecoder(void)
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s:", __FUNCTION__);
 
     if (!spuDecoder && IsPrimaryDevice()) {
 	spuDecoder = new cDvbSpuDecoder();
@@ -1550,7 +1587,7 @@ bool cVaapiDevice::CanReplay(void) const
 */
 bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 {
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, play_mode);
+    Debug1("%s: %d", __FUNCTION__, play_mode);
 
     switch (play_mode) {
 	case pmAudioVideo:
@@ -1563,13 +1600,13 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	case pmNone:
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
-	    Debug(3, "[vaapidevice] play mode external\n");
+	    Debug1("Play mode external");
 	    // FIXME: what if already suspended?
 	    Suspend(1, 1, 0);
 	    SuspendMode = SUSPEND_EXTERNAL;
 	    return true;
 	default:
-	    Debug(3, "[vaapidevice] playmode not implemented... %d\n", play_mode);
+	    Debug1("Play mode not implemented... %d", play_mode);
 	    break;
     }
 
@@ -1604,7 +1641,7 @@ int64_t cVaapiDevice::GetSTC(void)
 */
 void cVaapiDevice::TrickSpeed(int speed, bool forward)
 {
-    Debug(3, "[vaapidevice]%s: %d %d\n", __FUNCTION__, speed, forward);
+    Debug1("%s: %d %d", __FUNCTION__, speed, forward);
 
     ::TrickSpeed(speed);
 }
@@ -1614,7 +1651,7 @@ void cVaapiDevice::TrickSpeed(int speed, bool forward)
 */
 void cVaapiDevice::Clear(void)
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s:", __FUNCTION__);
 
     cDevice::Clear();
     ::Clear();
@@ -1625,7 +1662,7 @@ void cVaapiDevice::Clear(void)
 */
 void cVaapiDevice::Play(void)
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s:", __FUNCTION__);
 
     cDevice::Play();
     ::Play();
@@ -1636,7 +1673,7 @@ void cVaapiDevice::Play(void)
 */
 void cVaapiDevice::Freeze(void)
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s:", __FUNCTION__);
 
     cDevice::Freeze();
     ::Freeze();
@@ -1647,7 +1684,7 @@ void cVaapiDevice::Freeze(void)
 */
 void cVaapiDevice::Mute(void)
 {
-    Debug(3, "[vaapidevice]%s:\n", __FUNCTION__);
+    Debug1("%s:", __FUNCTION__);
 
     cDevice::Mute();
     ::Mute();
@@ -1661,7 +1698,7 @@ void cVaapiDevice::Mute(void)
 */
 void cVaapiDevice::StillPicture(const uchar * data, int length)
 {
-    Debug(3, "[vaapidevice]%s: %s %p %d\n", __FUNCTION__, data[0] == 0x47 ? "ts" : "pes", data, length);
+    Debug1("%s: %s %p %d\n", __FUNCTION__, data[0] == 0x47 ? "ts" : "pes", data, length);
 
     if (data[0] == 0x47) {		// ts sync
 	cDevice::StillPicture(data, length);
@@ -1692,7 +1729,7 @@ bool cVaapiDevice::Poll( __attribute__ ((unused)) cPoller & poller, int timeout_
 */
 bool cVaapiDevice::Flush(int timeout_ms)
 {
-    Debug(3, "[vaapidevice]%s: %d ms\n", __FUNCTION__, timeout_ms);
+    Debug1("%s: %d ms", __FUNCTION__, timeout_ms);
 
     return::Flush(timeout_ms);
 }
@@ -1705,7 +1742,7 @@ bool cVaapiDevice::Flush(int timeout_ms)
 */
 void cVaapiDevice::SetVideoDisplayFormat(eVideoDisplayFormat video_display_format)
 {
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, video_display_format);
+    Debug1("%s: %d", __FUNCTION__, video_display_format);
 
     cDevice::SetVideoDisplayFormat(video_display_format);
 }
@@ -1720,7 +1757,7 @@ void cVaapiDevice::SetVideoDisplayFormat(eVideoDisplayFormat video_display_forma
 */
 void cVaapiDevice::SetVideoFormat(bool video_format16_9)
 {
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, video_format16_9);
+    Debug1("%s: %d", __FUNCTION__, video_format16_9);
 
     // FIXME: 4:3 / 16:9 video format not supported.
 
@@ -1787,7 +1824,7 @@ int cVaapiDevice::GetAudioChannelDevice(void)
 */
 void cVaapiDevice::SetVolumeDevice(int volume)
 {
-    Debug(3, "[vaapidevice]%s: %d\n", __FUNCTION__, volume);
+    Debug1("%s: %d", __FUNCTION__, volume);
 
     ::SetVolumeDevice(volume);
 }
@@ -1826,7 +1863,7 @@ int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
 {
     if (SoftIsPlayingVideo != cDevice::IsPlayingVideo()) {
 	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
-	Debug(3, "[vaapidevice]%s: SoftIsPlayingVideo: %d\n", __FUNCTION__, SoftIsPlayingVideo);
+	Debug1("%s: SoftIsPlayingVideo: %d", __FUNCTION__, SoftIsPlayingVideo);
     }
 
     return::PlayTsAudio(data, length);
@@ -1843,7 +1880,7 @@ int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
 */
 uchar *cVaapiDevice::GrabImage(int &size, bool jpeg, int quality, int width, int height)
 {
-    Debug(3, "[vaapidevice]%s: %d, %d, %d, %dx%d\n", __FUNCTION__, size, jpeg, quality, width, height);
+    Debug1("%s: %d, %d, %d, %dx%d", __FUNCTION__, size, jpeg, quality, width, height);
 
     if (SuspendMode != NOT_SUSPENDED) {
 	return NULL;
@@ -1988,10 +2025,10 @@ bool cPluginVaapiDevice::Initialize(void)
 bool cPluginVaapiDevice::Start(void)
 {
     if (!MyDevice->IsPrimaryDevice()) {
-	Info("[vaapidevice] vaapidevice %d is not the primary device!", MyDevice->DeviceNumber());
+	Info("vaapidevice %d is not the primary device!", MyDevice->DeviceNumber());
 	if (ConfigMakePrimary) {
 	    // Must be done in the main thread
-	    Debug(3, "[vaapidevice] making vaapidevice %d the primary device!", MyDevice->DeviceNumber());
+	    Debug1("Making vaapidevice %d the primary device!", MyDevice->DeviceNumber());
 	    DoMakePrimary = MyDevice->DeviceNumber() + 1;
 	}
     }
@@ -2054,7 +2091,7 @@ cOsdObject *cPluginVaapiDevice::MainMenuAction(void)
 void cPluginVaapiDevice::MainThreadHook(void)
 {
     if (DoMakePrimary) {
-	Debug(3, "[vaapidevice]%s: switching primary device to %d\n", __FUNCTION__, DoMakePrimary);
+	Debug1("%s: switching primary device to %d", __FUNCTION__, DoMakePrimary);
 	cDevice::SetPrimaryDevice(DoMakePrimary);
 	DoMakePrimary = 0;
     }
@@ -2323,7 +2360,8 @@ static const char *SVDRPHelpText[] = {
 	"    SUSPEND_EXTERNAL == -1  (909)\n" "	   NOT_SUSPENDED    ==	0  (910)\n"
 	"    SUSPEND_NORMAL   ==  1  (911)\n" "	   SUSPEND_DETACHED ==	2  (912)\n",
     "RAIS\n" "\040	 Raise vaapidevice window\n\n" "	If Xserver is not started by vaapidevice, the window which\n"
-	"    contains the vaapidevice frontend will be raised to the front.\n",
+	"    contains the vaapidevice frontend will be raised to the front.\n" "TRAC [ <mode> ]\n"
+	"    gets and/or sets used tracing mode.\n",
     NULL
 };
 
@@ -2487,7 +2525,7 @@ cString cPluginVaapiDevice::SVDRPCommand(const char *command, const char *option
 	if (!primary && MyDevice) {
 	    primary = MyDevice->DeviceNumber() + 1;
 	}
-	Debug(3, "[vaapidevice] switching primary device to %d\n", primary);
+	Debug1("Switching primary device to %d", primary);
 	DoMakePrimary = primary;
 	return "switching primary device requested";
     }
@@ -2498,6 +2536,11 @@ cString cPluginVaapiDevice::SVDRPCommand(const char *command, const char *option
 	    return "Raise not possible";
 	}
 	return "Window raised";
+    }
+    if (!strcasecmp(command, "TRAC")) {
+	if (option && *option)
+	    TraceMode = strtol(option, NULL, 0) & 0xFFFF;
+	return cString::sprintf("tracing mode: 0x%04X\n", TraceMode);
     }
 
     return NULL;
