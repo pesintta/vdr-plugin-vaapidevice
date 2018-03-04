@@ -4216,8 +4216,14 @@ void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const ui
 ///
 void VideoGetOsdSize(int *width, int *height)
 {
-    *width = VideoWindowWidth;
-    *height = VideoWindowHeight;
+    if (VideoWindowWidth <= 0 || VideoWindowHeight <= 0) {
+	Error("video: %s: osd/window size not set yet", __FUNCTION__);
+	*width = 720;
+	*height = 576;
+    } else {
+	*width = VideoWindowWidth;
+	*height = VideoWindowHeight;
+    }
 }
 
 ///
@@ -5300,6 +5306,9 @@ void VideoSetVideoMode( __attribute__ ((unused))
 
     if ((unsigned)width == VideoWindowWidth && (unsigned)height == VideoWindowHeight) {
 	return;				// same size nothing todo
+    }
+    if (width <= 0 || height <= 0) {
+	return;				// ignore zero or negative sizes
     }
 
     VideoOsdExit();
