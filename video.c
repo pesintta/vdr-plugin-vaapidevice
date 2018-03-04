@@ -1860,7 +1860,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
     VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 
     // Sanity check for image format
-    if (image.format.fourcc != VA_FOURCC_NV12 && image.format.fourcc != VA_FOURCC('I', '4', '2', '0')) {
+    if (image.format.fourcc != VA_FOURCC_NV12 && image.format.fourcc != VA_FOURCC_I420) {
 	Error("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)", image.format.fourcc, image.num_planes);
 	goto out_destroy;
     }
@@ -1888,7 +1888,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 
 		u = image_buffer[uv_index];
 		v = image_buffer[uv_index + 1];
-	    } else if (image.format.fourcc == VA_FOURCC('I', '4', '2', '0')) {
+	    } else if (image.format.fourcc == VA_FOURCC_I420) {
 		unsigned int u_index = image.offsets[1] + (image.pitches[1] * (j / 2) + (i / 2));
 		unsigned int v_index = image.offsets[2] + (image.pitches[2] * (j / 2) + (i / 2));
 
