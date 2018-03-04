@@ -1175,6 +1175,20 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
     }
 }
 
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,107,100) // FFMPEG 3.4
+#if VA_CHECK_VERSION(1,0,0)
+static void VaapiInfoCallback(void *context, const char *msg)
+{
+    Debug13("libva: %s", msg);
+}
+
+static void VaapiErrorCallback(void *context, const char *msg)
+{
+    Debug13("libva/error: %s", msg);
+}
+#endif
+#endif
+
 ///
 /// Allocate new VA-API decoder.
 ///
@@ -1206,6 +1220,13 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->VideoY = 0;
     decoder->VideoWidth = VideoWindowWidth;
     decoder->VideoHeight = VideoWindowHeight;
+
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,107,100) // FFMPEG 3.4
+#if VA_CHECK_VERSION(1,0,0)
+    vaSetInfoCallback(decoder->VaDisplay, VaapiInfoCallback, NULL);
+    vaSetErrorCallback(decoder->VaDisplay, VaapiErrorCallback, NULL);
+#endif
+#endif
 
     VaapiInitSurfaceFlags(decoder);
 
