@@ -42,7 +42,8 @@
 
 #include <va/va_x11.h>
 #if !VA_CHECK_VERSION(1,0,0)
-#error "libva is too old - please, upgrade!"
+#warning "libva is too old - please, upgrade!"
+#define VA_FOURCC_I420 VA_FOURCC('I', '4', '2', '0')
 #endif
 #include <va/va_vpp.h>
 
