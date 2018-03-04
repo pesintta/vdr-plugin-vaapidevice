@@ -59,8 +59,6 @@
       ///
 static pthread_mutex_t CodecLockMutex;
 
-    /// Flag prefer fast channel switch
-char CodecUsePossibleDefectFrames;
 //----------------------------------------------------------------------------
 //  Video
 //----------------------------------------------------------------------------

@@ -2596,8 +2596,7 @@ const char *CommandLineHelp(void)
 	"\talsa-driver-broken\tdisable broken alsa driver message\n"
 	"\talsa-no-close-open\tdisable close open to fix alsa no sound bug\n"
 	"\talsa-close-open-delay\tenable close open delay to fix no sound bug\n"
-	"\tignore-repeat-pict\tdisable repeat pict message\n"
-	"\tuse-possible-defect-frames prefer faster channel switch\n" "	 -D\t\tstart in detached mode\n";
+	"\tignore-repeat-pict\tdisable repeat pict message\n" "	 -D\t\tstart in detached mode\n";
 }
 
 /**
@@ -2671,8 +2670,6 @@ int ProcessArgs(int argc, char *const argv[])
 		    AudioAlsaCloseOpenDelay = 1;
 		} else if (!strcasecmp("ignore-repeat-pict", optarg)) {
 		    VideoIgnoreRepeatPict = 1;
-		} else if (!strcasecmp("use-possible-defect-frames", optarg)) {
-		    CodecUsePossibleDefectFrames = 1;
 		} else {
 		    fprintf(stderr, "Workaround '%s' unsupported\n", optarg);
 		    return 0;

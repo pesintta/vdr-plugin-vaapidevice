@@ -47,9 +47,6 @@ typedef struct _audio_decoder_ AudioDecoder;
     /// x11 display name
 extern const char *X11DisplayName;
 
-    /// Flag prefer fast xhannel switch
-extern char CodecUsePossibleDefectFrames;
-
     /// HW device context from video module
 extern AVBufferRef *HwDeviceContext;
 //----------------------------------------------------------------------------
