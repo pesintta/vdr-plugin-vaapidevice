@@ -3405,16 +3405,7 @@ static void VaapiDisplayFrame(void)
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
 	    VaapiMessage(2, "video/vaapi: black surface displayed");
-	    if (DPMSDisabled) {
-		Debug8("video/vaapi: black surface, DPMS enabled");
-		X11DPMSReenable(Connection);
-		X11SuspendScreenSaver(Connection, 1);
-	    }
 	    continue;
-	} else if (!DPMSDisabled) {	// always disable
-	    Debug8("video/vaapi: DPMS disabled");
-	    X11DPMSDisable(Connection);
-	    X11SuspendScreenSaver(Connection, 0);
 	}
 
 	surface = decoder->SurfacesRb[decoder->SurfaceRead];
