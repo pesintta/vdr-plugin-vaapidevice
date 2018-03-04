@@ -9,20 +9,10 @@
 /// Uses Xlib where it is needed for VA-API.  XCB is used for
 /// everything else.
 ///
-/// - X11
-/// - OpenGL rendering
-/// - OpenGL rendering with GLX texture-from-pixmap
-/// - Xrender rendering
-///
-/// @todo FIXME: use vaErrorStr for all VA-API errors.
-///
 
-#define USE_XLIB_XCB			///< use xlib/xcb backend
 #ifndef AV_INFO_TIME
 #define AV_INFO_TIME (50 * 60)		///< a/v info every minute
 #endif
-
-//#define USE_VIDEO_THREAD2 ///< run decoder+display in own threads
 
 #include <sys/time.h>
 #include <sys/shm.h>
@@ -42,66 +32,31 @@
 #include <signal.h>
 #endif
 
-#ifdef USE_XLIB_XCB
 #include <X11/Xlib-xcb.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
-
 #include <xcb/xcb.h>
-#ifdef xcb_USE_GLX
-#include <xcb/glx.h>
-#endif
-
 #include <xcb/xcb_icccm.h>
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 #include <xcb/xcb_ewmh.h>
-#else // compatibility hack for old xcb-util
-
-/**
- * @brief Action on the _NET_WM_STATE property
- */
-typedef enum
-{
-    /* Remove/unset property */
-    XCB_EWMH_WM_STATE_REMOVE = 0,
-    /* Add/set property */
-    XCB_EWMH_WM_STATE_ADD = 1,
-    /* Toggle property	*/
-    XCB_EWMH_WM_STATE_TOGGLE = 2
-} xcb_ewmh_wm_state_action_t;
-#endif
-#endif
-
-#ifdef USE_GLX
-#include <GL/gl.h>			// For GL_COLOR_BUFFER_BIT
-#include <GL/glx.h>
-// only for gluErrorString
-#include <GL/glu.h>
-#endif
 
 #include <va/va_x11.h>
 #if !VA_CHECK_VERSION(1,0,0)
-#error "libva is too old - please, upgrade!"
+#warning "libva is too old - please, upgrade!"
+#define VA_FOURCC_I420 VA_FOURCC('I', '4', '2', '0')
 #endif
 #include <va/va_vpp.h>
-#ifdef USE_GLX
-#include <va/va_glx.h>
-#endif
-#ifndef VA_SURFACE_ATTRIB_SETTABLE
-/// make source compatible with stable libva
-#define vaCreateSurfaces(d, f, w, h, s, ns, a, na) \
-    vaCreateSurfaces(d, w, h, f, ns, s)
-#endif
 
 #include <libavcodec/avcodec.h>
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
+#include <libswscale/swscale.h>
 #include <libavcodec/vaapi.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
 
 #include "iatomic.h"			// portable atomic_t
 #include "misc.h"
@@ -111,7 +66,11 @@ typedef enum
 
 #define ARRAY_ELEMS(array) (sizeof(array)/sizeof(array[0]))
 
-#ifdef USE_XLIB_XCB
+#define TO_AVHW_DEVICE_CTX(x) ((AVHWDeviceContext*)x->data)
+#define TO_AVHW_FRAMES_CTX(x) ((AVHWFramesContext*)x->data)
+
+#define TO_VAAPI_DEVICE_CTX(x) ((AVVAAPIDeviceContext*)TO_AVHW_DEVICE_CTX(x)->hwctx)
+#define TO_VAAPI_FRAMES_CTX(x) ((AVVAAPIFramesContext*)TO_AVHW_FRAMES_CTX(x)->hwctx)
 
 //----------------------------------------------------------------------------
 //  Declarations
@@ -178,7 +137,6 @@ typedef struct _video_module_
     void (*const ReleaseSurface) (VideoHwDecoder *, unsigned);
     enum AVPixelFormat (*const get_format) (VideoHwDecoder *, AVCodecContext *, const enum AVPixelFormat *);
     void (*const RenderFrame) (VideoHwDecoder *, const AVCodecContext *, const AVFrame *);
-    void *(*const GetHwAccelContext)(VideoHwDecoder *);
     void (*const SetClock) (VideoHwDecoder *, int64_t);
      int64_t(*const GetClock) (const VideoHwDecoder *);
     void (*const SetClosing) (const VideoHwDecoder *);
@@ -221,20 +179,8 @@ typedef struct _video_config_values_
 //  Defines
 //----------------------------------------------------------------------------
 
-#define CODEC_SURFACES_MAX	31	    ///< maximal of surfaces
-
-#define CODEC_SURFACES_DEFAULT	21	///< default of surfaces
-
-#define CODEC_SURFACES_MPEG2	3	///< 1 decode, up to  2 references
-#define CODEC_SURFACES_MPEG4	3	///< 1 decode, up to  2 references
-#define CODEC_SURFACES_H264	21	    ///< 1 decode, up to 20 references
-#define CODEC_SURFACES_HEVC	21	    ///< 1 decode, up to 20 references
-#define CODEC_SURFACES_VC1	3	    ///< 1 decode, up to  2 references
-
 #define VIDEO_SURFACES_MAX	4	    ///< video output surfaces for queue
 #define POSTPROC_SURFACES_MAX	8	///< video postprocessing surfaces for queue
-#define FIELD_SURFACES_MAX	POSTPROC_SURFACES_MAX / 2   ///< video postprocessing surfaces for queue
-#define OUTPUT_SURFACES_MAX	4	    ///< output surfaces for flip page
 
 //----------------------------------------------------------------------------
 //  Variables
@@ -297,8 +243,6 @@ static const VideoModule NoopModule;	///< forward definition of noop module
     /// selected video module
 static const VideoModule *VideoUsedModule = &NoopModule;
 
-signed char VideoHardwareDecoder = -1;	///< flag use hardware decoder
-
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
 static uint32_t VideoBackground;	///< video background color
@@ -343,7 +287,6 @@ static VideoZoomModes VideoOtherZoomMode;
 static char Video60HzMode;		///< handle 60hz displays
 static char VideoSoftStartSync;		///< soft start sync audio/video
 static const int VideoSoftStartFrames = 100;	///< soft start frames
-static char VideoShowBlackPicture;	///< flag show black picture
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
@@ -362,20 +305,7 @@ static pthread_mutex_t VideoLockMutex;	///< video lock mutex
 extern pthread_mutex_t PTS_mutex;	///< PTS mutex
 extern pthread_mutex_t ReadAdvance_mutex;   ///< PTS mutex
 
-#ifdef USE_VIDEO_THREAD2
-
-static pthread_t VideoDisplayThread;	///< video decode thread
-static pthread_cond_t VideoWakeupCond;	///< wakeup condition variable
-static pthread_mutex_t VideoDisplayMutex;   ///< video condition mutex
-static pthread_mutex_t VideoDisplayLockMutex;	///< video lock mutex
-
-#endif
-
-static int OsdConfigWidth;		///< osd configured width
-static int OsdConfigHeight;		///< osd configured height
 static char OsdShown;			///< flag show osd
-static int OsdWidth;			///< osd width
-static int OsdHeight;			///< osd height
 static int OsdDirtyX;			///< osd dirty area x
 static int OsdDirtyY;			///< osd dirty area y
 static int OsdDirtyWidth;		///< osd dirty area width
@@ -493,8 +423,8 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 
     *crop_x = VideoCutLeftRight[resolution];
     *crop_y = VideoCutTopBottom[resolution];
-    *crop_width = input_width - VideoCutLeftRight[resolution] * 2;
-    *crop_height = input_height - VideoCutTopBottom[resolution] * 2;
+    *crop_width = VideoWindowWidth - VideoCutLeftRight[resolution] * 2;
+    *crop_height = VideoWindowHeight - VideoCutTopBottom[resolution] * 2;
 
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
@@ -595,618 +525,6 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     Debug(3, "video: aspect crop %dx%d%+d%+d", *crop_width, *crop_height, *crop_x, *crop_y);
     return;
 }
-
-//----------------------------------------------------------------------------
-//  GLX
-//----------------------------------------------------------------------------
-
-#ifdef USE_GLX
-
-static int GlxEnabled;			///< use GLX
-static int GlxVSyncEnabled;		///< enable/disable v-sync
-static GLXContext GlxSharedContext;	///< shared gl context
-static GLXContext GlxContext;		///< our gl context
-
-static GLXContext GlxThreadContext;	///< our gl context for the thread
-
-static GLXFBConfig *GlxFBConfigs;	///< our gl fb configs
-static XVisualInfo *GlxVisualInfo;	///< our gl visual
-
-static GLuint OsdGlTextures[2];		///< gl texture for OSD
-static int OsdIndex;			///< index into OsdGlTextures
-
-///
-/// GLX extension functions
-///@{
-#ifdef GLX_MESA_swap_control
-static PFNGLXSWAPINTERVALMESAPROC GlxSwapIntervalMESA;
-#endif
-#ifdef GLX_SGI_video_sync
-static PFNGLXGETVIDEOSYNCSGIPROC GlxGetVideoSyncSGI;
-#endif
-#ifdef GLX_SGI_swap_control
-static PFNGLXSWAPINTERVALSGIPROC GlxSwapIntervalSGI;
-#endif
-
-///@}
-
-///
-/// GLX check error.
-///
-static void GlxCheck(void)
-{
-    GLenum err;
-
-    if ((err = glGetError()) != GL_NO_ERROR) {
-	Debug(3, "video/glx: error %d '%s'", err, gluErrorString(err));
-    }
-}
-
-///
-/// GLX check if a GLX extension is supported.
-///
-/// @param ext	extension to query
-/// @returns true if supported, false otherwise
-///
-static int GlxIsExtensionSupported(const char *ext)
-{
-    const char *extensions;
-
-    if ((extensions = glXQueryExtensionsString(XlibDisplay, DefaultScreen(XlibDisplay)))) {
-	const char *s;
-	int l;
-
-	s = strstr(extensions, ext);
-	l = strlen(ext);
-	return s && (s[l] == ' ' || s[l] == '\0');
-    }
-    return 0;
-}
-
-///
-/// Setup GLX decoder
-///
-/// @param width    input video textures width
-/// @param height   input video textures height
-/// @param[OUT] textures    created and prepared textures
-///
-static void GlxSetupDecoder(int width, int height, GLuint * textures)
-{
-    int i;
-
-    glEnable(GL_TEXTURE_2D);		// create 2d texture
-    glGenTextures(2, textures);
-    GlxCheck();
-    for (i = 0; i < 2; ++i) {
-	glBindTexture(GL_TEXTURE_2D, textures[i]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-	glBindTexture(GL_TEXTURE_2D, 0);
-    }
-    glDisable(GL_TEXTURE_2D);
-
-    GlxCheck();
-}
-
-///
-/// Render texture.
-///
-/// @param texture  2d texture
-/// @param x	window x
-/// @param y	window y
-/// @param width    window width
-/// @param height   window height
-///
-static inline void GlxRenderTexture(GLuint texture, int x, int y, int width, int height)
-{
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);	// no color
-    glBegin(GL_QUADS); {
-	glTexCoord2f(1.0f, 1.0f);
-	glVertex2i(x + width, y + height);
-	glTexCoord2f(0.0f, 1.0f);
-	glVertex2i(x, y + height);
-	glTexCoord2f(0.0f, 0.0f);
-	glVertex2i(x, y);
-	glTexCoord2f(1.0f, 0.0f);
-	glVertex2i(x + width, y);
-    }
-    glEnd();
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-}
-
-///
-/// Upload OSD texture.
-///
-/// @param x	x coordinate texture
-/// @param y	y coordinate texture
-/// @param width    argb image width
-/// @param height   argb image height
-/// @param argb argb image
-///
-static void GlxUploadOsdTexture(int x, int y, int width, int height, const uint8_t * argb)
-{
-    // FIXME: use other / faster uploads
-    // ARB_pixelbuffer_object GL_PIXEL_UNPACK_BUFFER glBindBufferARB()
-    // glMapBuffer() glUnmapBuffer()
-
-    glEnable(GL_TEXTURE_2D);		// upload 2d texture
-
-    glBindTexture(GL_TEXTURE_2D, OsdGlTextures[OsdIndex]);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA, GL_UNSIGNED_BYTE, argb);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    glDisable(GL_TEXTURE_2D);
-}
-
-///
-/// GLX initialize OSD.
-///
-/// @param width    osd width
-/// @param height   osd height
-///
-static void GlxOsdInit(int width, int height)
-{
-    int i;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-#endif
-
-    Debug(3, "video/glx: osd init context %p <-> %p", glXGetCurrentContext(), GlxContext);
-
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Fatal("video/glx: can't make glx osd context current");
-    }
-    //
-    //	create a RGBA texture.
-    //
-    glEnable(GL_TEXTURE_2D);		// create 2d texture(s)
-
-    glGenTextures(2, OsdGlTextures);
-    for (i = 0; i < 2; ++i) {
-	glBindTexture(GL_TEXTURE_2D, OsdGlTextures[i]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-    }
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-    glXMakeCurrent(XlibDisplay, None, NULL);
-
-}
-
-///
-/// GLX cleanup osd.
-///
-static void GlxOsdExit(void)
-{
-    if (OsdGlTextures[0]) {
-	glDeleteTextures(2, OsdGlTextures);
-	OsdGlTextures[0] = 0;
-	OsdGlTextures[1] = 0;
-    }
-}
-
-///
-/// Upload ARGB image to texture.
-///
-/// @param xi	x-coordinate in argb image
-/// @param yi	y-coordinate in argb image
-/// @paran height   height in pixel in argb image
-/// @paran width    width in pixel in argb image
-/// @param pitch    pitch of argb image
-/// @param argb 32bit ARGB image data
-/// @param x	x-coordinate on screen of argb image
-/// @param y	y-coordinate on screen of argb image
-///
-/// @note looked by caller
-///
-static void GlxOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const uint8_t * argb, int x, int y)
-{
-    uint8_t *tmp;
-
-#ifdef DEBUG
-    uint32_t start;
-    uint32_t end;
-#endif
-
-    int copywidth, copyheight;
-
-    if (OsdWidth < width + x || OsdHeight < height + y) {
-	Error("video/glx: OSD will not fit (w: %d+%d, w-avail: %d, h: %d+%d, h-avail: %d", width, x, OsdWidth, height,
-	    y, OsdHeight);
-    }
-    if (OsdWidth < x || OsdHeight < y)
-	return;
-
-    copywidth = width;
-    copyheight = height;
-    if (OsdWidth < width + x)
-	copywidth = OsdWidth - x;
-    if (OsdHeight < height + y)
-	copyheight = OsdHeight - y;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-    start = GetMsTicks();
-    Debug(3, "video/glx: osd context %p <-> %p", glXGetCurrentContext(), GlxContext);
-#endif
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Error("video/glx: can't make glx context current");
-	return;
-    }
-    // FIXME: faster way
-    tmp = malloc(copywidth * copyheight * 4);
-    if (tmp) {
-	int i;
-
-	for (i = 0; i < copyheight; ++i) {
-	    memcpy(tmp + i * copywidth * 4, argb + xi * 4 + (i + yi) * pitch, copywidth * 4);
-	}
-
-	GlxUploadOsdTexture(x, y, copywidth, copyheight, tmp);
-	glXMakeCurrent(XlibDisplay, None, NULL);
-
-	free(tmp);
-    }
-#ifdef DEBUG
-    end = GetMsTicks();
-
-    Debug(3, "video/glx: osd upload %dx%d%+d%+d %dms %d", width, height, x, y, end - start, width * height * 4);
-#endif
-}
-
-///
-/// Clear OSD texture.
-///
-/// @note looked by caller
-///
-static void GlxOsdClear(void)
-{
-    void *texbuf;
-
-#ifdef DEBUG
-    if (!GlxEnabled) {
-	Debug(3, "video/glx: %s called without glx enabled", __FUNCTION__);
-	return;
-    }
-
-    Debug(3, "video/glx: osd context %p <-> %p", glXGetCurrentContext(), GlxContext);
-#endif
-
-    // FIXME: any opengl function to clear an area?
-    // FIXME: if not; use zero buffer
-    // FIXME: if not; use dirty area
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-	Error("video/glx: can't make glx context current");
-	return;
-    }
-
-    texbuf = calloc(OsdWidth * OsdHeight, 4);
-    GlxUploadOsdTexture(0, 0, OsdWidth, OsdHeight, texbuf);
-    glXMakeCurrent(XlibDisplay, None, NULL);
-
-    free(texbuf);
-}
-
-///
-/// Setup GLX window.
-///
-/// @param window   xcb window id
-/// @param width    window width
-/// @param height   window height
-/// @param context  GLX context
-///
-static void GlxSetupWindow(xcb_window_t window, int width, int height, GLXContext context)
-{
-#ifdef DEBUG
-    uint32_t end;
-    int i;
-    unsigned count;
-#endif
-
-    Debug(3, "video/glx: %s %x %dx%d context:%p", __FUNCTION__, window, width, height, context);
-
-    // set glx context
-    if (!glXMakeCurrent(XlibDisplay, window, context)) {
-	Error("video/glx: can't make glx context current");
-	GlxEnabled = 0;
-	return;
-    }
-
-    Debug(3, "video/glx: ok");
-
-#ifdef DEBUG
-    // check if v-sync is working correct
-    end = GetMsTicks();
-    for (i = 0; i < 10; ++i) {
-	uint32_t start = end;
-
-	glClear(GL_COLOR_BUFFER_BIT);
-	glXSwapBuffers(XlibDisplay, window);
-	end = GetMsTicks();
-
-	GlxGetVideoSyncSGI(&count);
-	Debug(3, "video/glx: %5d frame rate %dms", count, end - start);
-	// nvidia can queue 5 swaps
-	if (i > 5 && (end - start) < 15) {
-	    Warning("video/glx: no v-sync");
-	}
-    }
-#endif
-
-    // viewpoint
-    GlxCheck();
-    glViewport(0, 0, width, height);
-    glDepthRange(-1.0, 1.0);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glClearDepth(1.0);
-    GlxCheck();
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, width, height, 0.0, -1.0, 1.0);
-    GlxCheck();
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    glDisable(GL_DEPTH_TEST);		// setup 2d drawing
-    glDepthMask(GL_FALSE);
-    glDisable(GL_CULL_FACE);
-    glDrawBuffer(GL_BACK);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-#ifdef DEBUG
-    glDrawBuffer(GL_FRONT);
-    glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glDrawBuffer(GL_BACK);
-#endif
-
-    // clear
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);   // intial background color
-    glClear(GL_COLOR_BUFFER_BIT);
-#ifdef DEBUG
-    glClearColor(1.0f, 1.0f, 0.0f, 1.0f);   // background color
-#endif
-    GlxCheck();
-}
-
-///
-/// Initialize GLX.
-///
-static void GlxInit(void)
-{
-    static GLint fb_attr[] = {
-	GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
-	GLX_RENDER_TYPE, GLX_RGBA_BIT,
-	GLX_RED_SIZE, 8,
-	GLX_GREEN_SIZE, 8,
-	GLX_BLUE_SIZE, 8,
-	GLX_DOUBLEBUFFER, True,
-	None
-    };
-    XVisualInfo *vi;
-    GLXContext context;
-    GLXFBConfig *fbconfigs;
-    int numconfigs;
-    int major;
-    int minor;
-    int glx_GLX_EXT_swap_control;
-    int glx_GLX_MESA_swap_control;
-    int glx_GLX_SGI_swap_control;
-    int glx_GLX_SGI_video_sync;
-
-    if (!glXQueryVersion(XlibDisplay, &major, &minor)) {
-	Error("video/glx: no GLX support");
-	GlxEnabled = 0;
-	return;
-    }
-    Info("video/glx: glx version %d.%d", major, minor);
-
-    //
-    //	check which extension are supported
-    //
-    glx_GLX_EXT_swap_control = GlxIsExtensionSupported("GLX_EXT_swap_control");
-    glx_GLX_MESA_swap_control = GlxIsExtensionSupported("GLX_MESA_swap_control");
-    glx_GLX_SGI_swap_control = GlxIsExtensionSupported("GLX_SGI_swap_control");
-    glx_GLX_SGI_video_sync = GlxIsExtensionSupported("GLX_SGI_video_sync");
-
-#ifdef GLX_MESA_swap_control
-    if (glx_GLX_MESA_swap_control) {
-	GlxSwapIntervalMESA = (PFNGLXSWAPINTERVALMESAPROC)
-	    glXGetProcAddress((const GLubyte *)"glXSwapIntervalMESA");
-    }
-    Debug(3, "video/glx: GlxSwapIntervalMESA=%p", GlxSwapIntervalMESA);
-#endif
-#ifdef GLX_SGI_swap_control
-    if (glx_GLX_SGI_swap_control) {
-	GlxSwapIntervalSGI = (PFNGLXSWAPINTERVALSGIPROC)
-	    glXGetProcAddress((const GLubyte *)"glXSwapIntervalSGI");
-    }
-    Debug(3, "video/glx: GlxSwapIntervalSGI=%p", GlxSwapIntervalSGI);
-#endif
-#ifdef GLX_SGI_video_sync
-    if (glx_GLX_SGI_video_sync) {
-	GlxGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)
-	    glXGetProcAddress((const GLubyte *)"glXGetVideoSyncSGI");
-    }
-    Debug(3, "video/glx: GlxGetVideoSyncSGI=%p", GlxGetVideoSyncSGI);
-#endif
-    // glXGetVideoSyncSGI glXWaitVideoSyncSGI
-
-    // create glx context
-    glXMakeCurrent(XlibDisplay, None, NULL);
-    fbconfigs = glXChooseFBConfig(XlibDisplay, DefaultScreen(XlibDisplay), fb_attr, &numconfigs);
-    if (!fbconfigs || !numconfigs) {
-	Error("video/glx: can't get FB configs");
-	GlxEnabled = 0;
-	return;
-    }
-    vi = glXGetVisualFromFBConfig(XlibDisplay, fbconfigs[0]);
-    if (!vi) {
-	Error("video/glx: can't get a RGB visual");
-	GlxEnabled = 0;
-	return;
-    }
-    if (!vi->visual) {
-	Error("video/glx: no valid visual found");
-	GlxEnabled = 0;
-	return;
-    }
-    if (vi->bits_per_rgb < 8) {
-	Error("video/glx: need atleast 8-bits per RGB");
-	GlxEnabled = 0;
-	return;
-    }
-    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, NULL, GL_TRUE);
-    if (!context) {
-	Error("video/glx: can't create shared glx context");
-	GlxEnabled = 0;
-	return;
-    }
-    GlxSharedContext = context;
-    context = glXCreateNewContext(XlibDisplay, fbconfigs[0], GLX_RGBA_TYPE, GlxSharedContext, GL_TRUE);
-    if (!context) {
-	Error("video/glx: can't create glx context");
-	GlxEnabled = 0;
-	glXDestroyContext(XlibDisplay, GlxSharedContext);
-	GlxSharedContext = 0;
-	return;
-    }
-    GlxContext = context;
-    GlxFBConfigs = fbconfigs;
-    GlxVisualInfo = vi;
-    Debug(3, "video/glx: visual %#02x depth %u", (unsigned)vi->visualid, vi->depth);
-
-    //
-    //	query default v-sync state
-    //
-    if (glx_GLX_EXT_swap_control) {
-	unsigned tmp;
-
-	tmp = -1;
-	glXQueryDrawable(XlibDisplay, DefaultRootWindow(XlibDisplay), GLX_SWAP_INTERVAL_EXT, &tmp);
-	GlxCheck();
-
-	Debug(3, "video/glx: default v-sync is %d", tmp);
-    } else {
-	Debug(3, "video/glx: default v-sync is unknown");
-    }
-
-    //
-    //	disable wait on v-sync
-    //
-    // FIXME: sleep before swap / busy waiting hardware
-    // FIXME: 60hz lcd panel
-    // FIXME: config: default, on, off
-#ifdef GLX_SGI_swap_control
-    if (GlxVSyncEnabled < 0 && GlxSwapIntervalSGI) {
-	if (GlxSwapIntervalSGI(0)) {
-	    GlxCheck();
-	    Warning("video/glx: can't disable v-sync");
-	} else {
-	    Info("video/glx: v-sync disabled");
-	}
-    } else
-#endif
-#ifdef GLX_MESA_swap_control
-    if (GlxVSyncEnabled < 0 && GlxSwapIntervalMESA) {
-	if (GlxSwapIntervalMESA(0)) {
-	    GlxCheck();
-	    Warning("video/glx: can't disable v-sync");
-	} else {
-	    Info("video/glx: v-sync disabled");
-	}
-    }
-#endif
-
-    //
-    //	enable wait on v-sync
-    //
-#ifdef GLX_SGI_swap_control
-    if (GlxVSyncEnabled > 0 && GlxSwapIntervalMESA) {
-	if (GlxSwapIntervalMESA(1)) {
-	    GlxCheck();
-	    Warning("video/glx: can't enable v-sync");
-	} else {
-	    Info("video/glx: v-sync enabled");
-	}
-    } else
-#endif
-#ifdef GLX_MESA_swap_control
-    if (GlxVSyncEnabled > 0 && GlxSwapIntervalSGI) {
-	if (GlxSwapIntervalSGI(1)) {
-	    GlxCheck();
-	    Warning("video/glx: can't enable v-sync");
-	} else {
-	    Info("video/glx: v-sync enabled");
-	}
-    }
-#endif
-}
-
-///
-/// Cleanup GLX.
-///
-static void GlxExit(void)
-{
-    Debug(3, "video/glx: %s", __FUNCTION__);
-
-    glFinish();
-
-    // must destroy glx
-    if (glXGetCurrentContext() == GlxContext) {
-	// if currently used, set to none
-	glXMakeCurrent(XlibDisplay, None, NULL);
-    }
-    if (GlxSharedContext) {
-	glXDestroyContext(XlibDisplay, GlxSharedContext);
-    }
-    if (GlxContext) {
-	glXDestroyContext(XlibDisplay, GlxContext);
-    }
-    if (GlxThreadContext) {
-	glXDestroyContext(XlibDisplay, GlxThreadContext);
-    }
-    if (GlxVisualInfo) {
-	XFree(GlxVisualInfo);
-	GlxVisualInfo = NULL;
-    }
-    if (GlxFBConfigs) {
-	XFree(GlxFBConfigs);
-	GlxFBConfigs = NULL;
-    }
-}
-
-#endif
 
 //----------------------------------------------------------------------------
 //  common functions
@@ -1421,6 +739,8 @@ static void AutoCropDetect(AutoCropCtx * autocrop, int width, int height, void *
 //  VA-API
 //----------------------------------------------------------------------------
 
+AVBufferRef *HwDeviceContext;		///< ffmpeg HW device context
+
 static VADisplay *VaDisplay;		///< VA-API display
 
 static VAImage VaOsdImage = {
@@ -1467,21 +787,10 @@ struct _vaapi_decoder_
     int GetPutImage;			///< flag get/put image can be used
     VAImage Image[1];			///< image buffer to update surface
 
-    VAProfile Profile;			///< VA-API profile
-    VAEntrypoint Entrypoint;		///< VA-API entrypoint
     VAEntrypoint VppEntrypoint;		///< VA-API postprocessing entrypoint
-    struct vaapi_context VaapiContext[1];   ///< ffmpeg VA-API context
 
     VAConfigID VppConfig;		///< VPP Config
     VAContextID vpp_ctx;		///< VPP Context
-
-    int SurfacesNeeded;			///< number of surface to request
-    int SurfaceUsedN;			///< number of used surfaces
-    /// used surface ids
-    VASurfaceID SurfacesUsed[CODEC_SURFACES_MAX];
-    int SurfaceFreeN;			///< number of free surfaces
-    /// free surface ids
-    VASurfaceID SurfacesFree[CODEC_SURFACES_MAX];
 
     int InputWidth;			///< video input width
     int InputHeight;			///< video input height
@@ -1493,17 +802,11 @@ struct _vaapi_decoder_
     int CropWidth;			///< video crop width
     int CropHeight;			///< video crop height
     AutoCropCtx AutoCrop[1];		///< auto-crop variables
-#ifdef USE_GLX
-    GLuint GlTextures[2];		///< gl texture for VA-API
-    void *GlxSurfaces[2];		///< VA-API/GLX surface
-#endif
     VASurfaceID BlackSurface;		///< empty black surface
 
     /// video surface ring buffer
     VASurfaceID SurfacesRb[VIDEO_SURFACES_MAX];
     VASurfaceID PostProcSurfacesRb[POSTPROC_SURFACES_MAX];  ///< Posprocessing result surfaces
-    VASurfaceID FirstFieldHistory[FIELD_SURFACES_MAX];	///< Postproc history result surfaces
-    VASurfaceID SecondFieldHistory[FIELD_SURFACES_MAX]; ///< Postproc history result surfaces
 
     VASurfaceID *ForwardRefSurfaces;	///< Forward referencing surfaces for post processing
     VASurfaceID *BackwardRefSurfaces;	///< Backward referencing surfaces for post processing
@@ -1614,56 +917,7 @@ static int VaapiMessage(int level, const char *format, ...)
 ///
 static void VaapiAssociate(VaapiDecoder * decoder)
 {
-    int x;
-    int y;
-    int w;
-    int h;
-    VAStatus va_status;
 
-    if (VaOsdSubpicture == VA_INVALID_ID) {
-	Warning("video/vaapi: no osd subpicture yet");
-	return;
-    }
-
-    x = 0;
-    y = 0;
-    w = VaOsdImage.width;
-    h = VaOsdImage.height;
-
-    // FIXME: associate only if osd is displayed
-    if (VaapiUnscaledOsd) {
-	if (decoder->SurfaceFreeN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w,
-		h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-	if (decoder->SurfaceUsedN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w,
-		h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-    } else {
-	if (decoder->SurfaceFreeN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN, x, y, w,
-		h, decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-	if (decoder->SurfaceUsedN
-	    && vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN, x, y, w,
-		h, decoder->CropX, decoder->CropY / 2, decoder->CropWidth, decoder->CropHeight, 0)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't associate subpicture");
-	}
-    }
-
-    va_status =
-	vaAssociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, x, y, w,
-	h, 0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
-    if (va_status != VA_STATUS_SUCCESS)
-	Error("video/vaapi: can't associate subpicture");
 }
 
 ///
@@ -1674,19 +928,8 @@ static void VaapiAssociate(VaapiDecoder * decoder)
 static void VaapiDeassociate(VaapiDecoder * decoder)
 {
     if (VaOsdSubpicture != VA_INVALID_ID) {
-	if (decoder->SurfaceFreeN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesFree, decoder->SurfaceFreeN)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceFreeN);
-	}
-
-	if (decoder->SurfaceUsedN
-	    && vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->SurfacesUsed, decoder->SurfaceUsedN)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't deassociate %d surfaces", decoder->SurfaceUsedN);
-	}
-
-	vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
+	vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb,
+	    POSTPROC_SURFACES_MAX);
     }
 }
 
@@ -1699,27 +942,10 @@ static void VaapiDeassociate(VaapiDecoder * decoder)
 ///
 static void VaapiCreateSurfaces(VaapiDecoder * decoder, int width, int height)
 {
-#ifdef DEBUG
-    if (!decoder->SurfacesNeeded) {
-	Error("video/vaapi: surface needed not set");
-	decoder->SurfacesNeeded = 3 + VIDEO_SURFACES_MAX;
-    }
-#endif
-    Debug(3, "video/vaapi: %s: %dx%d * %d", __FUNCTION__, width, height, decoder->SurfacesNeeded);
-
-    decoder->SurfaceFreeN = decoder->SurfacesNeeded;
-    // VA_RT_FORMAT_YUV420 VA_RT_FORMAT_YUV422 VA_RT_FORMAT_YUV444
-    if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width, height, decoder->SurfacesFree,
-	    decoder->SurfaceFreeN, NULL, 0) != VA_STATUS_SUCCESS) {
-	Fatal("video/vaapi: can't create %d surfaces", decoder->SurfaceFreeN);
-	// FIXME: write error handler / fallback
-    }
-
     if (vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, width, height, decoder->PostProcSurfacesRb,
 	    POSTPROC_SURFACES_MAX, NULL, 0) != VA_STATUS_SUCCESS) {
 	Fatal("video/vaapi: can't create %d postproc surfaces", POSTPROC_SURFACES_MAX);
     }
-
 }
 
 ///
@@ -1736,16 +962,9 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
     //
     VaapiDeassociate(decoder);
 
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesFree, decoder->SurfaceFreeN) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceFreeN);
+    if (vaDestroySurfaces(decoder->VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't destroy %d surfaces", POSTPROC_SURFACES_MAX);
     }
-    decoder->SurfaceFreeN = 0;
-    if (vaDestroySurfaces(decoder->VaDisplay, decoder->SurfacesUsed, decoder->SurfaceUsedN) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy %d surfaces", decoder->SurfaceUsedN);
-    }
-    decoder->SurfaceUsedN = 0;
-
-    // FIXME surfaces used for output
 }
 
 ///
@@ -1755,40 +974,31 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 ///
 /// @returns the oldest free surface
 ///
-static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
+static VASurfaceID VaapiGetPluginSurface(VaapiDecoder * decoder)
 {
+    VAStatus va_status;
     VASurfaceID surface;
     VASurfaceStatus status;
-    int i;
 
-    // try to use oldest surface
-    for (i = 0; i < decoder->SurfaceFreeN; ++i) {
-	surface = decoder->SurfacesFree[i];
-	if (vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status) != VA_STATUS_SUCCESS) {
-	    // this fails with mpeg softdecoder
-	    Error("video/vaapi: vaQuerySurface failed");
-	    status = VASurfaceReady;
-	}
-	// surface still in use, try next
-	if (status != VASurfaceReady) {
-	    Debug(4, "video/vaapi: surface %#010x not ready: %d", surface, status);
-	    continue;
-	}
-	// copy remaining surfaces down
-	decoder->SurfaceFreeN--;
-	for (; i < decoder->SurfaceFreeN; ++i) {
-	    decoder->SurfacesFree[i] = decoder->SurfacesFree[i + 1];
-	}
-	decoder->SurfacesFree[i] = VA_INVALID_ID;
-
-	// save as used
-	decoder->SurfacesUsed[decoder->SurfaceUsedN++] = surface;
-
-	return surface;
+    /* Get next postproc surface to write from ring buffer */
+    decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
+    surface = decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
+    if (surface == VA_INVALID_ID) {
+	Debug(4, "video/vaapi: surface at %d (%#010x) not initialized", decoder->PostProcSurfaceWrite, surface);
+	return VA_INVALID_ID;
+    }
+    va_status = vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status);
+    if (va_status != VA_STATUS_SUCCESS) {
+	// this fails with mpeg softdecoder
+	Error("video/vaapi: vaQuerySurface failed: %s", vaErrorStr(va_status));
+	status = VASurfaceReady;
+    }
+    if (status != VASurfaceReady) {
+	Debug(4, "video/vaapi: surface %#010x not ready: %d", surface, status);
+	return VA_INVALID_ID;
     }
 
-    Error("video/vaapi: out of surfaces");
-    return VA_INVALID_ID;
+    return surface;
 }
 
 ///
@@ -1799,17 +1009,7 @@ static VASurfaceID VaapiGetSurface0(VaapiDecoder * decoder)
 ///
 static void VaapiReleaseSurface(VaapiDecoder * decoder, VASurfaceID surface)
 {
-    int i;
 
-    for (i = 0; i < decoder->SurfaceUsedN; ++i) {
-	if (decoder->SurfacesUsed[i] == surface) {
-	    // no problem, with last used
-	    decoder->SurfacesUsed[i] = decoder->SurfacesUsed[--decoder->SurfaceUsedN];
-	    decoder->SurfacesFree[decoder->SurfaceFreeN++] = surface;
-	    return;
-	}
-    }
-    Error("video/vaapi: release surface %#010x, which is not in use", surface);
 }
 
 //  Init/Exit ------------------------------------------------------------
@@ -1913,7 +1113,7 @@ static void VaapiInitSurfaceFlags(VaapiDecoder * decoder)
     }
     if (decoder->vpp_denoise_buf) {
 	VAProcFilterParameterBuffer *denoise_param;
-	VAStatus va_status = vaMapBuffer(VaDisplay, *decoder->vpp_denoise_buf, (void **)&denoise_param);
+	VAStatus va_status = vaMapBuffer(decoder->VaDisplay, *decoder->vpp_denoise_buf, (void **)&denoise_param);
 
 	if (va_status == VA_STATUS_SUCCESS) {
 
@@ -1953,6 +1153,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 {
     VaapiDecoder *decoder;
     int i;
+    AVBufferRef *hw_device_ctx;
 
     if (VaapiDecoderN == 1) {
 	Fatal("video/vaapi: out of decoders");
@@ -1961,6 +1162,13 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
 	Fatal("video/vaapi: out of memory");
     }
+
+    if (av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, X11DisplayName, NULL, 0)) {
+	Fatal("codec: can't allocate HW video codec context");
+    }
+    HwDeviceContext = av_buffer_ref(hw_device_ctx);
+
+    VaDisplay = TO_VAAPI_DEVICE_CTX(HwDeviceContext)->display;
     decoder->VaDisplay = VaDisplay;
     decoder->Window = VideoWindow;
     decoder->VideoX = 0;
@@ -1972,11 +1180,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 
     decoder->Image->image_id = VA_INVALID_ID;
 
-    for (i = 0; i < CODEC_SURFACES_MAX; ++i) {
-	decoder->SurfacesUsed[i] = VA_INVALID_ID;
-	decoder->SurfacesFree[i] = VA_INVALID_ID;
-    }
-
     // setup video surface ring buffer
     atomic_set(&decoder->SurfacesFilled, 0);
 
@@ -1985,10 +1188,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     }
     for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
 	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
-    }
-    for (i = 0; i < FIELD_SURFACES_MAX; ++i) {
-	decoder->FirstFieldHistory[i] = VA_INVALID_ID;
-	decoder->SecondFieldHistory[i] = VA_INVALID_ID;
     }
 
     // Initialize postprocessing surfaces to 0
@@ -2029,22 +1228,9 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     //
     //	Setup ffmpeg vaapi context
     //
-    decoder->Profile = VA_INVALID_ID;
-    decoder->Entrypoint = VA_INVALID_ID;
     decoder->VppEntrypoint = VA_INVALID_ID;
     decoder->VppConfig = VA_INVALID_ID;
     decoder->vpp_ctx = VA_INVALID_ID;
-    decoder->VaapiContext->display = VaDisplay;
-    decoder->VaapiContext->config_id = VA_INVALID_ID;
-    decoder->VaapiContext->context_id = VA_INVALID_ID;
-
-#ifdef USE_GLX
-    decoder->GlxSurfaces[0] = NULL;
-    decoder->GlxSurfaces[1] = NULL;
-    if (GlxEnabled) {
-	// FIXME: create GLX context here
-    }
-#endif
 
     decoder->OutputWidth = VideoWindowWidth;
     decoder->OutputHeight = VideoWindowHeight;
@@ -2073,23 +1259,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
 ///
 static void VaapiCleanup(VaapiDecoder * decoder)
 {
-    int filled;
-    VASurfaceID surface;
-    unsigned int i;
-
     pthread_mutex_lock(&VideoMutex);
-
-    // flush output queue, only 1-2 frames buffered, no big loss
-    while ((filled = atomic_read(&decoder->SurfacesFilled))) {
-	decoder->SurfaceRead = (decoder->SurfaceRead + 1) % VIDEO_SURFACES_MAX;
-	atomic_dec(&decoder->SurfacesFilled);
-
-	surface = decoder->SurfacesRb[decoder->SurfaceRead];
-	if (surface == VA_INVALID_ID) {
-	    Error("video/vaapi: invalid surface in ringbuffer");
-	    continue;
-	}
-    }
 
 #ifdef DEBUG
     if (decoder->SurfaceRead != decoder->SurfaceWrite) {
@@ -2099,17 +1269,13 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 #endif
 
     // clear ring buffer
-    for (i = 0; i < VIDEO_SURFACES_MAX; ++i) {
+    // the surfaces here are owned/destroyed by ffmpeg
+    for (int i = 0; i < VIDEO_SURFACES_MAX; ++i) {
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
-    vaDestroySurfaces(VaDisplay, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX);
-    for (i = 0; i < POSTPROC_SURFACES_MAX; ++i) {
-	decoder->PostProcSurfacesRb[i] = VA_INVALID_ID;
-    }
-    for (i = 0; i < FIELD_SURFACES_MAX; ++i) {
-	decoder->FirstFieldHistory[i] = VA_INVALID_ID;
-	decoder->SecondFieldHistory[i] = VA_INVALID_ID;
-    }
+
+    //	cleanup surfaces
+    VaapiDestroySurfaces(decoder);
 
     // clear forward/backward references for vpp
     if (decoder->ForwardRefSurfaces)
@@ -2125,9 +1291,9 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     decoder->BackwardRefCount = 0;
 
     // Free & clear vpp filter chain
-    for (i = 0; i < decoder->filter_n; ++i) {
-	vaDestroyBuffer(VaDisplay, decoder->filters[i]);
-	vaDestroyBuffer(VaDisplay, decoder->gpe_filters[i]);
+    for (unsigned int i = 0; i < decoder->filter_n; ++i) {
+	vaDestroyBuffer(decoder->VaDisplay, decoder->filters[i]);
+	vaDestroyBuffer(decoder->VaDisplay, decoder->gpe_filters[i]);
 	decoder->filters[i] = VA_INVALID_ID;
 	decoder->gpe_filters[i] = VA_INVALID_ID;
     }
@@ -2138,43 +1304,24 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 
     //	cleanup image
     if (decoder->Image->image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
+	if (vaDestroyImage(decoder->VaDisplay, decoder->Image->image_id) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't destroy image!");
 	}
 	decoder->Image->image_id = VA_INVALID_ID;
     }
-    //	cleanup context and config
-    if (decoder->VaapiContext) {
 
-	if (decoder->VaapiContext->context_id != VA_INVALID_ID) {
-	    if (vaDestroyContext(VaDisplay, decoder->VaapiContext->context_id) != VA_STATUS_SUCCESS) {
-		Error("video/vaapi: can't destroy context!");
-	    }
-	    decoder->VaapiContext->context_id = VA_INVALID_ID;
-	}
-
-	if (decoder->VaapiContext->config_id != VA_INVALID_ID) {
-	    if (vaDestroyConfig(VaDisplay, decoder->VaapiContext->config_id) != VA_STATUS_SUCCESS) {
-		Error("video/vaapi: can't destroy config!");
-	    }
-	    decoder->VaapiContext->config_id = VA_INVALID_ID;
-	}
-    }
-
-    if (vaDestroyContext(VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
+    if (vaDestroyContext(decoder->VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy postproc context!");
     }
     decoder->vpp_ctx = VA_INVALID_ID;
 
-    if (vaDestroyConfig(VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
+    if (vaDestroyConfig(decoder->VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't destroy config!");
     }
     decoder->VppConfig = VA_INVALID_ID;
 
-    //	cleanup surfaces
-    if (decoder->SurfaceFreeN || decoder->SurfaceUsedN) {
-	VaapiDestroySurfaces(decoder);
-    }
+    decoder->InputWidth = 0;
+    decoder->InputHeight = 0;
 
     decoder->SurfaceRead = 0;
     decoder->SurfaceWrite = 0;
@@ -2217,7 +1364,8 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	//  update OSD associate
 	//
 	if (VaOsdSubpicture != VA_INVALID_ID) {
-	    if (vaDeassociateSubpicture(VaDisplay, VaOsdSubpicture, &decoder->BlackSurface, 1) != VA_STATUS_SUCCESS) {
+	    if (vaDeassociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, &decoder->BlackSurface,
+		    1) != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't deassociate black surfaces");
 	    }
 	}
@@ -2226,37 +1374,12 @@ static void VaapiDelHwDecoder(VaapiDecoder * decoder)
 	    Error("video/vaapi: can't destroy a surface");
 	}
     }
-#ifdef USE_GLX
-    if (decoder->GlxSurfaces[0]) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[0])
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy glx surface!");
-	}
-	decoder->GlxSurfaces[0] = NULL;
-    }
-    if (decoder->GlxSurfaces[1]) {
-	if (vaDestroySurfaceGLX(VaDisplay, decoder->GlxSurfaces[1])
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy glx surface!");
-	}
-	decoder->GlxSurfaces[0] = NULL;
-    }
-    if (decoder->GlTextures[0]) {
-	glDeleteTextures(2, decoder->GlTextures);
-    }
-#endif
 
     VaapiPrintFrames(decoder);
 
+    av_buffer_unref(&HwDeviceContext);
     free(decoder);
 }
-
-#ifdef DEBUG				// currently unused, keep it for later
-
-static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n, VAProfile profile);
-static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsigned n, VAEntrypoint entrypoint);
-
-#endif
 
 ///
 /// VA-API setup.
@@ -2267,101 +1390,11 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsign
 ///
 static int VaapiInit(const char *display_name)
 {
-    int major;
-    int minor;
-    VADisplayAttribute attr;
-    const char *s;
-
     VaOsdImage.image_id = VA_INVALID_ID;
     VaOsdSubpicture = VA_INVALID_ID;
 
-#ifdef USE_GLX
-    if (GlxEnabled) {			// support glx
-	VaDisplay = vaGetDisplayGLX(XlibDisplay);
-    } else
-#endif
-    {
-	VaDisplay = vaGetDisplay(XlibDisplay);
-    }
-    if (!VaDisplay) {
-	Error("video/vaapi: Can't connect VA-API to X11 server on '%s'", display_name);
-	return 0;
-    }
-    // XvBA needs this:
-    setenv("DISPLAY", display_name, 1);
-
-#ifndef DEBUG
-    vaSetErrorCallback(VaDisplay, NULL, NULL);
-    vaSetInfoCallback(VaDisplay, NULL, NULL);
-#endif
-    if (vaInitialize(VaDisplay, &major, &minor) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: Can't inititialize VA-API on '%s'", display_name);
-	vaTerminate(VaDisplay);
-	VaDisplay = NULL;
-	return 0;
-    }
-    s = vaQueryVendorString(VaDisplay);
-    Info("video/vaapi: libva %d.%d (%s) initialized", major, minor, s);
-
-    //
-    //	check which attributes are supported
-    //
-    attr.type = VADisplayAttribBackgroundColor;
-    attr.flags = VA_DISPLAY_ATTRIB_SETTABLE;
-    if (vaGetDisplayAttributes(VaDisplay, &attr, 1) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: Can't get background-color attribute");
-	attr.value = 1;
-    }
-    Info("video/vaapi: background-color is %s", attr.value ? "supported" : "unsupported");
-
-    // FIXME: VaapiSetBackground(VideoBackground);
-
-    //
-    //	check vpp support
-    //
-    {
-	VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
-	int entrypoint_n;
-
-	VaapiVideoProcessing = 0;
-	if (!vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n)) {
-	    for (int i = 0; i < entrypoint_n; i++) {
-		if (entrypoints[i] == VAEntrypointVideoProc) {
-		    Info("video/vaapi: supports video processing");
-		    VaapiVideoProcessing = 1;
-		    break;
-		}
-	    }
-	}
-    }
     return 1;
 }
-
-#ifdef USE_GLX
-
-///
-/// VA-API GLX setup.
-///
-/// @param display_name x11/xcb display name
-///
-/// @returns true if VA-API could be initialized, false otherwise.
-///
-static int VaapiGlxInit(const char *display_name)
-{
-    GlxEnabled = 1;
-
-    GlxInit();
-    if (GlxEnabled) {
-	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight, GlxContext);
-    }
-    if (!GlxEnabled) {
-	Error("video/glx: glx error");
-    }
-
-    return VaapiInit(display_name);
-}
-
-#endif
 
 ///
 /// VA-API cleanup
@@ -2379,11 +1412,6 @@ static void VaapiExit(void)
 	}
     }
     VaapiDecoderN = 0;
-
-    if (!VaDisplay) {
-	vaTerminate(VaDisplay);
-	VaDisplay = NULL;
-    }
 }
 
 //----------------------------------------------------------------------------
@@ -2428,6 +1456,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 	case AV_PIX_FMT_YUVJ420P:
 	    fourcc = VA_FOURCC_I420;	// aka. VA_FOURCC_IYUV
 	    break;
+	case AV_PIX_FMT_VAAPI_VLD:
 	case AV_PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
 	    break;
@@ -2437,8 +1466,12 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 	case AV_PIX_FMT_RGBA:
 	    fourcc = VA_FOURCC_RGBX;
 	    break;
+	case AV_PIX_FMT_YUV420P10LE:
+	    //fourcc = VA_FOURCC_P010;
+	    fourcc = VA_FOURCC_NV12;	// FIXME: Do P010 on supported hardware
+	    break;
 	default:
-	    Fatal("video/vaapi: unsupported pixel format %d", pix_fmt);
+	    Fatal("video/vaapi: unsupported pixel format %d (%s)", pix_fmt, av_get_pix_fmt_name(pix_fmt));
     }
 
     imgfrmt_n = vaMaxNumImageFormats(decoder->VaDisplay);
@@ -2513,6 +1546,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
 
     /* Skip postprocessing if queue is not deinterlaceable */
     for (i = 0; i < *num_brefs; ++i) {
+	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
+	if (brefs[i] == VA_INVALID_ID)
+	    continue;
 	va_status = vaQuerySurfaceStatus(VaDisplay, brefs[i], &va_surf_status);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("vaapi/vpp: Surface %d query status failed (0x%X): %s", i, va_status, vaErrorStr(va_status));
@@ -2525,6 +1561,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
     }
 
     for (i = 0; i < *num_frefs; ++i) {
+	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
+	if (frefs[i] == VA_INVALID_ID)
+	    continue;
 	va_status = vaQuerySurfaceStatus(VaDisplay, frefs[i], &va_surf_status);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("Surface %d query status = 0x%X: %s", i, va_status, vaErrorStr(va_status));
@@ -2663,7 +1702,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     /* Map deinterlace buffer and handle field ordering */
     if (decoder->vpp_deinterlace_buf) {
-	va_status = vaMapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf, (void **)&deinterlace);
+	va_status = vaMapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf, (void **)&deinterlace);
 	if (va_status != VA_STATUS_SUCCESS) {
 	    Error("deint map buffer va_status = 0x%X", va_status);
 	    return NULL;
@@ -2710,7 +1749,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    filters_to_run[filter_count++] = decoder->filters[i];
 	}
 
-	vaUnmapBuffer(VaDisplay, *decoder->vpp_deinterlace_buf);
+	vaUnmapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
     if (!filter_count)
@@ -2741,7 +1780,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
 	return surface;
 
-    vaSyncSurface(VaDisplay, *surface);
+    vaSyncSurface(decoder->VaDisplay, *surface);
 
     /* Get postproc surface for gpe pipeline */
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
@@ -2791,7 +1830,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
     uint8_t *image_buffer = NULL;
     uint8_t *bgra = NULL;
 
-    status = vaDeriveImage(VaDisplay, src, &image);
+    status = vaDeriveImage(decoder->VaDisplay, src, &image);
     if (status != VA_STATUS_SUCCESS) {
 	Warning("video/vaapi: Failed to derive image: %s\n Falling back to GetImage", vaErrorStr(status));
 
@@ -2805,13 +1844,13 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 	    return NULL;
 	}
 
-	status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+	status = vaCreateImage(decoder->VaDisplay, format, *ret_width, *ret_height, &image);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: Failed to create image for grab: %s", vaErrorStr(status));
 	    return NULL;
 	}
 
-	status = vaGetImage(VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
+	status = vaGetImage(decoder->VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: Failed to capture image: %s", vaErrorStr(status));
 	    goto out_destroy;
@@ -2820,12 +1859,12 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
     VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
 
     // Sanity check for image format
-    if (image.format.fourcc != VA_FOURCC_NV12 && image.format.fourcc != VA_FOURCC('I', '4', '2', '0')) {
+    if (image.format.fourcc != VA_FOURCC_NV12 && image.format.fourcc != VA_FOURCC_I420) {
 	Error("video/vaapi: Image format mismatch! (fourcc: 0x%x, planes: %d)", image.format.fourcc, image.num_planes);
 	goto out_destroy;
     }
 
-    status = vaMapBuffer(VaDisplay, image.buf, (void **)&image_buffer);
+    status = vaMapBuffer(decoder->VaDisplay, image.buf, (void **)&image_buffer);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Could not map grabbed image for access: %s", vaErrorStr(status));
 	goto out_destroy;
@@ -2848,7 +1887,7 @@ static uint8_t *VaapiGrabOutputSurfaceYUV(VaapiDecoder * decoder, VASurfaceID sr
 
 		u = image_buffer[uv_index];
 		v = image_buffer[uv_index + 1];
-	    } else if (image.format.fourcc == VA_FOURCC('I', '4', '2', '0')) {
+	    } else if (image.format.fourcc == VA_FOURCC_I420) {
 		unsigned int u_index = image.offsets[1] + (image.pitches[1] * (j / 2) + (i / 2));
 		unsigned int v_index = image.offsets[2] + (image.pitches[2] * (j / 2) + (i / 2));
 
@@ -2906,19 +1945,19 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder, VASurfaceID src
 	return NULL;
     }
 
-    status = vaCreateImage(VaDisplay, format, *ret_width, *ret_height, &image);
+    status = vaCreateImage(decoder->VaDisplay, format, *ret_width, *ret_height, &image);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Failed to create image for grab: %s", vaErrorStr(status));
 	return NULL;
     }
 
-    status = vaGetImage(VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
+    status = vaGetImage(decoder->VaDisplay, src, 0, 0, *ret_width, *ret_height, image.image_id);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Failed to capture image: %s", vaErrorStr(status));
 	return NULL;
     }
 
-    status = vaMapBuffer(VaDisplay, image.buf, (void **)&image_buffer);
+    status = vaMapBuffer(decoder->VaDisplay, image.buf, (void **)&image_buffer);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: Could not map grabbed image for access: %s", vaErrorStr(status));
 	goto out_destroy;
@@ -2935,9 +1974,9 @@ static uint8_t *VaapiGrabOutputSurfaceHW(VaapiDecoder * decoder, VASurfaceID src
     }
 
   out_unmap:
-    vaUnmapBuffer(VaDisplay, image.buf);
+    vaUnmapBuffer(decoder->VaDisplay, image.buf);
   out_destroy:
-    vaDestroyImage(VaDisplay, image.image_id);
+    vaDestroyImage(decoder->VaDisplay, image.image_id);
     return bgra;
 }
 
@@ -2972,25 +2011,25 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width, int *ret_h
     *ret_size = *ret_width * *ret_height * 4;
 
     status =
-	vaCreateSurfaces(VaDisplay, VA_RT_FORMAT_YUV420, *ret_width, *ret_height, scaled, ARRAY_ELEMS(scaled), NULL,
-	0);
+	vaCreateSurfaces(decoder->VaDisplay, VA_RT_FORMAT_YUV420, *ret_width, *ret_height, scaled, ARRAY_ELEMS(scaled),
+	NULL, 0);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create scaling surface for grab: %s", vaErrorStr(status));
     }
 
     status =
-	vaCreateContext(VaDisplay, decoder->VppConfig, *ret_width, *ret_height, VA_PROGRESSIVE, scaled,
+	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, *ret_width, *ret_height, VA_PROGRESSIVE, scaled,
 	ARRAY_ELEMS(scaled), &scaling_ctx);
     if (status != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't create scaling context for grab: %s", vaErrorStr(status));
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
 	scaled[0] = VA_INVALID_ID;
     }
 
     status = VaapiRunScaling(scaling_ctx, grabbing, scaled[0]);
     if (status != VA_STATUS_SUCCESS) {
-	vaDestroyContext(VaDisplay, scaling_ctx);
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroyContext(decoder->VaDisplay, scaling_ctx);
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
 	scaled[0] = VA_INVALID_ID;
     } else {
 	grabbing = scaled[0];
@@ -3001,97 +2040,114 @@ static uint8_t *VaapiGrabOutputSurface(int *ret_size, int *ret_width, int *ret_h
 	bgra = VaapiGrabOutputSurfaceYUV(decoder, grabbing, ret_size, ret_width, ret_height);
 
     if (scaled[0] != VA_INVALID_ID) {
-	vaDestroyContext(VaDisplay, scaling_ctx);
-	vaDestroySurfaces(VaDisplay, scaled, ARRAY_ELEMS(scaled));
+	vaDestroyContext(decoder->VaDisplay, scaling_ctx);
+	vaDestroySurfaces(decoder->VaDisplay, scaled, ARRAY_ELEMS(scaled));
     }
 
     return bgra;
 }
 
 ///
-/// Configure VA-API for new video format.
+/// VA-API initialize OSD.
 ///
-/// @param decoder  VA-API decoder
+/// @param width    osd width
+/// @param height   osd height
 ///
-static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
+/// @note subpicture is unusable, it can be scaled with the video image.
+///
+static void VaapiOsdInit(int width, int height)
 {
-    int width;
-    int height;
-    VAImageFormat format[1];
+    VAImageFormat *formats;
+    unsigned *flags;
+    unsigned format_n;
+    unsigned u;
+    unsigned v;
+    static uint32_t wanted_formats[] = { VA_FOURCC_BGRA, VA_FOURCC_RGBA };
 
-    // create initial black surface and display
-    VaapiBlackSurface(decoder);
-    // cleanup last context
-    VaapiCleanup(decoder);
-
-    width = video_ctx->width;
-    height = video_ctx->height;
-#ifdef DEBUG
-    // FIXME: remove this if
-    if (decoder->Image->image_id != VA_INVALID_ID) {
-	abort();			// should be done by VaapiCleanup()
-    }
-#endif
-    // FIXME: PixFmt not set!
-    //VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
-
-    // FIXME: this image is only needed for software decoder and auto-crop
-    if (decoder->GetPutImage && vaCreateImage(VaDisplay, format, width, height, decoder->Image) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't create image!");
-    }
-    Debug(3, "video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x", width, height,
-	decoder->Image->image_id, decoder->Image->buf);
-
-    // FIXME: interlaced not valid here?
-    decoder->Resolution = VideoResolutionGroup(width, height, decoder->Interlaced);
-    VaapiCreateSurfaces(decoder, width, height);
-
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	VAStatus status;
-
-	// FIXME: destroy old context
-	GLXContext prevcontext = glXGetCurrentContext();
-
-	if (!prevcontext) {
-	    if (GlxThreadContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
-		    GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    } else if (GlxContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    }
-	}
-
-	GlxSetupDecoder(decoder->InputWidth, decoder->InputHeight, decoder->GlTextures);
-	// FIXME: try two textures
-	status =
-	    vaCreateSurfaceGLX(decoder->VaDisplay, GL_TEXTURE_2D, decoder->GlTextures[0], &decoder->GlxSurfaces[0]);
-	if (status != VA_STATUS_SUCCESS) {
-	    Fatal("video/glx: can't create glx surfaces (0x%X): %s", status, vaErrorStr(status));
-	    // FIXME: no fatal here
-	}
-	if (!prevcontext)
-	    glXMakeCurrent(XlibDisplay, None, NULL);
-    }
-#endif
-    VaapiUpdateOutput(decoder);
-
-    //
-    //	update OSD associate
-    //
-#ifdef USE_GLX
-    if (GlxEnabled) {
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+	Debug(3, "video/vaapi: osd already setup");
 	return;
     }
+    if (!VaDisplay) {
+	Debug(3, "video/vaapi: va-api not setup");
+	return;
+    }
+    //
+    //	look through subpicture formats
+    //
+    format_n = vaMaxNumSubpictureFormats(VaDisplay);
+    formats = alloca(format_n * sizeof(*formats));
+    flags = alloca(format_n * sizeof(*formats));
+    if (vaQuerySubpictureFormats(VaDisplay, formats, flags, &format_n) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't get subpicture formats");
+	return;
+    }
+#ifdef DEBUG
+    Debug(3, "video/vaapi: supported subpicture formats:");
+    for (u = 0; u < format_n; ++u) {
+	Debug(3, "video/vaapi:\t%c%c%c%c flags %#x %s", formats[u].fourcc, formats[u].fourcc >> 8,
+	    formats[u].fourcc >> 16, formats[u].fourcc >> 24, flags[u],
+	    (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) ? "screen coord" : "");
+    }
 #endif
-    VaapiAssociate(decoder);
+    for (v = 0; v < sizeof(wanted_formats) / sizeof(*wanted_formats); ++v) {
+	for (u = 0; u < format_n; ++u) {
+	    if (formats[u].fourcc == wanted_formats[v]) {
+		goto found;
+	    }
+	}
+    }
+    Error("video/vaapi: can't find a supported subpicture format");
+    return;
+
+  found:
+    Debug(3, "video/vaapi: use %c%c%c%c subpicture format with flags %#x", formats[u].fourcc, formats[u].fourcc >> 8,
+	formats[u].fourcc >> 16, formats[u].fourcc >> 24, flags[u]);
+
+    VaapiUnscaledOsd = 0;
+    if (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) {
+	Info("video/vaapi: supports unscaled osd");
+	VaapiUnscaledOsd = 1;
+    }
+
+    if (vaCreateImage(VaDisplay, &formats[u], width, height, &VaOsdImage) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create osd image");
+	return;
+    }
+    if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id, &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create subpicture");
+
+	if (vaDestroyImage(VaDisplay, VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't destroy image!");
+	}
+	VaOsdImage.image_id = VA_INVALID_ID;
+
+	return;
+    }
+}
+
+///
+/// VA-API cleanup osd.
+///
+static void VaapiOsdExit(void)
+{
+    if (VaOsdImage.image_id != VA_INVALID_ID) {
+	if (vaDestroyImage(VaDisplay, VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't destroy image!");
+	}
+	VaOsdImage.image_id = VA_INVALID_ID;
+    }
+
+    if (VaOsdSubpicture != VA_INVALID_ID) {
+	for (int i = 0; i < VaapiDecoderN; ++i) {
+	    VaapiDeassociate(VaapiDecoders[i]);
+	}
+
+	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't destroy subpicture");
+	}
+	VaOsdSubpicture = VA_INVALID_ID;
+    }
 }
 
 ///
@@ -3110,7 +2166,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     unsigned int cap_n = 1;
     VAProcFilterCap caps[cap_n];
 
-    VAStatus va_status = vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx,
+    VAStatus va_status = vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx,
 	type, caps, &cap_n);
 
     if (va_status != VA_STATUS_SUCCESS) {
@@ -3153,8 +2209,8 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
     param_buf.type = type;
     param_buf.value = value;
     va_status =
-	vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(param_buf), 1, &param_buf,
-	&filter_buf_id);
+	vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(param_buf), 1,
+	&param_buf, &filter_buf_id);
 
     if (va_status != VA_STATUS_SUCCESS) {
 	Error("Could not create buffer for filter #%02x: %s", type, vaErrorStr(va_status));
@@ -3195,7 +2251,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     //	display and filter infos.
     //
     filtertype_n = VAProcFilterCount;	// API break this must be done
-    vaQueryVideoProcFilters(VaDisplay, decoder->vpp_ctx, filtertypes, &filtertype_n);
+    vaQueryVideoProcFilters(decoder->VaDisplay, decoder->vpp_ctx, filtertypes, &filtertype_n);
 
     for (u = 0; u < filtertype_n; ++u) {
 	switch (filtertypes[u]) {
@@ -3215,8 +2271,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		Info("video/vaapi: deinterlacing supported");
 
 		deinterlacing_cap_n = VAProcDeinterlacingCount;
-		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx, VAProcFilterDeinterlacing, deinterlacing_caps,
-		    &deinterlacing_cap_n);
+		vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterDeinterlacing,
+		    deinterlacing_caps, &deinterlacing_cap_n);
 
 		memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
 		decoder->SupportedDeinterlacers[VAProcDeinterlacingNone] = 1;	// always enable none
@@ -3261,8 +2317,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		/* Enabling the deint algorithm that was seen last */
 		Info("Enabling Deint (pos = %d)", decoder->filter_n);
 		va_status =
-		    vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType, sizeof(deinterlace),
-		    1, &deinterlace, &filter_buf_id);
+		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
+		    sizeof(deinterlace), 1, &deinterlace, &filter_buf_id);
 		decoder->vpp_deinterlace_buf = &decoder->filters[decoder->filter_n];
 		decoder->filters[decoder->filter_n++] = filter_buf_id;
 		break;
@@ -3282,8 +2338,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 	    case VAProcFilterColorBalance:
 		Info("video/vaapi: enabling color balance filters");
 		colorbalance_cap_n = VAProcColorBalanceCount;
-		vaQueryVideoProcFilterCaps(VaDisplay, decoder->vpp_ctx, VAProcFilterColorBalance, colorbalance_caps,
-		    &colorbalance_cap_n);
+		vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterColorBalance,
+		    colorbalance_caps, &colorbalance_cap_n);
 
 		Info("video/vaapi: Supported color balance filter count: %d", colorbalance_cap_n);
 
@@ -3373,7 +2429,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    cbal_param[v].value = colorbalance_caps[v].range.default_value;
 		}
 		va_status =
-		    vaCreateBuffer(VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
+		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
 		    sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n, &cbal_param, &filter_buf_id);
 		if (va_status != VA_STATUS_SUCCESS) {
 		    Error("video/vaapi: Could not create buffer for color balance settings: %s",
@@ -3411,7 +2467,8 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
     pipeline_caps.num_output_color_standards = ARRAY_ELEMS(out_color_standards);
 
     va_status =
-	vaQueryVideoProcPipelineCaps(VaDisplay, decoder->vpp_ctx, decoder->filters, decoder->filter_n, &pipeline_caps);
+	vaQueryVideoProcPipelineCaps(decoder->VaDisplay, decoder->vpp_ctx, decoder->filters, decoder->filter_n,
+	&pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
 	Fatal("Failed to query proc pipeline caps, error = %s", vaErrorStr(va_status));
     }
@@ -3430,63 +2487,111 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 }
 
 ///
-/// Get a free surface.	 Called from ffmpeg.
+/// Configure VA-API for new video format.
+///
+/// @param decoder  VA-API decoder
+///
+static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
+{
+    int entrypoint_n;
+    VAStatus status;
+    VAImageFormat format[1];
+    VAEntrypoint entrypoints[vaMaxNumEntrypoints(decoder->VaDisplay)];
+
+    if (decoder->VppEntrypoint == VA_INVALID_ID) {
+	status = vaQueryConfigEntrypoints(decoder->VaDisplay, VAProfileNone, entrypoints, &entrypoint_n);
+	if (status != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't query entrypoints: %s", vaErrorStr(status));
+	} else {
+	    for (int i = 0; i < entrypoint_n; i++) {
+		if (entrypoints[i] == VAEntrypointVideoProc) {
+		    Info("video/vaapi: supports video processing");
+		    decoder->VppEntrypoint = entrypoints[i];
+		    VaapiVideoProcessing = 1;
+		    break;
+		}
+	    }
+	}
+    }
+    // create initial black surface and display
+    VaapiBlackSurface(decoder);
+
+    VaapiFindImageFormat(decoder, decoder->PixFmt, format);
+
+    // FIXME: this image is only needed for software decoder and auto-crop
+    if (decoder->GetPutImage
+	&& vaCreateImage(decoder->VaDisplay, format, video_ctx->width, video_ctx->height,
+	    decoder->Image) != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create image!");
+    }
+    Debug(3, "video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x", video_ctx->width,
+	video_ctx->height, decoder->Image->image_id, decoder->Image->buf);
+
+    // FIXME: interlaced not valid here?
+    decoder->Resolution = VideoResolutionGroup(video_ctx->width, video_ctx->height, decoder->Interlaced);
+    VaapiCreateSurfaces(decoder, VideoWindowWidth, VideoWindowHeight);
+
+    status = vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
+    if (status != VA_STATUS_SUCCESS) {
+	Fatal("video/vaapi: can't create config '%s'", vaErrorStr(status));
+    }
+    status =
+	vaCreateContext(decoder->VaDisplay, decoder->VppConfig, VideoWindowWidth, VideoWindowHeight, VA_PROGRESSIVE,
+	decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
+    if (status != VA_STATUS_SUCCESS) {
+	Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
+    }
+
+    VaapiSetupVideoProcessing(decoder);
+
+    VaapiUpdateOutput(decoder);
+
+    //
+    //	update OSD associate
+    //
+    if (video_ctx->hw_frames_ctx) {
+	// FIXME: associate only if osd is displayed
+	if (vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture,
+		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids,
+		TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces, 0, 0, VideoWindowWidth, VideoWindowHeight,
+		0, 0, VideoWindowWidth, VideoWindowHeight, VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD)
+	    != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't associate subpicture");
+	}
+    }
+
+    vaAssociateSubpicture(decoder->VaDisplay, VaOsdSubpicture, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, 0,
+	0, VideoWindowWidth, VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight,
+	VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD);
+}
+
+///
+/// Called from ffmpeg.
 ///
 /// @param decoder  VA-API decoder
 /// @param video_ctx	ffmpeg video codec context
 ///
-/// @returns the oldest free surface
 ///
+static int gSurfacePtr = 0;
 static VASurfaceID VaapiGetSurface(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
 {
-    (void)video_ctx;
-    return VaapiGetSurface0(decoder);
-}
+    VASurfaceID surface;
+    int num_surfaces = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->nb_surfaces;
 
-///
-/// Find VA-API profile.
-///
-/// Check if the requested profile is supported by VA-API.
-///
-/// @param profiles a table of all supported profiles
-/// @param n	number of supported profiles
-/// @param profile  requested profile
-///
-/// @returns the profile if supported, -1 if unsupported.
-///
-static VAProfile VaapiFindProfile(const VAProfile * profiles, unsigned n, VAProfile profile)
-{
-    unsigned u;
+    if (!TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids)
+	return VA_INVALID_ID;
 
-    for (u = 0; u < n; ++u) {
-	if (profiles[u] == profile) {
-	    return profile;
-	}
-    }
-    return -1;
-}
+    if (!num_surfaces || num_surfaces < 0)
+	return VA_INVALID_ID;
 
-///
-/// Find VA-API entry point.
-///
-/// Check if the requested entry point is supported by VA-API.
-///
-/// @param entrypoints	a table of all supported entrypoints
-/// @param n	    number of supported entrypoints
-/// @param entrypoint	requested entrypoint
-///
-/// @returns the entry point if supported, -1 if unsupported.
-///
-static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsigned n, VAEntrypoint entrypoint)
-{
-    unsigned u;
+    if (!(gSurfacePtr % num_surfaces) || gSurfacePtr > num_surfaces)
+	gSurfacePtr = 0;
 
-    for (u = 0; u < n; ++u) {
-	if (entrypoints[u] == entrypoint) {
-	    return entrypoint;
-	}
-    }
-    return -1;
+    // Use ffmpeg internal surface structure as a ringbuffer to return least recently used surface
+    // This is opposite of what ffmpeg does which by default returns most recently used one
+    surface = TO_VAAPI_FRAMES_CTX(video_ctx->hw_frames_ctx)->surface_ids[gSurfacePtr++];
+
+    return surface;
 }
 
 ///
@@ -3496,224 +2601,19 @@ static VAEntrypoint VaapiFindEntrypoint(const VAEntrypoint * entrypoints, unsign
 /// it is terminated by -1 as 0 is a valid format, the
 /// formats are ordered by quality.
 ///
-/// @note + 2 surface for software deinterlace
-///
 static enum AVPixelFormat Vaapi_get_format(VaapiDecoder * decoder, AVCodecContext * video_ctx,
     const enum AVPixelFormat *fmt)
 {
     const enum AVPixelFormat *fmt_idx;
-    VAProfile profiles[vaMaxNumProfiles(VaDisplay)];
-    int profile_n;
-    VAEntrypoint entrypoints[vaMaxNumEntrypoints(VaDisplay)];
-    int entrypoint_n;
-    int p;
-    int e;
-    int i;
-    VAConfigAttrib attrib;
 
-    if (!VideoHardwareDecoder || (video_ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO && VideoHardwareDecoder == 1)
-	) {				// hardware disabled by config
-	Debug(3, "codec: hardware acceleration disabled");
-	goto slow_path;
-    }
-
-    p = -1;
-    e = -1;
-
-    //	prepare va-api profiles
-    if (vaQueryConfigProfiles(VaDisplay, profiles, &profile_n)) {
-	Error("codec: vaQueryConfigProfiles failed");
-	goto slow_path;
-    }
-    Debug(3, "codec: %d profiles", profile_n);
-
-    // check profile
-    switch (video_ctx->codec_id) {
-	case AV_CODEC_ID_MPEG2VIDEO:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_MPEG2 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG2Main);
-	    break;
-	case AV_CODEC_ID_MPEG4:
-	case AV_CODEC_ID_H263:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_MPEG4 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileMPEG4AdvancedSimple);
-	    break;
-	case AV_CODEC_ID_H264:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_H264 + VIDEO_SURFACES_MAX + 2;
-	    // try more simple formats, fallback to better
-	    if (video_ctx->profile == FF_PROFILE_H264_BASELINE) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264ConstrainedBaseline);
-		if (p == -1) {
-		    p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
-		}
-	    } else if (video_ctx->profile == FF_PROFILE_H264_MAIN) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264Main);
-	    }
-	    if (p == -1) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileH264High);
-	    }
-	    break;
-	case AV_CODEC_ID_HEVC:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_HEVC + VIDEO_SURFACES_MAX + 2;
-	    // try more simple formats, fallback to better
-	    if (video_ctx->profile == FF_PROFILE_HEVC_MAIN_10) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
-		if (p == -1) {
-		    p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
-		}
-	    } else if (video_ctx->profile == FF_PROFILE_HEVC_MAIN) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain);
-	    }
-	    if (p == -1) {
-		p = VaapiFindProfile(profiles, profile_n, VAProfileHEVCMain10);
-	    }
-	    break;
-	case AV_CODEC_ID_WMV3:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Main);
-	    break;
-	case AV_CODEC_ID_VC1:
-	    decoder->SurfacesNeeded = CODEC_SURFACES_VC1 + VIDEO_SURFACES_MAX + 2;
-	    p = VaapiFindProfile(profiles, profile_n, VAProfileVC1Advanced);
-	    break;
-	default:
-	    goto slow_path;
-    }
-    if (p == -1) {
-	Debug(3, "codec: no profile found");
-	goto slow_path;
-    }
-    Debug(3, "codec: profile %d", p);
-
-    // prepare va-api entry points
-    if (vaQueryConfigEntrypoints(VaDisplay, p, entrypoints, &entrypoint_n)) {
-	Error("codec: vaQueryConfigEntrypoints failed");
-	goto slow_path;
-    }
-    Debug(3, "codec: %d entrypoints", entrypoint_n);
-    //	look through formats
-    for (fmt_idx = fmt; *fmt_idx != AV_PIX_FMT_NONE; fmt_idx++) {
-	Debug(3, "codec: %#010x %s", *fmt_idx, av_get_pix_fmt_name(*fmt_idx));
-	// check supported pixel format with entry point
-	switch (*fmt_idx) {
-	    case AV_PIX_FMT_VAAPI_VLD:
-		e = VaapiFindEntrypoint(entrypoints, entrypoint_n, VAEntrypointVLD);
-		break;
-	    case AV_PIX_FMT_VAAPI_MOCO:
-	    case AV_PIX_FMT_VAAPI_IDCT:
-		Debug(3, "codec: this VA-API pixel format is not supported");
-	    default:
-		continue;
-	}
-	if (e != -1) {
-	    Debug(3, "codec: entry point %d", e);
-	    break;
-	}
-    }
-    if (e == -1) {
-	Warning("codec: unsupported: slow path");
-	goto slow_path;
-    }
-    //
-    //	prepare decoder config
-    //
-    memset(&attrib, 0, sizeof(attrib));
-    attrib.type = VAConfigAttribRTFormat;
-    if (vaGetConfigAttributes(decoder->VaDisplay, p, e, &attrib, 1)) {
-	Error("codec: can't get attributes");
-	goto slow_path;
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV420) {
-	Info("codec: YUV 420 supported");
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV422) {
-	Info("codec: YUV 422 supported");
-    }
-    if (attrib.value & VA_RT_FORMAT_YUV444) {
-	Info("codec: YUV 444 supported");
-    }
-
-    if (!(attrib.value & VA_RT_FORMAT_YUV420)) {
-	Warning("codec: YUV 420 not supported");
-	goto slow_path;
-    }
-
-    vaQueryConfigEntrypoints(VaDisplay, VAProfileNone, entrypoints, &entrypoint_n);
-
-    for (i = 0; i < entrypoint_n; i++) {
-	if (entrypoints[i] == VAEntrypointVideoProc) {
-	    decoder->VppEntrypoint = entrypoints[i];
-	    break;
+    // Prefer VAAPI if found in list
+    for (fmt_idx = fmt; *fmt_idx != -1; fmt_idx++) {
+	if (*fmt_idx == AV_PIX_FMT_VAAPI) {
+	    return *fmt_idx;
 	}
     }
 
-    if (decoder->VppEntrypoint == VA_INVALID_ID)
-	Error("Could not locate Vpp EntryPoint!!");
-    else
-	Info("Using entrypoint for vpp: %d", decoder->VppEntrypoint);
-
-    decoder->Profile = p;
-    decoder->Entrypoint = e;
-    decoder->PixFmt = *fmt_idx;
-    decoder->InputWidth = 0;
-    decoder->InputHeight = 0;
-
-    if (video_ctx->width && video_ctx->height) {
-	VAStatus status;
-
-	decoder->InputWidth = video_ctx->width;
-	decoder->InputHeight = video_ctx->height;
-	decoder->InputAspect = video_ctx->sample_aspect_ratio;
-
-	VaapiSetup(decoder, video_ctx);
-
-	// FIXME: move the following into VaapiSetup
-	// create a configuration for the decode pipeline
-	if ((status = vaCreateConfig(decoder->VaDisplay, p, e, &attrib, 1, &decoder->VaapiContext->config_id))) {
-	    Error("codec: can't create config '%s'", vaErrorStr(status));
-	    goto slow_path;
-	}
-	// bind surfaces to context
-	if ((status =
-		vaCreateContext(decoder->VaDisplay, decoder->VaapiContext->config_id, video_ctx->width,
-		    video_ctx->height, VA_PROGRESSIVE, decoder->SurfacesFree, decoder->SurfaceFreeN,
-		    &decoder->VaapiContext->context_id))) {
-	    Error("codec: can't create context '%s'", vaErrorStr(status));
-	    goto slow_path;
-	}
-
-	status =
-	    vaCreateConfig(decoder->VaDisplay, VAProfileNone, decoder->VppEntrypoint, NULL, 0, &decoder->VppConfig);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create config '%s'", vaErrorStr(status));
-	}
-	status =
-	    vaCreateContext(decoder->VaDisplay, decoder->VppConfig, video_ctx->width, video_ctx->height,
-	    VA_PROGRESSIVE, decoder->PostProcSurfacesRb, POSTPROC_SURFACES_MAX, &decoder->vpp_ctx);
-	if (status != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't create context '%s'", vaErrorStr(status));
-	}
-
-	VaapiSetupVideoProcessing(decoder);
-    }
-
-    Debug(3, "video/vaapi: %#010x %s", fmt_idx[0], av_get_pix_fmt_name(fmt_idx[0]));
-    return *fmt_idx;
-
-  slow_path:
-    // no accelerated format found
-    decoder->Profile = VA_INVALID_ID;
-    decoder->Entrypoint = VA_INVALID_ID;
-    decoder->VppEntrypoint = VA_INVALID_ID;
-    decoder->VppConfig = VA_INVALID_ID;
-    decoder->VaapiContext->config_id = VA_INVALID_ID;
-    decoder->SurfacesNeeded = VIDEO_SURFACES_MAX + 2;
-    decoder->PixFmt = AV_PIX_FMT_NONE;
-
-    decoder->InputWidth = 0;
-    decoder->InputHeight = 0;
-    video_ctx->hwaccel_context = NULL;
-
+    // No VAAPI? pick default format
     return avcodec_default_get_format(video_ctx, fmt);
 }
 
@@ -3782,63 +2682,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
 	Error("video/vaapi: gpu hung %dms %d", e - s, decoder->FrameCounter);
     }
 }
-
-#ifdef USE_GLX
-
-///
-/// Draw surface of the VA-API decoder with glx.
-///
-/// @param decoder  VA-API decoder
-/// @param surface  VA-API surface id
-/// @param interlaced	flag interlaced source
-/// @param deinterlaced flag source was deinterlaced
-/// @param top_field_first  flag top_field_first for interlaced source
-/// @param field    interlaced draw: 0 first field, 1 second field
-///
-static void VaapiPutSurfaceGLX(VaapiDecoder * decoder, VASurfaceID surface, int interlaced, int deinterlaced,
-    int top_field_first, int field)
-{
-    unsigned type;
-
-    //uint32_t start;
-    //uint32_t copy;
-    //uint32_t end;
-
-    // deinterlace
-    if (interlaced && !deinterlaced && VideoDeinterlace[decoder->Resolution] != VAProcDeinterlacingNone) {
-	if (top_field_first) {
-	    if (field) {
-		type = VA_BOTTOM_FIELD;
-	    } else {
-		type = VA_TOP_FIELD;
-	    }
-	} else {
-	    if (field) {
-		type = VA_TOP_FIELD;
-	    } else {
-		type = VA_BOTTOM_FIELD;
-	    }
-	}
-    } else {
-	type = VA_FRAME_PICTURE;
-    }
-
-    //start = GetMsTicks();
-    if (vaCopySurfaceGLX(decoder->VaDisplay, decoder->GlxSurfaces[0], surface,
-	    type | decoder->SurfaceFlagsTable[decoder->Resolution]) != VA_STATUS_SUCCESS) {
-	Error("video/glx: vaCopySurfaceGLX failed");
-	return;
-    }
-    //copy = GetMsTicks();
-    // hardware surfaces are always busy
-    // FIXME: CropX, ...
-    GlxRenderTexture(decoder->GlTextures[0], decoder->OutputX, decoder->OutputY, decoder->OutputWidth,
-	decoder->OutputHeight);
-    //end = GetMsTicks();
-    //Debug(3, "video/vaapi/glx: %d copy %d render", copy - start, end - copy);
-}
-
-#endif
 
 ///
 /// VA-API auto-crop support.
@@ -4072,16 +2915,6 @@ static void VaapiQueueSurfaceNew(VaapiDecoder * decoder, VASurfaceID surface)
     }
 }
 
-static void VaapiAddToHistoryQueue(VASurfaceID * queue, VASurfaceID surface)
-{
-    unsigned int i;
-
-    for (i = FIELD_SURFACES_MAX - 1; i > 0; --i) {
-	queue[i] = queue[i - 1];
-    }
-    queue[0] = surface;
-}
-
 ///
 /// Queue output surface.
 ///
@@ -4131,15 +2964,14 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface, int s
 	/* Use unprocessed surface if postprocessing fails */
 	decoder->Deinterlaced = 0;
 
-	VaapiAddToHistoryQueue(decoder->FirstFieldHistory, surface);
+	decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
     } else {
 	decoder->Deinterlaced = 1;
 
-	VaapiAddToHistoryQueue(decoder->FirstFieldHistory, *firstfield);
+	decoder->SurfacesRb[decoder->SurfaceWrite] = *firstfield;
     }
 
     /* Queue the first field */
-    decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->FirstFieldHistory[0];
     decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
     decoder->SurfaceField = decoder->TopFieldFirst ? 0 : 1;
     atomic_inc(&decoder->SurfacesFilled);
@@ -4151,13 +2983,12 @@ static void VaapiQueueSurface(VaapiDecoder * decoder, VASurfaceID surface, int s
 	    /* Use unprocessed surface if postprocessing fails */
 	    decoder->Deinterlaced = 0;
 
-	    VaapiAddToHistoryQueue(decoder->SecondFieldHistory, surface);
+	    decoder->SurfacesRb[decoder->SurfaceWrite] = surface;
 	} else {
 	    decoder->Deinterlaced = 1;
 
-	    VaapiAddToHistoryQueue(decoder->SecondFieldHistory, *secondfield);
+	    decoder->SurfacesRb[decoder->SurfaceWrite] = *secondfield;
 	}
-	decoder->SurfacesRb[decoder->SurfaceWrite] = decoder->SecondFieldHistory[0];
 	decoder->SurfaceWrite = (decoder->SurfaceWrite + 1) % VIDEO_SURFACES_MAX;
 	decoder->SurfaceField = decoder->TopFieldFirst ? 1 : 0;
 	atomic_inc(&decoder->SurfacesFilled);
@@ -4182,12 +3013,6 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 #endif
     uint32_t sync;
     uint32_t put1;
-
-#ifdef USE_GLX
-    if (GlxEnabled) {			// already done
-	return;
-    }
-#endif
 
     // wait until we have osd subpicture
     if (VaOsdSubpicture == VA_INVALID_ID) {
@@ -4219,14 +3044,14 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    VAImageFormat format[1];
 
 	    VaapiFindImageFormat(decoder, AV_PIX_FMT_NV12, format);
-	    status = vaCreateImage(VaDisplay, format, VideoWindowWidth, VideoWindowHeight, decoder->Image);
+	    status = vaCreateImage(decoder->VaDisplay, format, VideoWindowWidth, VideoWindowHeight, decoder->Image);
 	    if (status != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't create image: %s", vaErrorStr(status));
 		return;
 	    }
 	}
 
-	status = vaMapBuffer(VaDisplay, decoder->Image->buf, (void **)&va_image_data);
+	status = vaMapBuffer(decoder->VaDisplay, decoder->Image->buf, (void **)&va_image_data);
 	if (status != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't map the image: %s", vaErrorStr(status));
 	    return;
@@ -4247,13 +3072,13 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 	    }
 	}
 
-	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
+	if (vaUnmapBuffer(decoder->VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't unmap the image!");
 	}
 
 	if (decoder->GetPutImage) {
 	    status =
-		vaPutImage(VaDisplay, decoder->BlackSurface, decoder->Image->image_id, 0, 0, VideoWindowWidth,
+		vaPutImage(decoder->VaDisplay, decoder->BlackSurface, decoder->Image->image_id, 0, 0, VideoWindowWidth,
 		VideoWindowHeight, 0, 0, VideoWindowWidth, VideoWindowHeight);
 	    if (status != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't put image!");
@@ -4297,6 +3122,26 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
     usleep(1 * 1000);
 }
 
+static int VaapiIsPictureChanged(VaapiDecoder * decoder, const AVCodecContext * video_ctx, const AVFrame * frame)
+{
+    if (video_ctx->width != decoder->InputWidth || video_ctx->height != decoder->InputHeight
+	|| video_ctx->pix_fmt != decoder->PixFmt) {
+	Debug(3, "video/vaapi: Picture change detected");
+	return 1;
+    }
+
+    if (decoder->Closing < 0) {
+	return 1;
+    }
+
+    if (decoder->VaDisplay != TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display) {
+	Debug(3, "video/vaapi: VaDisplay changed");
+	return 1;
+    }
+
+    return 0;
+}
+
 ///
 /// Render a ffmpeg frame
 ///
@@ -4309,6 +3154,25 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     VASurfaceID surface;
     int interlaced;
 
+    //
+    //	Check image, format, size
+    //
+    if (VaapiIsPictureChanged(decoder, video_ctx, frame)) {
+
+	// Cleanup previous VA-API allocations
+	VaapiCleanup(decoder);
+
+	// set new sizes and parameters
+	decoder->PixFmt = video_ctx->pix_fmt;
+	decoder->InputWidth = frame->width;
+	decoder->InputHeight = frame->height;
+
+	decoder->VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
+	VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
+
+	// Configure VA-API to process new frame
+	VaapiSetup(decoder, video_ctx);
+    }
     // FIXME: some tv-stations toggle interlace on/off
     // frame->interlaced_frame isn't always correct set
     interlaced = frame->interlaced_frame;
@@ -4332,14 +3196,9 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     //
     // Hardware render
     //
-    if (video_ctx->hwaccel_context) {
+    if (video_ctx->hw_frames_ctx) {
 
-	if (video_ctx->height != decoder->InputHeight || video_ctx->width != decoder->InputWidth) {
-	    Error("video/vaapi: stream <-> surface size mismatch");
-	    return;
-	}
-
-	surface = (unsigned)(size_t) frame->data[3];
+	surface = (VASurfaceID) (uintptr_t) frame->data[3];
 	Debug(4, "video/vaapi: hw render hw surface %#010x", surface);
 
 	VaapiQueueSurface(decoder, surface, 0);
@@ -4349,35 +3208,16 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	//
     } else {
 	void *va_image_data;
-	int i;
+	VAStatus status;
 	AVFrame picture[1];
-	int width;
-	int height;
 
 	Debug(4, "video/vaapi: hw render sw surface");
 
-	width = video_ctx->width;
-	height = video_ctx->height;
-	//
-	//  Check image, format, size
-	//
-	if ((decoder->GetPutImage && decoder->Image->image_id == VA_INVALID_ID)
-	    || decoder->PixFmt != video_ctx->pix_fmt || width != decoder->InputWidth || height != decoder->InputHeight) {
-
-	    Debug(3, "video/vaapi: stream <-> surface size/interlace mismatch");
-
-	    decoder->PixFmt = video_ctx->pix_fmt;
-	    // FIXME: aspect done above!
-	    decoder->InputWidth = width;
-	    decoder->InputHeight = height;
-
-	    VaapiSetup(decoder, video_ctx);
-	}
 	// FIXME: Need to insert software deinterlace here
 	// FIXME: can/must insert auto-crop here (is done after upload)
 
 	// get a free surface and upload the image
-	surface = VaapiGetSurface0(decoder);
+	surface = VaapiGetPluginSurface(decoder);
 	Debug(4, "video/vaapi: video surface %#010x displayed", surface);
 
 	if (!decoder->GetPutImage && vaDeriveImage(decoder->VaDisplay, surface, decoder->Image) != VA_STATUS_SUCCESS) {
@@ -4387,7 +3227,8 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 
 	    decoder->GetPutImage = 1;
 	    VaapiFindImageFormat(decoder, decoder->PixFmt, format);
-	    if (vaCreateImage(VaDisplay, format, width, height, decoder->Image) != VA_STATUS_SUCCESS) {
+	    if (vaCreateImage(VaDisplay, format, video_ctx->width, video_ctx->height,
+		    decoder->Image) != VA_STATUS_SUCCESS) {
 		Error("video/vaapi: can't create image!");
 	    }
 	}
@@ -4400,22 +3241,22 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	// crazy: intel mixes YV12 and NV12 with mpeg
 	if (decoder->Image->format.fourcc == VA_FOURCC_NV12) {
 	    // intel NV12 convert YV12 to NV12
+	    struct SwsContext *img_convert_ctx =
+		sws_getContext(video_ctx->width, video_ctx->height, frame->format, video_ctx->width, video_ctx->height,
+		AV_PIX_FMT_NV12, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
-	    // copy Y
-	    for (i = 0; i < height; ++i) {
-		memcpy(va_image_data + decoder->Image->offsets[0] + decoder->Image->pitches[0] * i,
-		    frame->data[0] + frame->linesize[0] * i, frame->linesize[0]);
-	    }
-	    // copy UV
-	    for (i = 0; i < height / 2; ++i) {
-		for (int x = 0; x < width / 2; ++x) {
-		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
-			+ decoder->Image->pitches[1] * i + x * 2 + 0]
-			= frame->data[1][i * frame->linesize[1] + x];
-		    ((uint8_t *) va_image_data)[decoder->Image->offsets[1]
-			+ decoder->Image->pitches[1] * i + x * 2 + 1]
-			= frame->data[2][i * frame->linesize[2] + x];
-		}
+	    if (img_convert_ctx) {
+		picture->data[0] = va_image_data + decoder->Image->offsets[0];
+		picture->linesize[0] = decoder->Image->pitches[0];
+		picture->data[1] = va_image_data + decoder->Image->offsets[1];
+		picture->linesize[1] = decoder->Image->pitches[1];
+		picture->data[2] = va_image_data + decoder->Image->offsets[2];
+		picture->linesize[2] = decoder->Image->pitches[2];
+		sws_scale(img_convert_ctx, (const uint8_t * const *)frame->data, frame->linesize, 0, video_ctx->height,
+		    picture->data, picture->linesize);
+		sws_freeContext(img_convert_ctx);
+	    } else {
+		Error("video/vaapi: can't create context for image conversion!");
 	    }
 	} else if (decoder->Image->format.fourcc == VA_FOURCC_I420) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
@@ -4426,7 +3267,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    picture->linesize[2] = decoder->Image->pitches[1];
 
 	    av_image_copy(picture->data, picture->linesize, (const uint8_t **)frame->data, frame->linesize,
-		video_ctx->pix_fmt, width, height);
+		video_ctx->pix_fmt, video_ctx->width, video_ctx->height);
 	} else if (decoder->Image->num_planes == 3) {
 	    picture->data[0] = va_image_data + decoder->Image->offsets[0];
 	    picture->linesize[0] = decoder->Image->pitches[0];
@@ -4436,20 +3277,21 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	    picture->linesize[2] = decoder->Image->pitches[1];
 
 	    av_image_copy(picture->data, picture->linesize, (const uint8_t **)frame->data, frame->linesize,
-		video_ctx->pix_fmt, width, height);
+		video_ctx->pix_fmt, video_ctx->width, video_ctx->height);
 	}
 
 	if (vaUnmapBuffer(VaDisplay, decoder->Image->buf) != VA_STATUS_SUCCESS) {
 	    Error("video/vaapi: can't unmap the image!");
 	}
 
-	Debug(4, "video/vaapi: buffer %dx%d <- %dx%d", decoder->Image->width, decoder->Image->height, width, height);
+	Debug(4, "video/vaapi: buffer %dx%d <- %dx%d", decoder->Image->width, decoder->Image->height, video_ctx->width,
+	    video_ctx->height);
 
 	if (decoder->GetPutImage
-	    && (i =
-		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0, width, height, 0, 0, width,
-		    height)) != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't put image err:%d!", i);
+	    && (status =
+		vaPutImage(VaDisplay, surface, decoder->Image->image_id, 0, 0, video_ctx->width, video_ctx->height, 0,
+		    0, VideoWindowWidth, VideoWindowHeight)) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't put image err:%s!", vaErrorStr(status));
 	}
 
 	if (!decoder->GetPutImage) {
@@ -4465,16 +3307,6 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
     if (decoder->Interlaced) {
 	++decoder->FrameCounter;
     }
-}
-
-///
-/// Get hwaccel context for ffmpeg.
-///
-/// @param decoder  VA-API hw decoder
-///
-static void *VaapiGetHwAccelContext(VaapiDecoder * decoder)
-{
-    return decoder->VaapiContext;
 }
 
 ///
@@ -4515,24 +3347,20 @@ static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
 ///
 static void VaapiDisplayFrame(void)
 {
-    struct timespec nowtime;
-
 #ifdef DEBUG
     uint32_t start;
-    uint32_t put1;
-    uint32_t put2;
 #endif
-    int i;
+    struct timespec nowtime;
     VaapiDecoder *decoder;
 
     if (VideoSurfaceModesChanged) {	// handle changed modes
 	VideoSurfaceModesChanged = 0;
-	for (i = 0; i < VaapiDecoderN; ++i) {
+	for (int i = 0; i < VaapiDecoderN; ++i) {
 	    VaapiInitSurfaceFlags(VaapiDecoders[i]);
 	}
     }
     // look if any stream have a new surface available
-    for (i = 0; i < VaapiDecoderN; ++i) {
+    for (int i = 0; i < VaapiDecoderN; ++i) {
 	VASurfaceID surface;
 	int filled;
 
@@ -4554,23 +3382,12 @@ static void VaapiDisplayFrame(void)
 	    Debug(4, "video/vaapi: invalid surface in ringbuffer");
 	}
 	Debug(4, "video/vaapi: yy video surface %#010x displayed", surface);
-
 	start = GetMsTicks();
 #endif
-
-#ifdef USE_GLX
-	if (GlxEnabled) {
-	    VaapiPutSurfaceGLX(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
-		decoder->SurfaceField);
-	} else
-#endif
-	{
-	    VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
-		decoder->SurfaceField);
-	}
+	VaapiPutSurfaceX11(decoder, surface, decoder->Interlaced, decoder->Deinterlaced, decoder->TopFieldFirst,
+	    decoder->SurfaceField);
 #ifdef DEBUG
-	put1 = GetMsTicks();
-	put2 = put1;
+	Debug(4, "video/vaapi: put %2ums", GetMsTicks() - start);
 #endif
 	clock_gettime(CLOCK_MONOTONIC, &nowtime);
 	// FIXME: 31 only correct for 50Hz
@@ -4579,44 +3396,9 @@ static void VaapiDisplayFrame(void)
 	    // FIXME: ignore still-frame, trick-speed
 	    Debug(3, "video/vaapi: time/frame too long %ldms", ((nowtime.tv_sec - decoder->FrameTime.tv_sec)
 		    * 1000 * 1000 * 1000 + (nowtime.tv_nsec - decoder->FrameTime.tv_nsec)) / (1000 * 1000));
-	    Debug(4, "video/vaapi: put1 %2u put2 %2u", put1 - start, put2 - put1);
 	}
 	decoder->FrameTime = nowtime;
     }
-
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GLXContext prevcontext = glXGetCurrentContext();
-
-	if (!prevcontext) {
-	    if (GlxThreadContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxThreadContext (%p)", __FUNCTION__,
-		    GlxThreadContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxThreadContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    } else if (GlxContext) {
-		Debug(3, "video/glx: no glx context in %s. Forcing GlxContext (%p)", __FUNCTION__, GlxContext);
-		if (!glXMakeCurrent(XlibDisplay, VideoWindow, GlxContext)) {
-		    Fatal("video/glx: can't make glx context current");
-		}
-	    }
-	}
-	//
-	//  add OSD
-	//
-	if (OsdShown) {
-	    GlxRenderTexture(OsdGlTextures[OsdIndex], 0, 0, VideoWindowWidth, VideoWindowHeight);
-	    // FIXME: toggle osd
-	}
-	//glFinish();
-	glXSwapBuffers(XlibDisplay, VideoWindow);
-
-	GlxCheck();
-	//glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-    }
-#endif
 }
 
 ///
@@ -4826,8 +3608,8 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    err =
 		VaapiMessage(1, "video: decoder buffer empty, duping frame (%d/%d) %d v-buf", decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
-	    // some time no new picture or black video configured
-	    if (decoder->Closing < -300 || (VideoShowBlackPicture && decoder->Closing)) {
+	    // some time no new picture
+	    if (decoder->Closing < -300) {
 		// clear ring buffer to trigger black picture
 		atomic_set(&decoder->SurfacesFilled, 0);
 	    }
@@ -4933,6 +3715,7 @@ static void VaapiSetVideoMode(void)
 	VaapiDecoders[i]->VideoY = 0;
 	VaapiDecoders[i]->VideoWidth = VideoWindowWidth;
 	VaapiDecoders[i]->VideoHeight = VideoWindowHeight;
+	VaapiCleanup(VaapiDecoders[i]);
 	VaapiUpdateOutput(VaapiDecoders[i]);
     }
 }
@@ -5146,122 +3929,6 @@ static void VaapiOsdDrawARGB(int xi, int yi, int width, int height, int pitch, c
 }
 
 ///
-/// VA-API initialize OSD.
-///
-/// @param width    osd width
-/// @param height   osd height
-///
-/// @note subpicture is unusable, it can be scaled with the video image.
-///
-static void VaapiOsdInit(int width, int height)
-{
-    VAImageFormat *formats;
-    unsigned *flags;
-    unsigned format_n;
-    unsigned u;
-    unsigned v;
-    int i;
-    static uint32_t wanted_formats[] = { VA_FOURCC('B', 'G', 'R', 'A'), VA_FOURCC_RGBA };
-
-    if (VaOsdImage.image_id != VA_INVALID_ID) {
-	Debug(3, "video/vaapi: osd already setup");
-	return;
-    }
-    if (!VaDisplay) {
-	Debug(3, "video/vaapi: va-api not setup");
-	return;
-    }
-    //
-    //	look through subpicture formats
-    //
-    format_n = vaMaxNumSubpictureFormats(VaDisplay);
-    formats = alloca(format_n * sizeof(*formats));
-    flags = alloca(format_n * sizeof(*formats));
-    if (vaQuerySubpictureFormats(VaDisplay, formats, flags, &format_n) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't get subpicture formats");
-	return;
-    }
-#ifdef DEBUG
-    Debug(3, "video/vaapi: supported subpicture formats:");
-    for (u = 0; u < format_n; ++u) {
-	Debug(3, "video/vaapi:\t%c%c%c%c flags %#x %s", formats[u].fourcc, formats[u].fourcc >> 8,
-	    formats[u].fourcc >> 16, formats[u].fourcc >> 24, flags[u],
-	    (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) ? "screen coord" : "");
-    }
-#endif
-    for (v = 0; v < sizeof(wanted_formats) / sizeof(*wanted_formats); ++v) {
-	for (u = 0; u < format_n; ++u) {
-	    if (formats[u].fourcc == wanted_formats[v]) {
-		goto found;
-	    }
-	}
-    }
-    Error("video/vaapi: can't find a supported subpicture format");
-    return;
-
-  found:
-    Debug(3, "video/vaapi: use %c%c%c%c subpicture format with flags %#x", formats[u].fourcc, formats[u].fourcc >> 8,
-	formats[u].fourcc >> 16, formats[u].fourcc >> 24, flags[u]);
-
-    VaapiUnscaledOsd = 0;
-    if (flags[u] & VA_SUBPICTURE_DESTINATION_IS_SCREEN_COORD) {
-	Info("video/vaapi: supports unscaled osd");
-	VaapiUnscaledOsd = 1;
-    }
-
-    if (vaCreateImage(VaDisplay, &formats[u], width, height, &VaOsdImage) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't create osd image");
-	return;
-    }
-    if (vaCreateSubpicture(VaDisplay, VaOsdImage.image_id, &VaOsdSubpicture) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't create subpicture");
-
-	if (vaDestroyImage(VaDisplay, VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy image!");
-	}
-	VaOsdImage.image_id = VA_INVALID_ID;
-
-	return;
-    }
-    // FIXME: must store format, to convert ARGB to it.
-
-    // restore osd association
-    for (i = 0; i < VaapiDecoderN; ++i) {
-	// only if input already setup
-	if (VaapiDecoders[i]->InputWidth && VaapiDecoders[i]->InputHeight) {
-	    VaapiAssociate(VaapiDecoders[i]);
-	}
-    }
-}
-
-///
-/// VA-API cleanup osd.
-///
-static void VaapiOsdExit(void)
-{
-    if (VaOsdImage.image_id != VA_INVALID_ID) {
-	if (vaDestroyImage(VaDisplay, VaOsdImage.image_id) != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy image!");
-	}
-	VaOsdImage.image_id = VA_INVALID_ID;
-    }
-
-    if (VaOsdSubpicture != VA_INVALID_ID) {
-	int i;
-
-	for (i = 0; i < VaapiDecoderN; ++i) {
-	    VaapiDeassociate(VaapiDecoders[i]);
-	}
-
-	if (vaDestroySubpicture(VaDisplay, VaOsdSubpicture)
-	    != VA_STATUS_SUCCESS) {
-	    Error("video/vaapi: can't destroy subpicture");
-	}
-	VaOsdSubpicture = VA_INVALID_ID;
-    }
-}
-
-///
 /// VA-API module.
 ///
 static const VideoModule VaapiModule = {
@@ -5276,8 +3943,6 @@ static const VideoModule VaapiModule = {
 	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
     .RenderFrame = (void (*const) (VideoHwDecoder *,
 	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
-    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
-	VaapiGetHwAccelContext,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
@@ -5297,47 +3962,6 @@ static const VideoModule VaapiModule = {
     .Init = VaapiInit,
     .Exit = VaapiExit,
 };
-
-#ifdef USE_GLX
-
-///
-/// VA-API module.
-///
-static const VideoModule VaapiGlxModule = {
-    .Name = "va-api-glx",
-    .Enabled = 1,
-    .NewHwDecoder = (VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
-    .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
-	    const AVCodecContext *))VaapiGetSurface,
-    .ReleaseSurface = (void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
-    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
-    .RenderFrame = (void (*const) (VideoHwDecoder *,
-	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
-    .GetHwAccelContext = (void *(*const)(VideoHwDecoder *))
-	VaapiGetHwAccelContext,
-    .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
-    .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
-    .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
-    .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
-    .SetTrickSpeed = (void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
-    .GrabOutput = VaapiGrabOutputSurface,
-    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
-	    int *))VaapiGetStats,
-    .SetBackground = VaapiSetBackground,
-    .SetVideoMode = VaapiSetVideoMode,
-    .ResetAutoCrop = VaapiResetAutoCrop,
-    .DisplayHandlerThread = VaapiDisplayHandlerThread,
-    .OsdClear = GlxOsdClear,
-    .OsdDrawARGB = GlxOsdDrawARGB,
-    .OsdInit = GlxOsdInit,
-    .OsdExit = GlxOsdExit,
-    .Init = VaapiGlxInit,
-    .Exit = VaapiExit,
-};
-
-#endif
 
 //----------------------------------------------------------------------------
 //  NOOP
@@ -5479,8 +4103,8 @@ void VideoOsdClear(void)
     VideoThreadLock();
     VideoUsedModule->OsdClear();
 
-    OsdDirtyX = OsdWidth;		// reset dirty area
-    OsdDirtyY = OsdHeight;
+    OsdDirtyX = VideoWindowWidth;	// reset dirty area
+    OsdDirtyY = VideoWindowHeight;
     OsdDirtyWidth = 0;
     OsdDirtyHeight = 0;
     OsdShown = 0;
@@ -5539,27 +4163,8 @@ void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const ui
 ///
 void VideoGetOsdSize(int *width, int *height)
 {
-    *width = 1920;
-    *height = 1080;			// unknown default
-    if (OsdWidth && OsdHeight) {
-	*width = OsdWidth;
-	*height = OsdHeight;
-    }
-}
-
-/// Set OSD Size.
-///
-/// @param width    OSD width
-/// @param height   OSD height
-///
-void VideoSetOsdSize(int width, int height)
-{
-    if (OsdConfigWidth != width || OsdConfigHeight != height) {
-	VideoOsdExit();
-	OsdConfigWidth = width;
-	OsdConfigHeight = height;
-	VideoOsdInit();
-    }
+    *width = VideoWindowWidth;
+    *height = VideoWindowHeight;
 }
 
 ///
@@ -5570,16 +4175,8 @@ void VideoSetOsdSize(int width, int height)
 ///
 void VideoOsdInit(void)
 {
-    if (OsdConfigWidth && OsdConfigHeight) {
-	OsdWidth = OsdConfigWidth;
-	OsdHeight = OsdConfigHeight;
-    } else {
-	OsdWidth = VideoWindowWidth;
-	OsdHeight = VideoWindowHeight;
-    }
-
     VideoThreadLock();
-    VideoUsedModule->OsdInit(OsdWidth, OsdHeight);
+    VideoUsedModule->OsdInit(VideoWindowWidth, VideoWindowHeight);
     VideoThreadUnlock();
     VideoOsdClear();
 }
@@ -5783,22 +4380,6 @@ static void *VideoDisplayHandlerThread(void *dummy)
 {
     Debug(3, "video: display thread started");
 
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	Debug(3, "video/glx: thread context %p <-> %p", glXGetCurrentContext(), GlxThreadContext);
-	Debug(3, "video/glx: context %p <-> %p", glXGetCurrentContext(), GlxContext);
-
-	GlxThreadContext = glXCreateNewContext(XlibDisplay, GlxFBConfigs[0], GLX_RGBA_TYPE, GlxSharedContext, GL_TRUE);
-
-	if (!GlxThreadContext) {
-	    Error("video/glx: can't create glx context");
-	    return NULL;
-	}
-	// set glx context
-	GlxSetupWindow(VideoWindow, VideoWindowWidth, VideoWindowHeight, GlxThreadContext);
-    }
-#endif
-
     for (;;) {
 	// fix dead-lock
 	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -5818,9 +4399,6 @@ static void *VideoDisplayHandlerThread(void *dummy)
 ///
 static void VideoThreadInit(void)
 {
-#ifdef USE_GLX
-    glXMakeCurrent(XlibDisplay, None, NULL);
-#endif
     pthread_mutex_init(&VideoMutex, NULL);
     pthread_mutex_init(&VideoLockMutex, NULL);
     pthread_cond_init(&VideoWakeupCond, NULL);
@@ -5880,9 +4458,6 @@ void VideoDisplayWakeup(void)
 ///
 static const VideoModule *VideoModules[] = {
     &VaapiModule,
-#ifdef USE_GLX
-    &VaapiGlxModule,
-#endif
     &NoopModule
 };
 
@@ -6000,18 +4575,6 @@ void VideoRenderFrame(VideoHwDecoder * hw_decoder, const AVCodecContext * video_
 	Warning("video: repeated pict %d found, but not handled", frame->repeat_pict);
     }
     VideoUsedModule->RenderFrame(hw_decoder, video_ctx, frame);
-}
-
-///
-/// Get hwaccel context for ffmpeg.
-///
-/// FIXME: new ffmpeg supports hw context
-///
-/// @param hw_decoder	video hardware decoder (must be VA-API)
-///
-void *VideoGetHwAccelContext(VideoHwDecoder * hw_decoder)
-{
-    return VideoUsedModule->GetHwAccelContext(hw_decoder);
 }
 
 ///
@@ -6259,18 +4822,9 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual, uint8_
 	VideoWindowHeight, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
 	XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
 
-    // define only available with xcb-utils-0.3.8
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
     // FIXME: utf _NET_WM_NAME
     xcb_icccm_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING, 8, sizeof("vaapidevice") - 1, "vaapidevice");
     xcb_icccm_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING, 8, sizeof("vaapidevice") - 1, "vaapidevice");
-#endif
-    // define only available with xcb-utils-0.3.6
-#ifdef XCB_NUM_WM_HINTS_ELEMENTS
-    // FIXME: utf _NET_WM_NAME
-    xcb_set_wm_name(Connection, VideoWindow, XCB_ATOM_STRING, sizeof("vaapidevice") - 1, "vaapidevice");
-    xcb_set_wm_icon_name(Connection, VideoWindow, XCB_ATOM_STRING, sizeof("vaapidevice") - 1, "vaapidevice");
-#endif
 
     // FIXME: size hints
 
@@ -6283,12 +4837,7 @@ static void VideoCreateWindow(xcb_window_t parent, xcb_visualid_t visual, uint8_
 	if ((reply =
 		xcb_intern_atom_reply(Connection, xcb_intern_atom(Connection, 0, sizeof("WM_PROTOCOLS") - 1,
 			"WM_PROTOCOLS"), NULL))) {
-#ifdef XCB_ICCCM_NUM_WM_SIZE_HINTS_ELEMENTS
 	    xcb_icccm_set_wm_protocols(Connection, VideoWindow, reply->atom, 1, &WmDeleteWindowAtom);
-#endif
-#ifdef XCB_NUM_WM_HINTS_ELEMENTS
-	    xcb_set_wm_protocols(Connection, reply->atom, VideoWindow, 1, &WmDeleteWindowAtom);
-#endif
 	    free(reply);
 	}
     }
@@ -6370,16 +4919,6 @@ void VideoSetSoftStartSync(int onoff)
 }
 
 ///
-/// Set show black picture during channel switch.
-///
-/// @param onoff    enable / disable black picture.
-///
-void VideoSetBlackPicture(int onoff)
-{
-    VideoShowBlackPicture = onoff;
-}
-
-///
 /// Vaapi helper to set various video params (brightness, contrast etc.)
 ///
 /// @param buf	Pointer to value to set
@@ -6415,12 +4954,7 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, int Index, float val
 void VideoSetBrightness(int brightness)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_brightness_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_brightness_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_brightness_idx,
 	    VideoConfigClamp(&VaapiConfigBrightness, brightness) * VaapiConfigBrightness.scale);
     }
@@ -6431,11 +4965,7 @@ void VideoSetBrightness(int brightness)
 ///
 int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigBrightness.min_value;
 	*defvalue = VaapiConfigBrightness.def_value;
 	*maxvalue = VaapiConfigBrightness.max_value;
@@ -6452,12 +4982,7 @@ int VideoGetBrightnessConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetContrast(int contrast)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_contrast_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_contrast_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_contrast_idx,
 	    VideoConfigClamp(&VaapiConfigContrast, contrast) * VaapiConfigContrast.scale);
     }
@@ -6468,11 +4993,7 @@ void VideoSetContrast(int contrast)
 ///
 int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigContrast.min_value;
 	*defvalue = VaapiConfigContrast.def_value;
 	*maxvalue = VaapiConfigContrast.max_value;
@@ -6489,12 +5010,7 @@ int VideoGetContrastConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSaturation(int saturation)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_saturation_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_saturation_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_saturation_idx,
 	    VideoConfigClamp(&VaapiConfigSaturation, saturation) * VaapiConfigSaturation.scale);
     }
@@ -6505,11 +5021,7 @@ void VideoSetSaturation(int saturation)
 ///
 int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigSaturation.min_value;
 	*defvalue = VaapiConfigSaturation.def_value;
 	*maxvalue = VaapiConfigSaturation.max_value;
@@ -6526,12 +5038,7 @@ int VideoGetSaturationConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetHue(int hue)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if ((VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule)
-	&& VaapiDecoders[0]->vpp_hue_idx >= 0) {
-#else
     if (VideoUsedModule == &VaapiModule && VaapiDecoders[0]->vpp_hue_idx >= 0) {
-#endif
 	VaapiVideoSetColorbalance(VaapiDecoders[0]->vpp_cbal_buf, VaapiDecoders[0]->vpp_hue_idx,
 	    VideoConfigClamp(&VaapiConfigHue, hue) * VaapiConfigHue.scale);
     }
@@ -6542,11 +5049,7 @@ void VideoSetHue(int hue)
 ///
 int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigHue.min_value;
 	*defvalue = VaapiConfigHue.def_value;
 	*maxvalue = VaapiConfigHue.max_value;
@@ -6563,11 +5066,7 @@ int VideoGetHueConfig(int *minvalue, int *defvalue, int *maxvalue)
 void VideoSetSkinToneEnhancement(int stde)
 {
     // FIXME: test to check if working, than make module function
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	VideoSkinToneEnhancement = VideoConfigClamp(&VaapiConfigStde, stde);
     }
     VideoSurfaceModesChanged = 1;
@@ -6578,11 +5077,7 @@ void VideoSetSkinToneEnhancement(int stde)
 ///
 int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigStde.min_value;
 	*defvalue = VaapiConfigStde.def_value;
 	*maxvalue = VaapiConfigStde.max_value;
@@ -6602,21 +5097,13 @@ int VideoGetSkinToneEnhancementConfig(int *minvalue, int *defvalue, int *maxvalu
 ///
 void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width, int height)
 {
-    if (!OsdWidth || !OsdHeight) {
-	return;
-    }
     if (!width || !height) {
 	// restore full size
+	x = 0;
+	y = 0;
 	width = VideoWindowWidth;
 	height = VideoWindowHeight;
-    } else {
-	// convert OSD coordinates to window coordinates
-	x = (x * VideoWindowWidth) / OsdWidth;
-	width = (width * VideoWindowWidth) / OsdWidth;
-	y = (y * VideoWindowHeight) / OsdHeight;
-	height = (height * VideoWindowHeight) / OsdHeight;
     }
-
     // FIXME: add function to module class
     if (VideoUsedModule == &VaapiModule) {
 	// check values to be able to avoid
@@ -6632,7 +5119,6 @@ void VideoSetOutputPosition(VideoHwDecoder * hw_decoder, int x, int y, int width
 	VaapiUpdateOutput(&hw_decoder->Vaapi);
 	VideoThreadUnlock();
     }
-    (void)hw_decoder;
 }
 
 ///
@@ -6698,7 +5184,6 @@ void VideoSet4to3DisplayFormat(int format)
 
     VideoThreadLock();
     Video4to3ZoomMode = format;
-    // FIXME: need only VideoUsedModule->UpdateOutput();
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
 
@@ -6737,7 +5222,6 @@ void VideoSetOtherDisplayFormat(int format)
 
     VideoThreadLock();
     VideoOtherZoomMode = format;
-    // FIXME: need only VideoUsedModule->UpdateOutput();
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
 
@@ -6791,11 +5275,7 @@ static const char *vaapi_scaling_short[] = {
 
 int VideoGetScalingModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*long_table = vaapi_scaling;
 	*short_table = vaapi_scaling_short;
 	return ARRAY_ELEMS(vaapi_scaling);
@@ -6826,11 +5306,7 @@ static const char *vaapi_deinterlace_short[VAProcDeinterlacingCount] = {
 
 int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_table)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	// TODO: Supported deinterlacers may not be a linear table
 	unsigned int len = ARRAY_ELEMS(vaapi_deinterlace_default);
 
@@ -6852,11 +5328,7 @@ int VideoGetDeinterlaceModes(const char * **long_table, const char * **short_tab
 ///
 void VideoSetDeinterlace(int mode[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    if (!VaapiDecoders[0]->SupportedDeinterlacers[mode[i]])
 		mode[i] = VAProcDeinterlacingNone;
@@ -6875,14 +5347,8 @@ void VideoSetDeinterlace(int mode[VideoResolutionMax])
 ///
 void VideoSetDenoise(int level[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
-	int i;
-
-	for (i = 0; i < VideoResolutionMax; ++i) {
+	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    level[i] = VideoConfigClamp(&VaapiConfigDenoise, level[i]);
 	}
     }
@@ -6899,11 +5365,7 @@ void VideoSetDenoise(int level[VideoResolutionMax])
 ///
 int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigDenoise.min_value;
 	*defvalue = VaapiConfigDenoise.def_value;
 	*maxvalue = VaapiConfigDenoise.max_value;
@@ -6917,14 +5379,8 @@ int VideoGetDenoiseConfig(int *minvalue, int *defvalue, int *maxvalue)
 ///
 void VideoSetSharpen(int level[VideoResolutionMax])
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
-	int i;
-
-	for (i = 0; i < VideoResolutionMax; ++i) {
+	for (int i = 0; i < VideoResolutionMax; ++i) {
 	    level[i] = VideoConfigClamp(&VaapiConfigSharpen, level[i]);
 	}
     }
@@ -6941,11 +5397,7 @@ void VideoSetSharpen(int level[VideoResolutionMax])
 ///
 int VideoGetSharpenConfig(int *minvalue, int *defvalue, int *maxvalue)
 {
-#ifdef USE_GLX
-    if (VideoUsedModule == &VaapiModule || VideoUsedModule == &VaapiGlxModule) {
-#else
     if (VideoUsedModule == &VaapiModule) {
-#endif
 	*minvalue = VaapiConfigSharpen.min_value;
 	*defvalue = VaapiConfigSharpen.def_value;
 	*maxvalue = VaapiConfigSharpen.max_value;
@@ -6976,12 +5428,14 @@ void VideoSetScaling(int mode[VideoResolutionMax])
 ///
 void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
 {
+    VideoThreadLock();
     VideoCutTopBottom[0] = pixels[0];
     VideoCutTopBottom[1] = pixels[1];
     VideoCutTopBottom[2] = pixels[2];
     VideoCutTopBottom[3] = pixels[3];
     VideoCutTopBottom[4] = pixels[4];
-    // FIXME: update output
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
 }
 
 ///
@@ -6991,12 +5445,14 @@ void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
 ///
 void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
 {
+    VideoThreadLock();
     VideoCutLeftRight[0] = pixels[0];
     VideoCutLeftRight[1] = pixels[1];
     VideoCutLeftRight[2] = pixels[2];
     VideoCutLeftRight[3] = pixels[3];
     VideoCutLeftRight[4] = pixels[4];
-    // FIXME: update output
+    VideoUsedModule->SetVideoMode();
+    VideoThreadUnlock();
 }
 
 ///
@@ -7083,11 +5539,6 @@ void VideoInit(const char *display_name)
 	// FIXME: we need to retry connection
 	return;
     }
-#ifdef USE_GLX_not_needed_done_with_locks
-    if (!XInitThreads()) {
-	Error("video: Can't initialize X11 thread support on '%s'", display_name);
-    }
-#endif
     // Register error handler
     XSetIOErrorHandler(VideoIOErrorHandler);
 
@@ -7099,9 +5550,6 @@ void VideoInit(const char *display_name)
     }
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
-#ifdef xcb_USE_GLX
-    xcb_prefetch_extension_data(Connection, &xcb_glx_id);
-#endif
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
     //xcb_prefetch_extension_data(Connection, &xcb_shm_id);
     //xcb_prefetch_extension_data(Connection, &xcb_xv_id);
@@ -7158,13 +5606,6 @@ void VideoInit(const char *display_name)
     VideoUsedModule = &NoopModule;
 
   found:
-    // FIXME: make it configurable from gui
-    if (getenv("NO_MPEG_HW")) {
-	VideoHardwareDecoder = 1;
-    }
-    if (getenv("NO_HW")) {
-	VideoHardwareDecoder = 0;
-    }
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
 
@@ -7187,11 +5628,6 @@ void VideoExit(void)
     VideoThreadExit();
     VideoUsedModule->Exit();
     VideoUsedModule = &NoopModule;
-#ifdef USE_GLX
-    if (GlxEnabled) {
-	GlxExit();
-    }
-#endif
 
     //
     //	FIXME: cleanup.
@@ -7226,5 +5662,3 @@ void VideoExit(void)
 	Connection = 0;
     }
 }
-
-#endif

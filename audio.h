@@ -31,7 +31,6 @@ extern void AudioSetDevice(const char *);   ///< set PCM audio device
     /// set pass-through device
 extern void AudioSetPassthroughDevice(const char *);
 extern void AudioSetChannel(const char *);  ///< set mixer channel
-extern void AudioSetAutoAES(int);	///< set automatic AES flag handling
 extern void AudioInit(void);		///< setup audio module
 extern void AudioExit(void);		///< cleanup and exit audio module
 

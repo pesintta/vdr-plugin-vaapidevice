@@ -10,15 +10,6 @@ PLUGIN = vaapidevice
 
 ### Configuration (edit this for your needs)
 
-    # support alsa audio output module
-ALSA ?= $(shell pkg-config --exists alsa && echo 1)
-    # support VA-API video output module
-VAAPI ?= $(shell pkg-config --exists libva && echo 1)
-    # support glx output
-OPENGL ?= $(shell pkg-config --exists gl glu && echo 1)
-    # use ffmpeg libswresample
-SWRESAMPLE ?= $(shell pkg-config --exists libswresample && echo 1)
-
 #CONFIG := -DDEBUG			# enable debug output+functions
 CONFIG += -DAV_INFO -DAV_INFO_TIME=3000	# info/debug a/v sync
 
@@ -49,6 +40,9 @@ ifeq ($(CXXFLAGS),)
 $(warning CXXFLAGS not set)
 endif
 
+_CFLAGS += $(shell pkg-config --cflags alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm)
+LIBS += -lrt $(shell pkg-config --libs alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm)
+
 ### The version number of VDR's plugin API:
 
 APIVERSION = $(call PKGCFG,apiversion)
@@ -65,33 +59,6 @@ PACKAGE = vdr-$(ARCHIVE)
 ### The name of the shared object file:
 
 SOFILE = libvdr-$(PLUGIN).so
-
-### Parse vaapidevice config
-
-ifeq ($(ALSA),1)
-_CFLAGS += $(shell pkg-config --cflags alsa)
-LIBS += $(shell pkg-config --libs alsa)
-endif
-ifeq ($(VAAPI),1)
-_CFLAGS += $(shell pkg-config --cflags libva-x11 libva)
-LIBS += $(shell pkg-config --libs libva-x11 libva)
-ifeq ($(OPENGL),1)
-_CFLAGS += $(shell pkg-config --cflags libva-glx)
-LIBS += $(shell pkg-config --libs libva-glx)
-endif
-endif
-ifeq ($(OPENGL),1)
-CONFIG += -DUSE_GLX
-_CFLAGS += $(shell pkg-config --cflags gl glu)
-LIBS += $(shell pkg-config --libs gl glu)
-endif
-ifeq ($(SWRESAMPLE),1)
-_CFLAGS += $(shell pkg-config --cflags libswresample)
-LIBS += $(shell pkg-config --libs libswresample)
-endif
-
-_CFLAGS += $(shell pkg-config --cflags libavcodec x11 x11-xcb xcb xcb-icccm)
-LIBS += -lrt $(shell pkg-config --libs libavcodec x11 x11-xcb xcb xcb-icccm)
 
 ### Includes and Defines (add further entries here):
 

@@ -7,9 +7,6 @@
 /// This module contains all decoder and codec functions.
 /// It is uses ffmpeg (http://ffmpeg.org) as backend.
 ///
-/// It may work with libav (http://libav.org), but the tests show
-/// many bugs and incompatiblity in it.	 Don't use this shit.
-///
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +27,10 @@
 #error "libavcodec is too old - please, upgrade!"
 #endif
 #include <libavutil/mem.h>
+#include <libavutil/opt.h>
 #include <libavcodec/vaapi.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
 #include <libswresample/swresample.h>
 #if LIBSWRESAMPLE_VERSION_INT < AV_VERSION_INT(0,15,100)
 #error "libswresample is too old - please, upgrade!"
@@ -59,9 +59,6 @@
       ///
 static pthread_mutex_t CodecLockMutex;
 
-    /// Flag prefer fast channel switch
-char CodecUsePossibleDefectFrames;
-
 //----------------------------------------------------------------------------
 //  Video
 //----------------------------------------------------------------------------
@@ -81,58 +78,9 @@ char CodecUsePossibleDefectFrames;
 */
 static enum AVPixelFormat Codec_get_format(AVCodecContext * video_ctx, const enum AVPixelFormat *fmt)
 {
-    VideoDecoder *decoder;
+    VideoDecoder *decoder = video_ctx->opaque;
 
-    decoder = video_ctx->opaque;
-
-    // bug in ffmpeg 1.1.1, called with zero width or height
-    if (!video_ctx->width || !video_ctx->height) {
-	Error("codec/video: ffmpeg/libav buggy: width or height zero");
-    }
-
-    decoder->GetFormatDone = 1;
     return Video_get_format(decoder->HwDecoder, video_ctx, fmt);
-}
-
-static void Codec_free_buffer(void *opaque, uint8_t * data);
-
-/**
-**	Video buffer management, get buffer for frame.
-**
-**	Called at the beginning of each frame to get a buffer for it.
-**
-**	@param video_ctx	Codec context
-**	@param frame		Get buffer for this frame
-*/
-static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int flags)
-{
-    VideoDecoder *decoder;
-
-    decoder = video_ctx->opaque;
-
-    if (!decoder->GetFormatDone) {	// get_format missing
-	enum AVPixelFormat fmts[2];
-
-	Warning("codec: buggy libav, use ffmpeg");
-	fmts[0] = video_ctx->pix_fmt;
-	fmts[1] = AV_PIX_FMT_NONE;
-	Codec_get_format(video_ctx, fmts);
-    }
-    // VA-API:
-    if (video_ctx->hwaccel_context) {
-	unsigned surface;
-
-	surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
-
-	// vaapi needs both fields set
-	frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
-	frame->data[0] = frame->buf[0]->data;
-	frame->data[3] = frame->data[0];
-
-	return 0;
-    }
-    //Debug(3, "codec: fallback to default get_buffer");
-    return avcodec_default_get_buffer2(video_ctx, frame, flags);
 }
 
 /**
@@ -144,21 +92,38 @@ static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int fl
 */
 static void Codec_free_buffer(void *opaque, uint8_t * data)
 {
-    AVCodecContext *video_ctx = (AVCodecContext *) opaque;
 
-    // VA-API
-    if (video_ctx->hwaccel_context) {
-	VideoDecoder *decoder;
-	unsigned surface;
+}
 
-	decoder = video_ctx->opaque;
-	surface = (unsigned)(size_t) data;
+/**
+**	Video buffer management, get buffer for frame.
+**
+**	Called at the beginning of each frame to get a buffer for it.
+**
+**	@param video_ctx	Codec context
+**	@param frame		Get buffer for this frame
+*/
+static int Codec_get_buffer2(AVCodecContext * video_ctx, AVFrame * frame, int flags)
+{
+    unsigned surface;
+    VideoDecoder *decoder = video_ctx->opaque;
 
-	//Debug(3, "codec: release surface %#010x", surface);
-	VideoReleaseSurface(decoder->HwDecoder, surface);
+    if (frame->format != AV_PIX_FMT_VAAPI || !video_ctx->hw_frames_ctx
+	|| !(decoder->VideoCodec->capabilities & AV_CODEC_CAP_DR1))
+	return avcodec_default_get_buffer2(video_ctx, frame, flags);
 
-	return;
-    }
+    pthread_mutex_lock(&CodecLockMutex);
+
+    surface = VideoGetSurface(decoder->HwDecoder, video_ctx);
+
+    // vaapi needs both fields set
+    frame->buf[0] = av_buffer_create((uint8_t *) (size_t) surface, 0, Codec_free_buffer, video_ctx, 0);
+    frame->data[0] = frame->buf[0]->data;
+    frame->data[3] = frame->data[0];
+
+    pthread_mutex_unlock(&CodecLockMutex);
+
+    return 0;
 }
 
 /**
@@ -215,18 +180,48 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
 	Fatal("codec: can't allocate video codec context");
     }
+
+    if (!HwDeviceContext) {
+	Fatal("codec: no hw device context to be used");
+    }
+    decoder->VideoCtx->hw_device_ctx = av_buffer_ref(HwDeviceContext);
+
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
     pthread_mutex_lock(&CodecLockMutex);
     // open codec
-    if (video_codec->capabilities & (CODEC_CAP_HWACCEL)) {
-	Debug(3, "codec: video mpeg hack active");
-	// HACK around badly placed checks in mpeg_mc_decode_init
-	// taken from mplayer vd_ffmpeg.c
-	decoder->VideoCtx->slice_flags = SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
-	decoder->VideoCtx->thread_count = 1;
-	decoder->VideoCtx->active_thread_type = 0;
+    if (video_codec->capabilities & (AV_CODEC_CAP_AUTO_THREADS)) {
+	Debug(3, "Auto threads enabled");
+	decoder->VideoCtx->thread_count = 0;
     }
+
+    decoder->VideoCtx->opaque = decoder;    // our structure
+
+    Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
+    if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
+	Debug(3, "codec: supports truncated packets");
+	//decoder->VideoCtx->flags |= CODEC_FLAG_TRUNCATED;
+    }
+    // FIXME: own memory management for video frames.
+    if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
+	Debug(3, "codec: can use own buffer management");
+    }
+    if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
+	Debug(3, "codec: supports frame threads");
+	decoder->VideoCtx->thread_count = 0;
+	decoder->VideoCtx->thread_type |= FF_THREAD_FRAME;
+    }
+    if (video_codec->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
+	Debug(3, "codec: supports slice threads");
+	decoder->VideoCtx->thread_count = 0;
+	decoder->VideoCtx->thread_type |= FF_THREAD_SLICE;
+    }
+    decoder->VideoCtx->thread_safe_callbacks = 1;
+    decoder->VideoCtx->get_format = Codec_get_format;
+    decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
+    decoder->VideoCtx->draw_horiz_band = NULL;
+
+    av_opt_set_int(decoder->VideoCtx, "refcounted_frames", 1, 0);
 
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
 	pthread_mutex_unlock(&CodecLockMutex);
@@ -234,34 +229,12 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
     }
     pthread_mutex_unlock(&CodecLockMutex);
 
-    decoder->VideoCtx->opaque = decoder;    // our structure
-
-    Debug(3, "codec: video '%s'", decoder->VideoCodec->long_name);
-    if (video_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
-	Debug(3, "codec: video can use truncated packets");
-    }
-    // FIXME: own memory management for video frames.
-    if (video_codec->capabilities & AV_CODEC_CAP_DR1) {
-	Debug(3, "codec: can use own buffer management");
-    }
-    if (video_codec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
-	Debug(3, "codec: codec supports frame threads");
-    }
-    decoder->VideoCtx->get_format = Codec_get_format;
-    decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
-    decoder->VideoCtx->thread_count = 1;
-    decoder->VideoCtx->active_thread_type = 0;
-    decoder->VideoCtx->draw_horiz_band = NULL;
-    decoder->VideoCtx->hwaccel_context = VideoGetHwAccelContext(decoder->HwDecoder);
-
     //
     //	Prepare frame buffer for decoder
     //
     if (!(decoder->Frame = av_frame_alloc())) {
 	Fatal("codec: can't allocate video decoder frame buffer");
     }
-    // reset buggy ffmpeg/libav flag
-    decoder->GetFormatDone = 0;
 }
 
 /**

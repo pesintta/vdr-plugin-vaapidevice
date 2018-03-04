@@ -72,7 +72,6 @@ static const char *AudioModuleName;	///< which audio module to use
 static const AudioModule *AudioUsedModule = &NoopModule;
 static const char *AudioPCMDevice;	///< PCM device name
 static const char *AudioPassthroughDevice;  ///< Passthrough device name
-static char AudioAppendAES;		///< flag automatic append AES
 static const char *AudioMixerDevice;	///< mixer device name
 static const char *AudioMixerChannel;	///< mixer channel name
 static char AudioDoingInit;		///> flag in init, reduce error
@@ -2057,20 +2056,6 @@ void AudioSetPassthroughDevice(const char *device)
 void AudioSetChannel(const char *channel)
 {
     AudioMixerChannel = channel;
-}
-
-/**
-**	Set automatic AES flag handling.
-**
-**	@param onoff	turn setting AES flag on or off
-*/
-void AudioSetAutoAES(int onoff)
-{
-    if (onoff < 0) {
-	AudioAppendAES ^= 1;
-    } else {
-	AudioAppendAES = onoff;
-    }
 }
 
 /**

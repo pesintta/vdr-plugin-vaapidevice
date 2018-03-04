@@ -67,13 +67,9 @@ static char ConfigSuspendX11;		///< suspend should stop x11
 static char Config4to3DisplayFormat = 1;    ///< config 4:3 display format
 static char ConfigOtherDisplayFormat = 1;   ///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
-static int ConfigOsdWidth;		///< config OSD width
-static int ConfigOsdHeight;		///< config OSD height
 static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
-static char ConfigVideoBlackPicture;	///< config enable black picture mode
-char ConfigVideoClearOnSwitch;		///< config enable Clear on channel switch
 
 static int ConfigVideoBrightness;	///< config video brightness
 static int ConfigVideoContrast = 1000;	///< config video contrast
@@ -116,7 +112,6 @@ static char ConfigAudioCompression;	///< config use volume compression
 static int ConfigAudioMaxCompression;	///< config max volume compression
 static int ConfigAudioStereoDescent;	///< config reduce stereo loudness
 int ConfigAudioBufferTime;		///< config size ms of audio buffer
-static int ConfigAudioAutoAES;		///< config automatic AES handling
 
 static char *ConfigX11Display;		///< config x11 display
 static char *ConfigAudioDevice;		///< config audio stereo device
@@ -556,9 +551,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int MakePrimary;
     int HideMainMenuEntry;
     int DetachFromMainMenu;
-    int OsdSize;
-    int OsdWidth;
-    int OsdHeight;
     int SuspendClose;
     int SuspendX11;
 
@@ -570,8 +562,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
-    int BlackPicture;
-    int ClearOnSwitch;
 
     int Brightness;
     int Contrast;
@@ -606,7 +596,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int AudioMaxCompression;
     int AudioStereoDescent;
     int AudioBufferTime;
-    int AudioAutoAES;
 
     /// @}
   private:
@@ -656,9 +645,6 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag, con
 */
 void cMenuSetupSoft::Create(void)
 {
-    static const char *const osd_size[] = {
-	"auto", "3840x2160", "1920x1080", "1280x720", "custom",
-    };
     static const char *const video_display_formats_4_3[] = {
 	"pan&scan", "letterbox", "center cut-out",
     };
@@ -705,14 +691,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Make primary device"), &MakePrimary, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &HideMainMenuEntry, trVDR("no"), trVDR("yes")));
 	//
-	//  osd
-	//
-	Add(new cMenuEditStraItem(tr("Osd size"), &OsdSize, 5, osd_size));
-	if (OsdSize == 4) {
-	    Add(new cMenuEditIntItem(tr("Osd width"), &OsdWidth, 0, 4096));
-	    Add(new cMenuEditIntItem(tr("Osd height"), &OsdHeight, 0, 4096));
-	}
-	//
 	//  suspend
 	//
 	Add(SeparatorItem(tr("Suspend")));
@@ -735,8 +713,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"), (int *)&BackgroundAlpha, 0, 0xFF));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Black during channel switch"), &BlackPicture, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Clear decoder on channel switch"), &ClearOnSwitch, trVDR("no"), trVDR("yes")));
 
 	if (brightness_active)
 	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Brightness (%d..[%d]..%d)"), brightness_min, brightness_def,
@@ -806,7 +782,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("  Max compression factor (/1000)"), &AudioMaxCompression, 0, 10000));
 	Add(new cMenuEditIntItem(tr("Reduce stereo volume (/1000)"), &AudioStereoDescent, 0, 1000));
 	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"), &AudioBufferTime, 0, 1000));
-	Add(new cMenuEditBoolItem(tr("Enable automatic AES"), &AudioAutoAES, trVDR("no"), trVDR("yes")));
     }
 
     SetCurrent(Get(current));		// restore selected menu entry
@@ -823,7 +798,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_video;
     int old_audio;
 
-    int old_osd_size;
     int old_resolution_shown[RESOLUTIONS];
     int old_denoise[RESOLUTIONS];
     int old_sharpen[RESOLUTIONS];
@@ -836,7 +810,6 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_general = General;
     old_video = Video;
     old_audio = Audio;
-    old_osd_size = OsdSize;
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
@@ -850,7 +823,7 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
-	if (old_general != General || old_video != Video || old_audio != Audio || old_osd_size != OsdSize) {
+	if (old_general != General || old_video != Video || old_audio != Audio) {
 	    Create();			// update menu
 	} else {
 	    for (int i = 0; i < RESOLUTIONS; ++i) {
@@ -900,22 +873,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     HideMainMenuEntry = ConfigHideMainMenuEntry;
     DetachFromMainMenu = ConfigDetachFromMainMenu;
     //
-    //	osd
-    //
-    OsdWidth = ConfigOsdWidth;
-    OsdHeight = ConfigOsdHeight;
-    if (!OsdWidth && !OsdHeight) {
-	OsdSize = 0;
-    } else if (OsdWidth == 3840 && OsdHeight == 2160) {
-	OsdSize = 1;
-    } else if (OsdWidth == 1920 && OsdHeight == 1080) {
-	OsdSize = 2;
-    } else if (OsdWidth == 1280 && OsdHeight == 720) {
-	OsdSize = 3;
-    } else {
-	OsdSize = 4;
-    }
-    //
     //	suspend
     //
     SuspendClose = ConfigSuspendClose;
@@ -933,8 +890,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     StudioLevels = ConfigVideoStudioLevels;
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
-    BlackPicture = ConfigVideoBlackPicture;
-    ClearOnSwitch = ConfigVideoClearOnSwitch;
 
     Brightness = ConfigVideoBrightness;
     Contrast = ConfigVideoContrast;
@@ -977,7 +932,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     AudioMaxCompression = ConfigAudioMaxCompression;
     AudioStereoDescent = ConfigAudioStereoDescent;
     AudioBufferTime = ConfigAudioBufferTime;
-    AudioAutoAES = ConfigAudioAutoAES;
 
     Create();
 }
@@ -1007,31 +961,6 @@ void cMenuSetupSoft::Store(void)
     SetupStore("MakePrimary", ConfigMakePrimary = MakePrimary);
     SetupStore("HideMainMenuEntry", ConfigHideMainMenuEntry = HideMainMenuEntry);
     SetupStore("DetachFromMainMenu", ConfigDetachFromMainMenu = DetachFromMainMenu);
-    switch (OsdSize) {
-	case 0:
-	    OsdWidth = 0;
-	    OsdHeight = 0;
-	    break;
-	case 1:
-	    OsdWidth = 3840;
-	    OsdHeight = 2160;
-	    break;
-	case 2:
-	    OsdWidth = 1920;
-	    OsdHeight = 1080;
-	    break;
-	case 3:
-	    OsdWidth = 1280;
-	    OsdHeight = 720;
-	default:
-	    break;
-    }
-    if (ConfigOsdWidth != OsdWidth || ConfigOsdHeight != OsdHeight) {
-	VideoSetOsdSize(ConfigOsdWidth = OsdWidth, ConfigOsdHeight = OsdHeight);
-	// FIXME: shown osd size not updated
-    }
-    SetupStore("Osd.Width", ConfigOsdWidth);
-    SetupStore("Osd.Height", ConfigOsdHeight);
 
     SetupStore("Suspend.Close", ConfigSuspendClose = SuspendClose);
     SetupStore("Suspend.X11", ConfigSuspendX11 = SuspendX11);
@@ -1050,9 +979,6 @@ void cMenuSetupSoft::Store(void)
     VideoSet60HzMode(ConfigVideo60HzMode);
     SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
-    SetupStore("BlackPicture", ConfigVideoBlackPicture = BlackPicture);
-    VideoSetBlackPicture(ConfigVideoBlackPicture);
-    SetupStore("ClearOnSwitch", ConfigVideoClearOnSwitch = ClearOnSwitch);
 
     SetupStore("Brightness", ConfigVideoBrightness = Brightness);
     VideoSetBrightness(ConfigVideoBrightness);
@@ -1129,8 +1055,6 @@ void cMenuSetupSoft::Store(void)
     SetupStore("AudioStereoDescent", ConfigAudioStereoDescent = AudioStereoDescent);
     AudioSetStereoDescent(ConfigAudioStereoDescent);
     SetupStore("AudioBufferTime", ConfigAudioBufferTime = AudioBufferTime);
-    SetupStore("AudioAutoAES", ConfigAudioAutoAES = AudioAutoAES);
-    AudioSetAutoAES(ConfigAudioAutoAES);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2170,16 +2094,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
 	ConfigDetachFromMainMenu = atoi(value);
 	return true;
     }
-    if (!strcasecmp(name, "Osd.Width")) {
-	ConfigOsdWidth = atoi(value);
-	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
-	return true;
-    }
-    if (!strcasecmp(name, "Osd.Height")) {
-	ConfigOsdHeight = atoi(value);
-	VideoSetOsdSize(ConfigOsdWidth, ConfigOsdHeight);
-	return true;
-    }
     if (!strcasecmp(name, "Suspend.Close")) {
 	ConfigSuspendClose = atoi(value);
 	return true;
@@ -2213,14 +2127,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "SoftStartSync")) {
 	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "BlackPicture")) {
-	VideoSetBlackPicture(ConfigVideoBlackPicture = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "ClearOnSwitch")) {
-	ConfigVideoClearOnSwitch = atoi(value);
 	return true;
     }
     if (!strcasecmp(name, "Brightness")) {
@@ -2356,11 +2262,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     if (!strcasecmp(name, "AudioBufferTime")) {
 	ConfigAudioBufferTime = atoi(value);
 	AudioSetBufferTime(ConfigAudioBufferTime);
-	return true;
-    }
-    if (!strcasecmp(name, "AudioAutoAES")) {
-	ConfigAudioAutoAES = atoi(value);
-	AudioSetAutoAES(ConfigAudioAutoAES);
 	return true;
     }
     return false;

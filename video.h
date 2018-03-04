@@ -17,7 +17,6 @@ typedef struct __video_stream__ VideoStream;
 //  Variables
 //----------------------------------------------------------------------------
 
-extern signed char VideoHardwareDecoder;    ///< flag use hardware decoder
 extern char VideoIgnoreRepeatPict;	///< disable repeat pict warning
 extern int VideoAudioDelay;		///< audio/video delay
 extern char ConfigStartX11Server;	///< flag start the x11 server
@@ -44,9 +43,6 @@ extern enum AVPixelFormat Video_get_format(VideoHwDecoder *, AVCodecContext *, c
     /// Render a ffmpeg frame.
 extern void VideoRenderFrame(VideoHwDecoder *, const AVCodecContext *, const AVFrame *);
 
-    /// Get hwaccel context for ffmpeg.
-extern void *VideoGetHwAccelContext(VideoHwDecoder *);
-
     /// Poll video events.
 extern void VideoPollEvent(void);
 
@@ -64,9 +60,6 @@ extern void VideoSet60HzMode(int);
 
     /// Set soft start audio/video sync.
 extern void VideoSetSoftStartSync(int);
-
-    /// Set show black picture during channel switch.
-extern void VideoSetBlackPicture(int);
 
     /// Set brightness adjustment.
 extern void VideoSetBrightness(int);
@@ -163,9 +156,6 @@ extern void VideoOsdDrawARGB(int, int, int, int, int, const uint8_t *, int, int)
 
     /// Get OSD size.
 extern void VideoGetOsdSize(int *, int *);
-
-    /// Set OSD size.
-extern void VideoSetOsdSize(int, int);
 
     /// Set video clock.
 extern void VideoSetClock(VideoHwDecoder *, int64_t);

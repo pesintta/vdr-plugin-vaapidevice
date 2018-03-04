@@ -168,14 +168,6 @@ Setup: /etc/vdr/setup.conf
 	0 disable soft start of audio/video sync
 	1 enable soft start of audio/video sync
 
-	vaapidevice.BlackPicture = 0
-	0 disable black picture during channel switch
-	1 enable black picture during channel switch
-
-	vaapidevice.ClearOnSwitch = 0
-	0 keep video und audio buffers during channel switch
-	1 clear video and audio buffers on channel switch
-
 	vaapidevice.Video4to3DisplayFormat = 1
 	0 pan and scan
 	1 letter box
