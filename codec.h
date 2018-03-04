@@ -49,6 +49,7 @@ extern const char *X11DisplayName;
 
     /// HW device context from video module
 extern AVBufferRef *HwDeviceContext;
+
 //----------------------------------------------------------------------------
 //  Prototypes
 //----------------------------------------------------------------------------

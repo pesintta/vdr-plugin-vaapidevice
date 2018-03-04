@@ -3716,6 +3716,7 @@ static void VaapiSetVideoMode(void)
 	VaapiDecoders[i]->VideoY = 0;
 	VaapiDecoders[i]->VideoWidth = VideoWindowWidth;
 	VaapiDecoders[i]->VideoHeight = VideoWindowHeight;
+	VaapiCleanup(VaapiDecoders[i]);
 	VaapiUpdateOutput(VaapiDecoders[i]);
     }
 }
