@@ -1251,8 +1251,6 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     return decoder;
 }
 
-static void VaapiOsdExit();
-
 ///
 /// Cleanup VA-API.
 ///
