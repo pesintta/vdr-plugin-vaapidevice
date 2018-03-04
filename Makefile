@@ -40,8 +40,8 @@ ifeq ($(CXXFLAGS),)
 $(warning CXXFLAGS not set)
 endif
 
-_CFLAGS += $(shell pkg-config --cflags alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm)
-LIBS += -lrt $(shell pkg-config --libs alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm)
+_CFLAGS += $(shell pkg-config --cflags alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm xcb-screensaver xcb-dpms)
+LIBS += -lrt $(shell pkg-config --libs alsa libva libavcodec libswscale libswresample x11 x11-xcb xcb xcb-icccm xcb-screensaver xcb-dpms)
 
 ### The version number of VDR's plugin API:
 

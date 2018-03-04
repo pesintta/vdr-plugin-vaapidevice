@@ -37,6 +37,8 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <xcb/xcb.h>
+#include <xcb/screensaver.h>
+#include <xcb/dpms.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_ewmh.h>
 
@@ -313,6 +315,8 @@ static int OsdDirtyHeight;		///< osd dirty area height
 
 static int64_t VideoDeltaPTS;		///< FIXME: fix pts
 
+static char DPMSDisabled;		///< flag we have disabled dpms
+
 uint32_t mutex_start_time;
 uint32_t max_mutex_delay = 1;
 
@@ -323,6 +327,11 @@ uint32_t max_mutex_delay = 1;
 static void VideoThreadLock(void);	///< lock video thread
 static void VideoThreadUnlock(void);	///< unlock video thread
 static void VideoThreadExit(void);	///< exit/kill video thread
+
+static void X11SuspendScreenSaver(xcb_connection_t *, int);
+static int X11HaveDPMS(xcb_connection_t *);
+static void X11DPMSReenable(xcb_connection_t *);
+static void X11DPMSDisable(xcb_connection_t *);
 
 ///
 /// Update video pts.
@@ -3392,7 +3401,7 @@ static void VaapiDisplayFrame(void)
 	decoder->StartCounter++;
 
 	filled = atomic_read(&decoder->SurfacesFilled);
-	// no surface availble show black with possible osd
+	// no surface available show black with possible osd
 	if (!filled) {
 	    VaapiBlackSurface(decoder);
 	    VaapiMessage(2, "video/vaapi: black surface displayed");
@@ -4810,6 +4819,114 @@ void VideoGetVideoSize(VideoHwDecoder * hw_decoder, int *width, int *height, int
 }
 
 //----------------------------------------------------------------------------
+//  DPMS / Screensaver
+//----------------------------------------------------------------------------
+
+///
+/// Suspend X11 screen saver.
+///
+/// @param connection	X11 connection to enable/disable screensaver
+/// @param suspend  True suspend screensaver, false enable screensaver
+///
+static void X11SuspendScreenSaver(xcb_connection_t * connection, int suspend)
+{
+    const xcb_query_extension_reply_t *query_extension_reply;
+
+    query_extension_reply = xcb_get_extension_data(connection, &xcb_screensaver_id);
+    if (query_extension_reply && query_extension_reply->present) {
+	xcb_screensaver_query_version_cookie_t cookie;
+	xcb_screensaver_query_version_reply_t *reply;
+
+	Debug7("video: screen saver extension present");
+
+	cookie =
+	    xcb_screensaver_query_version_unchecked(connection, XCB_SCREENSAVER_MAJOR_VERSION,
+	    XCB_SCREENSAVER_MINOR_VERSION);
+	reply = xcb_screensaver_query_version_reply(connection, cookie, NULL);
+	if (reply && (reply->server_major_version >= XCB_SCREENSAVER_MAJOR_VERSION)
+	    && (reply->server_minor_version >= XCB_SCREENSAVER_MINOR_VERSION)) {
+	    xcb_screensaver_suspend(connection, suspend);
+	}
+	free(reply);
+    }
+}
+
+///
+/// DPMS (Display Power Management Signaling) extension available.
+///
+/// @param connection	X11 connection to check for DPMS
+///
+static int X11HaveDPMS(xcb_connection_t * connection)
+{
+    static int have_dpms = -1;
+    const xcb_query_extension_reply_t *query_extension_reply;
+
+    if (have_dpms != -1) {		// already checked
+	return have_dpms;
+    }
+
+    have_dpms = 0;
+    query_extension_reply = xcb_get_extension_data(connection, &xcb_dpms_id);
+    if (query_extension_reply && query_extension_reply->present) {
+	xcb_dpms_get_version_cookie_t cookie;
+	xcb_dpms_get_version_reply_t *reply;
+	int major;
+	int minor;
+
+	Debug7("video: dpms extension present");
+
+	cookie = xcb_dpms_get_version_unchecked(connection, XCB_DPMS_MAJOR_VERSION, XCB_DPMS_MINOR_VERSION);
+	reply = xcb_dpms_get_version_reply(connection, cookie, NULL);
+	// use locals to avoid gcc warning
+	major = XCB_DPMS_MAJOR_VERSION;
+	minor = XCB_DPMS_MINOR_VERSION;
+	if (reply && (reply->server_major_version >= major) && (reply->server_minor_version >= minor)) {
+	    have_dpms = 1;
+	}
+	free(reply);
+    }
+    return have_dpms;
+}
+
+///
+/// Disable DPMS (Display Power Management Signaling)
+///
+/// @param connection	X11 connection to disable DPMS
+///
+static void X11DPMSDisable(xcb_connection_t * connection)
+{
+    if (X11HaveDPMS(connection)) {
+	xcb_dpms_info_cookie_t cookie;
+	xcb_dpms_info_reply_t *reply;
+
+	cookie = xcb_dpms_info_unchecked(connection);
+	reply = xcb_dpms_info_reply(connection, cookie, NULL);
+	if (reply) {
+	    if (reply->state) {
+		Debug7("video: dpms was enabled");
+		xcb_dpms_disable(connection);	// monitor powersave off
+	    }
+	    free(reply);
+	}
+	DPMSDisabled = 1;
+    }
+}
+
+///
+/// Re-enable DPMS (Display Power Management Signaling)
+///
+/// @param connection	X11 connection to enable DPMS
+///
+static void X11DPMSReenable(xcb_connection_t * connection)
+{
+    if (DPMSDisabled && X11HaveDPMS(connection)) {
+	xcb_dpms_enable(connection);	// monitor powersave on
+	xcb_dpms_force_level(connection, XCB_DPMS_DPMS_MODE_ON);
+	DPMSDisabled = 0;
+    }
+}
+
+//----------------------------------------------------------------------------
 //  Setup
 //----------------------------------------------------------------------------
 
@@ -5574,6 +5691,8 @@ void VideoInit(const char *display_name)
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
+    xcb_prefetch_extension_data(Connection, &xcb_screensaver_id);
+    xcb_prefetch_extension_data(Connection, &xcb_dpms_id);
     //xcb_prefetch_extension_data(Connection, &xcb_shm_id);
     //xcb_prefetch_extension_data(Connection, &xcb_xv_id);
 
@@ -5629,6 +5748,12 @@ void VideoInit(const char *display_name)
     VideoUsedModule = &NoopModule;
 
   found:
+    //
+    // Disable screensaver / DPMS.
+    ///
+    X11SuspendScreenSaver(Connection, 1);
+    X11DPMSDisable(Connection);
+
     //xcb_prefetch_maximum_request_length(Connection);
     xcb_flush(Connection);
 
@@ -5648,6 +5773,12 @@ void VideoExit(void)
     if (!XlibDisplay) {			// no init or failed
 	return;
     }
+    //
+    //	Re-enable screensaver / DPMS.
+    //
+    X11DPMSReenable(Connection);
+    X11SuspendScreenSaver(Connection, 0);
+
     VideoThreadExit();
     VideoUsedModule->Exit();
     VideoUsedModule = &NoopModule;
