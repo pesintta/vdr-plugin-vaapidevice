@@ -168,6 +168,109 @@ extern "C" void LogMessage(int trace, int level, const char *format, ...)
     }
 }
 
+class cDebugStatistics:public cThread
+{
+  private:
+    cOsd * osd;
+    int area_w;
+    int area_h;
+    int area_bpp;
+
+    void Draw(void)
+    {
+	LOCK_THREAD;
+	if (osd)
+	{
+	    const cFont *font = cFont::GetFont(fontSml);
+	    int y = 0, h = font->Height();
+	    char *info = GetVideoStats();
+	    if (info)
+	    {
+		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
+		free(info);
+	    } else
+	    {
+		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
+	    }
+	    y += h;
+
+	    info = GetVideoInfo();
+
+	    if (info) {
+		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
+		free(info);
+	    } else {
+		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
+	    }
+	    y += h;
+
+	    info = GetAudioInfo();
+
+	    if (info) {
+		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
+		free(info);
+	    } else {
+		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
+	    }
+
+	    y += h;
+
+	    osd->Flush();
+	}
+    }
+
+    bool Delete(void)
+    {
+	LOCK_THREAD;
+	if (Running()) {
+	    Cancel(3);
+	    DELETENULL(osd);
+	    return true;
+	}
+	return false;
+    }
+
+    bool Create(void)
+    {
+	LOCK_THREAD;
+	if (!osd) {
+	    osd = cOsdProvider::NewOsd(0, 0, 1);
+	    tArea Area = { 0, 0, area_w, area_h, area_bpp };
+	    osd->SetAreas(&Area, 1);
+	}
+	return osd != NULL;
+    }
+
+  protected:
+    virtual void Action(void)
+    {
+	Create();
+	while (Running()) {
+	    Draw();
+	    cCondWait::SleepMs(500);
+	}
+    }
+
+  public:
+  cDebugStatistics():cThread("VAAPI Stats"), osd(NULL), area_w(4096), area_h(2160), area_bpp(32) {
+    }
+
+    virtual ~ cDebugStatistics() {
+	Delete();
+    }
+
+    bool Toggle(void)
+    {
+	if (Delete()) {
+	    return false;
+	}
+	Start();
+	return true;
+    }
+};
+
+static class cDebugStatistics *MyDebug;
+
 /**
 **	Soft device plugin remote class.
 */
@@ -717,6 +820,8 @@ void cMenuSetupSoft::Create(void)
     current = Current();		// get current menu item index
     Clear();				// clear the menu
 
+    SetHelp(NULL, NULL, NULL, MyDebug->Active()? tr("Debug/OFF") : tr("Debug/ON"));
+
     //
     //	general
     //
@@ -854,6 +959,19 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     old_hue = Hue;
     old_stde = Stde;
     state = cMenuSetupPage::ProcessKey(key);
+
+    if (state == osUnknown) {
+	switch (key) {
+	    case kBlue:
+		MyDebug->Toggle();
+		Create();		// update color key labels
+		state = osContinue;
+		break;
+	    default:
+		state = osContinue;
+		break;
+	}
+    }
 
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
@@ -1216,10 +1334,6 @@ class cSoftHdMenu:public cOsdMenu
 void cSoftHdMenu::Create(void)
 {
     int current;
-    int missed;
-    int duped;
-    int dropped;
-    int counter;
 
     current = Current();		// get current menu item index
     Clear();				// clear the menu
@@ -1231,11 +1345,6 @@ void cSoftHdMenu::Create(void)
     } else {
 	Add(new cOsdItem(hk(tr("Suspend VA-API Device")), osUser1));
     }
-    Add(new cOsdItem(NULL, osUnknown, false));
-    Add(new cOsdItem(NULL, osUnknown, false));
-    GetStats(&missed, &duped, &dropped, &counter);
-    Add(new cOsdItem(cString::sprintf(tr(" Frames missed(%d) duped(%d) dropped(%d) total(%d)"), missed, duped, dropped,
-		counter), osUnknown, false));
 
     SetCurrent(Get(current));		// restore selected menu entry
     Display();				// display build menu
@@ -1360,6 +1469,9 @@ static void HandleHotkey(int code)
 	    break;
 	case 49:		       // rotate 16:9 -> window mode
 	    VideoSetOtherDisplayFormat(-1);
+	    break;
+	case 50:		       // toggle debug statistics osd
+	    MyDebug->Toggle();
 	    break;
 	default:
 	    Error("Hot key %d is not supported", code);
@@ -2010,6 +2122,7 @@ bool cPluginVaapiDevice::ProcessArgs(int argc, char *argv[])
 bool cPluginVaapiDevice::Initialize(void)
 {
     MyDevice = new cVaapiDevice();
+    MyDebug = new cDebugStatistics();
 
     return true;
 }
@@ -2346,13 +2459,13 @@ static const char *SVDRPHelpText[] = {
 	"    32: center cut-out 4:3 to display\n" "    39: rotate 4:3 to display zoom mode\n"
 	"    40: stretch other aspect ratios to display\n" "	41: letter box other aspect ratios in display\n"
 	"    42: center cut-out other aspect ratios to display\n"
-	"    49: rotate other aspect ratios to display zoom mode\n",
+	"    49: rotate other aspect ratios to display zoom mode\n" "	 50: toggle debug statistics osd\n",
     "STAT\n" "\040	 Display SuspendMode of the plugin.\n\n" "	  reply code is 910 + SuspendMode\n"
 	"    SUSPEND_EXTERNAL == -1  (909)\n" "	   NOT_SUSPENDED    ==	0  (910)\n"
 	"    SUSPEND_NORMAL   ==  1  (911)\n" "	   SUSPEND_DETACHED ==	2  (912)\n",
     "RAIS\n" "\040	 Raise vaapidevice window\n\n" "	If Xserver is not started by vaapidevice, the window which\n"
-	"    contains the vaapidevice frontend will be raised to the front.\n" "TRAC [ <mode> ]\n"
-	"    gets and/or sets used tracing mode.\n",
+	"    contains the vaapidevice frontend will be raised to the front.\n",
+    "TRAC [ <mode> ]\n" "    gets and/or sets used tracing mode.\n",
     NULL
 };
 

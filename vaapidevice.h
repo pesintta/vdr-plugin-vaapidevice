@@ -81,8 +81,13 @@ extern "C"
     /// Resume plugin
     extern void Resume(void);
 
-    /// Get decoder statistics
-    extern void GetStats(int *, int *, int *, int *);
+    /// Get video decoder statistics
+    extern char *GetVideoStats(void);
+    /// Get video decoder info
+    extern char *GetVideoInfo(void);
+    /// Get audio decoder info
+    extern char *GetAudioInfo(void);
+
     /// C plugin scale video
     extern void ScaleVideo(int, int, int, int);
 

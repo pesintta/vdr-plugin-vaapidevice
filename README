@@ -236,10 +236,15 @@ Keymacros:
 	@vaapidevice Blue 2 3		disable auto-crop
 	@vaapidevice Blue 2 4		enable auto-crop
 	@vaapidevice Blue 2 5		toggle auto-crop
-	@vaapidevice Blue 3 0		stretch 4:3 to 16:9
-	@vaapidevice Blue 3 1		letter box 4:3 in 16:9
-	@vaapidevice Blue 3 2		center cut-out 4:3 to 16:9
-	@vaapidevice Blue 3 9		rotate 4:3 to 16:9 zoom mode
+	@vaapidevice Blue 3 0		stretch 4:3 to display
+	@vaapidevice Blue 3 1		letter box 4:3 in display
+	@vaapidevice Blue 3 2		center cut-out 4:3 to display
+	@vaapidevice Blue 3 9		rotate 4:3 to display zoom mode
+	@vaapidevice Blue 4 0           stretch other aspect ratios to display
+	@vaapidevice Blue 4 1           letter box other aspect ratios in display
+	@vaapidevice Blue 4 2           center cut-out other aspect ratios to display
+	@vaapidevice Blue 4 9           rotate other aspect ratios to display zoom mode
+	@vaapidevice Blue 5 0		toggle debug statistics osd
 
 Running:
 --------

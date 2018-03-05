@@ -145,7 +145,8 @@ typedef struct _video_module_
     void (*const ResetStart) (const VideoHwDecoder *);
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
-    void (*const GetStats) (VideoHwDecoder *, int *, int *, int *, int *);
+    char *(*const GetStats)(VideoHwDecoder *);
+    char *(*const GetInfo)(VideoHwDecoder *, const char *);
     void (*const SetBackground) (uint32_t);
     void (*const SetVideoMode) (void);
     void (*const ResetAutoCrop) (void);
@@ -3521,17 +3522,49 @@ static void VaapiSetTrickSpeed(VaapiDecoder * decoder, int speed)
 /// Get VA-API decoder statistics.
 ///
 /// @param decoder  VA-API decoder
-/// @param[out] missed	missed frames
-/// @param[out] duped	duped frames
-/// @param[out] dropped dropped frames
-/// @param[out] count	number of decoded frames
 ///
-void VaapiGetStats(VaapiDecoder * decoder, int *missed, int *duped, int *dropped, int *counter)
+char *VaapiGetStats(VaapiDecoder * decoder)
 {
-    *missed = decoder->FramesMissed;
-    *duped = decoder->FramesDuped;
-    *dropped = decoder->FramesDropped;
-    *counter = decoder->FrameCounter;
+    char buffer[255];
+    int64_t audio_clock = AudioGetClock();
+    int64_t video_clock = VaapiGetClock(decoder);
+
+    if (snprintf(&buffer[0], sizeof(buffer),
+	    " Frames: missed(%d) duped(%d) dropped(%d) total(%d) PTS(%s) drift(%" PRId64 ") audio(%" PRId64 ") video(%"
+	    PRId64 ")", decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped, decoder->FrameCounter,
+	    Timestamp2String(video_clock),
+	    abs((video_clock - audio_clock) / 90) < 8888 ? ((video_clock - audio_clock) / 90) : 8888,
+	    AudioGetDelay() / 90, VideoDeltaPTS / 90)) {
+	return strdup(buffer);
+    }
+
+    return NULL;
+}
+
+///
+/// Get VA-API decoder info.
+///
+/// @param decoder  VA-API decoder
+/// @param codec_name Video codec name
+///
+char *VaapiGetInfo(VaapiDecoder * decoder, const char *codec_name)
+{
+    char buffer[255];
+    int aspect_num;
+    int aspect_den;
+    int width = decoder->InputWidth;
+    int height = decoder->InputHeight;
+
+    av_reduce(&aspect_num, &aspect_den, decoder->InputWidth * decoder->InputAspect.num,
+	decoder->InputHeight * decoder->InputAspect.den, 1024 * 1024);
+
+    if (snprintf(&buffer[0], sizeof(buffer), " Video: %s/%s %dx%d%c %d:%d @ %ux%u - %s", codec_name,
+	    av_get_pix_fmt_name(decoder->PixFmt), width, height, decoder->Interlaced ? 'i' : 'p', aspect_num,
+	    aspect_den, VideoWindowWidth, VideoWindowHeight, vaQueryVendorString(VaDisplay))) {
+	return strdup(buffer);
+    }
+
+    return NULL;
 }
 
 ///
@@ -3679,8 +3712,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf", Timestamp2String(video_clock),
 	    abs((video_clock - audio_clock) / 90) < 8888 ? ((video_clock - audio_clock) / 90) : 8888,
 	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(decoder->Stream),
-	    decoder->Interlaced ? (2 * atomic_read(&decoder->SurfacesFilled)
-		- decoder->SurfaceField)
+	    decoder->Interlaced ? (2 * atomic_read(&decoder->SurfacesFilled) - decoder->SurfaceField)
 	    : atomic_read(&decoder->SurfacesFilled));
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VaapiPrintFrames(decoder);
@@ -3987,21 +4019,19 @@ static const VideoModule VaapiModule = {
     .Enabled = 1,
     .NewHwDecoder = (VideoHwDecoder * (*const)(VideoStream *)) VaapiNewHwDecoder,
     .DelHwDecoder = (void (*const) (VideoHwDecoder *))VaapiDelHwDecoder,
-    .GetSurface = (unsigned (*const) (VideoHwDecoder *,
-	    const AVCodecContext *))VaapiGetSurface,
+    .GetSurface = (unsigned (*const) (VideoHwDecoder *, const AVCodecContext *))VaapiGetSurface,
     .ReleaseSurface = (void (*const) (VideoHwDecoder *, unsigned))VaapiReleaseSurface,
-    .get_format = (enum AVPixelFormat(*const) (VideoHwDecoder *,
-	    AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
-    .RenderFrame = (void (*const) (VideoHwDecoder *,
-	    const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
+    .get_format =
+	(enum AVPixelFormat(*const) (VideoHwDecoder *, AVCodecContext *, const enum AVPixelFormat *))Vaapi_get_format,
+    .RenderFrame = (void (*const) (VideoHwDecoder *, const AVCodecContext *, const AVFrame *))VaapiSyncRenderFrame,
     .SetClock = (void (*const) (VideoHwDecoder *, int64_t))VaapiSetClock,
     .GetClock = (int64_t(*const) (const VideoHwDecoder *))VaapiGetClock,
     .SetClosing = (void (*const) (const VideoHwDecoder *))VaapiSetClosing,
     .ResetStart = (void (*const) (const VideoHwDecoder *))VaapiResetStart,
     .SetTrickSpeed = (void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = VaapiGrabOutputSurface,
-    .GetStats = (void (*const) (VideoHwDecoder *, int *, int *, int *,
-	    int *))VaapiGetStats,
+    .GetStats = (char *(*const)(VideoHwDecoder *))VaapiGetStats,
+    .GetInfo = (char *(*const)(VideoHwDecoder *, const char *))VaapiGetInfo,
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
     .ResetAutoCrop = VaapiResetAutoCrop,
@@ -4214,7 +4244,7 @@ void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const ui
 ///
 void VideoGetOsdSize(int *width, int *height)
 {
-    if (VideoWindowWidth <= 0 || VideoWindowHeight <= 0) {
+    if (VideoWindowWidth == 0 || VideoWindowHeight == 0) {
 	Debug7("video: %s: osd/window size not set yet - using default", __FUNCTION__);
 	*width = 1920;
 	*height = 1080;
@@ -4809,14 +4839,21 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 /// Get decoder statistics.
 ///
 /// @param hw_decoder	video hardware decoder
-/// @param[out] missed	missed frames
-/// @param[out] duped	duped frames
-/// @param[out] dropped dropped frames
-/// @param[out] count	number of decoded frames
 ///
-void VideoGetStats(VideoHwDecoder * hw_decoder, int *missed, int *duped, int *dropped, int *counter)
+char *VideoGetStats(VideoHwDecoder * hw_decoder)
 {
-    VideoUsedModule->GetStats(hw_decoder, missed, duped, dropped, counter);
+    return VideoUsedModule->GetStats(hw_decoder);
+}
+
+///
+/// Get decoder video info.
+///
+/// @param hw_decoder	video hardware decoder
+/// @param codec_name	video codec name
+///
+char *VideoGetInfo(VideoHwDecoder * hw_decoder, const char *codec_name)
+{
+    return VideoUsedModule->GetInfo(hw_decoder, codec_name);
 }
 
 ///
@@ -5706,7 +5743,6 @@ void VideoInit(const char *display_name)
 	VideoExit();
 	return;
     }
-
     //
     //	prepare hardware decoder VA-API
     //
@@ -5726,7 +5762,6 @@ void VideoInit(const char *display_name)
 	Error("video: '%s' output module isn't supported", VideoDriverName);
 	VideoUsedModule = &NoopModule;
     }
-
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
@@ -5758,7 +5793,6 @@ void VideoInit(const char *display_name)
     if (!VideoWindowWidth) {
 	VideoWindowWidth = (VideoWindowHeight * 16) / 9;
     }
-
     //
     // Create output window
     //

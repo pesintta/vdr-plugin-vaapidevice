@@ -1807,7 +1807,7 @@ int PlayAudio(const uint8_t * data, int size, uint8_t id)
 	    if (r > 0 && p[5] > (10 << 3)) {
 		codec_id = AV_CODEC_ID_EAC3;
 	    }
-	    /* faster ac3 detection at end of pes packet (no improvemnts)
+	    /* faster ac3 detection at end of pes packet (no improvements)
 	       if (AudioCodecID == codec_id && -r - 2 == n) {
 	       r = n;
 	       }
@@ -3032,22 +3032,30 @@ void Resume(void)
 }
 
 /*
-**	Get decoder statistics.
-**
-**	@param[out] missed	missed frames
-**	@param[out] duped	duped frames
-**	@param[out] dropped	dropped frames
-**	@param[out] count	number of decoded frames
+**	Get video decoder statistics.
 */
-void GetStats(int *missed, int *duped, int *dropped, int *counter)
+char *GetVideoStats(void)
 {
-    *missed = 0;
-    *duped = 0;
-    *dropped = 0;
-    *counter = 0;
-    if (MyVideoStream->HwDecoder) {
-	VideoGetStats(MyVideoStream->HwDecoder, missed, duped, dropped, counter);
-    }
+    return MyVideoStream->HwDecoder ? VideoGetStats(MyVideoStream->HwDecoder) : NULL;
+}
+
+/*
+**	Get video decoder info.
+**
+*/
+char *GetVideoInfo(void)
+{
+    return MyVideoStream->HwDecoder ? VideoGetInfo(MyVideoStream->HwDecoder,
+	avcodec_get_name(MyVideoStream->CodecID)) : NULL;
+}
+
+/*
+**	Get audio decoder info.
+**
+*/
+char *GetAudioInfo(void)
+{
+    return CodecAudioGetInfo(MyAudioDecoder, AudioCodecID);
 }
 
 /**

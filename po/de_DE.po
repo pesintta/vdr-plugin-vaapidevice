@@ -28,6 +28,12 @@ msgstr "anzeigen"
 msgid "hide"
 msgstr "verstecken"
 
+msgid "Debug/OFF"
+msgstr ""
+
+msgid "Debug/ON"
+msgstr ""
+
 msgid "General"
 msgstr "Allgemeines"
 
@@ -175,10 +181,6 @@ msgstr ""
 
 msgid "Suspend VA-API Device"
 msgstr ""
-
-#, c-format
-msgid " Frames missed(%d) duped(%d) dropped(%d) total(%d)"
-msgstr " Frames verloren(%d) verdoppelt(%d) übersprungen(%d) Gesamt(%d)"
 
 msgid "pass-through disabled"
 msgstr ""
