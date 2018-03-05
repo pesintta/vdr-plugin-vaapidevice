@@ -996,11 +996,11 @@ static void StartVideo(void)
 	// FIXME: not good looking, mapped and then resized.
 	VideoSetFullscreen(1);
     }
-    VideoOsdInit();
     if (!MyVideoStream->Decoder) {
 	VideoStreamOpen(MyVideoStream);
 	AudioSyncStream = MyVideoStream;
     }
+    VideoOsdInit();
 }
 
 /**

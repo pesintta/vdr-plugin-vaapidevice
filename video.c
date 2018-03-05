@@ -5690,7 +5690,7 @@ int VideoRaiseWindow(void)
 void VideoInit(const char *display_name)
 {
     int screen_nr;
-    int i;
+    int i, found = 0;
     xcb_screen_iterator_t screen_iter;
     xcb_screen_t const *screen;
 
@@ -5718,6 +5718,27 @@ void VideoInit(const char *display_name)
 	VideoExit();
 	return;
     }
+
+    //
+    //	prepare hardware decoder VA-API
+    //
+    for (i = 0; i < (int)(sizeof(VideoModules) / sizeof(*VideoModules)); ++i) {
+	// FIXME: support list of drivers and include display name
+	// use user device or first working enabled device driver
+	if ((VideoDriverName && !strcasecmp(VideoDriverName, VideoModules[i]->Name))
+	    || (!VideoDriverName && VideoModules[i]->Enabled)) {
+	    if (VideoModules[i]->Init(display_name)) {
+		VideoUsedModule = VideoModules[i];
+		found = 1;
+		break;
+	    }
+	}
+    }
+    if (!found) {
+	Error("video: '%s' output module isn't supported", VideoDriverName);
+	VideoUsedModule = &NoopModule;
+    }
+
     // prefetch extensions
     //xcb_prefetch_extension_data(Connection, &xcb_big_requests_id);
     //xcb_prefetch_extension_data(Connection, &xcb_randr_id);
@@ -5749,38 +5770,16 @@ void VideoInit(const char *display_name)
     if (!VideoWindowWidth) {
 	VideoWindowWidth = (VideoWindowHeight * 16) / 9;
     }
-    //
-    //	prepare opengl
-    //
 
     //
     // Create output window
     //
     VideoCreateWindow(screen->root, screen->root_visual, screen->root_depth);
-
     Debug7("video: window prepared");
 
     //
-    //	prepare hardware decoder VA-API
-    //
-    for (i = 0; i < (int)(sizeof(VideoModules) / sizeof(*VideoModules)); ++i) {
-	// FIXME: support list of drivers and include display name
-	// use user device or first working enabled device driver
-	if ((VideoDriverName && !strcasecmp(VideoDriverName, VideoModules[i]->Name))
-	    || (!VideoDriverName && VideoModules[i]->Enabled)) {
-	    if (VideoModules[i]->Init(display_name)) {
-		VideoUsedModule = VideoModules[i];
-		goto found;
-	    }
-	}
-    }
-    Error("video: '%s' output module isn't supported", VideoDriverName);
-    VideoUsedModule = &NoopModule;
-
-  found:
-    //
     // Disable screensaver / DPMS.
-    ///
+    //
     X11SuspendScreenSaver(Connection, 1);
     X11DPMSDisable(Connection);
 
