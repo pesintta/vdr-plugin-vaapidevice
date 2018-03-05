@@ -4217,7 +4217,7 @@ void VideoOsdDrawARGB(int xi, int yi, int width, int height, int pitch, const ui
 void VideoGetOsdSize(int *width, int *height)
 {
     if (VideoWindowWidth <= 0 || VideoWindowHeight <= 0) {
-	Error("video: %s: osd/window size not set yet", __FUNCTION__);
+	Debug7("video: %s: osd/window size not set yet - using default", __FUNCTION__);
 	*width = 1920;
 	*height = 1080;
     } else {
