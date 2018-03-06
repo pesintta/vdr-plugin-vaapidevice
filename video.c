@@ -2722,7 +2722,6 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
 		decoder->OutputX, decoder->OutputY, decoder->OutputWidth, decoder->OutputHeight, NULL, 0,
 		type | decoder->SurfaceFlagsTable[decoder->Resolution]))
 	!= VA_STATUS_SUCCESS) {
-	// switching video kills VdpPresentationQueueBlockUntilSurfaceIdle
 	Error("video/vaapi: vaPutSurface failed: %s", vaErrorStr(status));
     }
     status = vaSyncSurface(decoder->VaDisplay, surface);
