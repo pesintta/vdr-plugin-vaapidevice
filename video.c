@@ -2129,7 +2129,7 @@ static void VaapiOsdInit(int width, int height)
     //
     format_n = vaMaxNumSubpictureFormats(VaDisplay);
     formats = alloca(format_n * sizeof(*formats));
-    flags = alloca(format_n * sizeof(*formats));
+    flags = alloca(format_n * sizeof(*flags));
     if (vaQuerySubpictureFormats(VaDisplay, formats, flags, &format_n) != VA_STATUS_SUCCESS) {
 	Error("video/vaapi: can't get subpicture formats");
 	return;
