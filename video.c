@@ -1646,7 +1646,7 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
 
     if (pipeline_caps.num_backward_references != *num_brefs) {
 	Debug7("vaapi/vpp: Wrong number of backward references. Needed %d, got %d",
-	    pipeline_caps.num_forward_references, *num_brefs);
+	    pipeline_caps.num_backward_references, *num_brefs);
 	/* Fail operation when needing more references than currently have */
 	if (pipeline_caps.num_backward_references > *num_brefs) {
 	    *num_frefs = pipeline_caps.num_forward_references;
