@@ -1508,7 +1508,7 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 	case AV_PIX_FMT_YUVJ420P:
 	    fourcc = VA_FOURCC_I420;	// aka. VA_FOURCC_IYUV
 	    break;
-	case AV_PIX_FMT_VAAPI_VLD:
+	case AV_PIX_FMT_VAAPI:
 	case AV_PIX_FMT_NV12:
 	    fourcc = VA_FOURCC_NV12;
 	    break;
