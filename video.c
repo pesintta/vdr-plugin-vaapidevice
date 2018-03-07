@@ -248,7 +248,6 @@ static const VideoModule *VideoUsedModule = &NoopModule;
 static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
 static uint32_t VideoBackground;	///< video background color
-static char VideoStudioLevels;		///< flag use studio levels
 
     /// Default skin tone enhancement mode.
 static int VideoSkinToneEnhancement = 0;
@@ -5622,16 +5621,6 @@ void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
     VideoCutLeftRight[4] = pixels[4];
     VideoUsedModule->SetVideoMode();
     VideoThreadUnlock();
-}
-
-///
-/// Set studio levels.
-///
-/// @param onoff    flag on/off
-///
-void VideoSetStudioLevels(int onoff)
-{
-    VideoStudioLevels = onoff;
 }
 
 ///

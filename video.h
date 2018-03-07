@@ -136,9 +136,6 @@ extern void VideoSetCutTopBottom(int[]);
     /// Set cut left and right.
 extern void VideoSetCutLeftRight(int[]);
 
-    /// Set studio levels.
-extern void VideoSetStudioLevels(int);
-
     /// Set background.
 extern void VideoSetBackground(uint32_t);
 

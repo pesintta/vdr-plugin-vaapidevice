@@ -68,7 +68,6 @@ static char ConfigSuspendX11;		///< suspend should stop x11
 static char Config4to3DisplayFormat = 1;    ///< config 4:3 display format
 static char ConfigOtherDisplayFormat = 1;   ///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
-static char ConfigVideoStudioLevels;	///< config use studio levels
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
@@ -596,7 +595,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     int VideoOtherDisplayFormat;
     uint32_t Background;
     uint32_t BackgroundAlpha;
-    int StudioLevels;
     int _60HzMode;
     int SoftStartSync;
 
@@ -924,7 +922,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     // no unsigned int menu item supported, split background color/alpha
     Background = ConfigVideoBackground >> 8;
     BackgroundAlpha = ConfigVideoBackground & 0xFF;
-    StudioLevels = ConfigVideoStudioLevels;
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
 
@@ -1010,8 +1007,6 @@ void cMenuSetupSoft::Store(void)
     ConfigVideoBackground = Background << 8 | (BackgroundAlpha & 0xFF);
     SetupStore("Background", ConfigVideoBackground);
     VideoSetBackground(ConfigVideoBackground);
-    SetupStore("StudioLevels", ConfigVideoStudioLevels = StudioLevels);
-    VideoSetStudioLevels(ConfigVideoStudioLevels);
     SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
     VideoSet60HzMode(ConfigVideo60HzMode);
     SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
@@ -2152,10 +2147,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "Background")) {
 	VideoSetBackground(ConfigVideoBackground = strtoul(value, NULL, 0));
-	return true;
-    }
-    if (!strcasecmp(name, "StudioLevels")) {
-	VideoSetStudioLevels(ConfigVideoStudioLevels = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "60HzMode")) {
