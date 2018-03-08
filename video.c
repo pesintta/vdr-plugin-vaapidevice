@@ -348,7 +348,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
 
     //
     //	Get duration for this frame.
-    //	FIXME: using framerate as workaround for av_frame_get_pkt_duration
+    //	FIXME: using framerate as workaround for AVFrame->pkt_duration
     //
     if (video_ctx->framerate.num && video_ctx->framerate.den) {
 	duration = 1000 * video_ctx->framerate.den / video_ctx->framerate.num;
@@ -356,7 +356,7 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
 	duration = interlaced ? 40 : 20;    // 50Hz -> 20ms default
     }
     Debug8("video: %d/%d %" PRIx64 " -> %d", video_ctx->framerate.den, video_ctx->framerate.num,
-	av_frame_get_pkt_duration(frame), duration);
+	frame->pkt_duration, duration);
 
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
