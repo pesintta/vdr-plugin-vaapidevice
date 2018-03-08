@@ -2155,26 +2155,31 @@ void AudioInit(void)
 			    AudioChannelMatrix[u][chan] = 4;
 			    break;
 			}
+			/* FALLTHRU */
 		    case 4:
 			if (AudioChannelsInHw[5]) {
 			    AudioChannelMatrix[u][chan] = 5;
 			    break;
 			}
+			/* FALLTHRU */
 		    case 5:
 			if (AudioChannelsInHw[6]) {
 			    AudioChannelMatrix[u][chan] = 6;
 			    break;
 			}
+			/* FALLTHRU */
 		    case 6:
 			if (AudioChannelsInHw[7]) {
 			    AudioChannelMatrix[u][chan] = 7;
 			    break;
 			}
+			/* FALLTHRU */
 		    case 7:
 			if (AudioChannelsInHw[8]) {
 			    AudioChannelMatrix[u][chan] = 8;
 			    break;
 			}
+			/* FALLTHRU */
 		    case 8:
 			if (AudioChannelsInHw[6]) {
 			    AudioChannelMatrix[u][chan] = 6;

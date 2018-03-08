@@ -84,6 +84,9 @@ extern void CodecAudioOpen(AudioDecoder *, int);
     /// Close audio codec.
 extern void CodecAudioClose(AudioDecoder *);
 
+   /// Get audio decoder info
+extern char *CodecAudioGetInfo(AudioDecoder *, int);
+
     /// Set audio drift correction.
 extern void CodecSetAudioDrift(int);
 

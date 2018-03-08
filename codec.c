@@ -930,6 +930,26 @@ void CodecAudioFlushBuffers(AudioDecoder * decoder)
 	avcodec_flush_buffers(decoder->AudioCtx);
 }
 
+/**
+**	Get the audio decoder info.
+**
+**	@param decoder	audio decoder data
+**	@param codec_id audio	codec id
+*/
+char *CodecAudioGetInfo(AudioDecoder * decoder, int codec_id)
+{
+    if (decoder) {
+	char buffer[255];
+
+	if (snprintf(&buffer[0], sizeof(buffer), " Audio: %s %dHz %d channels", avcodec_get_name(codec_id),
+		decoder->SampleRate, decoder->Channels)) {
+	    return strdup(buffer);
+	}
+    }
+
+    return NULL;
+}
+
 //----------------------------------------------------------------------------
 //  Codec
 //----------------------------------------------------------------------------
