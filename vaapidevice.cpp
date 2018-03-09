@@ -168,6 +168,9 @@ extern "C" void LogMessage(int trace, int level, const char *format, ...)
     }
 }
 
+/**
+**	Debug statistics on OSD class.
+*/
 class cDebugStatistics:public cThread
 {
   private:
@@ -1340,11 +1343,10 @@ void cSoftHdMenu::Create(void)
 
     SetHasHotkeys();
 
-    if (ConfigDetachFromMainMenu) {
-	Add(new cOsdItem(hk(tr("Detach VA-API Device")), osUser1));
-    } else {
-	Add(new cOsdItem(hk(tr("Suspend VA-API Device")), osUser1));
-    }
+    Add(new cOsdItem(hk(ConfigDetachFromMainMenu ? tr("Detach VA-API device") : tr("Suspend VA-API device")),
+	    osUser1));
+    Add(new cOsdItem(hk(MyDebug->Active()? tr("Disable debug OSD") : tr("Enable debug OSD")), osUser2));
+    Add(new cOsdItem(hk(ConfigAutoCropEnabled ? tr("Disable auto-crop") : tr("Enable auto-crop")), osUser3));
 
     SetCurrent(Get(current));		// restore selected menu entry
     Display();				// display build menu
@@ -1557,8 +1559,21 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 		}
 	    }
 	    return osEnd;
-	default:
+	case osUser2:
+	    MyDebug->Toggle();
 	    Create();
+	    break;
+	case osUser3:
+	    ConfigAutoCropEnabled ^= 1;
+	    // no interval configured, use some default
+	    if (!ConfigAutoCropInterval) {
+		ConfigAutoCropInterval = 50;
+	    }
+	    VideoSetAutoCrop(ConfigAutoCropEnabled * ConfigAutoCropInterval, ConfigAutoCropDelay,
+		ConfigAutoCropTolerance);
+	    Create();
+	    break;
+	default:
 	    break;
     }
     return state;

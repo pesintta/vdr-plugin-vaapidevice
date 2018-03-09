@@ -176,10 +176,22 @@ msgstr "Reduziere Steropegel (/1000)"
 msgid "Audio buffer size (ms)"
 msgstr "Audio Puffergröße (ms)"
 
-msgid "Detach VA-API Device"
+msgid "Detach VA-API device"
 msgstr ""
 
-msgid "Suspend VA-API Device"
+msgid "Suspend VA-API device"
+msgstr ""
+
+msgid "Disable debug OSD"
+msgstr ""
+
+msgid "Enable debug OSD"
+msgstr ""
+
+msgid "Disable auto-crop"
+msgstr ""
+
+msgid "Enable auto-crop"
 msgstr ""
 
 msgid "pass-through disabled"
