@@ -356,8 +356,8 @@ static void VideoSetPts(int64_t * pts_p, int interlaced, const AVCodecContext * 
     } else {
 	duration = interlaced ? 40 : 20;    // 50Hz -> 20ms default
     }
-    Debug8("video: %d/%d %" PRIx64 " -> %d", video_ctx->framerate.den, video_ctx->framerate.num,
-	frame->pkt_duration, duration);
+    Debug8("video: %d/%d %" PRIx64 " -> %d", video_ctx->framerate.den, video_ctx->framerate.num, frame->pkt_duration,
+	duration);
 
     // update video clock
     if (*pts_p != (int64_t) AV_NOPTS_VALUE) {
