@@ -3931,7 +3931,7 @@ static void VaapiOsdClear(void)
 	int o;
 
 	for (o = 0; o < OsdDirtyHeight; ++o) {
-	    memset(image_buffer + (OsdDirtyX + (o + OsdDirtyY) * VaOsdImage.width) * 4, 0x00, OsdDirtyWidth * 4);
+	    memset(image_buffer + OsdDirtyX * 4 + (o + OsdDirtyY) * VaOsdImage.pitches[0], 0x00, OsdDirtyWidth * 4);
 	}
     } else {
 	// 100% transparent
@@ -3998,7 +3998,8 @@ static void VaapiOsdDrawARGB(int xi, int yi, int width, int height, int pitch, c
 
     // copy argb to image
     for (o = 0; o < copyheight; ++o) {
-	memcpy(image_buffer + (x + (y + o) * VaOsdImage.width) * 4, argb + xi * 4 + (o + yi) * pitch, copywidth * 4);
+	memcpy(image_buffer + x * 4 + (o + y) * VaOsdImage.pitches[0], argb + xi * 4 + (o + yi) * pitch,
+	    copywidth * 4);
     }
 
     if (vaUnmapBuffer(VaDisplay, VaOsdImage.buf) != VA_STATUS_SUCCESS) {
