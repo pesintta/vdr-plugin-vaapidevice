@@ -72,8 +72,8 @@ static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
 static int ConfigVideoBrightness;	///< config video brightness
-static int ConfigVideoContrast = 10;	///< config video contrast
-static int ConfigVideoSaturation = 10;	///< config video saturation
+static int ConfigVideoContrast = 1;	///< config video contrast
+static int ConfigVideoSaturation = 1;	///< config video saturation
 static int ConfigVideoHue;		///< config video hue
 static int ConfigVideoStde = 0;		///< config video skin tone enhancement
 
