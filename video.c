@@ -1773,39 +1773,36 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	if (!decoder->Interlaced)
 	    deinterlace->flags = VA_DEINTERLACING_ONE_FIELD;
 
-	/* This block of code skips various filters in-flight if source/settings
-	   disallow running the filter in question */
-	filter_count = 0;
-	for (unsigned int i = 0; i < decoder->filter_n; ++i) {
-
-	    /* Skip deinterlacer if disabled or source is not interlaced */
-	    if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
-		if (!decoder->Interlaced)
-		    continue;
-		if (deinterlace->algorithm == VAProcDeinterlacingNone)
-		    continue;
-	    }
-
-	    /* Skip denoise if value is set to 0 ("off") */
-	    if (decoder->vpp_denoise_buf && decoder->filters[i] == *decoder->vpp_denoise_buf) {
-		if (!VideoDenoise[decoder->Resolution])
-		    continue;
-	    }
-
-	    /* Skip skin tone enhancement if value is set to 0 ("off") */
-	    if (decoder->vpp_stde_buf && decoder->filters[i] == *decoder->vpp_stde_buf) {
-		if (!VideoSkinToneEnhancement)
-		    continue;
-	    }
-
-	    filters_to_run[filter_count++] = decoder->filters[i];
-	}
-
 	vaUnmapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
-    if (!filter_count)
-	return NULL;			/* no postprocessing if no filters applied */
+    /* This block of code skips various filters in-flight if source/settings
+       disallow running the filter in question */
+    filter_count = 0;
+    for (unsigned int i = 0; i < decoder->filter_n; ++i) {
+
+	/* Skip deinterlacer if disabled or source is not interlaced */
+	if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
+	    if (!decoder->Interlaced)
+		continue;
+	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
+		continue;
+	}
+
+	/* Skip denoise if value is set to 0 ("off") */
+	if (decoder->vpp_denoise_buf && decoder->filters[i] == *decoder->vpp_denoise_buf) {
+	    if (!VideoDenoise[decoder->Resolution])
+		continue;
+	}
+
+	/* Skip skin tone enhancement if value is set to 0 ("off") */
+	if (decoder->vpp_stde_buf && decoder->filters[i] == *decoder->vpp_stde_buf) {
+	    if (!VideoSkinToneEnhancement)
+		continue;
+	}
+
+	filters_to_run[filter_count++] = decoder->filters[i];
+    }
 
     va_status =
 	VaapiPostprocessSurface(decoder->vpp_ctx, decoder->PlaybackSurface, *surface, filters_to_run, filter_count,
