@@ -125,6 +125,7 @@ static volatile int DoMakePrimary;	///< switch primary device to this
 #define SUSPEND_DETACHED	2	    ///< detached suspend mode
 static signed char SuspendMode;		///< suspend mode
 volatile char SoftIsPlayingVideo;	///< stream contains video data
+static cString CommandLineParameters = "";  ///< plugin's command-line parameters
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -284,7 +285,8 @@ class cDebugStatistics:public cThread
 
     cString Dump(void)
     {
-	return cString::sprintf("%s\n%s\n%s\n", *VideoStats(), *VideoInfo(), *AudioInfo());
+	return cString::sprintf("%s\n%s\n%s\nCommand:%s\n", *VideoStats(), *VideoInfo(), *AudioInfo(),
+	    *CommandLineParameters);
     }
 };
 
@@ -2140,6 +2142,9 @@ const char *cPluginVaapiDevice::CommandLineHelp(void)
 */
 bool cPluginVaapiDevice::ProcessArgs(int argc, char *argv[])
 {
+    for (int i = 0; i < argc; ++i) {
+	CommandLineParameters = *cString::sprintf("%s %s", *CommandLineParameters, argv[i]);
+    }
     return::ProcessArgs(argc, argv);
 }
 
