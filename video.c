@@ -1736,10 +1736,6 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     VASurfaceID *surface = NULL;
     VASurfaceID *gpe_surface = NULL;
 
-    /* No postprocessing filters enabled */
-    if (!decoder->filter_n)
-	return NULL;
-
     /* Get next postproc surface to write from ring buffer */
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
     surface = &decoder->PostProcSurfacesRb[decoder->PostProcSurfaceWrite];
@@ -1750,7 +1746,6 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
 
     memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
-    filter_count = decoder->filter_n;
 
     /* Map deinterlace buffer and handle field ordering */
     if (decoder->vpp_deinterlace_buf) {
