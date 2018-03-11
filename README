@@ -37,6 +37,18 @@ Install:
 	You can edit Makefile to enable/disable Alsa support.
 	The default is to autodetect as much as possible.
 
+Issues/bugs:
+------------
+
+	If any issues or bugs arise, please, open an Github issue here:
+	https://github.com/pesintta/vdr-plugin-vaapidevice/issues
+
+	Remember to include your system report into the Github issue by
+	the included script:
+
+	export DISPLAY=:0.0
+	./generate_system_report.sh
+
 Setup:	environment
 ------
 	Following is supported:

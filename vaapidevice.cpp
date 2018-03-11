@@ -179,43 +179,54 @@ class cDebugStatistics:public cThread
     int area_h;
     int area_bpp;
 
+    cString VideoStats(void)
+    {
+	cString stats = "";
+	char *info = GetVideoStats();
+	if (info)
+	{
+	    stats = info;
+	    free(info);
+	}
+	return stats;
+    }
+
+    cString VideoInfo(void)
+    {
+	cString stats = "";
+	char *info = GetVideoInfo();
+
+	if (info) {
+	    stats = info;
+	    free(info);
+	}
+	return stats;
+    }
+
+    cString AudioInfo(void)
+    {
+	cString stats = "";
+	char *info = GetAudioInfo();
+
+	if (info) {
+	    stats = info;
+	    free(info);
+	}
+	return stats;
+    }
+
     void Draw(void)
     {
 	LOCK_THREAD;
-	if (osd)
-	{
+	if (osd) {
 	    const cFont *font = cFont::GetFont(fontSml);
 	    int y = 0, h = font->Height();
-	    char *info = GetVideoStats();
-	    if (info)
-	    {
-		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
-		free(info);
-	    } else
-	    {
-		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
-	    }
+
+	    osd->DrawText(0, y, *VideoStats(), clrWhite, clrGray50, font, area_w, h);
 	    y += h;
-
-	    info = GetVideoInfo();
-
-	    if (info) {
-		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
-		free(info);
-	    } else {
-		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
-	    }
+	    osd->DrawText(0, y, *VideoInfo(), clrWhite, clrGray50, font, area_w, h);
 	    y += h;
-
-	    info = GetAudioInfo();
-
-	    if (info) {
-		osd->DrawText(0, y, info, clrWhite, clrGray50, font, 2160, h);
-		free(info);
-	    } else {
-		osd->DrawRectangle(0, y, 2160, y + h, clrGray50);
-	    }
-
+	    osd->DrawText(0, y, *AudioInfo(), clrWhite, clrGray50, font, area_w, h);
 	    y += h;
 
 	    osd->Flush();
@@ -269,6 +280,11 @@ class cDebugStatistics:public cThread
 	}
 	Start();
 	return true;
+    }
+
+    cString Dump(void)
+    {
+	return cString::sprintf("%s\n%s\n%s\n", *VideoStats(), *VideoInfo(), *AudioInfo());
     }
 };
 
@@ -2480,7 +2496,8 @@ static const char *SVDRPHelpText[] = {
 	"    SUSPEND_NORMAL   ==  1  (911)\n" "	   SUSPEND_DETACHED ==	2  (912)\n",
     "RAIS\n" "\040	 Raise vaapidevice window\n\n" "	If Xserver is not started by vaapidevice, the window which\n"
 	"    contains the vaapidevice frontend will be raised to the front.\n",
-    "TRAC [ <mode> ]\n" "    gets and/or sets used tracing mode.\n",
+    "TRAC [ <mode> ]\n" "    Get and/or set used tracing mode.\n",
+    "DBUG\n" "\040	 Show debug information.\n",
     NULL
 };
 
@@ -2660,6 +2677,9 @@ cString cPluginVaapiDevice::SVDRPCommand(const char *command, const char *option
 	if (option && *option)
 	    TraceMode = strtol(option, NULL, 0) & 0xFFFF;
 	return cString::sprintf("tracing mode: 0x%04X\n", TraceMode);
+    }
+    if (!strcasecmp(command, "DBUG")) {
+	return MyDebug->Dump();
     }
 
     return NULL;
