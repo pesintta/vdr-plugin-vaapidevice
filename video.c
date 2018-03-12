@@ -999,6 +999,47 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 }
 
 ///
+/// Check an array of surfaces whether they are valid and ready
+///
+/// @param va_display VADisplay to use
+/// @param surfaces array of surfaces to check
+/// @param num_surfaces number of surfaces
+///
+/// @returns status of the check (VA_STATUS_SUCCESS) if surfaces were ready
+///
+static VAStatus VaapiCheckSurfaces(VADisplay va_display, VASurfaceID * surfaces, unsigned int num_surfaces)
+{
+    VAStatus va_status;
+    VASurfaceStatus va_surf_status;
+
+    if (!surfaces)
+	return VA_STATUS_SUCCESS;
+
+    for (unsigned int i = 0; i < num_surfaces; ++i) {
+	if (surfaces[i] == VA_INVALID_ID)
+	    return VA_STATUS_ERROR_INVALID_PARAMETER;
+
+	va_status = vaQuerySurfaceStatus(va_display, surfaces[i], &va_surf_status);
+	if (va_status != VA_STATUS_SUCCESS) {
+	    Debug8("video/vaapi: Surface 0x%x query status failed (0x%X): %s", surfaces[i], va_status,
+		vaErrorStr(va_status));
+	    return va_status;
+	}
+	if (va_surf_status != VASurfaceReady) {
+	    Debug8("video/vaapi: Surface 0x%x is busy. Status: 0x%X", surfaces[i], va_surf_status);
+	    return VA_STATUS_ERROR_SURFACE_BUSY;
+	}
+    }
+    return VA_STATUS_SUCCESS;
+}
+
+static VAStatus VaapiCheckSurface(VADisplay va_display, VASurfaceID surface)
+{
+    VASurfaceID surfaces[] = { surface };
+    return VaapiCheckSurfaces(va_display, surfaces, ARRAY_ELEMS(surfaces));
+}
+
+///
 /// Get a free surface.
 ///
 /// @param decoder  VA-API decoder
@@ -1007,9 +1048,7 @@ static void VaapiDestroySurfaces(VaapiDecoder * decoder)
 ///
 static VASurfaceID VaapiGetPluginSurface(VaapiDecoder * decoder)
 {
-    VAStatus va_status;
     VASurfaceID surface;
-    VASurfaceStatus status;
 
     /* Get next postproc surface to write from ring buffer */
     decoder->PostProcSurfaceWrite = (decoder->PostProcSurfaceWrite + 1) % POSTPROC_SURFACES_MAX;
@@ -1018,16 +1057,8 @@ static VASurfaceID VaapiGetPluginSurface(VaapiDecoder * decoder)
 	Debug8("video/vaapi: surface at %d (%#010x) not initialized", decoder->PostProcSurfaceWrite, surface);
 	return VA_INVALID_ID;
     }
-    va_status = vaQuerySurfaceStatus(decoder->VaDisplay, surface, &status);
-    if (va_status != VA_STATUS_SUCCESS) {
-	// this fails with mpeg softdecoder
-	Error("video/vaapi: vaQuerySurface failed: %s", vaErrorStr(va_status));
-	status = VASurfaceReady;
-    }
-    if (status != VASurfaceReady) {
-	Debug8("video/vaapi: surface %#010x not ready: %d", surface, status);
+    if (VaapiCheckSurface(decoder->VaDisplay, surface) != VA_STATUS_SUCCESS)
 	return VA_INVALID_ID;
-    }
 
     return surface;
 }
@@ -1560,72 +1591,20 @@ static int VaapiFindImageFormat(VaapiDecoder * decoder, enum AVPixelFormat pix_f
 }
 
 ///
-/// Verify & Run arbitrary VPP processing on src/dst surface(s)
+/// Check an array of filters and see how many reference surfaces are required
 ///
 /// @param ctx[in]  VA-API postprocessing context
-/// @param src[in]  source surface to scale
-/// @param dst[in]  destination surface to put result in
-/// @param filters[in]	    array of VABufferID filters to run
-/// @param num_filters[in]  number of VABufferID filters supplied
-/// @param filter_flags[in] filter flags to provide to postprocessing
-/// @param pipeline_flags[in]	pipeline flags to provide to postprocessing
-/// @param frefs[in]	    array of forward reference surface ids
+/// @param filters[in]	    array of filters to check
+/// @param num_filters[in]  number of filters in array to check
 /// @param num_frefs[in,out]	number of forward reference surface ids supplied/needed
-/// @param brefs[in]	    array of backward reference surface ids
 /// @param num_brefs[in,out]	number of backward reference surface ids supplied/needed
-///
-static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurfaceID dst, VABufferID * filters,
-    unsigned int num_filters, int filter_flags, int pipeline_flags, VASurfaceID * frefs, unsigned int *num_frefs,
-    VASurfaceID * brefs, unsigned int *num_brefs)
+static VAStatus VaapiCheckPipelineCaps(VAContextID ctx, VABufferID * filters, unsigned int num_filters,
+    unsigned int *num_frefs, unsigned int *num_brefs)
 {
-    unsigned int i;
-    unsigned int tmp_num_frefs = 0;
-    unsigned int tmp_num_brefs = 0;
     VAStatus va_status;
-    VASurfaceStatus va_surf_status;
-    VABufferID pipeline_buf;
     VAProcPipelineCaps pipeline_caps;
-    VAProcPipelineParameterBuffer pipeline_param;
 
-    if (!num_frefs)
-	num_frefs = &tmp_num_frefs;
-    if (!num_brefs)
-	num_brefs = &tmp_num_brefs;
-
-    /* Make sure rendering is finished in earliest forward reference surface */
-    if (*num_frefs)
-	vaSyncSurface(VaDisplay, frefs[*num_frefs - 1]);
-
-    /* Skip postprocessing if queue is not deinterlaceable */
-    for (i = 0; i < *num_brefs; ++i) {
-	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
-	if (brefs[i] == VA_INVALID_ID)
-	    continue;
-	va_status = vaQuerySurfaceStatus(VaDisplay, brefs[i], &va_surf_status);
-	if (va_status != VA_STATUS_SUCCESS) {
-	    Error("vaapi/vpp: Surface %d query status failed (0x%X): %s", i, va_status, vaErrorStr(va_status));
-	    return va_status;
-	}
-	if (va_surf_status != VASurfaceReady) {
-	    Info("Backward reference surface %d is not ready, surf_status = %d", i, va_surf_status);
-	    return VA_STATUS_ERROR_SURFACE_BUSY;
-	}
-    }
-
-    for (i = 0; i < *num_frefs; ++i) {
-	// Trust the driver to "do the right thing" if invalid surfaces are provided as references
-	if (frefs[i] == VA_INVALID_ID)
-	    continue;
-	va_status = vaQuerySurfaceStatus(VaDisplay, frefs[i], &va_surf_status);
-	if (va_status != VA_STATUS_SUCCESS) {
-	    Error("Surface %d query status = 0x%X: %s", i, va_status, vaErrorStr(va_status));
-	    return va_status;
-	}
-	if (va_surf_status != VASurfaceReady) {
-	    Info("Forward reference surface %d is not ready, surf_status = %d", i, va_surf_status);
-	    return VA_STATUS_ERROR_SURFACE_BUSY;
-	}
-    }
+    memset(&pipeline_caps, '\0', sizeof(pipeline_caps));
 
     va_status = vaQueryVideoProcPipelineCaps(VaDisplay, ctx, filters, num_filters, &pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
@@ -1658,6 +1637,32 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
     *num_frefs = pipeline_caps.num_forward_references;
     *num_brefs = pipeline_caps.num_backward_references;
 
+    return VA_STATUS_SUCCESS;
+}
+
+///
+/// Verify & Run arbitrary VPP processing on src/dst surface(s)
+///
+/// @param ctx[in]  VA-API postprocessing context
+/// @param src[in]  source surface to scale
+/// @param dst[in]  destination surface to put result in
+/// @param filters[in]	    array of VABufferID filters to run
+/// @param num_filters[in]  number of VABufferID filters supplied
+/// @param filter_flags[in] filter flags to provide to postprocessing
+/// @param pipeline_flags[in]	pipeline flags to provide to postprocessing
+/// @param frefs[in]	    array of forward reference surface ids
+/// @param num_frefs[in]    number of forward reference surface ids supplied/needed
+/// @param brefs[in]	    array of backward reference surface ids
+/// @param num_brefs[in]    number of backward reference surface ids supplied/needed
+///
+static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurfaceID dst, VABufferID * filters,
+    unsigned int num_filters, int filter_flags, int pipeline_flags, VASurfaceID * frefs, unsigned int num_frefs,
+    VASurfaceID * brefs, unsigned int num_brefs)
+{
+    VAStatus va_status;
+    VABufferID pipeline_buf;
+    VAProcPipelineParameterBuffer pipeline_param;
+
     if (src == VA_INVALID_ID || dst == VA_INVALID_ID || src == dst)
 	return VA_STATUS_ERROR_INVALID_PARAMETER;
 
@@ -1675,9 +1680,9 @@ static VAStatus VaapiPostprocessSurface(VAContextID ctx, VASurfaceID src, VASurf
     pipeline_param.num_filters = num_filters;
 
     pipeline_param.forward_references = frefs;
-    pipeline_param.num_forward_references = *num_frefs;
+    pipeline_param.num_forward_references = num_frefs;
     pipeline_param.backward_references = brefs;
-    pipeline_param.num_backward_references = *num_brefs;
+    pipeline_param.num_backward_references = num_brefs;
 
     va_status =
 	vaCreateBuffer(VaDisplay, ctx, VAProcPipelineParameterBufferType, sizeof(VAProcPipelineParameterBuffer), 1,
@@ -1730,7 +1735,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     unsigned int filter_flags = decoder->SurfaceFlagsTable[decoder->Resolution];
     unsigned int tmp_forwardRefCount = decoder->ForwardRefCount;
     unsigned int tmp_backwardRefCount = decoder->BackwardRefCount;
-    VAStatus va_status;
+    VAStatus va_status, caps_status;
     VABufferID filters_to_run[VAProcFilterCount];
     VAProcFilterParameterBufferDeinterlacing *deinterlace = NULL;
     VASurfaceID *surface = NULL;
@@ -1744,8 +1749,6 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	filter_flags |= VA_FRAME_PICTURE;
     else if (decoder->Interlaced)
 	filter_flags |= top_field ? VA_TOP_FIELD : VA_BOTTOM_FIELD;
-
-    memcpy(filters_to_run, decoder->filters, VAProcFilterCount * sizeof(VABufferID));
 
     /* Map deinterlace buffer and handle field ordering */
     if (decoder->vpp_deinterlace_buf) {
@@ -1771,9 +1774,41 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	vaUnmapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf);
     }
 
+    /* This block of code creates a temporary array of filters that are checked for
+       whether forward/backward references are needed.
+
+       The code needs to skip deinterlacer filter if deinterlacer mode is None or Weave.
+       Otherwise vaQueryVideoProcPipelineCaps returns an error.
+     */
+    filter_count = 0;
+    memset(filters_to_run, VA_INVALID_ID, ARRAY_ELEMS(filters_to_run));
+    for (unsigned int i = 0; i < decoder->filter_n; ++i) {
+	if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
+	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
+		continue;
+	    if (deinterlace->algorithm == VAProcDeinterlacingWeave)
+		continue;
+	}
+	// No reason to skip so add filter to temporary filter array
+	filters_to_run[filter_count++] = decoder->filters[i];
+    }
+    caps_status =
+	VaapiCheckPipelineCaps(decoder->vpp_ctx, filters_to_run, filter_count, &tmp_forwardRefCount,
+	&tmp_backwardRefCount);
+
+    /* Make sure rendering is finished in reference surfaces */
+    for (unsigned int i = 0; i < tmp_forwardRefCount; ++i)
+	vaSyncSurface(decoder->VaDisplay, decoder->ForwardRefSurfaces[i]);
+    for (unsigned int i = 0; i < tmp_backwardRefCount; ++i)
+	vaSyncSurface(decoder->VaDisplay, decoder->BackwardRefSurfaces[i]);
+    /* Make sure the src/dst surfaces are also ready */
+    vaSyncSurface(decoder->VaDisplay, decoder->PlaybackSurface);
+    vaSyncSurface(decoder->VaDisplay, *surface);
+
     /* This block of code skips various filters in-flight if source/settings
        disallow running the filter in question */
     filter_count = 0;
+    memset(filters_to_run, VA_INVALID_ID, ARRAY_ELEMS(filters_to_run));
     for (unsigned int i = 0; i < decoder->filter_n; ++i) {
 
 	/* Skip deinterlacer if disabled or source is not interlaced */
@@ -1781,6 +1816,15 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    if (!decoder->Interlaced)
 		continue;
 	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
+		continue;
+	    /* Skip deinterlacing if forward/backward references are not ready */
+	    if (caps_status != VA_STATUS_SUCCESS)
+		continue;
+	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->ForwardRefSurfaces,
+		    tmp_forwardRefCount) != VA_STATUS_SUCCESS)
+		continue;
+	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->BackwardRefSurfaces,
+		    tmp_backwardRefCount) != VA_STATUS_SUCCESS)
 		continue;
 	}
 
@@ -1801,8 +1845,8 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     va_status =
 	VaapiPostprocessSurface(decoder->vpp_ctx, decoder->PlaybackSurface, *surface, filters_to_run, filter_count,
-	filter_flags, 0, decoder->ForwardRefSurfaces, &tmp_forwardRefCount, decoder->BackwardRefSurfaces,
-	&tmp_backwardRefCount);
+	filter_flags, 0, decoder->ForwardRefSurfaces, tmp_forwardRefCount, decoder->BackwardRefSurfaces,
+	tmp_backwardRefCount);
 
     if (tmp_forwardRefCount != decoder->ForwardRefCount) {
 	Info("Changing to %d forward reference surfaces for postprocessing", tmp_forwardRefCount);
@@ -1832,7 +1876,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 
     va_status =
 	VaapiPostprocessSurface(decoder->vpp_ctx, *surface, *gpe_surface, decoder->gpe_filters, decoder->gpe_filter_n,
-	VA_FRAME_PICTURE, 0, NULL, NULL, NULL, NULL);
+	VA_FRAME_PICTURE, 0, NULL, 0, NULL, 0);
 
     /* Failed to sharpen? Return previous surface */
     if (va_status != VA_STATUS_SUCCESS)
