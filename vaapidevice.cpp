@@ -56,7 +56,7 @@ static class cVaapiDevice *MyDevice;
 
     /// resolutions names
 static const char *const Resolution[RESOLUTIONS] = {
-    "576i", "720p", "1080i_fake", "1080i", "UHD"
+    "576i", "720p", "1080i", "1080p", "2160p"
 };
 
 static char ConfigMakePrimary;		///< config primary wanted
@@ -814,7 +814,7 @@ void cMenuSetupSoft::Create(void)
 	"None", "PCM", "AC-3", "PCM + AC-3"
     };
     static const char *const resolution[RESOLUTIONS] = {
-	"576i", "720p", "fake 1080i", "1080i", "UHD"
+	"576i", "720p", "1080i", "1080p", "2160p"
     };
     int current;
     const char **scaling;

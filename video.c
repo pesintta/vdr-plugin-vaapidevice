@@ -85,9 +85,9 @@ typedef enum _video_resolutions_
 {
     VideoResolution576i,		///< ...x576 interlaced
     VideoResolution720p,		///< ...x720 progressive
-    VideoResolutionFake1080i,		///< 1280x1080 1440x1080 interlaced
-    VideoResolution1080i,		///< 1920x1080 interlaced
-    VideoResolutionUHD,			///< UHD progressive
+    VideoResolution1080i,		///< ...x1080 interlaced
+    VideoResolution1080p,		///< ...x1080 progressive
+    VideoResolution2160p,		///< ...x2160 progressive
     VideoResolutionMax			///< number of resolution indexs
 } VideoResolutions;
 
@@ -529,26 +529,18 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 /// @param height   video picture raw height
 /// @param interlace	flag interlaced video picture
 ///
-/// @note interlace isn't used yet and probably wrong set by caller.
-///
-static VideoResolutions VideoResolutionGroup(int width, int height, __attribute__ ((unused))
-    int interlace)
+static VideoResolutions VideoResolutionGroup(int width, int height, int interlace)
 {
-    if (height == 2160) {
-	return VideoResolutionUHD;
-    }
     if (height <= 576) {
 	return VideoResolution576i;
-    }
-    if (height <= 720) {
+    } else if (height <= 720) {
 	return VideoResolution720p;
+    } else if (height <= 1080) {
+	return interlace ? VideoResolution1080i : VideoResolution1080p;
+    } else if (height <= 2160) {
+	return VideoResolution2160p;
     }
-    if (height < 1080) {
-	return VideoResolutionFake1080i;
-    }
-    if (width < 1920) {
-	return VideoResolutionFake1080i;
-    }
+
     return VideoResolution1080i;
 }
 

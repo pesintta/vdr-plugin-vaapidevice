@@ -82,9 +82,7 @@ Setup: /etc/vdr/setup.conf
 	vaapidevice.Osd.Height = 0
 	0 = auto (=display, unscaled) n = fixed osd size scaled for display
 
-	<res> of the next parameters is 576i, 720p, 1080i_fake, 1080i, or UHD.
-	1080i_fake is 1280x1080 or 1440x1080
-	1080i is "real" 1920x1080
+	<res> of the next parameters is 576i, 720p, 1080i, 1080p, or 2160p.
 
 	vaapidevice.<res>.Scaling = 0
 	0 = normal, 1 = fast, 2 = HQ, 3 = anamorphic
