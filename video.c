@@ -1775,6 +1775,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    deinterlace->flags = VA_DEINTERLACING_ONE_FIELD;
 
 	vaUnmapBuffer(decoder->VaDisplay, *decoder->vpp_deinterlace_buf);
+	deinterlace = NULL;
     }
 
     /* This block of code creates a temporary array of filters that are checked for
@@ -1787,9 +1788,9 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     memset(filters_to_run, VA_INVALID_ID, sizeof(filters_to_run));
     for (unsigned int i = 0; i < decoder->filter_n; ++i) {
 	if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
-	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
+	    if (decoder->SurfaceDeintTable[decoder->Resolution] == VAProcDeinterlacingNone)
 		continue;
-	    if (deinterlace->algorithm == VAProcDeinterlacingWeave)
+	    if (decoder->SurfaceDeintTable[decoder->Resolution] == VAProcDeinterlacingWeave)
 		continue;
 	}
 	// No reason to skip so add filter to temporary filter array
@@ -1818,9 +1819,9 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
 	    if (!decoder->Interlaced)
 		continue;
-	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
+	    if (decoder->SurfaceDeintTable[decoder->Resolution] == VAProcDeinterlacingNone)
 		continue;
-	    if (deinterlace->algorithm == VAProcDeinterlacingWeave)
+	    if (decoder->SurfaceDeintTable[decoder->Resolution] == VAProcDeinterlacingWeave)
 		continue;
 	    /* Skip deinterlacing if forward/backward references are not ready */
 	    if (caps_status != VA_STATUS_SUCCESS)
