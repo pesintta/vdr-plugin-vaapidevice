@@ -1781,7 +1781,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
        Otherwise vaQueryVideoProcPipelineCaps returns an error.
      */
     filter_count = 0;
-    memset(filters_to_run, VA_INVALID_ID, ARRAY_ELEMS(filters_to_run));
+    memset(filters_to_run, VA_INVALID_ID, sizeof(filters_to_run));
     for (unsigned int i = 0; i < decoder->filter_n; ++i) {
 	if (decoder->filters[i] == *decoder->vpp_deinterlace_buf) {
 	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
@@ -1808,7 +1808,7 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     /* This block of code skips various filters in-flight if source/settings
        disallow running the filter in question */
     filter_count = 0;
-    memset(filters_to_run, VA_INVALID_ID, ARRAY_ELEMS(filters_to_run));
+    memset(filters_to_run, VA_INVALID_ID, sizeof(filters_to_run));
     for (unsigned int i = 0; i < decoder->filter_n; ++i) {
 
 	/* Skip deinterlacer if disabled or source is not interlaced */
