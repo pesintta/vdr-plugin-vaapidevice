@@ -1817,6 +1817,8 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 		continue;
 	    if (deinterlace->algorithm == VAProcDeinterlacingNone)
 		continue;
+	    if (deinterlace->algorithm == VAProcDeinterlacingWeave)
+		continue;
 	    /* Skip deinterlacing if forward/backward references are not ready */
 	    if (caps_status != VA_STATUS_SUCCESS)
 		continue;
