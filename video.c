@@ -1357,9 +1357,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	decoder->SurfacesRb[i] = VA_INVALID_ID;
     }
 
-    //	cleanup surfaces
-    VaapiDestroySurfaces(decoder);
-
     // clear forward/backward references for vpp
     if (decoder->ForwardRefSurfaces)
 	free(decoder->ForwardRefSurfaces);
@@ -1393,15 +1390,21 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	decoder->Image->image_id = VA_INVALID_ID;
     }
 
-    if (vaDestroyContext(decoder->VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy postproc context!");
-    }
-    decoder->vpp_ctx = VA_INVALID_ID;
+    // This check is used to prevent unnecessary error logging when VaapiCleanup() is called before VaapiSetup()
+    if (VaapiVideoProcessing) {
+	//  cleanup surfaces
+	VaapiDestroySurfaces(decoder);
 
-    if (vaDestroyConfig(decoder->VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
-	Error("video/vaapi: can't destroy config!");
+	if (vaDestroyContext(decoder->VaDisplay, decoder->vpp_ctx) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't destroy postproc context!");
+	}
+	decoder->vpp_ctx = VA_INVALID_ID;
+
+	if (vaDestroyConfig(decoder->VaDisplay, decoder->VppConfig) != VA_STATUS_SUCCESS) {
+	    Error("video/vaapi: can't destroy config!");
+	}
+	decoder->VppConfig = VA_INVALID_ID;
     }
-    decoder->VppConfig = VA_INVALID_ID;
 
     decoder->InputWidth = 0;
     decoder->InputHeight = 0;
