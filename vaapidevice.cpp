@@ -759,6 +759,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
+    inline bool IsResolutionProgressive(int mode);
     void Create(void);			// create sub-menu
   protected:
      virtual void Store(void);
@@ -799,6 +800,11 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag, con
     return item;
 }
 
+bool cMenuSetupSoft::IsResolutionProgressive(int mode)
+{
+    return ! !strstr(Resolution[mode], "p");
+}
+
 /**
 **	Create setup menu.
 */
@@ -812,9 +818,6 @@ void cMenuSetupSoft::Create(void)
     };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
-    };
-    static const char *const resolution[RESOLUTIONS] = {
-	"576i", "720p", "1080i", "1080p", "2160p"
     };
     int current;
     const char **scaling;
@@ -898,11 +901,12 @@ void cMenuSetupSoft::Create(void)
 	    msg =
 		cString::sprintf("%s,%s,%s", scaling_short[Scaling[i]], deinterlace_short[Deinterlace[i]],
 		Denoise[i] ? "D" : "N");
-	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
+	    Add(CollapsedItem(Resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
 		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], scaling_modes, scaling));
-		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], deinterlace_modes, deinterlace));
+		if (!IsResolutionProgressive(i))
+		    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], deinterlace_modes, deinterlace));
 		if (denoise_active)
 		    Add(new cMenuEditIntItem(*cString::sprintf(tr("Denoise (%d..[%d]..%d)"), denoise_min, denoise_def,
 				denoise_max), &Denoise[i], denoise_min, denoise_max));
@@ -1073,7 +1077,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     for (i = 0; i < RESOLUTIONS; ++i) {
 	ResolutionShown[i] = 0;
 	Scaling[i] = ConfigVideoScaling[i];
-	Deinterlace[i] = ConfigVideoDeinterlace[i];
+	Deinterlace[i] = IsResolutionProgressive(i) ? 0 : ConfigVideoDeinterlace[i];
 	Denoise[i] = ConfigVideoDenoise[i];
 	Sharpen[i] = ConfigVideoSharpen[i];
 

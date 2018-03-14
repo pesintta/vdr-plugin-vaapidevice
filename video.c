@@ -467,8 +467,10 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
   normal:
     *output_x = video_x;
     *output_y = video_y;
-    *output_width = (video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
-    *output_height = (video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
+    *output_width =
+	(video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
+    *output_height =
+	(video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
     if (*output_width > video_width) {
 	*output_width = video_width;
 	*output_y += (video_height - *output_height) / 2;
@@ -500,12 +502,14 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     if (scaled_width > video_width) {
 	// adjust scaling
 	int tmp = (scaled_width - video_width) / 2;
+
 	*crop_x += tmp;
 	*crop_width = video_width - tmp * 2;
 	*crop_height = video_height - VideoCutTopBottom[resolution] * 2;
     } else if (scaled_height > video_height) {
 	// adjust scaling
 	int tmp = (scaled_height - video_height) / 2;
+
 	*crop_y += tmp;
 	*crop_width = video_width - VideoCutLeftRight[resolution] * 2;
 	*crop_height = video_height - tmp * 2;
@@ -1364,7 +1368,6 @@ static void VaapiCleanup(VaapiDecoder * decoder)
 	}
 	decoder->Image->image_id = VA_INVALID_ID;
     }
-
     // This check is used to prevent unnecessary error logging when VaapiCleanup() is called before VaapiSetup()
     if (VaapiVideoProcessing) {
 	//  cleanup surfaces
