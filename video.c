@@ -408,6 +408,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 {
     AVRational display_aspect_ratio;
     AVRational tmp_ratio;
+    int scaled_width, scaled_height;
 
     if (!input_aspect_ratio.num || !input_aspect_ratio.den) {
 	input_aspect_ratio.num = 1;
@@ -428,7 +429,7 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     display_aspect_ratio.den = VideoScreen->height_in_pixels * VideoScreen->width_in_millimeters;
 
     display_aspect_ratio = av_mul_q(input_aspect_ratio, display_aspect_ratio);
-    Debug7("video: aspect %d:%d", display_aspect_ratio.num, display_aspect_ratio.den);
+    Debug7("video: aspect ratio %d:%d", display_aspect_ratio.num, display_aspect_ratio.den);
 
     *crop_x = VideoCutLeftRight[resolution];
     *crop_y = VideoCutTopBottom[resolution];
@@ -438,10 +439,6 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     // FIXME: store different positions for the ratios
     tmp_ratio.num = 4;
     tmp_ratio.den = 3;
-#ifdef DEBUG
-    Debug8("video: ratio %d:%d %d:%d", input_aspect_ratio.num, input_aspect_ratio.den, display_aspect_ratio.num,
-	display_aspect_ratio.den);
-#endif
     if (!av_cmp_q(input_aspect_ratio, tmp_ratio)) {
 	switch (Video4to3ZoomMode) {
 	    case VideoNormal:
@@ -470,10 +467,8 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
   normal:
     *output_x = video_x;
     *output_y = video_y;
-    *output_width =
-	(video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
-    *output_height =
-	(video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
+    *output_width = (video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
+    *output_height = (video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
     if (*output_width > video_width) {
 	*output_width = video_width;
 	*output_y += (video_height - *output_height) / 2;
@@ -498,40 +493,28 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
     *output_height = video_height;
     *output_width = video_width;
 
-    *crop_width = (video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
-    *crop_height = (video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
+    scaled_width = (video_height * display_aspect_ratio.num + display_aspect_ratio.den - 1) / display_aspect_ratio.den;
+    scaled_height = (video_width * display_aspect_ratio.den + display_aspect_ratio.num - 1) / display_aspect_ratio.num;
 
     // look which side must be cut
-    if (*crop_width > video_width) {
-	int tmp;
-
-	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
-
+    if (scaled_width > video_width) {
 	// adjust scaling
-	tmp = ((*crop_width - video_width) * input_width) / (2 * video_width);
-	// FIXME: round failure?
-	if (tmp > *crop_x) {
-	    *crop_x = tmp;
-	}
-	*crop_width = input_width - *crop_x * 2;
-    } else if (*crop_height > video_height) {
-	int tmp;
-
-	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
-
+	int tmp = (scaled_width - video_width) / 2;
+	*crop_x += tmp;
+	*crop_width = video_width - tmp * 2;
+	*crop_height = video_height - VideoCutTopBottom[resolution] * 2;
+    } else if (scaled_height > video_height) {
 	// adjust scaling
-	tmp = ((*crop_height - video_height) * input_height)
-	    / (2 * video_height);
-	// FIXME: round failure?
-	if (tmp > *crop_y) {
-	    *crop_y = tmp;
-	}
-	*crop_height = input_height - *crop_y * 2;
+	int tmp = (scaled_height - video_height) / 2;
+	*crop_y += tmp;
+	*crop_width = video_width - VideoCutLeftRight[resolution] * 2;
+	*crop_height = video_height - tmp * 2;
     } else {
-	*crop_width = input_width - VideoCutLeftRight[resolution] * 2;
-	*crop_height = input_height - VideoCutTopBottom[resolution] * 2;
+	*crop_width = video_width - VideoCutLeftRight[resolution] * 2;
+	*crop_height = video_height - VideoCutTopBottom[resolution] * 2;
     }
-    Debug7("video: aspect crop %dx%d%+d%+d", *crop_width, *crop_height, *crop_x, *crop_y);
+    Debug7("video: aspect crop %dx%d%+d%+d @ %dx%d%+d%+d", *crop_width, *crop_height, *crop_x, *crop_y, *output_width,
+	*output_height, *output_x, *output_y);
     return;
 }
 
