@@ -2359,6 +2359,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    /* Deinterlacing parameters */
 		    deinterlace.type = VAProcFilterDeinterlacing;
 		    deinterlace.flags = 0;
+		    deinterlace.algorithm = VAProcDeinterlacingNone;
 
 		    switch (deinterlacing_caps[v].type) {
 			case VAProcDeinterlacingNone:
