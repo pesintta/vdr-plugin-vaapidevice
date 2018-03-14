@@ -250,6 +250,9 @@ static char VideoSurfaceModesChanged;	///< flag surface modes changed
 
 static uint32_t VideoBackground;	///< video background color
 
+    /// Default color balance filter mode..
+static int VideoColorBalance = 1;
+
     /// Default skin tone enhancement mode.
 static int VideoSkinToneEnhancement = 0;
 
@@ -1809,6 +1812,12 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 		continue;
 	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->BackwardRefSurfaces,
 		    tmp_backwardRefCount) != VA_STATUS_SUCCESS)
+		continue;
+	}
+
+	/* Skip color balance filters if value is set to 0 ("off") */
+	if (decoder->vpp_cbal_buf && decoder->filters[i] == *decoder->vpp_cbal_buf) {
+	    if (!VideoColorBalance)
 		continue;
 	}
 
@@ -5168,6 +5177,16 @@ static VAStatus VaapiVideoSetColorbalance(VABufferID * buf, int Index, float val
     vaUnmapBuffer(VaDisplay, *buf);
 
     return va_status;
+}
+
+///
+/// Set color balance mode.
+///
+/// @param onoff    on / off
+///
+void VideoSetColorBalance(int onoff)
+{
+    VideoColorBalance = onoff;
 }
 
 ///
