@@ -2251,7 +2251,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	type, caps, &cap_n);
 
     if (va_status != VA_STATUS_SUCCESS) {
-	Error("Failed to query filter #%02x capabilities: %s", type, vaErrorStr(va_status));
+	Error("video/vaapi: failed to query filter #%02x capabilities: %s", type, vaErrorStr(va_status));
 	return VA_INVALID_ID;
     }
     if (type == VAProcFilterSkinToneEnhancement && cap_n == 0) {    // Intel driver doesn't return caps
@@ -2263,7 +2263,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	VaapiConfigStde.drv_scale = 3.0;
     }
     if (cap_n != 1) {
-	Error("Wrong number of capabilities (%d) for filter %#010x", cap_n, type);
+	Error("video/vaapi: wrong number of capabilities (%d) for filter %#010x", cap_n, type);
 	return VA_INVALID_ID;
     }
 
@@ -2294,7 +2294,7 @@ static VABufferID VaapiSetupParameterBufferProcessing(VaapiDecoder * decoder, VA
 	&param_buf, &filter_buf_id);
 
     if (va_status != VA_STATUS_SUCCESS) {
-	Error("Could not create buffer for filter #%02x: %s", type, vaErrorStr(va_status));
+	Error("video/vaapi: could not create buffer for filter #%02x: %s", type, vaErrorStr(va_status));
 	return VA_INVALID_ID;
     }
     return filter_buf_id;
@@ -2343,7 +2343,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    VaapiSetupParameterBufferProcessing(decoder, filtertypes[u],
 		    VaapiConfigDenoise.def_value * VaapiConfigDenoise.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
-		    Info("Enabling denoise filter (pos = %d)", decoder->filter_n);
+		    Info("video/vaapi: enabling denoise filter (pos = %d)", decoder->filter_n);
 		    decoder->vpp_denoise_buf = &decoder->filters[decoder->filter_n];
 		    decoder->filters[decoder->filter_n++] = filter_buf_id;
 		}
@@ -2397,7 +2397,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    }
 		}
 		/* Enabling the deint algorithm that was seen last */
-		Info("Enabling Deint (pos = %d)", decoder->filter_n);
+		Info("video/vaapi: enabling deinterlacing (pos = %d)", decoder->filter_n);
 		va_status =
 		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
 		    sizeof(deinterlace), 1, &deinterlace, &filter_buf_id);
@@ -2412,7 +2412,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    VaapiSetupParameterBufferProcessing(decoder, filtertypes[u],
 		    VaapiConfigSharpen.def_value * VaapiConfigSharpen.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
-		    Info("Enabling sharpening filter (pos = %d)", decoder->gpe_filter_n);
+		    Info("video/vaapi: enabling sharpening filter (pos = %d)", decoder->gpe_filter_n);
 		    decoder->vpp_sharpen_buf = &decoder->gpe_filters[decoder->gpe_filter_n];
 		    decoder->gpe_filters[decoder->gpe_filter_n++] = filter_buf_id;
 		}
@@ -2423,7 +2423,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		vaQueryVideoProcFilterCaps(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterColorBalance,
 		    colorbalance_caps, &colorbalance_cap_n);
 
-		Info("video/vaapi: Supported color balance filter count: %d", colorbalance_cap_n);
+		Info("video/vaapi: supported color balance filter count: %d", colorbalance_cap_n);
 
 		if (!colorbalance_cap_n)
 		    break;
@@ -2433,14 +2433,14 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 
 		    switch (colorbalance_caps[v].type) {
 			case VAProcColorBalanceNone:
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "None",
+			    Info("video/vaapi: none (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
 			    break;
 			case VAProcColorBalanceHue:
 			    VaapiConfigHue.active = 1;
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "Hue",
+			    Info("video/vaapi: hue (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
@@ -2451,7 +2451,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    break;
 			case VAProcColorBalanceSaturation:
 			    VaapiConfigSaturation.active = 1;
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "Saturation",
+			    Info("video/vaapi: saturation (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
@@ -2462,7 +2462,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    break;
 			case VAProcColorBalanceBrightness:
 			    VaapiConfigBrightness.active = 1;
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "Brightness",
+			    Info("video/vaapi: brightness (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
@@ -2473,7 +2473,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    break;
 			case VAProcColorBalanceContrast:
 			    VaapiConfigContrast.active = 1;
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "Contrast",
+			    Info("video/vaapi: contrast (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
@@ -2483,19 +2483,19 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 			    decoder->vpp_contrast_idx = v;
 			    break;
 			case VAProcColorBalanceAutoSaturation:
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "AutoSaturation",
+			    Info("video/vaapi: auto saturation (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
 			    break;
 			case VAProcColorBalanceAutoBrightness:
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "AutoBrightness",
+			    Info("video/vaapi: auto brightness (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
 			    break;
 			case VAProcColorBalanceAutoContrast:
-			    Info("%s (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)", "AutoContrast",
+			    Info("video/vaapi: auto contrast (%.2f - %.2f ++ %.2f = %.2f) (pos = %d)",
 				colorbalance_caps[v].range.min_value, colorbalance_caps[v].range.max_value,
 				colorbalance_caps[v].range.step, colorbalance_caps[v].range.default_value,
 				decoder->filter_n);
@@ -2514,7 +2514,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    vaCreateBuffer(decoder->VaDisplay, decoder->vpp_ctx, VAProcFilterParameterBufferType,
 		    sizeof(VAProcFilterParameterBufferColorBalance), colorbalance_cap_n, &cbal_param, &filter_buf_id);
 		if (va_status != VA_STATUS_SUCCESS) {
-		    Error("video/vaapi: Could not create buffer for color balance settings: %s",
+		    Error("video/vaapi: could not create buffer for color balance settings: %s",
 			vaErrorStr(va_status));
 		    break;
 		}
@@ -2529,7 +2529,7 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 		    VaapiSetupParameterBufferProcessing(decoder, filtertypes[u],
 		    VaapiConfigStde.def_value * VaapiConfigStde.scale);
 		if (filter_buf_id != VA_INVALID_ID) {
-		    Info("Enabling skin tone filter (pos = %d)", decoder->filter_n);
+		    Info("video/vaapi: enabling skin tone filter (pos = %d)", decoder->filter_n);
 		    decoder->vpp_stde_buf = &decoder->filters[decoder->filter_n];
 		    decoder->filters[decoder->filter_n++] = filter_buf_id;
 		}
@@ -2552,15 +2552,17 @@ static void VaapiSetupVideoProcessing(VaapiDecoder * decoder)
 	vaQueryVideoProcPipelineCaps(decoder->VaDisplay, decoder->vpp_ctx, decoder->filters, decoder->filter_n,
 	&pipeline_caps);
     if (va_status != VA_STATUS_SUCCESS) {
-	Fatal("Failed to query proc pipeline caps, error = %s", vaErrorStr(va_status));
+	Fatal("video/vaapi: failed to query proc pipeline caps, error = %s", vaErrorStr(va_status));
     }
 
-    Info("Allocating %d forward reference surfaces for postprocessing", pipeline_caps.num_forward_references);
+    Info("video/vaapi: allocating %d forward reference surfaces for postprocessing",
+	pipeline_caps.num_forward_references);
     decoder->ForwardRefSurfaces =
 	realloc(decoder->ForwardRefSurfaces, pipeline_caps.num_forward_references * sizeof(VASurfaceID));
     decoder->ForwardRefCount = pipeline_caps.num_forward_references;
 
-    Info("Allocating %d backward reference surfaces for postprocessing", pipeline_caps.num_backward_references);
+    Info("video/vaapi: allocating %d backward reference surfaces for postprocessing",
+	pipeline_caps.num_backward_references);
     decoder->BackwardRefSurfaces =
 	realloc(decoder->BackwardRefSurfaces, pipeline_caps.num_backward_references * sizeof(VASurfaceID));
     decoder->BackwardRefCount = pipeline_caps.num_backward_references;
