@@ -5496,13 +5496,15 @@ void VideoSetFullscreen(int onoff)
 static const char *vaapi_scaling[] = {
     "Normal",				///< VideoScalingNormal
     "Fast",				///< VideoScalingFast
-    "HighQuality"			///< VideoScalingHQ
+    "HighQuality",			///< VideoScalingHQ
+    "Anamorphic"			///< VideoScalingAnamorphic
 };
 
 static const char *vaapi_scaling_short[] = {
     "N",				///< VideoScalingNormal
     "F",				///< VideoScalingFast
-    "HQ"				///< VideoScalingHQ
+    "HQ",				///< VideoScalingHQ
+    "A"					///< VideoScalingAnamorphic
 };
 
 int VideoGetScalingModes(const char * **long_table, const char * **short_table)
