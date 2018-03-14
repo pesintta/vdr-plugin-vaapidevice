@@ -70,21 +70,24 @@ msgstr "60Hz Anzeigemodus"
 msgid "Soft start a/v sync"
 msgstr "Sanftanlauf A/V Sync"
 
-#, c-format
-msgid "Brightness (%d..[%d]..%d)"
-msgstr "Helligkeit (%d..[%d]..%d)"
+msgid "Color balance"
+msgstr ""
 
 #, c-format
-msgid "Contrast (%d..[%d]..%d)"
-msgstr "Kontrast (%d..[%d]..%d)"
+msgid "  Brightness (%d..[%d]..%d)"
+msgstr "  Helligkeit (%d..[%d]..%d)"
 
 #, c-format
-msgid "Saturation (%d..[%d]..%d)"
-msgstr "Sättigung (%d..[%d]..%d)"
+msgid "  Contrast (%d..[%d]..%d)"
+msgstr "  Kontrast (%d..[%d]..%d)"
 
 #, c-format
-msgid "Hue (%d..[%d]..%d)"
-msgstr "Farbton (%d..[%d]..%d)"
+msgid "  Saturation (%d..[%d]..%d)"
+msgstr "  Sättigung (%d..[%d]..%d)"
+
+#, c-format
+msgid "  Hue (%d..[%d]..%d)"
+msgstr "  Farbton (%d..[%d]..%d)"
 
 #, c-format
 msgid "Skin Tone Enhancement (%d..[%d]..%d)"

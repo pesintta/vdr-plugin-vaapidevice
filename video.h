@@ -61,6 +61,9 @@ extern void VideoSet60HzMode(int);
     /// Set soft start audio/video sync.
 extern void VideoSetSoftStartSync(int);
 
+    /// Set color balance mode.
+extern void VideoSetColorBalance(int);
+
     /// Set brightness adjustment.
 extern void VideoSetBrightness(int);
 

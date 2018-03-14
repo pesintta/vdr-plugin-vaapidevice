@@ -56,7 +56,7 @@ static class cVaapiDevice *MyDevice;
 
     /// resolutions names
 static const char *const Resolution[RESOLUTIONS] = {
-    "576i", "720p", "1080i_fake", "1080i", "UHD"
+    "576i", "720p", "1080i", "1080p", "2160p"
 };
 
 static char ConfigMakePrimary;		///< config primary wanted
@@ -71,6 +71,7 @@ static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
 static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
+static int ConfigVideoColorBalance = 1; ///< config video color balance
 static int ConfigVideoBrightness;	///< config video brightness
 static int ConfigVideoContrast = 1;	///< config video contrast
 static int ConfigVideoSaturation = 1;	///< config video saturation
@@ -722,6 +723,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     int _60HzMode;
     int SoftStartSync;
 
+    int ColorBalance;
     int Brightness;
     int Contrast;
     int Saturation;
@@ -759,6 +761,7 @@ class cMenuSetupSoft:public cMenuSetupPage
     /// @}
   private:
      inline cOsdItem * CollapsedItem(const char *, int &, const char * = NULL);
+    inline bool IsResolutionProgressive(int mode);
     void Create(void);			// create sub-menu
   protected:
      virtual void Store(void);
@@ -799,6 +802,11 @@ inline cOsdItem *cMenuSetupSoft::CollapsedItem(const char *label, int &flag, con
     return item;
 }
 
+bool cMenuSetupSoft::IsResolutionProgressive(int mode)
+{
+    return ! !strstr(Resolution[mode], "p");
+}
+
 /**
 **	Create setup menu.
 */
@@ -812,9 +820,6 @@ void cMenuSetupSoft::Create(void)
     };
     static const char *const audiodrift[] = {
 	"None", "PCM", "AC-3", "PCM + AC-3"
-    };
-    static const char *const resolution[RESOLUTIONS] = {
-	"576i", "720p", "fake 1080i", "1080i", "UHD"
     };
     int current;
     const char **scaling;
@@ -875,18 +880,21 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync, trVDR("no"), trVDR("yes")));
 
-	if (brightness_active)
-	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Brightness (%d..[%d]..%d)"), brightness_min, brightness_def,
-			brightness_max), &Brightness, brightness_min, brightness_max));
-	if (contrast_active)
-	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Contrast (%d..[%d]..%d)"), contrast_min, contrast_def,
-			contrast_max), &Contrast, contrast_min, contrast_max));
-	if (saturation_active)
-	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Saturation (%d..[%d]..%d)"), saturation_min, saturation_def,
-			saturation_max), &Saturation, saturation_min, saturation_max));
-	if (hue_active)
-	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Hue (%d..[%d]..%d)"), hue_min, hue_def, hue_max), &Hue,
-		    hue_min, hue_max));
+	Add(new cMenuEditBoolItem(tr("Color balance"), &ColorBalance, trVDR("off"), trVDR("on")));
+	if (ColorBalance) {
+	    if (brightness_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("\040\040Brightness (%d..[%d]..%d)"), brightness_min,
+			    brightness_def, brightness_max), &Brightness, brightness_min, brightness_max));
+	    if (contrast_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("\040\040Contrast (%d..[%d]..%d)"), contrast_min,
+			    contrast_def, contrast_max), &Contrast, contrast_min, contrast_max));
+	    if (saturation_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("\040\040Saturation (%d..[%d]..%d)"), saturation_min,
+			    saturation_def, saturation_max), &Saturation, saturation_min, saturation_max));
+	    if (hue_active)
+		Add(new cMenuEditIntItem(*cString::sprintf(tr("\040\040Hue (%d..[%d]..%d)"), hue_min, hue_def,
+			    hue_max), &Hue, hue_min, hue_max));
+	}
 	if (stde_active)
 	    Add(new cMenuEditIntItem(*cString::sprintf(tr("Skin Tone Enhancement (%d..[%d]..%d)"), stde_min, stde_def,
 			stde_max), &Stde, stde_min, stde_max));
@@ -898,11 +906,12 @@ void cMenuSetupSoft::Create(void)
 	    msg =
 		cString::sprintf("%s,%s,%s", scaling_short[Scaling[i]], deinterlace_short[Deinterlace[i]],
 		Denoise[i] ? "D" : "N");
-	    Add(CollapsedItem(resolution[i], ResolutionShown[i], msg));
+	    Add(CollapsedItem(Resolution[i], ResolutionShown[i], msg));
 
 	    if (ResolutionShown[i]) {
 		Add(new cMenuEditStraItem(tr("Scaling"), &Scaling[i], scaling_modes, scaling));
-		Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], deinterlace_modes, deinterlace));
+		if (!IsResolutionProgressive(i))
+		    Add(new cMenuEditStraItem(tr("Deinterlace"), &Deinterlace[i], deinterlace_modes, deinterlace));
 		if (denoise_active)
 		    Add(new cMenuEditIntItem(*cString::sprintf(tr("Denoise (%d..[%d]..%d)"), denoise_min, denoise_def,
 				denoise_max), &Denoise[i], denoise_min, denoise_max));
@@ -938,9 +947,11 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditBoolItem(tr("Enable (E-)AC-3 (decoder) downmix"), &AudioDownmix, trVDR("no"), trVDR("yes")));
 	Add(new cMenuEditBoolItem(tr("Volume control"), &AudioSoftvol, tr("Hardware"), tr("Software")));
 	Add(new cMenuEditBoolItem(tr("Enable normalize volume"), &AudioNormalize, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditIntItem(tr("  Max normalize factor (/1000)"), &AudioMaxNormalize, 0, 10000));
+	if (AudioNormalize)
+	    Add(new cMenuEditIntItem(tr("\040\040Max normalize factor (/1000)"), &AudioMaxNormalize, 0, 10000));
 	Add(new cMenuEditBoolItem(tr("Enable volume compression"), &AudioCompression, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditIntItem(tr("  Max compression factor (/1000)"), &AudioMaxCompression, 0, 10000));
+	if (AudioCompression)
+	    Add(new cMenuEditIntItem(tr("\040\040Max compression factor (/1000)"), &AudioMaxCompression, 0, 10000));
 	Add(new cMenuEditIntItem(tr("Reduce stereo volume (/1000)"), &AudioStereoDescent, 0, 1000));
 	Add(new cMenuEditIntItem(tr("Audio buffer size (ms)"), &AudioBufferTime, 0, 1000));
     }
@@ -962,11 +973,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     int old_resolution_shown[RESOLUTIONS];
     int old_denoise[RESOLUTIONS];
     int old_sharpen[RESOLUTIONS];
+    int old_colorbalance;
     int old_brightness;
     int old_contrast;
     int old_saturation;
     int old_hue;
     int old_stde;
+    int old_audionormalize;
+    int old_audiocompression;
 
     old_general = General;
     old_video = Video;
@@ -974,11 +988,14 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     memcpy(old_resolution_shown, ResolutionShown, sizeof(ResolutionShown));
     memcpy(old_denoise, Denoise, sizeof(Denoise));
     memcpy(old_sharpen, Sharpen, sizeof(Sharpen));
+    old_colorbalance = ColorBalance;
     old_brightness = Brightness;
     old_contrast = Contrast;
     old_saturation = Saturation;
     old_hue = Hue;
     old_stde = Stde;
+    old_audionormalize = AudioNormalize;
+    old_audiocompression = AudioCompression;
     state = cMenuSetupPage::ProcessKey(key);
 
     if (state == osUnknown) {
@@ -997,7 +1014,10 @@ eOSState cMenuSetupSoft::ProcessKey(eKeys key)
     if (key != kNone) {
 	// update menu only, if something on the structure has changed
 	// this is needed because VDR menus are evil slow
-	if (old_general != General || old_video != Video || old_audio != Audio) {
+	if (old_general != General || old_video != Video || old_audio != Audio || old_colorbalance != ColorBalance
+	    || old_audionormalize != AudioNormalize || old_audiocompression != AudioCompression) {
+	    if (old_colorbalance != ColorBalance)
+		VideoSetColorBalance(ColorBalance);
 	    Create();			// update menu
 	} else {
 	    for (int i = 0; i < RESOLUTIONS; ++i) {
@@ -1064,6 +1084,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     _60HzMode = ConfigVideo60HzMode;
     SoftStartSync = ConfigVideoSoftStartSync;
 
+    ColorBalance = ConfigVideoColorBalance;
     Brightness = ConfigVideoBrightness;
     Contrast = ConfigVideoContrast;
     Saturation = ConfigVideoSaturation;
@@ -1073,7 +1094,7 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     for (i = 0; i < RESOLUTIONS; ++i) {
 	ResolutionShown[i] = 0;
 	Scaling[i] = ConfigVideoScaling[i];
-	Deinterlace[i] = ConfigVideoDeinterlace[i];
+	Deinterlace[i] = IsResolutionProgressive(i) ? 0 : ConfigVideoDeinterlace[i];
 	Denoise[i] = ConfigVideoDenoise[i];
 	Sharpen[i] = ConfigVideoSharpen[i];
 
@@ -1117,6 +1138,7 @@ cMenuSetupSoft::~cMenuSetupSoft()
 	VideoSetDenoise(ConfigVideoDenoise);
 	VideoSetSharpen(ConfigVideoSharpen);
     }
+    VideoSetColorBalance(ConfigVideoColorBalance);
     VideoSetBrightness(ConfigVideoBrightness);
     VideoSetContrast(ConfigVideoContrast);
     VideoSetSaturation(ConfigVideoSaturation);
@@ -1151,6 +1173,8 @@ void cMenuSetupSoft::Store(void)
     SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
     VideoSetSoftStartSync(ConfigVideoSoftStartSync);
 
+    SetupStore("ColorBalance", ConfigVideoColorBalance = ColorBalance);
+    VideoSetColorBalance(ConfigVideoColorBalance);
     SetupStore("Brightness", ConfigVideoBrightness = Brightness);
     VideoSetBrightness(ConfigVideoBrightness);
     SetupStore("Contrast", ConfigVideoContrast = Contrast);
@@ -2304,6 +2328,10 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "SoftStartSync")) {
 	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
+	return true;
+    }
+    if (!strcasecmp(name, "ColorBalance")) {
+	VideoSetColorBalance(ConfigVideoColorBalance = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "Brightness")) {
