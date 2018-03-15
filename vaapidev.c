@@ -3040,6 +3040,14 @@ char *GetVideoStats(void)
 }
 
 /*
+**	Get video decoder filters.
+*/
+char *GetVideoFilters(void)
+{
+    return MyVideoStream->HwDecoder ? VideoGetFilters(MyVideoStream->HwDecoder) : NULL;
+}
+
+/*
 **	Get video decoder info.
 **
 */

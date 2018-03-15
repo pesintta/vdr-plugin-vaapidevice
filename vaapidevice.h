@@ -83,6 +83,8 @@ extern "C"
 
     /// Get video decoder statistics
     extern char *GetVideoStats(void);
+    /// Get video decoder filters
+    extern char *GetVideoFilters(void);
     /// Get video decoder info
     extern char *GetVideoInfo(void);
     /// Get audio decoder info

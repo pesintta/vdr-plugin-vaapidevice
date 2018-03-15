@@ -79,6 +79,18 @@
 //----------------------------------------------------------------------------
 
 ///
+/// Video filters.
+///
+typedef enum _video_filter_
+{
+    VideoFilterDeinterlace = 0x1,	///< deinterlacer filter status
+    VideoFilterColorBalance = 0x2,	///< color balance filter status
+    VideoFilterDenoise = 0x4,		///< denoise filter status
+    VideoFilterSkinTone = 0x8,		///< skintone enhancement filter status
+    VideoFilterSharpen = 0x10,		///< sharpening filter status
+} VideoFilter;
+
+///
 /// Video resolutions selector.
 ///
 typedef enum _video_resolutions_
@@ -146,6 +158,7 @@ typedef struct _video_module_
     void (*const SetTrickSpeed) (const VideoHwDecoder *, int);
     uint8_t *(*const GrabOutput)(int *, int *, int *);
     char *(*const GetStats)(VideoHwDecoder *);
+    char *(*const GetFilters)(VideoHwDecoder *);
     char *(*const GetInfo)(VideoHwDecoder *, const char *);
     void (*const SetBackground) (uint32_t);
     void (*const SetVideoMode) (void);
@@ -852,6 +865,7 @@ struct _vaapi_decoder_
     int vpp_contrast_idx;		///< video postprocessing contrast buffer index
     int vpp_hue_idx;			///< video postprocessing hue buffer index
     int vpp_saturation_idx;		///< video postprocessing saturation buffer index
+    unsigned int ActiveFilters;		///< active video filters
 };
 
 static VaapiDecoder *VaapiDecoders[1];	///< open decoder streams
@@ -1307,6 +1321,7 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     }
     decoder->filter_n = 0;
     decoder->gpe_filter_n = 0;
+    decoder->ActiveFilters = 0;
 
     memset(&decoder->SupportedDeinterlacers, 0, sizeof(decoder->SupportedDeinterlacers));
 
@@ -1392,6 +1407,7 @@ static void VaapiCleanup(VaapiDecoder * decoder)
     }
     decoder->filter_n = 0;
     decoder->gpe_filter_n = 0;
+    decoder->ActiveFilters = 0;
 
     decoder->WrongInterlacedWarned = 0;
 
@@ -1746,6 +1762,7 @@ static inline VAStatus VaapiRunScaling(VAContextID ctx, VASurfaceID src, VASurfa
 ///
 static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 {
+    unsigned int active_filters = 0;
     unsigned int filter_count = 0;
     unsigned int filter_flags = decoder->SurfaceFlagsTable[decoder->Resolution];
     unsigned int tmp_forwardRefCount = decoder->ForwardRefCount;
@@ -1848,28 +1865,33 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->BackwardRefSurfaces,
 		    tmp_backwardRefCount) != VA_STATUS_SUCCESS)
 		continue;
+	    active_filters |= VideoFilterDeinterlace << (i * 5);
 	}
 
 	/* Skip color balance filters if value is set to 0 ("off") */
 	if (decoder->vpp_cbal_buf && decoder->filters[i] == *decoder->vpp_cbal_buf) {
 	    if (!VideoColorBalance)
 		continue;
+	    active_filters |= VideoFilterColorBalance << (i * 5);
 	}
 
 	/* Skip denoise if value is set to 0 ("off") */
 	if (decoder->vpp_denoise_buf && decoder->filters[i] == *decoder->vpp_denoise_buf) {
 	    if (!VideoDenoise[decoder->Resolution])
 		continue;
+	    active_filters |= VideoFilterDenoise << (i * 5);
 	}
 
 	/* Skip skin tone enhancement if value is set to 0 ("off") */
 	if (decoder->vpp_stde_buf && decoder->filters[i] == *decoder->vpp_stde_buf) {
 	    if (!VideoSkinToneEnhancement)
 		continue;
+	    active_filters |= VideoFilterSkinTone << (i * 5);
 	}
 
 	filters_to_run[filter_count++] = decoder->filters[i];
     }
+    decoder->ActiveFilters = active_filters;
 
     va_status =
 	VaapiPostprocessSurface(decoder->vpp_ctx, decoder->PlaybackSurface, *surface, filters_to_run, filter_count,
@@ -1895,6 +1917,9 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
     /* Skip sharpening if off */
     if (!decoder->vpp_sharpen_buf || !VideoSharpen[decoder->Resolution])
 	return surface;
+
+    active_filters |= VideoFilterSharpen << (filter_count * 5);
+    decoder->ActiveFilters = active_filters;
 
     vaSyncSurface(decoder->VaDisplay, *surface);
 
@@ -3613,6 +3638,60 @@ char *VaapiGetStats(VaapiDecoder * decoder)
     return NULL;
 }
 
+
+static const char *VaapiGetFilterName(VideoFilter filter)
+{
+    const char *name = "unknown";
+
+    switch (filter) {
+    case VideoFilterDeinterlace:
+	name = "deinterlace";
+	break;
+    case VideoFilterColorBalance:
+	name = "color balance";
+	break;
+    case VideoFilterDenoise:
+	name = "denoise";
+	break;
+    case VideoFilterSkinTone:
+	name = "skin tone";
+	break;
+    case VideoFilterSharpen:
+	name = "sharphen";
+	break;
+    default:
+	break;
+    }
+    return name;
+}
+
+///
+/// Get VA-API decoder filters.
+///
+/// @param decoder  VA-API decoder
+///
+char *VaapiGetFilters(VaapiDecoder * decoder)
+{
+    char buffer[255] = " Filters:";
+    unsigned int active_filters = decoder->ActiveFilters;
+    unsigned int found = 0;
+
+    while (active_filters) {
+	VideoFilter filter = active_filters & 0x1F;
+
+	if (filter) {
+	    int len = strlen(buffer);
+
+	    snprintf(&buffer[len], sizeof(buffer), "%s %s", found ? " >>" : "", VaapiGetFilterName(filter));
+	    found = 1;
+	}
+
+	active_filters >>= 5;
+    }
+
+    return strdup(buffer);
+}
+
 ///
 /// Get VA-API decoder info.
 ///
@@ -4104,6 +4183,7 @@ static const VideoModule VaapiModule = {
     .SetTrickSpeed = (void (*const) (const VideoHwDecoder *, int))VaapiSetTrickSpeed,
     .GrabOutput = VaapiGrabOutputSurface,
     .GetStats = (char *(*const)(VideoHwDecoder *))VaapiGetStats,
+    .GetFilters = (char *(*const)(VideoHwDecoder *))VaapiGetFilters,
     .GetInfo = (char *(*const)(VideoHwDecoder *, const char *))VaapiGetInfo,
     .SetBackground = VaapiSetBackground,
     .SetVideoMode = VaapiSetVideoMode,
@@ -4916,6 +4996,16 @@ uint8_t *VideoGrab(int *size, int *width, int *height, int write_header)
 char *VideoGetStats(VideoHwDecoder * hw_decoder)
 {
     return VideoUsedModule->GetStats(hw_decoder);
+}
+
+///
+/// Get decoder filters.
+///
+/// @param hw_decoder	video hardware decoder
+///
+char *VideoGetFilters(VideoHwDecoder * hw_decoder)
+{
+    return VideoUsedModule->GetFilters(hw_decoder);
 }
 
 ///

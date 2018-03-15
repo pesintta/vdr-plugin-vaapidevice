@@ -193,6 +193,18 @@ class cDebugStatistics:public cThread
 	return stats;
     }
 
+    cString VideoFilters(void)
+    {
+	cString stats = "";
+	char *info = GetVideoFilters();
+
+	if (info) {
+	    stats = info;
+	    free(info);
+	}
+	return stats;
+    }
+
     cString VideoInfo(void)
     {
 	cString stats = "";
@@ -225,6 +237,8 @@ class cDebugStatistics:public cThread
 	    int y = 0, h = font->Height();
 
 	    osd->DrawText(0, y, *VideoStats(), clrWhite, clrGray50, font, area_w, h);
+	    y += h;
+	    osd->DrawText(0, y, *VideoFilters(), clrWhite, clrGray50, font, area_w, h);
 	    y += h;
 	    osd->DrawText(0, y, *VideoInfo(), clrWhite, clrGray50, font, area_w, h);
 	    y += h;
@@ -286,8 +300,8 @@ class cDebugStatistics:public cThread
 
     cString Dump(void)
     {
-	return cString::sprintf("%s\n%s\n%s\nCommand:%s\n", *VideoStats(), *VideoInfo(), *AudioInfo(),
-	    *CommandLineParameters);
+	return cString::sprintf("%s\n%s\n%s\n%s\nCommand:%s\n", *VideoStats(), *VideoFilters(), *VideoInfo(),
+	    *AudioInfo(), *CommandLineParameters);
     }
 };
 
