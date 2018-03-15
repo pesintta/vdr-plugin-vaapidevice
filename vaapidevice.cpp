@@ -2493,7 +2493,7 @@ bool cPluginVaapiDevice::Service(const char *id, void *data)
 **	FIXME: translation?
 */
 static const char *SVDRPHelpText[] = {
-    "SUSP\n" "\040	 Suspend plugin.\n\n" "	   The plugin is suspended to save energie. Depending on the setup\n"
+    "SUSP\n" "\040	 Suspend plugin.\n\n" "	   The plugin is suspended to save energy. Depending on the setup\n"
 	"    'vaapidevice.Suspend.Close = 0' only the video and audio output\n"
 	"    is stopped or with 'vaapidevice.Suspend.Close = 1' the video\n" "	  and audio devices are closed.\n"
 	"    If 'vaapidevice.Suspend.X11 = 1' is set and the X11 server was\n"
