@@ -5427,15 +5427,11 @@ void VideoSet4to3DisplayFormat(int format)
 	return;				// no change, no need to lock
     }
 
-    VideoOsdExit();
-    // FIXME: must tell VDR that the OsdSize has been changed!
-
     VideoThreadLock();
     Video4to3ZoomMode = format;
-    VideoUsedModule->SetVideoMode();
+    if (VideoUsedModule == &VaapiModule)
+	VaapiUpdateOutput(VaapiDecoders[0]);
     VideoThreadUnlock();
-
-    VideoOsdInit();
 }
 
 ///
@@ -5465,15 +5461,11 @@ void VideoSetOtherDisplayFormat(int format)
 	return;				// no change, no need to lock
     }
 
-    VideoOsdExit();
-    // FIXME: must tell VDR that the OsdSize has been changed!
-
     VideoThreadLock();
     VideoOtherZoomMode = format;
-    VideoUsedModule->SetVideoMode();
+    if (VideoUsedModule == &VaapiModule)
+	VaapiUpdateOutput(VaapiDecoders[0]);
     VideoThreadUnlock();
-
-    VideoOsdInit();
 }
 
 ///
@@ -5684,7 +5676,8 @@ void VideoSetCutTopBottom(int pixels[VideoResolutionMax])
     VideoCutTopBottom[2] = pixels[2];
     VideoCutTopBottom[3] = pixels[3];
     VideoCutTopBottom[4] = pixels[4];
-    VideoUsedModule->SetVideoMode();
+    if (VideoUsedModule == &VaapiModule)
+	VaapiUpdateOutput(VaapiDecoders[0]);
     VideoThreadUnlock();
 }
 
@@ -5701,7 +5694,8 @@ void VideoSetCutLeftRight(int pixels[VideoResolutionMax])
     VideoCutLeftRight[2] = pixels[2];
     VideoCutLeftRight[3] = pixels[3];
     VideoCutLeftRight[4] = pixels[4];
-    VideoUsedModule->SetVideoMode();
+    if (VideoUsedModule == &VaapiModule)
+	VaapiUpdateOutput(VaapiDecoders[0]);
     VideoThreadUnlock();
 }
 
