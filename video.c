@@ -1842,13 +1842,13 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	tmp_backwardRefCount);
 
     if (tmp_forwardRefCount != decoder->ForwardRefCount) {
-	Info("Changing to %d forward reference surfaces for postprocessing", tmp_forwardRefCount);
+	Info("video/vaapi: changing to %d forward reference surfaces for postprocessing", tmp_forwardRefCount);
 	decoder->ForwardRefSurfaces = realloc(decoder->ForwardRefSurfaces, tmp_forwardRefCount * sizeof(VASurfaceID));
 	decoder->ForwardRefCount = tmp_forwardRefCount;
     }
 
     if (tmp_backwardRefCount != decoder->BackwardRefCount) {
-	Info("Changing to %d backward reference surfaces for postprocessing", tmp_backwardRefCount);
+	Info("video/vaapi: changing to %d backward reference surfaces for postprocessing", tmp_backwardRefCount);
 	decoder->BackwardRefSurfaces =
 	    realloc(decoder->BackwardRefSurfaces, tmp_backwardRefCount * sizeof(VASurfaceID));
 	decoder->BackwardRefCount = tmp_backwardRefCount;
