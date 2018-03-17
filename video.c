@@ -539,15 +539,23 @@ static void VideoUpdateOutput(AVRational input_aspect_ratio, int input_width, in
 static VideoResolutions VideoResolutionGroup(int width, int height, int interlace)
 {
     if (height <= 576) {
+	Debug7("video: resolution 576i selected");
 	return VideoResolution576i;
     } else if (height <= 720) {
+	Debug7("video: resolution 720p selected");
 	return VideoResolution720p;
     } else if (height <= 1080) {
-	return interlace ? VideoResolution1080i : VideoResolution1080p;
+	if (interlace) {
+	    Debug7("video: resolution 1080i selected");
+	    return VideoResolution1080i;
+	}
+	Debug7("video: resolution 1080p selected");
+	return VideoResolution1080p;
     } else if (height <= 2160) {
+	Debug7("video: resolution 2160p selected");
 	return VideoResolution2160p;
     }
-
+    Debug7("video: resolution 1080i selected");
     return VideoResolution1080i;
 }
 
@@ -2611,7 +2619,6 @@ static void VaapiSetup(VaapiDecoder * decoder, const AVCodecContext * video_ctx)
     Debug7("video/vaapi: created image %dx%d with id 0x%08x and buffer id 0x%08x", video_ctx->width, video_ctx->height,
 	decoder->Image->image_id, decoder->Image->buf);
 
-    // FIXME: interlaced not valid here?
     decoder->Resolution = VideoResolutionGroup(video_ctx->width, video_ctx->height, decoder->Interlaced);
     VaapiCreateSurfaces(decoder, VideoWindowWidth, VideoWindowHeight);
 
@@ -3214,6 +3221,11 @@ static int VaapiIsPictureChanged(VaapiDecoder * decoder, const AVCodecContext * 
 	return 1;
     }
 
+    if (frame->interlaced_frame != decoder->Interlaced) {
+	Debug7("video/vaapi: Interlacing change detected");
+	return 1;
+    }
+
     if (decoder->Closing < 0) {
 	return 1;
     }
@@ -3250,6 +3262,7 @@ static void VaapiRenderFrame(VaapiDecoder * decoder, const AVCodecContext * vide
 	decoder->PixFmt = video_ctx->pix_fmt;
 	decoder->InputWidth = frame->width;
 	decoder->InputHeight = frame->height;
+	decoder->Interlaced = frame->interlaced_frame;
 
 	decoder->VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
 	VaDisplay = TO_VAAPI_DEVICE_CTX(video_ctx->hw_device_ctx)->display;
