@@ -3268,13 +3268,11 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 static int VaapiIsPictureChanged(VaapiDecoder * decoder, const AVCodecContext * video_ctx, const AVFrame * frame)
 {
     if (video_ctx->width != decoder->InputWidth || video_ctx->height != decoder->InputHeight
-	|| video_ctx->pix_fmt != decoder->PixFmt) {
-	Debug7("video/vaapi: Picture change detected");
-	return 1;
-    }
-
-    if (frame->interlaced_frame != decoder->Interlaced) {
-	Debug7("video/vaapi: Interlacing change detected");
+	|| video_ctx->pix_fmt != decoder->PixFmt || frame->interlaced_frame != decoder->Interlaced) {
+	Debug7("video/vaapi: Picture change detected: %dx%d%s (%s) -> %dx%d%s (%s)", decoder->InputWidth,
+	    decoder->InputHeight, decoder->Interlaced ? "i" : "p", av_get_pix_fmt_name(decoder->PixFmt),
+	    video_ctx->width, video_ctx->height, frame->interlaced_frame ? "i" : "p",
+	    av_get_pix_fmt_name(video_ctx->pix_fmt));
 	return 1;
     }
 
