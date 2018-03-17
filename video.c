@@ -1030,6 +1030,29 @@ static VAStatus VaapiCheckSurface(VADisplay va_display, VASurfaceID surface)
 }
 
 ///
+/// Sync an array of surfaces
+///
+/// @param va_display VADisplay to use
+/// @param surfaces array of surfaces to sync
+/// @param num_surfaces number of surfaces
+///
+/// @returns status of the sync. VA_STATUS_SUCCESS if surfaces were synced
+///
+static VAStatus VaapiSyncSurfaces(VADisplay va_display, VASurfaceID * surfaces, unsigned int num_surfaces)
+{
+    VAStatus va_status;
+
+    for (unsigned int i = 0; i < num_surfaces; ++i) {
+	va_status = vaSyncSurface(va_display, surfaces[i]);
+	if (va_status != VA_STATUS_SUCCESS) {
+	    Debug8("video/vaapi: surface 0x%x failed to sync: %s", surfaces[i], vaErrorStr(va_status));
+	    return va_status;
+	}
+    }
+    return VA_STATUS_SUCCESS;
+}
+
+///
 /// Get a free surface.
 ///
 /// @param decoder  VA-API decoder
@@ -1789,14 +1812,11 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	VaapiCheckPipelineCaps(decoder->vpp_ctx, filters_to_run, filter_count, &tmp_forwardRefCount,
 	&tmp_backwardRefCount);
 
-    /* Make sure rendering is finished in reference surfaces */
-    for (unsigned int i = 0; i < tmp_forwardRefCount; ++i)
-	vaSyncSurface(decoder->VaDisplay, decoder->ForwardRefSurfaces[i]);
-    for (unsigned int i = 0; i < tmp_backwardRefCount; ++i)
-	vaSyncSurface(decoder->VaDisplay, decoder->BackwardRefSurfaces[i]);
-    /* Make sure the src/dst surfaces are also ready */
-    vaSyncSurface(decoder->VaDisplay, decoder->PlaybackSurface);
-    vaSyncSurface(decoder->VaDisplay, *surface);
+    /* Make sure the src/dst surfaces are ready */
+    if (vaSyncSurface(decoder->VaDisplay, decoder->PlaybackSurface) != VA_STATUS_SUCCESS)
+	Debug8("video/vaapi: failure in synchronizing Playbacksurface");
+    if (vaSyncSurface(decoder->VaDisplay, *surface) != VA_STATUS_SUCCESS)
+	Debug8("video/vaapi: failure in synchronizing dst surface");
 
     /* This block of code skips various filters in-flight if source/settings
        disallow running the filter in question */
@@ -1815,8 +1835,15 @@ static VASurfaceID *VaapiApplyFilters(VaapiDecoder * decoder, int top_field)
 	    /* Skip deinterlacing if forward/backward references are not ready */
 	    if (caps_status != VA_STATUS_SUCCESS)
 		continue;
+	    /* Make sure rendering is finished in reference surfaces */
+	    if (VaapiSyncSurfaces(decoder->VaDisplay, decoder->ForwardRefSurfaces,
+		    tmp_forwardRefCount) != VA_STATUS_SUCCESS)
+		continue;
 	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->ForwardRefSurfaces,
 		    tmp_forwardRefCount) != VA_STATUS_SUCCESS)
+		continue;
+	    if (VaapiSyncSurfaces(decoder->VaDisplay, decoder->BackwardRefSurfaces,
+		    tmp_backwardRefCount) != VA_STATUS_SUCCESS)
 		continue;
 	    if (VaapiCheckSurfaces(decoder->VaDisplay, decoder->BackwardRefSurfaces,
 		    tmp_backwardRefCount) != VA_STATUS_SUCCESS)
