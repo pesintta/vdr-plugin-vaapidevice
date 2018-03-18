@@ -216,7 +216,7 @@ void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
 	decoder->VideoCtx->thread_count = 0;
 	decoder->VideoCtx->thread_type |= FF_THREAD_SLICE;
     }
-    decoder->VideoCtx->thread_safe_callbacks = 1;
+    decoder->VideoCtx->thread_safe_callbacks = 0;
     decoder->VideoCtx->get_format = Codec_get_format;
     decoder->VideoCtx->get_buffer2 = Codec_get_buffer2;
     decoder->VideoCtx->draw_horiz_band = NULL;
