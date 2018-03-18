@@ -1496,7 +1496,7 @@ static void AudioInitThread(void)
     pthread_mutex_init(&ReadAdvance_mutex, NULL);
     pthread_cond_init(&AudioStartCond, NULL);
     pthread_create(&AudioThread, NULL, AudioPlayHandlerThread, NULL);
-    pthread_setname_np(AudioThread, "vaapidevice audio");
+    pthread_setname_np(AudioThread, "vaapi audio");
 }
 
 /**
