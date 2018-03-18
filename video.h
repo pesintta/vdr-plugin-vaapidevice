@@ -178,6 +178,9 @@ extern uint8_t *VideoGrab(int *, int *, int *, int);
     /// Get decoder statistics.
 extern char *VideoGetStats(VideoHwDecoder *);
 
+    /// Get decoder filters.
+extern char *VideoGetFilters(VideoHwDecoder *);
+
     /// Get video info
 extern char *VideoGetInfo(VideoHwDecoder *, const char *);
 
