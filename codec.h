@@ -4,6 +4,7 @@
 /// SPDX-License-Identifier: AGPL-3.0-only
 
 #include <libavutil/hwcontext.h>
+#include <libavformat/avformat.h>
 
 //----------------------------------------------------------------------------
 //  Defines
@@ -24,6 +25,7 @@ struct _video_decoder_
 {
     VideoHwDecoder *HwDecoder;		///< video hardware decoder
 
+    AVFormatContext *FmtCtx;		///< format context
     AVCodec *VideoCodec;		///< video codec
     AVCodecContext *VideoCtx;		///< video codec context
     int FirstKeyFrame;			///< flag first frame
@@ -61,13 +63,13 @@ extern VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder *);
 extern void CodecVideoDelDecoder(VideoDecoder *);
 
     /// Open video codec.
-extern void CodecVideoOpen(VideoDecoder *, int);
+extern void CodecVideoOpen(VideoDecoder *);
 
     /// Close video codec.
 extern void CodecVideoClose(VideoDecoder *);
 
     /// Decode a video packet.
-extern void CodecVideoDecode(VideoDecoder *, const AVPacket *);
+extern void CodecVideoDecode(VideoDecoder *);
 
     /// Flush video buffers.
 extern void CodecVideoFlushBuffers(VideoDecoder *);
@@ -107,3 +109,7 @@ extern void CodecInit(void);
 
     /// Cleanup and exit codec module.
 extern void CodecExit(void);
+
+
+    /// Read packet callback from c++
+extern int read_packet(void * opaque, unsigned char * data, int size);

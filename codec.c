@@ -23,6 +23,8 @@
 #include <fcntl.h>
 
 #include <libavcodec/avcodec.h>
+#include <libavformat/avio.h>
+#include <libavformat/avformat.h>
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57,64,100)
 #error "libavcodec is too old - please, upgrade!"
 #endif
@@ -140,6 +142,9 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
 	Fatal("codec: can't allocate vodeo decoder");
     }
+
+    av_register_all();
+
     decoder->HwDecoder = hw_decoder;
 
     return decoder;
@@ -152,6 +157,12 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
 */
 void CodecVideoDelDecoder(VideoDecoder * decoder)
 {
+    if (decoder->FmtCtx) {
+	if (decoder->FmtCtx->pb) {
+	    av_freep(&decoder->FmtCtx->pb);
+	}
+	avformat_free_context(decoder->FmtCtx);
+    }
     free(decoder);
 }
 
@@ -159,22 +170,50 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 **	Open video decoder.
 **
 **	@param decoder	private video decoder
-**	@param codec_id	video codec id
 */
-void CodecVideoOpen(VideoDecoder * decoder, int codec_id)
+void CodecVideoOpen(VideoDecoder * decoder)
 {
+    int ret;
     AVCodec *video_codec;
+    AVIOContext *avio_ctx = NULL;
+    const int alloc_size = 1024 * 128;
+    uint8_t * avio_ctx_buffer = av_malloc(alloc_size);
 
-    Debug4("codec: using video codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
+    if (!(decoder->FmtCtx = avformat_alloc_context())) {
+	Fatal("codec: can't allocate AV Format Context");
+    }
+
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &read_packet, NULL, NULL);
+    if (!avio_ctx) {
+	Fatal("codec: can't allocate AV IO Context");
+    }
+
+    decoder->FmtCtx->pb = avio_ctx;
+
+    av_opt_set_int(decoder->FmtCtx, "probesize", alloc_size / 2, 0);
+    av_opt_set_int(decoder->FmtCtx, "analyzeduration", 750, 0);
+
+    ret = avformat_open_input(&decoder->FmtCtx, NULL, NULL, NULL);
+    if (ret < 0) {
+	Fatal("codec: can't open input: %s", av_err2str(ret));
+    }
+
+    ret = avformat_find_stream_info(decoder->FmtCtx, NULL);
+    if (ret < 0) {
+	Fatal("codec: can't find stream info: %s", av_err2str(ret));
+    }
+
+    av_dump_format(decoder->FmtCtx, 0, "vaapidevice", 0);
+
+    ret = av_find_best_stream(decoder->FmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
+    if (ret < 0) {
+	Fatal("Stream error: %s", av_err2str(ret));
+    }
 
     if (decoder->VideoCtx) {
 	Error("codec: missing close");
     }
 
-    if (!(video_codec = avcodec_find_decoder(codec_id))) {
-	Fatal("codec: codec ID %#06x not found", codec_id);
-	// FIXME: none fatal
-    }
     decoder->VideoCodec = video_codec;
 
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
@@ -249,6 +288,7 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
+	avformat_close_input(&video_decoder->FmtCtx);
 	avcodec_free_context(&video_decoder->VideoCtx);
 	pthread_mutex_unlock(&CodecLockMutex);
     }
@@ -260,16 +300,30 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 **	@param decoder	video decoder data
 **	@param avpkt	video packet
 */
-void CodecVideoDecode(VideoDecoder * decoder, const AVPacket * avpkt)
+void CodecVideoDecode(VideoDecoder * decoder)
 {
-    AVCodecContext *video_ctx = decoder->VideoCtx;
+    AVCodecContext *video_ctx;
+    if (!decoder->VideoCtx)
+	CodecVideoOpen(decoder);
+
+    video_ctx = decoder->VideoCtx;
 
     if (video_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
 	int ret;
 	AVPacket pkt[1];
 	AVFrame *frame = decoder->Frame;
 
-	*pkt = *avpkt;			// use copy
+	if (decoder->FmtCtx) {
+
+	    ret = av_read_frame(decoder->FmtCtx, pkt);
+	    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+		Error("codec: read frame failed: %s", av_err2str(ret));
+		return;
+	    } else if (ret == AVERROR_EOF) {
+		CodecVideoClose(decoder);
+	    }
+	}
+
 	ret = avcodec_send_packet(video_ctx, pkt);
 	if (ret < 0) {
 	    Debug4("codec: sending video packet failed");
@@ -296,6 +350,10 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
 {
     if (decoder->VideoCtx) {
 	avcodec_flush_buffers(decoder->VideoCtx);
+    }
+    if (decoder->FmtCtx) {
+	avio_flush(decoder->FmtCtx->pb);
+	avformat_flush(decoder->FmtCtx);
     }
 }
 

@@ -1649,7 +1649,7 @@ class cVaapiDevice:public cDevice
     virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
-    virtual int PlayVideo(const uchar *, int);
+    //virtual int PlayVideo(const uchar *, int);
     virtual int PlayAudio(const uchar *, int, uchar);
     virtual int PlayTsVideo(const uchar *, int);
     virtual int PlayTsAudio(const uchar *, int);
@@ -1666,11 +1666,16 @@ class cVaapiDevice:public cDevice
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
+    cRingBufferLinear * videoBuffer;
+    int eof;
   public:
     virtual cSpuDecoder * GetSpuDecoder(void);
 
   protected:
     virtual void MakePrimaryDevice(bool);
+
+  public:
+    int FfReadCallback(uchar * , int);
 };
 
 /**
@@ -1679,6 +1684,8 @@ class cVaapiDevice:public cDevice
 cVaapiDevice::cVaapiDevice(void)
 {
     spuDecoder = NULL;
+    videoBuffer = NULL;
+    eof = 0;
 }
 
 /**
@@ -1687,6 +1694,7 @@ cVaapiDevice::cVaapiDevice(void)
 cVaapiDevice::~cVaapiDevice(void)
 {
     delete spuDecoder;
+    delete videoBuffer;
 }
 
 /**
@@ -1762,6 +1770,9 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
+	    // Set callback to return EOF to ffmpeg
+	    this->eof = 1;
+	    this->Clear();
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1781,8 +1792,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	Resume();
 	SuspendMode = NOT_SUSPENDED;
     }
-
-    return::SetPlayMode(play_mode);
+    return true;
 }
 
 /**
@@ -1816,6 +1826,9 @@ void cVaapiDevice::TrickSpeed(int speed, bool forward)
 void cVaapiDevice::Clear(void)
 {
     Debug1("%s:", __FUNCTION__);
+
+    if (videoBuffer)
+	videoBuffer->Clear();
 
     cDevice::Clear();
     ::Clear();
@@ -1996,17 +2009,6 @@ void cVaapiDevice::SetVolumeDevice(int volume)
 // ----------------------------------------------------------------------------
 
 /**
-**	Play a video packet.
-**
-**	@param data	exactly one complete PES packet (which is incomplete)
-**	@param length	length of PES packet
-*/
-int cVaapiDevice::PlayVideo(const uchar * data, int length)
-{
-    return::PlayVideo(data, length);
-}
-
-/**
 **	Play a TS video packet.
 **
 **	@param data	ts data buffer
@@ -2014,7 +2016,12 @@ int cVaapiDevice::PlayVideo(const uchar * data, int length)
 */
 int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
 {
-    return::PlayTsVideo(data, length);
+    if (!videoBuffer) {
+	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
+	videoBuffer->SetTimeouts(0, 100);
+    }
+
+    return videoBuffer->Put(data, length);
 }
 
 /**
@@ -2076,6 +2083,50 @@ cRect cVaapiDevice::CanScaleVideo(const cRect & rect, __attribute__ ((unused)) i
 void cVaapiDevice::ScaleVideo(const cRect & rect)
 {
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
+}
+
+int cVaapiDevice::FfReadCallback(uchar * data, int size)
+{
+    int readSize = size;
+    const uchar * datasrc = NULL;
+    if (!videoBuffer) {
+	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
+	videoBuffer->SetTimeouts(0, 100);
+    }
+
+    datasrc = videoBuffer->Get(readSize);
+    if (this->eof) {
+	this->eof = 0;
+	// vdr requested playmode change. Drop remaining data from ringbuffer
+	videoBuffer->Del(readSize);
+	return AVERROR_EOF; // signals end-of-file
+    }
+
+    if (!datasrc) {
+	return 0;
+    }
+
+    // Clamp maximum value so ffmpeg buffer won't get overrun
+    if (readSize > size) {
+	readSize = size;
+    }
+    // Let's help ffmpeg probe by providing only complete TS packets
+    readSize -= (readSize % TS_SIZE);
+    memcpy(data, datasrc, readSize);
+
+    videoBuffer->Del(readSize);
+    return readSize;
+}
+
+extern "C" int read_packet(void * opaque, uchar * data, int size)
+{
+    // Opaque could be my device? need to pass self into ffmpeg codec init...
+
+    if (!MyDevice) {
+	return AVERROR_DEMUXER_NOT_FOUND;
+    }
+
+    return MyDevice->FfReadCallback(data, size);
 }
 
 /**
