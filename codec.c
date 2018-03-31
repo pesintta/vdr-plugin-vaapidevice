@@ -173,61 +173,124 @@ void CodecVideoDelDecoder(VideoDecoder * decoder)
 */
 void CodecVideoOpen(VideoDecoder * decoder)
 {
-    int ret;
+    int ret, codec_id = AV_CODEC_ID_NONE;
     AVCodec *video_codec;
     AVIOContext *avio_ctx = NULL;
-    const int alloc_size = 1024 * 128;
-    uint8_t * avio_ctx_buffer = av_malloc(alloc_size);
+    AVDictionary *options = NULL;
+    AVInputFormat *input_format = NULL;
+    const int alloc_size = 1024 * 128 * 1;
+    uint8_t *avio_ctx_buffer = av_malloc(alloc_size);
+
+    if (!avio_ctx_buffer)
+	return;
+
+    pthread_mutex_lock(&CodecLockMutex);
+
+    switch (codec_ff_get_vtype()) {
+	case -1:		       // Playback stopped or not reasonable
+	    goto error_avformat_alloc_context;
+	    break;
+
+	case 0x0:		       // Recording is playing. Probe format with ffmpeg
+	    break;
+
+	case 0x1:		       /* FALLTHRU */
+	case 0x2:
+	    codec_id = AV_CODEC_ID_MPEG2VIDEO;
+	    break;
+
+	case 0x1b:		       /* FALLTHRU */
+	case 0x20:
+	    codec_id = AV_CODEC_ID_H264;
+	    break;
+
+	case 0x24:
+	    codec_id = AV_CODEC_ID_HEVC;
+	    break;
+
+	default:
+	    Fatal("codec: unknown vtype: 0x%x", codec_ff_get_vtype());
+	    break;
+    }
+
+    codec_ff_set_mode(0);
 
     if (!(decoder->FmtCtx = avformat_alloc_context())) {
-	Fatal("codec: can't allocate AV Format Context");
+	Error("codec: can't allocate AV Format Context");
+	goto error_avformat_alloc_context;
     }
 
-    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &read_packet, NULL, NULL);
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &codec_ff_read_packet, NULL, NULL);
     if (!avio_ctx) {
-	Fatal("codec: can't allocate AV IO Context");
+	Error("codec: can't allocate AV IO Context");
+	goto error_avio_alloc_context;
     }
+    // From now on the ctx_buffer is controlled (and freed) by avio_ctx
+    avio_ctx_buffer = NULL;
 
     decoder->FmtCtx->pb = avio_ctx;
+    if (codec_id != AV_CODEC_ID_NONE)
+	decoder->FmtCtx->video_codec_id = codec_id;
 
-    av_opt_set_int(decoder->FmtCtx, "probesize", alloc_size / 2, 0);
-    av_opt_set_int(decoder->FmtCtx, "analyzeduration", 750, 0);
+    av_dict_set(&options, "analyzeduration", "750", 0);
+    av_dict_set_int(&options, "probesize", alloc_size / 2, 0);
+    av_dict_set_int(&options, "max_streams", 1, 0);
 
-    ret = avformat_open_input(&decoder->FmtCtx, NULL, NULL, NULL);
+    input_format = av_find_input_format("mpegts");
+    if (!input_format) {
+	Error("codec: could not find input format. Trying to probe it\n");
+    }
+    // This probes things and allocates buffers which cannot block on mutex
+    ret = avformat_open_input(&decoder->FmtCtx, NULL, input_format, &options);
     if (ret < 0) {
-	Fatal("codec: can't open input: %s", av_err2str(ret));
+	Error("codec: can't open input: %s", av_err2str(ret));
+	goto error_avformat_open_input;
     }
 
     ret = avformat_find_stream_info(decoder->FmtCtx, NULL);
     if (ret < 0) {
-	Fatal("codec: can't find stream info: %s", av_err2str(ret));
+	Error("codec: can't find stream info: %s", av_err2str(ret));
+	goto error_avformat_find_stream_info;
     }
 
     av_dump_format(decoder->FmtCtx, 0, "vaapidevice", 0);
 
+#if 1
     ret = av_find_best_stream(decoder->FmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
     if (ret < 0) {
-	Fatal("Stream error: %s", av_err2str(ret));
+	Error("codec: can't find best stream: %s", av_err2str(ret));
+	goto error_avformat_find_best_stream;
     }
+#else
+    /*
+       for (unsigned int i = 0; i < decoder->FmtCtx->nb_streams; ++i) {
+       printf("i: %d, codepar: 0x%x\n", i, decoder->FmtCtx->streams[i]->codecpar->codec_id);
+       }
+     */
 
-    if (decoder->VideoCtx) {
-	Error("codec: missing close");
+    decoder->FmtCtx->streams[0]->codecpar->codec_id = codec_id;
+    decoder->FmtCtx->streams[0]->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+#endif
+
+    if (!(video_codec = avcodec_find_decoder(codec_id))) {
+	Error("codec: codec ID %#06x not found", codec_id);
+	goto error_avcodec_find_decoder;
     }
-
     decoder->VideoCodec = video_codec;
 
     if (!(decoder->VideoCtx = avcodec_alloc_context3(video_codec))) {
-	Fatal("codec: can't allocate video codec context");
+	Error("codec: can't allocate video codec context");
+	goto error_avcodec_alloc_context3;
     }
 
     if (!HwDeviceContext) {
-	Fatal("codec: no hw device context to be used");
+	Error("codec: no hw device context to be used");
+	goto error_no_hwdevicecontext;
     }
     decoder->VideoCtx->hw_device_ctx = av_buffer_ref(HwDeviceContext);
 
     // FIXME: for software decoder use all cpus, otherwise 1
     decoder->VideoCtx->thread_count = 1;
-    pthread_mutex_lock(&CodecLockMutex);
     // open codec
     if (video_codec->capabilities & (AV_CODEC_CAP_AUTO_THREADS)) {
 	Debug4("codec: auto threads enabled");
@@ -263,17 +326,46 @@ void CodecVideoOpen(VideoDecoder * decoder)
     av_opt_set_int(decoder->VideoCtx, "refcounted_frames", 1, 0);
 
     if (avcodec_open2(decoder->VideoCtx, video_codec, NULL) < 0) {
-	pthread_mutex_unlock(&CodecLockMutex);
-	Fatal("codec: can't open video codec!");
+	Error("codec: can't open video codec!");
+	goto error_avcodec_open;
     }
-    pthread_mutex_unlock(&CodecLockMutex);
-
     //
     //	Prepare frame buffer for decoder
     //
     if (!(decoder->Frame = av_frame_alloc())) {
-	Fatal("codec: can't allocate video decoder frame buffer");
+	Error("codec: can't allocate video decoder frame buffer");
+	goto error_av_frame_alloc;
     }
+
+    codec_ff_set_mode(1);
+    av_dict_free(&options);
+
+    //avio_flush(decoder->FmtCtx->pb);
+    //avformat_flush(decoder->FmtCtx);
+
+    pthread_mutex_unlock(&CodecLockMutex);
+    return;
+
+  error_av_frame_alloc:
+  error_avcodec_open:
+    av_buffer_unref(&decoder->VideoCtx->hw_device_ctx);
+  error_no_hwdevicecontext:
+    avcodec_free_context(&decoder->VideoCtx);
+  error_avcodec_alloc_context3:
+  error_avcodec_find_decoder:
+  error_avformat_find_best_stream:
+  error_avformat_find_stream_info:
+  error_avformat_open_input:
+    av_freep(avio_ctx);
+    av_dict_free(&options);
+  error_avio_alloc_context:
+    avformat_free_context(decoder->FmtCtx);
+    decoder->FmtCtx = NULL;
+  error_avformat_alloc_context:
+    if (avio_ctx_buffer)
+	av_freep(&avio_ctx_buffer);
+    codec_ff_set_mode(1);
+    pthread_mutex_unlock(&CodecLockMutex);
 }
 
 /**
@@ -303,35 +395,50 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 void CodecVideoDecode(VideoDecoder * decoder)
 {
     AVCodecContext *video_ctx;
+
     if (!decoder->VideoCtx)
 	CodecVideoOpen(decoder);
 
     video_ctx = decoder->VideoCtx;
+    if (!video_ctx)
+	return;
 
     if (video_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
 	int ret;
 	AVPacket pkt[1];
+	AVPacket *avpacket = pkt;
 	AVFrame *frame = decoder->Frame;
 
 	if (decoder->FmtCtx) {
 
-	    ret = av_read_frame(decoder->FmtCtx, pkt);
+	    ret = av_read_frame(decoder->FmtCtx, avpacket);
 	    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 		Error("codec: read frame failed: %s", av_err2str(ret));
 		return;
 	    } else if (ret == AVERROR_EOF) {
-		CodecVideoClose(decoder);
+		Debug4("codec: received EOF - draining");
+
+		// Sending null packet enters draining mode
+		avpacket = NULL;
+	    } else if (ret == AVERROR(EAGAIN)) {
+		return;
+	    } else if (decoder->FmtCtx->streams[pkt->stream_index]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+		return;
 	    }
 	}
 
-	ret = avcodec_send_packet(video_ctx, pkt);
-	if (ret < 0) {
+	ret = avcodec_send_packet(video_ctx, avpacket);
+	if (ret < 0 && ret != AVERROR_EOF) {
 	    Debug4("codec: sending video packet failed");
 	    return;
 	}
 	ret = avcodec_receive_frame(video_ctx, frame);
 	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 	    Debug4("codec: receiving video frame failed");
+	    return;
+	} else if (ret == AVERROR_EOF) {
+	    Debug4("codec: drain completed");
+	    CodecVideoClose(decoder);
 	    return;
 	}
 	if (ret >= 0) {

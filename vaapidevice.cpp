@@ -12,6 +12,7 @@
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
 #include <vdr/tools.h>
+#include <vdr/channels.h>
 
 #include "vaapidevice.h"
 
@@ -1625,7 +1626,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 //  cDevice
 //////////////////////////////////////////////////////////////////////////////
 
-class cVaapiDevice:public cDevice
+class cVaapiDevice:public cDevice	/*, public cStatus */
 {
   public:
     cVaapiDevice(void);
@@ -1666,8 +1667,9 @@ class cVaapiDevice:public cDevice
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
-    cRingBufferLinear * videoBuffer;
+    cRingBufferLinear *videoBuffer;
     int eof;
+    int ffmpegMode;
   public:
     virtual cSpuDecoder * GetSpuDecoder(void);
 
@@ -1675,7 +1677,9 @@ class cVaapiDevice:public cDevice
     virtual void MakePrimaryDevice(bool);
 
   public:
-    int FfReadCallback(uchar * , int);
+    int FfReadCallback(uchar *, int);
+    void FfSetMode(int);
+    int FfGetVtype();
 };
 
 /**
@@ -1686,6 +1690,7 @@ cVaapiDevice::cVaapiDevice(void)
     spuDecoder = NULL;
     videoBuffer = NULL;
     eof = 0;
+    ffmpegMode = 0;
 }
 
 /**
@@ -1770,9 +1775,6 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
-	    // Set callback to return EOF to ffmpeg
-	    this->eof = 1;
-	    this->Clear();
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1826,10 +1828,12 @@ void cVaapiDevice::TrickSpeed(int speed, bool forward)
 void cVaapiDevice::Clear(void)
 {
     Debug1("%s:", __FUNCTION__);
+    printf("%s:%d - vdr set clear request\n", __FUNCTION__, __LINE__);
 
+/*
     if (videoBuffer)
 	videoBuffer->Clear();
-
+*/
     cDevice::Clear();
     ::Clear();
 }
@@ -2021,6 +2025,13 @@ int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
 	videoBuffer->SetTimeouts(0, 100);
     }
 
+    if (this->videoBuffer->Free() < length) {
+	// FIXME: why does this happen? Any better way to flush
+	// If the below return is not there then vdr starts asking for buffer flush
+	videoBuffer->Clear();
+	return length;
+    }
+
     return videoBuffer->Put(data, length);
 }
 
@@ -2036,7 +2047,7 @@ int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
 	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
 	Debug1("%s: SoftIsPlayingVideo: %d", __FUNCTION__, SoftIsPlayingVideo);
     }
-
+//    videoBuffer->Put(data, length);
     return::PlayTsAudio(data, length);
 }
 
@@ -2085,27 +2096,61 @@ void cVaapiDevice::ScaleVideo(const cRect & rect)
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
 
+int cVaapiDevice::FfGetVtype()
+{
+    if (!cDevice::IsPlayingVideo())
+	return -1;
+
+    if (!cDevice::Transferring()) {
+	// FIXME: this is not the right way to determine if recording is playing
+	return 0;			// cannot determine video type from recording - probe with ffmpeg
+    }
+
+    LOCK_CHANNELS_READ;
+    const cChannel *channel = Channels->GetByNumber(cDevice::CurrentChannel());
+
+    return channel->Vtype();
+}
+
+void cVaapiDevice::FfSetMode(int mode)
+{
+    this->ffmpegMode = mode;
+}
+
 int cVaapiDevice::FfReadCallback(uchar * data, int size)
 {
     int readSize = size;
-    const uchar * datasrc = NULL;
+    int retries = 0;
+    const uchar *datasrc = NULL;
+
+  retry:
     if (!videoBuffer) {
 	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
 	videoBuffer->SetTimeouts(0, 100);
     }
 
-    datasrc = videoBuffer->Get(readSize);
+    datasrc = NULL;
+    if (cDevice::IsPlayingVideo())
+	datasrc = videoBuffer->Get(readSize);
     if (this->eof) {
 	this->eof = 0;
 	// vdr requested playmode change. Drop remaining data from ringbuffer
-	videoBuffer->Del(readSize);
-	return AVERROR_EOF; // signals end-of-file
+	videoBuffer->Clear();
+	return AVERROR_EOF;		// signals end-of-file
+    }
+
+    if (!datasrc && this->ffmpegMode == 0) {
+	if (retries < 3) {
+	    retries++;
+	    goto retry;
+	} else {
+	    return AVERROR_EOF;
+	}
     }
 
     if (!datasrc) {
 	return 0;
     }
-
     // Clamp maximum value so ffmpeg buffer won't get overrun
     if (readSize > size) {
 	readSize = size;
@@ -2118,7 +2163,7 @@ int cVaapiDevice::FfReadCallback(uchar * data, int size)
     return readSize;
 }
 
-extern "C" int read_packet(void * opaque, uchar * data, int size)
+extern "C" int codec_ff_read_packet(void *opaque, uchar * data, int size)
 {
     // Opaque could be my device? need to pass self into ffmpeg codec init...
 
@@ -2127,6 +2172,28 @@ extern "C" int read_packet(void * opaque, uchar * data, int size)
     }
 
     return MyDevice->FfReadCallback(data, size);
+}
+
+extern "C" void codec_ff_set_mode(int mode)
+{
+    // Opaque could be my device? need to pass self into ffmpeg codec init...
+
+    if (!MyDevice) {
+	return;
+    }
+
+    return MyDevice->FfSetMode(mode);
+}
+
+extern "C" int codec_ff_get_vtype()
+{
+    // Opaque could be my device? need to pass self into ffmpeg codec init...
+
+    if (!MyDevice) {
+	return 0;
+    }
+
+    return MyDevice->FfGetVtype();
 }
 
 /**

@@ -614,7 +614,6 @@ int VideoDecodeInput(VideoStream * stream)
 	// clear is called during freezed
 	return 1;
     }
-
     //
     //	handle queued commands
     //
@@ -1546,6 +1545,7 @@ void Clear(void)
 {
     int i;
 
+    printf("%s:%d - setting clearbuffers flag\n", __FUNCTION__, __LINE__);
     MyVideoStream->ClearBuffers = 1;
     if (!SkipAudio) {
 	AudioFlushBuffers();

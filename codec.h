@@ -110,6 +110,11 @@ extern void CodecInit(void);
     /// Cleanup and exit codec module.
 extern void CodecExit(void);
 
-
     /// Read packet callback from c++
-extern int read_packet(void * opaque, unsigned char * data, int size);
+extern int codec_ff_read_packet(void *opaque, unsigned char *data, int size);
+
+    /// Set buffering mode for callback from codec
+extern void codec_ff_set_mode(int mode);
+
+    /// Get Videotype from vdr for codec
+extern int codec_ff_get_vtype();
