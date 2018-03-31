@@ -2123,30 +2123,31 @@ int cVaapiDevice::FfReadCallback(uchar * data, int size)
     int retries = 0;
     const uchar *datasrc = NULL;
 
-  retry:
-    if (!videoBuffer) {
-	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
-	videoBuffer->SetTimeouts(0, 100);
-    }
-
-    datasrc = NULL;
-    if (cDevice::IsPlayingVideo())
-	datasrc = videoBuffer->Get(readSize);
-    if (this->eof) {
-	this->eof = 0;
-	// vdr requested playmode change. Drop remaining data from ringbuffer
-	videoBuffer->Clear();
-	return AVERROR_EOF;		// signals end-of-file
-    }
-
-    if (!datasrc && this->ffmpegMode == 0) {
-	if (retries < 3) {
-	    retries++;
-	    goto retry;
-	} else {
-	    return AVERROR_EOF;
+    do {
+	if (!videoBuffer) {
+	    videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
+	    videoBuffer->SetTimeouts(0, 100);
 	}
-    }
+
+	datasrc = NULL;
+	if (cDevice::IsPlayingVideo())
+	    datasrc = videoBuffer->Get(readSize);
+	if (this->eof) {
+	    this->eof = 0;
+	    // vdr requested playmode change. Drop remaining data from ringbuffer
+	    videoBuffer->Clear();
+	    return AVERROR_EOF;		// signals end-of-file
+	}
+
+	if (!datasrc && this->ffmpegMode == 0) {
+	    if (retries < 3) {
+		retries++;
+	    } else {
+		return AVERROR_EOF;
+	    }
+	}
+
+    } while (!datasrc && retries++ < 3);
 
     if (!datasrc) {
 	return 0;
