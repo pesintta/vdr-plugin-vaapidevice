@@ -2098,15 +2098,7 @@ int cVaapiDevice::DeviceGetVtype()
     if (!cDevice::IsPlayingVideo())
 	return -1;
 
-    if (!cDevice::Transferring()) {
-	// FIXME: this is not the right way to determine if recording is playing
-	return 0;			// cannot determine video type from recording - probe with ffmpeg
-    }
-
-    LOCK_CHANNELS_READ;
-    const cChannel *channel = Channels->GetByNumber(cDevice::CurrentChannel());
-
-    return channel->Vtype();
+    return PatPmtParser()->Vtype();
 }
 
 void cVaapiDevice::DeviceSetMode(int mode)
