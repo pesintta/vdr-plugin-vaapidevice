@@ -238,7 +238,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     input_format = av_find_input_format("mpegts");
     if (!input_format) {
-	Error("codec: could not find input format. Trying to probe it\n");
+	Error("codec: could not find input format. Trying to probe it");
     }
     // This probes things and allocates buffers which cannot block on mutex
     ret = avformat_open_input(&decoder->FmtCtx, NULL, input_format, &options);
@@ -255,26 +255,10 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     av_dump_format(decoder->FmtCtx, 0, "vaapidevice", 0);
 
-#if 1
     ret = av_find_best_stream(decoder->FmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
     if (ret < 0) {
 	Error("codec: can't find best stream: %s", av_err2str(ret));
 	goto error_avformat_find_best_stream;
-    }
-#else
-    /*
-       for (unsigned int i = 0; i < decoder->FmtCtx->nb_streams; ++i) {
-       printf("i: %d, codepar: 0x%x\n", i, decoder->FmtCtx->streams[i]->codecpar->codec_id);
-       }
-     */
-
-    decoder->FmtCtx->streams[0]->codecpar->codec_id = codec_id;
-    decoder->FmtCtx->streams[0]->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
-#endif
-
-    if (!(video_codec = avcodec_find_decoder(codec_id))) {
-	Error("codec: codec ID %#06x not found", codec_id);
-	goto error_avcodec_find_decoder;
     }
     decoder->VideoCodec = video_codec;
 

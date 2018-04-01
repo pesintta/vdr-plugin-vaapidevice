@@ -1775,6 +1775,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
+	    this->eof = 1;
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1828,12 +1829,10 @@ void cVaapiDevice::TrickSpeed(int speed, bool forward)
 void cVaapiDevice::Clear(void)
 {
     Debug1("%s:", __FUNCTION__);
-    printf("%s:%d - vdr set clear request\n", __FUNCTION__, __LINE__);
 
-/*
     if (videoBuffer)
 	videoBuffer->Clear();
-*/
+
     cDevice::Clear();
     ::Clear();
 }
@@ -2026,10 +2025,8 @@ int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
     }
 
     if (this->videoBuffer->Free() < length) {
-	// FIXME: why does this happen? Any better way to flush
-	// If the below return is not there then vdr starts asking for buffer flush
-	videoBuffer->Clear();
-	return length;
+	// If this happens often enough vdr will start asking for a clear of device
+	return 0;
     }
 
     return videoBuffer->Put(data, length);
@@ -2138,19 +2135,10 @@ int cVaapiDevice::FfReadCallback(uchar * data, int size)
 	    videoBuffer->Clear();
 	    return AVERROR_EOF;		// signals end-of-file
 	}
-
-	if (!datasrc && this->ffmpegMode == 0) {
-	    if (retries < 3) {
-		retries++;
-	    } else {
-		return AVERROR_EOF;
-	    }
-	}
-
-    } while (!datasrc && retries++ < 3);
+    } while (!datasrc && this->ffmpegMode == 0 && retries++ < 3);
 
     if (!datasrc) {
-	return 0;
+	return this->ffmpegMode ? 0 : AVERROR_EOF;
     }
     // Clamp maximum value so ffmpeg buffer won't get overrun
     if (readSize > size) {

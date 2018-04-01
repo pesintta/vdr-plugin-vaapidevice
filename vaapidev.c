@@ -1543,21 +1543,7 @@ void TrickSpeed(int speed)
 */
 void Clear(void)
 {
-    int i;
-
-    MyVideoStream->ClearBuffers = 1;
-    if (!SkipAudio) {
-	AudioFlushBuffers();
-	//NewAudioStream = 1;
-    }
-    // FIXME: audio avcodec_flush_buffers, video is done by VideoClearBuffers
-
-    // wait for empty buffers
-    // FIXME: without softstart sync VideoDecode isn't called.
-    for (i = 0; MyVideoStream->ClearBuffers && i < 20; ++i) {
-	usleep(1 * 1000);
-    }
-    Debug1("Clear %dms buffers %d", i, VideoGetBuffers(MyVideoStream));
+    CodecVideoFlushBuffers(MyVideoStream->Decoder);
 }
 
 /**
