@@ -232,7 +232,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
     if (codec_id != AV_CODEC_ID_NONE)
 	decoder->FmtCtx->video_codec_id = codec_id;
 
-    av_dict_set(&options, "analyzeduration", "750", 0);
+    av_dict_set_int(&options, "analyzeduration", 750, 0);
     av_dict_set_int(&options, "probesize", alloc_size / 2, 0);
     av_dict_set_int(&options, "max_streams", 1, 0);
 
