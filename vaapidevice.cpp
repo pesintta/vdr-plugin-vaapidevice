@@ -1775,7 +1775,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	case pmVideoOnly:
 	    break;
 	case pmNone:
-	    this->eof = 1;
+	    eof = 1;
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -2024,7 +2024,7 @@ int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
 	videoBuffer->SetTimeouts(0, 100);
     }
 
-    if (this->videoBuffer->Free() < length) {
+    if (eof || videoBuffer->Free() < length) {
 	// If this happens often enough vdr will start asking for a clear of device
 	return 0;
     }
@@ -2111,7 +2111,7 @@ int cVaapiDevice::FfGetVtype()
 
 void cVaapiDevice::FfSetMode(int mode)
 {
-    this->ffmpegMode = mode;
+    ffmpegMode = mode;
 }
 
 int cVaapiDevice::FfReadCallback(uchar * data, int size)
@@ -2129,16 +2129,16 @@ int cVaapiDevice::FfReadCallback(uchar * data, int size)
 	datasrc = NULL;
 	if (cDevice::IsPlayingVideo())
 	    datasrc = videoBuffer->Get(readSize);
-	if (this->eof) {
-	    this->eof = 0;
+	if (eof) {
+	    eof = 0;
 	    // vdr requested playmode change. Drop remaining data from ringbuffer
 	    videoBuffer->Clear();
 	    return AVERROR_EOF;		// signals end-of-file
 	}
-    } while (!datasrc && this->ffmpegMode == 0 && retries++ < 3);
+    } while (!datasrc && ffmpegMode == 0 && retries++ < 3);
 
     if (!datasrc) {
-	return this->ffmpegMode ? 0 : AVERROR_EOF;
+	return ffmpegMode ? 0 : AVERROR_EOF;
     }
     // Clamp maximum value so ffmpeg buffer won't get overrun
     if (readSize > size) {
