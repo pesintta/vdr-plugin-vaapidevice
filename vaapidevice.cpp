@@ -1677,9 +1677,9 @@ class cVaapiDevice:public cDevice	/*, public cStatus */
     virtual void MakePrimaryDevice(bool);
 
   public:
-    int FfReadCallback(uchar *, int);
-    void FfSetMode(int);
-    int FfGetVtype();
+    int DeviceReadCallback(uchar *, int);
+    void DeviceSetMode(int);
+    int DeviceGetVtype();
 };
 
 /**
@@ -2093,7 +2093,7 @@ void cVaapiDevice::ScaleVideo(const cRect & rect)
     ::ScaleVideo(rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
 
-int cVaapiDevice::FfGetVtype()
+int cVaapiDevice::DeviceGetVtype()
 {
     if (!cDevice::IsPlayingVideo())
 	return -1;
@@ -2109,12 +2109,12 @@ int cVaapiDevice::FfGetVtype()
     return channel->Vtype();
 }
 
-void cVaapiDevice::FfSetMode(int mode)
+void cVaapiDevice::DeviceSetMode(int mode)
 {
     ffmpegMode = mode;
 }
 
-int cVaapiDevice::FfReadCallback(uchar * data, int size)
+int cVaapiDevice::DeviceReadCallback(uchar * data, int size)
 {
     int readSize = size;
     int retries = 0;
@@ -2152,37 +2152,33 @@ int cVaapiDevice::FfReadCallback(uchar * data, int size)
     return readSize;
 }
 
-extern "C" int codec_ff_read_packet(void *opaque, uchar * data, int size)
+extern "C" int device_read_packet(void *opaque, uchar * data, int size)
 {
-    // Opaque could be my device? need to pass self into ffmpeg codec init...
-
+    // TODO: Opaque could be MyDevice pointer?
+    // The object would be needed to be passed into ffmpeg codec init
     if (!MyDevice) {
 	return AVERROR_DEMUXER_NOT_FOUND;
     }
 
-    return MyDevice->FfReadCallback(data, size);
+    return MyDevice->DeviceReadCallback(data, size);
 }
 
-extern "C" void codec_ff_set_mode(int mode)
+extern "C" void device_set_mode(int mode)
 {
-    // Opaque could be my device? need to pass self into ffmpeg codec init...
-
     if (!MyDevice) {
 	return;
     }
 
-    return MyDevice->FfSetMode(mode);
+    return MyDevice->DeviceSetMode(mode);
 }
 
-extern "C" int codec_ff_get_vtype()
+extern "C" int device_get_vtype()
 {
-    // Opaque could be my device? need to pass self into ffmpeg codec init...
-
     if (!MyDevice) {
 	return 0;
     }
 
-    return MyDevice->FfGetVtype();
+    return MyDevice->DeviceGetVtype();
 }
 
 /**

@@ -186,7 +186,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     pthread_mutex_lock(&CodecLockMutex);
 
-    switch (codec_ff_get_vtype()) {
+    switch (device_get_vtype()) {
 	case -1:		       // Playback stopped or not reasonable
 	    goto error_avformat_alloc_context;
 	    break;
@@ -209,18 +209,18 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	    break;
 
 	default:
-	    Fatal("codec: unknown vtype: 0x%x", codec_ff_get_vtype());
+	    Fatal("codec: unknown vtype: 0x%x", device_get_vtype());
 	    break;
     }
 
-    codec_ff_set_mode(0);
+    device_set_mode(0);
 
     if (!(decoder->FmtCtx = avformat_alloc_context())) {
 	Error("codec: can't allocate AV Format Context");
 	goto error_avformat_alloc_context;
     }
 
-    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &codec_ff_read_packet, NULL, NULL);
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &device_read_packet, NULL, NULL);
     if (!avio_ctx) {
 	Error("codec: can't allocate AV IO Context");
 	goto error_avio_alloc_context;
@@ -321,7 +321,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	goto error_av_frame_alloc;
     }
 
-    codec_ff_set_mode(1);
+    device_set_mode(1);
     av_dict_free(&options);
 
     //avio_flush(decoder->FmtCtx->pb);
@@ -336,7 +336,6 @@ void CodecVideoOpen(VideoDecoder * decoder)
   error_no_hwdevicecontext:
     avcodec_free_context(&decoder->VideoCtx);
   error_avcodec_alloc_context3:
-  error_avcodec_find_decoder:
   error_avformat_find_best_stream:
   error_avformat_find_stream_info:
   error_avformat_open_input:
@@ -348,7 +347,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
   error_avformat_alloc_context:
     if (avio_ctx_buffer)
 	av_freep(&avio_ctx_buffer);
-    codec_ff_set_mode(1);
+    device_set_mode(1);
     pthread_mutex_unlock(&CodecLockMutex);
 }
 
