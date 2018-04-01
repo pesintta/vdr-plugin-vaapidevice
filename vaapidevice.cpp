@@ -12,7 +12,6 @@
 #include <vdr/dvbspu.h>
 #include <vdr/shutdown.h>
 #include <vdr/tools.h>
-#include <vdr/channels.h>
 
 #include "vaapidevice.h"
 
@@ -1626,7 +1625,7 @@ eOSState cSoftHdMenu::ProcessKey(eKeys key)
 //  cDevice
 //////////////////////////////////////////////////////////////////////////////
 
-class cVaapiDevice:public cDevice	/*, public cStatus */
+class cVaapiDevice:public cDevice
 {
   public:
     cVaapiDevice(void);
@@ -1668,6 +1667,7 @@ class cVaapiDevice:public cDevice	/*, public cStatus */
   private:
     cDvbSpuDecoder * spuDecoder;
     cRingBufferLinear *videoBuffer;
+    cRingBufferLinear *audioBuffer;
     int eof;
     int ffmpegMode;
   public:
@@ -1677,9 +1677,10 @@ class cVaapiDevice:public cDevice	/*, public cStatus */
     virtual void MakePrimaryDevice(bool);
 
   public:
-    int DeviceReadCallback(uchar *, int);
+    int DeviceReadCallback(const eFrameType, uchar *, int);
     void DeviceSetMode(int);
     int DeviceGetVtype();
+    int DeviceGetAtype();
 };
 
 /**
@@ -1689,6 +1690,7 @@ cVaapiDevice::cVaapiDevice(void)
 {
     spuDecoder = NULL;
     videoBuffer = NULL;
+    audioBuffer = NULL;
     eof = 0;
     ffmpegMode = 0;
 }
@@ -1698,8 +1700,9 @@ cVaapiDevice::cVaapiDevice(void)
 */
 cVaapiDevice::~cVaapiDevice(void)
 {
-    delete spuDecoder;
-    delete videoBuffer;
+    DELETENULL(spuDecoder);
+    DELETENULL(videoBuffer);
+    DELETENULL(audioBuffer);
 }
 
 /**
@@ -1832,6 +1835,9 @@ void cVaapiDevice::Clear(void)
 
     if (videoBuffer)
 	videoBuffer->Clear();
+
+    if (audioBuffer)
+	audioBuffer->Clear();
 
     cDevice::Clear();
     ::Clear();
@@ -2020,7 +2026,7 @@ void cVaapiDevice::SetVolumeDevice(int volume)
 int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
 {
     if (!videoBuffer) {
-	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
+	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapivideobuf");
 	videoBuffer->SetTimeouts(0, 100);
     }
 
@@ -2044,7 +2050,17 @@ int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
 	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
 	Debug1("%s: SoftIsPlayingVideo: %d", __FUNCTION__, SoftIsPlayingVideo);
     }
-//    videoBuffer->Put(data, length);
+
+    if (!audioBuffer) {
+	audioBuffer = new cRingBufferLinear(KILOBYTE(512), TS_SIZE, false, "vaapiaudiobuf");
+	audioBuffer->SetTimeouts(0, 100);
+    }
+
+    if (eof || audioBuffer->Free() < length) {
+	// If this happens often enough vdr will start asking for a clear of device
+	return 0;
+    }
+    //audioBuffer->Put(data, length);
     return::PlayTsAudio(data, length);
 }
 
@@ -2101,30 +2117,46 @@ int cVaapiDevice::DeviceGetVtype()
     return PatPmtParser()->Vtype();
 }
 
+int cVaapiDevice::DeviceGetAtype()
+{
+    if (!cDevice::IsPlayingVideo())
+	return -1;
+
+    return PatPmtParser()->Atype(0);	// FIXME: is this always the stream that is being played
+}
+
 void cVaapiDevice::DeviceSetMode(int mode)
 {
     ffmpegMode = mode;
 }
 
-int cVaapiDevice::DeviceReadCallback(uchar * data, int size)
+int cVaapiDevice::DeviceReadCallback(const eFrameType type, uchar * data, int size)
 {
     int readSize = size;
     int retries = 0;
     const uchar *datasrc = NULL;
+    cRingBufferLinear *buffer;
+
+    if (type == ftAudio)
+	buffer = audioBuffer;
+    else
+	buffer = videoBuffer;
 
     do {
-	if (!videoBuffer) {
-	    videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapidevice ringbuffer");
-	    videoBuffer->SetTimeouts(0, 100);
+	if (!buffer) {
+	    buffer =
+		new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false,
+		type == ftAudio ? "vaapiaudiobuf" : "vaapivideobuf");
+	    buffer->SetTimeouts(0, 100);
 	}
 
 	datasrc = NULL;
 	if (cDevice::IsPlayingVideo())
-	    datasrc = videoBuffer->Get(readSize);
+	    datasrc = buffer->Get(readSize);
 	if (eof) {
 	    eof = 0;
 	    // vdr requested playmode change. Drop remaining data from ringbuffer
-	    videoBuffer->Clear();
+	    buffer->Clear();
 	    return AVERROR_EOF;		// signals end-of-file
 	}
     } while (!datasrc && ffmpegMode == 0 && retries++ < 3);
@@ -2140,11 +2172,11 @@ int cVaapiDevice::DeviceReadCallback(uchar * data, int size)
     readSize -= (readSize % TS_SIZE);
     memcpy(data, datasrc, readSize);
 
-    videoBuffer->Del(readSize);
+    buffer->Del(readSize);
     return readSize;
 }
 
-extern "C" int device_read_packet(void *opaque, uchar * data, int size)
+extern "C" int device_read_video_data(void *opaque, uchar * data, int size)
 {
     // TODO: Opaque could be MyDevice pointer?
     // The object would be needed to be passed into ffmpeg codec init
@@ -2152,7 +2184,18 @@ extern "C" int device_read_packet(void *opaque, uchar * data, int size)
 	return AVERROR_DEMUXER_NOT_FOUND;
     }
 
-    return MyDevice->DeviceReadCallback(data, size);
+    return MyDevice->DeviceReadCallback(ftVideo, data, size);
+}
+
+extern "C" int device_read_audio_data(void *opaque, uchar * data, int size)
+{
+    // TODO: Opaque could be MyDevice pointer?
+    // The object would be needed to be passed into ffmpeg codec init
+    if (!MyDevice) {
+	return AVERROR_DEMUXER_NOT_FOUND;
+    }
+
+    return MyDevice->DeviceReadCallback(ftAudio, data, size);
 }
 
 extern "C" void device_set_mode(int mode)

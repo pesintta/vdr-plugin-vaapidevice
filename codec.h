@@ -111,7 +111,8 @@ extern void CodecInit(void);
 extern void CodecExit(void);
 
     /// Read packet callback from c++
-extern int device_read_packet(void *opaque, unsigned char *data, int size);
+extern int device_read_video_data(void *opaque, unsigned char *data, int size);
+extern int device_read_audio_data(void *opaque, unsigned char *data, int size);
 
     /// Set buffering mode for callback from codec
 extern void device_set_mode(int mode);

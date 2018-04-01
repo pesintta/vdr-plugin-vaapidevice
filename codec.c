@@ -220,7 +220,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	goto error_avformat_alloc_context;
     }
 
-    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &device_read_packet, NULL, NULL);
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, decoder, &device_read_video_data, NULL, NULL);
     if (!avio_ctx) {
 	Error("codec: can't allocate AV IO Context");
 	goto error_avio_alloc_context;
