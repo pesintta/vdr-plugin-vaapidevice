@@ -1631,6 +1631,7 @@ class cVaapiDevice:public cDevice
     cVaapiDevice(void);
     virtual ~ cVaapiDevice(void);
 
+    virtual cString DeviceName(void) const;
     virtual bool HasDecoder(void) const;
     virtual bool CanReplay(void) const;
     virtual bool SetPlayMode(ePlayMode);
@@ -1726,6 +1727,14 @@ cSpuDecoder *cVaapiDevice::GetSpuDecoder(void)
 	spuDecoder = new cDvbSpuDecoder();
     }
     return spuDecoder;
+}
+
+/**
+**      Returns a string identifying the name of this device.
+*/
+cString cVaapiDevice::DeviceName(void) const
+{
+    return "vaapidevice";
 }
 
 /**
