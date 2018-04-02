@@ -227,6 +227,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
     }
     // From now on the ctx_buffer is controlled (and freed) by avio_ctx
     avio_ctx_buffer = NULL;
+    avio_ctx->max_packet_size = alloc_size;
 
     decoder->VideoFmtCtx->pb = avio_ctx;
     if (codec_id != AV_CODEC_ID_NONE)
