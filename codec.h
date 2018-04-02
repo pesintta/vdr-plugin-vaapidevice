@@ -25,7 +25,7 @@ struct _video_decoder_
 {
     VideoHwDecoder *HwDecoder;		///< video hardware decoder
 
-    AVFormatContext *FmtCtx;		///< format context
+    AVFormatContext *VideoFmtCtx;	///< format context
     AVCodec *VideoCodec;		///< video codec
     AVCodecContext *VideoCtx;		///< video codec context
     int FirstKeyFrame;			///< flag first frame

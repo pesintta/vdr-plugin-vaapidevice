@@ -157,11 +157,11 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
 */
 void CodecVideoDelDecoder(VideoDecoder * decoder)
 {
-    if (decoder->FmtCtx) {
-	if (decoder->FmtCtx->pb) {
-	    av_freep(&decoder->FmtCtx->pb);
+    if (decoder->VideoFmtCtx) {
+	if (decoder->VideoFmtCtx->pb) {
+	    av_freep(&decoder->VideoFmtCtx->pb);
 	}
-	avformat_free_context(decoder->FmtCtx);
+	avformat_free_context(decoder->VideoFmtCtx);
     }
     free(decoder);
 }
@@ -215,7 +215,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     device_set_mode(0);
 
-    if (!(decoder->FmtCtx = avformat_alloc_context())) {
+    if (!(decoder->VideoFmtCtx = avformat_alloc_context())) {
 	Error("codec: can't allocate AV Format Context");
 	goto error_avformat_alloc_context;
     }
@@ -228,9 +228,9 @@ void CodecVideoOpen(VideoDecoder * decoder)
     // From now on the ctx_buffer is controlled (and freed) by avio_ctx
     avio_ctx_buffer = NULL;
 
-    decoder->FmtCtx->pb = avio_ctx;
+    decoder->VideoFmtCtx->pb = avio_ctx;
     if (codec_id != AV_CODEC_ID_NONE)
-	decoder->FmtCtx->video_codec_id = codec_id;
+	decoder->VideoFmtCtx->video_codec_id = codec_id;
 
     av_dict_set_int(&options, "analyzeduration", 750, 0);
     av_dict_set_int(&options, "probesize", alloc_size / 2, 0);
@@ -241,21 +241,21 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	Error("codec: could not find input format. Trying to probe it");
     }
     // This probes things and allocates buffers which cannot block on mutex
-    ret = avformat_open_input(&decoder->FmtCtx, NULL, input_format, &options);
+    ret = avformat_open_input(&decoder->VideoFmtCtx, NULL, input_format, &options);
     if (ret < 0) {
 	Error("codec: can't open input: %s", av_err2str(ret));
 	goto error_avformat_open_input;
     }
 
-    ret = avformat_find_stream_info(decoder->FmtCtx, NULL);
+    ret = avformat_find_stream_info(decoder->VideoFmtCtx, NULL);
     if (ret < 0) {
 	Error("codec: can't find stream info: %s", av_err2str(ret));
 	goto error_avformat_find_stream_info;
     }
 
-    av_dump_format(decoder->FmtCtx, 0, "vaapidevice", 0);
+    av_dump_format(decoder->VideoFmtCtx, 0, "vaapidevice video", 0);
 
-    ret = av_find_best_stream(decoder->FmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
+    ret = av_find_best_stream(decoder->VideoFmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
     if (ret < 0) {
 	Error("codec: can't find best stream: %s", av_err2str(ret));
 	goto error_avformat_find_best_stream;
@@ -324,9 +324,6 @@ void CodecVideoOpen(VideoDecoder * decoder)
     device_set_mode(1);
     av_dict_free(&options);
 
-    //avio_flush(decoder->FmtCtx->pb);
-    //avformat_flush(decoder->FmtCtx);
-
     pthread_mutex_unlock(&CodecLockMutex);
     return;
 
@@ -342,8 +339,8 @@ void CodecVideoOpen(VideoDecoder * decoder)
     av_freep(avio_ctx);
     av_dict_free(&options);
   error_avio_alloc_context:
-    avformat_free_context(decoder->FmtCtx);
-    decoder->FmtCtx = NULL;
+    avformat_free_context(decoder->VideoFmtCtx);
+    decoder->VideoFmtCtx = NULL;
   error_avformat_alloc_context:
     if (avio_ctx_buffer)
 	av_freep(&avio_ctx_buffer);
@@ -363,7 +360,7 @@ void CodecVideoClose(VideoDecoder * video_decoder)
 
     if (video_decoder->VideoCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
-	avformat_close_input(&video_decoder->FmtCtx);
+	avformat_close_input(&video_decoder->VideoFmtCtx);
 	avcodec_free_context(&video_decoder->VideoCtx);
 	pthread_mutex_unlock(&CodecLockMutex);
     }
@@ -392,9 +389,9 @@ void CodecVideoDecode(VideoDecoder * decoder)
 	AVPacket *avpacket = pkt;
 	AVFrame *frame = decoder->Frame;
 
-	if (decoder->FmtCtx) {
+	if (decoder->VideoFmtCtx) {
 
-	    ret = av_read_frame(decoder->FmtCtx, avpacket);
+	    ret = av_read_frame(decoder->VideoFmtCtx, avpacket);
 	    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 		Error("codec: read frame failed: %s", av_err2str(ret));
 		return;
@@ -405,7 +402,7 @@ void CodecVideoDecode(VideoDecoder * decoder)
 		avpacket = NULL;
 	    } else if (ret == AVERROR(EAGAIN)) {
 		return;
-	    } else if (decoder->FmtCtx->streams[pkt->stream_index]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+	    } else if (decoder->VideoFmtCtx->streams[pkt->stream_index]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
 		return;
 	    }
 	}
@@ -441,9 +438,9 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
     if (decoder->VideoCtx) {
 	avcodec_flush_buffers(decoder->VideoCtx);
     }
-    if (decoder->FmtCtx) {
-	avio_flush(decoder->FmtCtx->pb);
-	avformat_flush(decoder->FmtCtx);
+    if (decoder->VideoFmtCtx) {
+	avio_flush(decoder->VideoFmtCtx->pb);
+	avformat_flush(decoder->VideoFmtCtx);
     }
 }
 
