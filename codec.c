@@ -178,7 +178,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
     AVIOContext *avio_ctx = NULL;
     AVDictionary *options = NULL;
     AVInputFormat *input_format = NULL;
-    const int alloc_size = 1024 * 128 * 1;
+    const int alloc_size = 1024 * 1024 * 1;
     uint8_t *avio_ctx_buffer = av_malloc(alloc_size);
 
     if (!avio_ctx_buffer)
@@ -237,7 +237,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
     av_dict_set_int(&options, "probesize", alloc_size / 2, 0);
     av_dict_set_int(&options, "max_streams", 1, 0);
 
-    input_format = av_find_input_format("mpegts");
+    input_format = av_find_input_format("mpeg");
     if (!input_format) {
 	Error("codec: could not find input format. Trying to probe it");
     }

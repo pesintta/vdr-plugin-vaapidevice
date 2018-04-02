@@ -1649,10 +1649,8 @@ class cVaapiDevice:public cDevice
     virtual void SetVideoFormat(bool);
     virtual void GetVideoSize(int &, int &, double &);
     virtual void GetOsdSize(int &, int &, double &);
-    //virtual int PlayVideo(const uchar *, int);
+    virtual int PlayVideo(const uchar *, int);
     virtual int PlayAudio(const uchar *, int, uchar);
-    virtual int PlayTsVideo(const uchar *, int);
-    virtual int PlayTsAudio(const uchar *, int);
     virtual void SetAudioChannelDevice(int);
     virtual int GetAudioChannelDevice(void);
     virtual void SetDigitalAudioDevice(bool);
@@ -1666,8 +1664,8 @@ class cVaapiDevice:public cDevice
 // SPU facilities
   private:
     cDvbSpuDecoder * spuDecoder;
-    cRingBufferLinear *videoBuffer;
-    cRingBufferLinear *audioBuffer;
+    cRingBufferFrame *videoBuffer;
+    cRingBufferFrame *audioBuffer;
     int videoEof;
     int audioEof;
     int ffmpegMode;
@@ -1782,7 +1780,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	    break;
 	case pmNone:
 	    videoEof = 1;
-	    //audioEof = 1;
+	    audioEof = 1;
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1986,6 +1984,25 @@ void cVaapiDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 */
 int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
+#if 0 // TODO: not in use yet
+    const int ringBufferSize = KILOBYTE(512);
+    if (length > ringBufferSize) {
+	Error("Audio PES packet size (%d) too large for frame ringbuffer", length);
+	return 0;
+    }
+
+    cFrame *packet = new cFrame(data, length, ftAudio, id);
+
+    if (!audioBuffer) {
+	audioBuffer = new cRingBufferFrame(ringBufferSize);
+    }
+
+    if (audioEof || !audioBuffer->Put(packet)) {
+	// If this happens often enough vdr will start asking for a clear of device
+	delete packet;
+	return 0;
+    }
+#endif
     return::PlayAudio(data, length, id);
 }
 
@@ -2022,50 +2039,32 @@ void cVaapiDevice::SetVolumeDevice(int volume)
 // ----------------------------------------------------------------------------
 
 /**
-**	Play a TS video packet.
+**	Play a PES video packet.
 **
-**	@param data	ts data buffer
-**	@param length	ts packet length (188)
+**	@param data	data buffer
+**	@param length	packet length
 */
-int cVaapiDevice::PlayTsVideo(const uchar * data, int length)
+int cVaapiDevice::PlayVideo(const uchar * data, int length)
 {
+    const int ringBufferSize = MEGABYTE(1);
+    if (length > ringBufferSize) {
+	Error("Video PES packet size (%d) too large for frame ringbuffer", length);
+	return 0;
+    }
+
+    cFrame *packet = new cFrame(data, length, ftVideo);
+
     if (!videoBuffer) {
-	videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapivideobuf");
-	videoBuffer->SetTimeouts(0, 100);
+	videoBuffer = new cRingBufferFrame(ringBufferSize);
     }
 
-    if (videoEof || videoBuffer->Free() < length) {
+    if (videoEof || !videoBuffer->Put(packet)) {
 	// If this happens often enough vdr will start asking for a clear of device
+	delete packet;
 	return 0;
     }
 
-    return videoBuffer->Put(data, length);
-}
-
-/**
-**	Play a TS audio packet.
-**
-**	@param data	ts data buffer
-**	@param length	ts packet length (188)
-*/
-int cVaapiDevice::PlayTsAudio(const uchar * data, int length)
-{
-    if (SoftIsPlayingVideo != cDevice::IsPlayingVideo()) {
-	SoftIsPlayingVideo = cDevice::IsPlayingVideo();
-	Debug1("%s: SoftIsPlayingVideo: %d", __FUNCTION__, SoftIsPlayingVideo);
-    }
-
-    if (!audioBuffer) {
-	audioBuffer = new cRingBufferLinear(KILOBYTE(512), TS_SIZE, false, "vaapiaudiobuf");
-	audioBuffer->SetTimeouts(0, 100);
-    }
-
-    if (audioEof || audioBuffer->Free() < length) {
-	// If this happens often enough vdr will start asking for a clear of device
-	return 0;
-    }
-    //audioBuffer->Put(data, length);
-    return::PlayTsAudio(data, length);
+    return true;
 }
 
 /**
@@ -2144,17 +2143,18 @@ int cVaapiDevice::DeviceVideoReadCallback(uchar * data, int size)
 {
     int readSize = size;
     int retries = 0;
-    const uchar *datasrc = NULL;
+    cFrame *packet;
 
     do {
 	if (!videoBuffer) {
-	    videoBuffer = new cRingBufferLinear(MEGABYTE(1), TS_SIZE, false, "vaapivideobuf");
-	    videoBuffer->SetTimeouts(0, 100);
+	    cCondWait::SleepMs(20);
+	    return 0;
+	}
+	if (!cDevice::IsPlayingVideo()) {
+	    cCondWait::SleepMs(20);
+	    return 0;
 	}
 
-	datasrc = NULL;
-	if (cDevice::IsPlayingVideo())
-	    datasrc = videoBuffer->Get(readSize);
 	if (videoEof) {
 	    videoEof = 0;
 	    // vdr requested playmode change. Drop remaining data from ringbuffer
@@ -2162,20 +2162,22 @@ int cVaapiDevice::DeviceVideoReadCallback(uchar * data, int size)
 	    return AVERROR_EOF;		// signals end-of-file
 	}
 
-    } while (!datasrc && ffmpegMode == 0 && retries++ < 3);
+	packet = videoBuffer->Get();
+	if (!packet)
+	    cCondWait::SleepMs(20);
 
-    if (!datasrc) {
+    } while (!packet && ffmpegMode == 0 && retries++ < 3);
+
+    if (!packet) {
 	return ffmpegMode ? 0 : AVERROR_EOF;
     }
     // Clamp maximum value so ffmpeg buffer won't get overrun
-    if (readSize > size) {
-	readSize = size;
+    if (packet->Count() > size) {
+	return 0;
     }
-    // Let's help ffmpeg probe by providing only complete TS packets
-    readSize -= (readSize % TS_SIZE);
-    memcpy(data, datasrc, readSize);
-
-    videoBuffer->Del(readSize);
+    readSize = packet->Count();
+    memcpy(data, packet->Data(), readSize);
+    videoBuffer->Drop(packet);
     return readSize;
 }
 
@@ -2183,17 +2185,17 @@ int cVaapiDevice::DeviceAudioReadCallback(uchar * data, int size)
 {
     int readSize = size;
     int retries = 0;
-    const uchar *datasrc = NULL;
+    cFrame *packet;
 
     do {
 	if (!audioBuffer) {
-	    audioBuffer = new cRingBufferLinear(KILOBYTE(512), TS_SIZE, false, "vaapiaudiobuf");
-	    audioBuffer->SetTimeouts(0, 100);
+	    cCondWait::SleepMs(20);
+	    return 0;
 	}
-
-	datasrc = NULL;
-	if (cDevice::IsPlayingVideo())
-	    datasrc = audioBuffer->Get(readSize);
+	if (!cDevice::IsPlayingVideo()) {
+	    cCondWait::SleepMs(20);
+	    return 0;
+	}
 
 	if (audioEof) {
 	    audioEof = 0;
@@ -2201,20 +2203,24 @@ int cVaapiDevice::DeviceAudioReadCallback(uchar * data, int size)
 	    audioBuffer->Clear();
 	    return AVERROR_EOF;		// signals end-of-file
 	}
-    } while (!datasrc && ffmpegMode == 0 && retries++ < 3);
 
-    if (!datasrc) {
+	packet = audioBuffer->Get();
+	if (!packet)
+	    cCondWait::SleepMs(20);
+
+    } while (!packet && ffmpegMode == 0 && retries++ < 3);
+
+
+    if (!packet) {
 	return ffmpegMode ? 0 : AVERROR_EOF;
     }
     // Clamp maximum value so ffmpeg buffer won't get overrun
-    if (readSize > size) {
-	readSize = size;
+    if (packet->Count() > size) {
+	return 0;
     }
-    // Let's help ffmpeg probe by providing only complete TS packets
-    readSize -= (readSize % TS_SIZE);
-    memcpy(data, datasrc, readSize);
-
-    audioBuffer->Del(readSize);
+    readSize = packet->Count();
+    memcpy(data, packet->Data(), readSize);
+    audioBuffer->Drop(packet);
     return readSize;
 }
 
