@@ -409,13 +409,13 @@ void CodecVideoDecode(VideoDecoder * decoder)
 	}
 
 	ret = avcodec_send_packet(video_ctx, avpacket);
-	if (ret < 0 && ret != AVERROR_EOF) {
-	    Debug4("codec: sending video packet failed");
+	if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
+	    Debug4("codec: sending video packet failed: %s", av_err2str(ret));
 	    return;
 	}
 	ret = avcodec_receive_frame(video_ctx, frame);
 	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-	    Debug4("codec: receiving video frame failed");
+	    Debug4("codec: receiving video frame failed: %s", av_err2str(ret));
 	    return;
 	} else if (ret == AVERROR_EOF) {
 	    Debug4("codec: drain completed");
