@@ -117,5 +117,6 @@ extern int device_read_audio_data(void *opaque, unsigned char *data, int size);
     /// Set buffering mode for callback from codec
 extern void device_set_mode(int mode);
 
-    /// Get Videotype from vdr for codec
+    /// Get Video/Audiotype from vdr for codec
 extern int device_get_vtype();
+extern int device_get_atype();

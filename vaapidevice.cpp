@@ -2123,10 +2123,16 @@ int cVaapiDevice::DeviceGetVtype()
 
 int cVaapiDevice::DeviceGetAtype()
 {
-    if (!cDevice::IsPlayingVideo())
-	return -1;
+    eTrackType track = GetCurrentAudioTrack();
 
-    return PatPmtParser()->Atype(0);	// FIXME: is this always the stream that is being played
+    if (IS_AUDIO_TRACK(track)) {
+	return PatPmtParser()->Atype(int(track - ttAudioFirst));
+    }
+    else if (IS_DOLBY_TRACK(track)) {
+	return PatPmtParser()->Dtype(int(track - ttDolbyFirst));
+    }
+
+    return -1;
 }
 
 void cVaapiDevice::DeviceSetMode(int mode)
@@ -2250,6 +2256,15 @@ extern "C" int device_get_vtype()
     }
 
     return MyDevice->DeviceGetVtype();
+}
+
+extern "C" int device_get_atype()
+{
+    if (!MyDevice) {
+	return 0;
+    }
+
+    return MyDevice->DeviceGetAtype();
 }
 
 /**
