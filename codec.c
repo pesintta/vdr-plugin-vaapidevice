@@ -445,6 +445,20 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
     }
 }
 
+/**
+**	Get video codec name for debug OSD purposes.
+**
+**	@param decoder	video decoder data
+*/
+const char* CodecVideoGetCodecName(VideoDecoder * decoder)
+{
+    if (decoder && decoder->VideoCodec)
+	return avcodec_get_name(decoder->VideoCodec->id);
+
+    return avcodec_get_name(AV_CODEC_ID_NONE);
+}
+
+
 //----------------------------------------------------------------------------
 //  Audio
 //----------------------------------------------------------------------------

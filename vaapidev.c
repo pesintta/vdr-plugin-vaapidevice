@@ -2176,7 +2176,8 @@ char *GetVideoStats(void)
 */
 char *GetVideoInfo(void)
 {
-    return MyVideoStream->HwDecoder ? VideoGetInfo(MyVideoStream->HwDecoder, "") : NULL;
+    const char *codec = CodecVideoGetCodecName(MyVideoStream->Decoder);
+    return MyVideoStream->HwDecoder ? VideoGetInfo(MyVideoStream->HwDecoder, codec) : NULL;
 }
 
 /*

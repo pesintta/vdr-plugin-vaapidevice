@@ -74,6 +74,9 @@ extern void CodecVideoDecode(VideoDecoder *);
     /// Flush video buffers.
 extern void CodecVideoFlushBuffers(VideoDecoder *);
 
+    /// Get video decoder name.
+extern const char* CodecVideoGetCodecName(VideoDecoder *);
+
     /// Allocate a new audio decoder context.
 extern AudioDecoder *CodecAudioNewDecoder(void);
 
