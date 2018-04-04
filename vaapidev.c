@@ -1543,6 +1543,8 @@ void TrickSpeed(int speed)
 */
 void Clear(void)
 {
+    AudioFlushBuffers();
+    CodecAudioFlushBuffers(MyAudioDecoder);
     CodecVideoFlushBuffers(MyVideoStream->Decoder);
 }
 
@@ -1635,6 +1637,8 @@ int Poll(int timeout)
 */
 int Flush(int timeout)
 {
+    AudioFlushBuffers();
+    CodecAudioFlushBuffers(MyAudioDecoder);
     CodecVideoFlushBuffers(MyVideoStream->Decoder);
 
     return 1;
