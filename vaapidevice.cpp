@@ -1780,7 +1780,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	    break;
 	case pmNone:
 	    videoEof = 1;
-	    audioEof = 1;
+	    //audioEof = 1;
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1984,7 +1984,6 @@ void cVaapiDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 */
 int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
-#if 0 // TODO: not in use yet
     const int ringBufferSize = KILOBYTE(512);
     if (length > ringBufferSize) {
 	Error("Audio PES packet size (%d) too large for frame ringbuffer", length);
@@ -2002,7 +2001,7 @@ int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 	delete packet;
 	return 0;
     }
-#endif
+    // TODO: remove vaapidev code
     return::PlayAudio(data, length, id);
 }
 

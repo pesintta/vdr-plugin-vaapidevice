@@ -468,6 +468,7 @@ const char* CodecVideoGetCodecName(VideoDecoder * decoder)
 ///
 struct _audio_decoder_
 {
+    AVFormatContext *AudioFmtCtx;	///< format context
     AVCodec *AudioCodec;		///< audio codec
     AVCodecContext *AudioCtx;		///< audio codec context
 
@@ -527,9 +528,6 @@ AudioDecoder *CodecAudioNewDecoder(void)
     if (!(audio_decoder = calloc(1, sizeof(*audio_decoder)))) {
 	Fatal("codec: can't allocate audio decoder");
     }
-    if (!(audio_decoder->Frame = av_frame_alloc())) {
-	Fatal("codec: can't allocate audio decoder frame buffer");
-    }
 
     return audio_decoder;
 }
@@ -551,53 +549,174 @@ void CodecAudioDelDecoder(AudioDecoder * decoder)
 **	@param audio_decoder	private audio decoder
 **	@param codec_id	audio	codec id
 */
-void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
+void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
 {
+    int ret, codec_id = AV_CODEC_ID_NONE;
     AVCodec *audio_codec;
+    AVIOContext *avio_ctx = NULL;
+    AVDictionary *options = NULL;
+    AVInputFormat *input_format = NULL;
+    const int alloc_size = 1024 * 64 * 1;
+    uint8_t *avio_ctx_buffer = av_malloc(alloc_size);
 
-    Debug4("codec: using audio codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
+    if (!avio_ctx_buffer)
+	return;
 
-    if (!(audio_codec = avcodec_find_decoder(codec_id))) {
-	Fatal("codec: codec ID %#06x not found", codec_id);
-	// FIXME: errors aren't fatal
+    pthread_mutex_lock(&CodecLockMutex);
+
+    switch (device_get_atype()) {
+	case 0:
+	    break;
+	case 0x3:	/* FALLTHRU */
+	case 0x4:
+	    codec_id = AV_CODEC_ID_MP2;
+	    break;
+
+	case 0x6a:
+	    codec_id = AV_CODEC_ID_AC3;
+	    break;
+	default:
+	    Fatal("Unknown atype: 0x%x", device_get_atype());
+	    break;
     }
+
+    device_set_mode(0);
+
+    if (!(audio_decoder->AudioFmtCtx = avformat_alloc_context())) {
+	Error("codec: can't allocate audio AV Format Context");
+	goto error_avformat_alloc_context;
+    }
+
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, alloc_size, 0, audio_decoder, &device_read_audio_data, NULL, NULL);
+    if (!avio_ctx) {
+	Error("codec: can't allocate audio AV IO Context");
+	goto error_avio_alloc_context;
+    }
+    // From now on the ctx_buffer is controlled (and freed) by avio_ctx
+    avio_ctx_buffer = NULL;
+
+    audio_decoder->AudioFmtCtx->pb = avio_ctx;
+    if (codec_id != AV_CODEC_ID_NONE)
+	audio_decoder->AudioFmtCtx->audio_codec_id = codec_id;
+
+    av_dict_set_int(&options, "analyzeduration", 500, 0);
+    av_dict_set_int(&options, "probesize", alloc_size / 2 , 0);
+
+    input_format = av_find_input_format("mpeg");
+    if (!input_format) {
+	Error("codec: could not find audio input format. Trying to probe it");
+    }
+    // This probes things and allocates buffers which cannot block on mutex
+    ret = avformat_open_input(&audio_decoder->AudioFmtCtx, NULL, input_format, &options);
+    if (ret < 0) {
+	Error("codec: can't open audio input: %s", av_err2str(ret));
+	goto error_avformat_open_input;
+    }
+
+    audio_codec = avcodec_find_decoder(codec_id);
+    if (!audio_codec) {
+	Error("codec: could not find audio codec (ID: 0x%x)", codec_id);
+	goto error_avcodec_find_decoder;
+    }
+    if (!avformat_new_stream(audio_decoder->AudioFmtCtx, audio_codec)) {
+	Error("codec: failed to add audio stream to context");
+	goto error_avformat_new_stream;
+    }
+
+#if 1
+    audio_decoder->AudioFmtCtx->streams[0]->codecpar->codec_id = codec_id;
+    audio_decoder->AudioFmtCtx->streams[0]->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+#endif
+#if 1
+    ret = avformat_find_stream_info(audio_decoder->AudioFmtCtx, NULL);
+    if (ret < 0) {
+	Error("codec: can't find audio stream info: %s", av_err2str(ret));
+	goto error_avformat_find_stream_info;
+    }
+#endif
+
+    av_dump_format(audio_decoder->AudioFmtCtx, 0, "vaapidevice audio", 0);
+#if 0
+    ret = av_find_best_stream(audio_decoder->AudioFmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &audio_codec, 0);
+    if (ret < 0) {
+	Error("codec: can't find best audio stream: %s", av_err2str(ret));
+	goto error_avformat_find_best_stream;
+    }
+#endif
     audio_decoder->AudioCodec = audio_codec;
 
     if (!(audio_decoder->AudioCtx = avcodec_alloc_context3(audio_codec))) {
-	Fatal("codec: can't allocate audio codec context");
+	Error("codec: can't allocate audio codec context");
+	goto error_avcodec_alloc_context3;
     }
 
-    if (CodecDownmix) {
-	audio_decoder->AudioCtx->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
-    }
-    pthread_mutex_lock(&CodecLockMutex);
+    Debug4("codec: using audio codec ID %#06x (%s)", codec_id, avcodec_get_name(codec_id));
+
+    // FIXME: for software audio_decoder use all cpus, otherwise 1
+    audio_decoder->AudioCtx->thread_count = 1;
     // open codec
-    {
-	AVDictionary *av_dict = NULL;
-
-	// FIXME: import settings
-	//av_dict_set(&av_dict, "dmix_mode", "0", 0);
-	//av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
-	//av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
-	if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &av_dict) < 0) {
-	    pthread_mutex_unlock(&CodecLockMutex);
-	    Fatal("codec: can't open audio codec");
-	}
-	av_dict_free(&av_dict);
+    if (audio_codec->capabilities & (AV_CODEC_CAP_AUTO_THREADS)) {
+	Debug4("codec: auto threads enabled");
+	audio_decoder->AudioCtx->thread_count = 0;
     }
-    pthread_mutex_unlock(&CodecLockMutex);
-    Debug4("codec: audio '%s'", audio_decoder->AudioCodec->long_name);
-
     if (audio_codec->capabilities & AV_CODEC_CAP_TRUNCATED) {
 	Debug4("codec: audio can use truncated packets");
 	// we send only complete frames
 	// audio_decoder->AudioCtx->flags |= CODEC_FLAG_TRUNCATED;
     }
+
+    if (CodecDownmix) {
+	audio_decoder->AudioCtx->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
+    }
+    // FIXME: import settings
+    //av_dict_set(&av_dict, "dmix_mode", "0", 0);
+    //av_dict_set(&av_dict, "ltrt_cmixlev", "1.414", 0);
+    //av_dict_set(&av_dict, "loro_cmixlev", "1.414", 0);
+    if (avcodec_open2(audio_decoder->AudioCtx, audio_codec, &options) < 0) {
+	Error("codec: can't open audio codec");
+	goto error_avcodec_open;
+    }
+    //
+    //	Prepare frame buffer for decoder
+    //
+    if (!(audio_decoder->Frame = av_frame_alloc())) {
+	Error("codec: can't allocate audio decoder frame buffer");
+	goto error_av_frame_alloc;
+    }
+
+    Debug4("codec: audio '%s'", audio_decoder->AudioCodec->long_name);
+
     audio_decoder->SampleRate = 0;
     audio_decoder->Channels = 0;
     audio_decoder->HwSampleRate = 0;
     audio_decoder->HwChannels = 0;
     audio_decoder->LastDelay = 0;
+
+    device_set_mode(1);
+    av_dict_free(&options);
+
+    pthread_mutex_unlock(&CodecLockMutex);
+    return;
+
+  error_av_frame_alloc:
+  error_avcodec_open:
+    avcodec_free_context(&audio_decoder->AudioCtx);
+  error_avcodec_alloc_context3:
+  error_avcodec_find_decoder:
+  error_avformat_new_stream:
+  error_avformat_find_best_stream:
+  error_avformat_find_stream_info:
+  error_avformat_open_input:
+    av_freep(avio_ctx);
+    av_dict_free(&options);
+  error_avio_alloc_context:
+    avformat_free_context(audio_decoder->AudioFmtCtx);
+    audio_decoder->AudioFmtCtx = NULL;
+  error_avformat_alloc_context:
+    if (avio_ctx_buffer)
+	av_freep(&avio_ctx_buffer);
+    device_set_mode(1);
+    pthread_mutex_unlock(&CodecLockMutex);
 }
 
 /**
@@ -608,11 +727,14 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id)
 void CodecAudioClose(AudioDecoder * audio_decoder)
 {
     // FIXME: output any buffered data
+    av_frame_free(&audio_decoder->Frame);   // callee does checks
+
     if (audio_decoder->Resample) {
 	swr_free(&audio_decoder->Resample);
     }
     if (audio_decoder->AudioCtx) {
 	pthread_mutex_lock(&CodecLockMutex);
+	avformat_close_input(&audio_decoder->AudioFmtCtx);
 	avcodec_free_context(&audio_decoder->AudioCtx);
 	pthread_mutex_unlock(&CodecLockMutex);
     }
@@ -1021,17 +1143,43 @@ static void CodecAudioUpdateFormat(AudioDecoder * audio_decoder)
 */
 void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 {
-    AVCodecContext *audio_ctx = audio_decoder->AudioCtx;
+    AVCodecContext *audio_ctx;
+
+    if (!audio_decoder->AudioCtx) {
+	CodecAudioOpen(audio_decoder, AV_CODEC_ID_NONE);
+    }
+
+    audio_ctx = audio_decoder->AudioCtx;
+    if (!audio_ctx)
+	return;
 
     if (audio_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
 	int ret;
 	AVPacket pkt[1];
+	AVPacket *avpacket = pkt;
 	AVFrame *frame = audio_decoder->Frame;
 
-	av_frame_unref(frame);
-	*pkt = *avpkt;			// use copy
-	ret = avcodec_send_packet(audio_ctx, pkt);
-	if (ret < 0) {
+	if (audio_decoder->AudioFmtCtx) {
+
+	    ret = av_read_frame(audio_decoder->AudioFmtCtx, avpacket);
+	    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+		Error("codec: read audio frame failed: %s", av_err2str(ret));
+		return;
+	    } else if (ret == AVERROR_EOF) {
+		Debug4("codec: audio received EOF - draining");
+		printf("Received EOF from audio av_read_frame - entering draining\n");
+		// Sending null packet enters draining mode
+		avpacket = NULL;
+	    } else if (ret == AVERROR(EAGAIN)) {
+		return;
+	    } else if (audio_decoder->AudioFmtCtx->streams[pkt->stream_index]->codecpar->codec_type !=
+		AVMEDIA_TYPE_AUDIO) {
+		return;
+	    }
+	}
+
+	ret = avcodec_send_packet(audio_ctx, avpacket);
+	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 	    Debug4("codec: sending audio packet failed");
 	    return;
 	}
@@ -1039,11 +1187,16 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
 	    Debug4("codec: receiving audio frame failed");
 	    return;
+	} else if (ret == AVERROR_EOF) {
+	    Debug4("codec: audio drain completed");
+	    CodecAudioClose(audio_decoder);
+	    return;
 	}
+
 	if (ret >= 0) {
 	    // update audio clock
-	    if (avpkt->pts != (int64_t) AV_NOPTS_VALUE) {
-		CodecAudioSetClock(audio_decoder, avpkt->pts);
+	    if (avpacket->pts != (int64_t) AV_NOPTS_VALUE) {
+		CodecAudioSetClock(audio_decoder, avpacket->pts);
 	    }
 	    // format change
 	    if (audio_decoder->Passthrough != CodecPassthrough || audio_decoder->SampleRate != audio_ctx->sample_rate
@@ -1053,7 +1206,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 	    if (!audio_decoder->HwSampleRate || !audio_decoder->HwChannels) {
 		return;			// unsupported sample format
 	    }
-	    if (CodecAudioPassthroughHelper(audio_decoder, avpkt)) {
+	    if (CodecAudioPassthroughHelper(audio_decoder, avpacket)) {
 		return;
 	    }
 	    if (audio_decoder->Resample) {
@@ -1074,6 +1227,7 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		return;
 	    }
 	}
+	av_frame_unref(frame);
     }
 }
 
