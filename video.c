@@ -2796,7 +2796,7 @@ static void VaapiPutSurfaceX11(VaapiDecoder * decoder, VASurfaceID surface, int 
     }
     e = GetMsTicks();
     if (e - s > 2000) {
-	Error("video/vaapi: gpu hung %dms %d", e - s, decoder->FrameCounter);
+	Error("video/vaapi: gpu hung %ums %d", e - s, decoder->FrameCounter);
     }
 }
 
@@ -3232,7 +3232,7 @@ static void VaapiBlackSurface(VaapiDecoder * decoder)
 
     put1 = GetMsTicks();
     if (put1 - sync > 2000) {
-	Error("video/vaapi: gpu hung %dms %d", put1 - sync, decoder->FrameCounter);
+	Error("video/vaapi: gpu hung %ums %d", put1 - sync, decoder->FrameCounter);
     }
 #ifdef DEBUG
     Debug8("video/vaapi: sync %2u put1 %2u", sync - start, put1 - sync);
@@ -3449,8 +3449,7 @@ static void VaapiAdvanceDecoderFrame(VaapiDecoder * decoder)
     if (filled <= 1) {
 	// keep use of last surface
 	++decoder->FramesDuped;
-	// FIXME: don't warn after stream start, don't warn during pause
-	Error("video: display buffer empty, duping frame (%d/%d) %d", decoder->FramesDuped, decoder->FrameCounter,
+	Debug("video: display buffer empty, duping frame (%u/%u) %d", decoder->FramesDuped, decoder->FrameCounter,
 	    VideoGetBuffers(decoder->Stream));
 	return;
     }
@@ -3604,9 +3603,7 @@ char *VaapiGetStats(VaapiDecoder * decoder)
     if (snprintf(&buffer[0], sizeof(buffer),
 	    " Frames: missed(%d) duped(%d) dropped(%d) total(%d) PTS(%s) drift(%" PRId64 ") audio(%" PRId64 ") video(%"
 	    PRId64 ")", decoder->FramesMissed, decoder->FramesDuped, decoder->FramesDropped, decoder->FrameCounter,
-	    Timestamp2String(video_clock),
-	    abs((video_clock - audio_clock) / 90) < 8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, VideoDeltaPTS / 90)) {
+	    Timestamp2String(video_clock), (video_clock - audio_clock) / 90, AudioGetDelay() / 90, VideoDeltaPTS / 90)) {
 	return strdup(buffer);
     }
 
@@ -3719,24 +3716,24 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	}
 
 	if (abs(diff) > 5000 * 90) {	// more than 5s
-	    err = VaapiMessage(1, "video: audio/video difference too big");
+	    err = VaapiMessage(2, "video: audio/video difference too big");
 	} else if (diff > 100 * 90) {
 	    // FIXME: this quicker sync step, did not work with new code!
-	    err = VaapiMessage(1, "video: slow down video, duping frame");
+	    err = VaapiMessage(2, "video: slow down video, duping frame");
 	    ++decoder->FramesDuped;
 	    if (VideoSoftStartSync) {
 		decoder->SyncCounter = 1;
 		goto out;
 	    }
 	} else if (diff > 55 * 90) {
-	    err = VaapiMessage(1, "video: slow down video, duping frame");
+	    err = VaapiMessage(2, "video: slow down video, duping frame");
 	    ++decoder->FramesDuped;
 	    if (VideoSoftStartSync) {
 		decoder->SyncCounter = 1;
 		goto out;
 	    }
 	} else if (diff < lower_limit * 90 && filled > 1 + 2 * decoder->Interlaced) {
-	    err = VaapiMessage(1, "video: speed up video, droping frame");
+	    err = VaapiMessage(2, "video: speed up video, droping frame");
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
 	    if (VideoSoftStartSync) {
@@ -3762,7 +3759,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    ++decoder->FramesDuped;
 	    // FIXME: don't warn after stream start, don't warn during pause
 	    err =
-		VaapiMessage(0, "video: decoder buffer empty, duping frame (%d/%d) %d v-buf", decoder->FramesDuped,
+		VaapiMessage(0, "video: decoder buffer empty, duping frame (%u/%u) %d v-buf", decoder->FramesDuped,
 		decoder->FrameCounter, VideoGetBuffers(decoder->Stream));
 	    // some time no new picture
 	    if (decoder->Closing < -300) {
@@ -3782,10 +3779,10 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    VaapiMessage(0, NULL);
 	}
 	Info("video: %s%+5" PRId64 " %4" PRId64 " %3d/\\ms %3d%+d v-buf", Timestamp2String(video_clock),
-	    abs((video_clock - audio_clock) / 90) < 8888 ? ((video_clock - audio_clock) / 90) : 8888,
-	    AudioGetDelay() / 90, (int)VideoDeltaPTS / 90, VideoGetBuffers(decoder->Stream),
-	    decoder->Interlaced ? (2 * atomic_read(&decoder->SurfacesFilled) - decoder->SurfaceField)
-	    : atomic_read(&decoder->SurfacesFilled));
+	    (video_clock - audio_clock) / 90, AudioGetDelay() / 90, (int)VideoDeltaPTS / 90,
+	    VideoGetBuffers(decoder->Stream), decoder->Interlaced ?
+	    (2 * atomic_read(&decoder->SurfacesFilled) - decoder->SurfaceField) :
+	    atomic_read(&decoder->SurfacesFilled));
 	if (!(decoder->FramesDisplayed % (5 * 60 * 60))) {
 	    VaapiPrintFrames(decoder);
 	}
