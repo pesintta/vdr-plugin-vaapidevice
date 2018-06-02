@@ -1167,7 +1167,6 @@ void CodecAudioDecode(AudioDecoder * audio_decoder, const AVPacket * avpkt)
 		return;
 	    } else if (ret == AVERROR_EOF) {
 		Debug4("codec: audio received EOF - draining");
-		printf("Received EOF from audio av_read_frame - entering draining\n");
 		// Sending null packet enters draining mode
 		avpacket = NULL;
 	    } else if (ret == AVERROR(EAGAIN)) {
