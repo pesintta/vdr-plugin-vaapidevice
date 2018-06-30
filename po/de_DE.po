@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR \n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-02-10 19:40+0200\n"
+"POT-Creation-Date: 2018-06-30 21:56+0300\n"
 "PO-Revision-Date: 2018-02-10 16:34+0200\n"
 "Last-Translator: <unknown>\n"
 "Language-Team: <german>\n"
@@ -66,9 +66,6 @@ msgstr "Video Hintergrundfarbe (Alpha)"
 
 msgid "60hz display mode"
 msgstr "60Hz Anzeigemodus"
-
-msgid "Soft start a/v sync"
-msgstr "Sanftanlauf A/V Sync"
 
 msgid "Color balance"
 msgstr ""

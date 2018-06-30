@@ -69,7 +69,6 @@ static char Config4to3DisplayFormat = 1;    ///< config 4:3 display format
 static char ConfigOtherDisplayFormat = 1;   ///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
-static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
 static int ConfigVideoColorBalance = 1; ///< config video color balance
 static int ConfigVideoBrightness;	///< config video brightness
@@ -721,7 +720,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int _60HzMode;
-    int SoftStartSync;
 
     int ColorBalance;
     int Brightness;
@@ -878,7 +876,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("Video background color (RGB)"), (int *)&Background, 0, 0x00FFFFFF));
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"), (int *)&BackgroundAlpha, 0, 0xFF));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync, trVDR("no"), trVDR("yes")));
 
 	Add(new cMenuEditBoolItem(tr("Color balance"), &ColorBalance, trVDR("off"), trVDR("on")));
 	if (ColorBalance) {
@@ -1082,7 +1079,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Background = ConfigVideoBackground >> 8;
     BackgroundAlpha = ConfigVideoBackground & 0xFF;
     _60HzMode = ConfigVideo60HzMode;
-    SoftStartSync = ConfigVideoSoftStartSync;
 
     ColorBalance = ConfigVideoColorBalance;
     Brightness = ConfigVideoBrightness;
@@ -1170,8 +1166,6 @@ void cMenuSetupSoft::Store(void)
     VideoSetBackground(ConfigVideoBackground);
     SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
     VideoSet60HzMode(ConfigVideo60HzMode);
-    SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
-    VideoSetSoftStartSync(ConfigVideoSoftStartSync);
 
     SetupStore("ColorBalance", ConfigVideoColorBalance = ColorBalance);
     VideoSetColorBalance(ConfigVideoColorBalance);
@@ -2518,10 +2512,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "60HzMode")) {
 	VideoSet60HzMode(ConfigVideo60HzMode = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "SoftStartSync")) {
-	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "ColorBalance")) {

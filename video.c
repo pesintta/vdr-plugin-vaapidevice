@@ -293,8 +293,6 @@ static VideoZoomModes Video4to3ZoomMode;
 static VideoZoomModes VideoOtherZoomMode;
 
 static char Video60HzMode;		///< handle 60hz displays
-static char VideoSoftStartSync;		///< soft start sync audio/video
-static const int VideoSoftStartFrames = 100;	///< soft start frames
 
 static xcb_atom_t WmDeleteWindowAtom;	///< WM delete message atom
 static xcb_atom_t NetWmState;		///< wm-state message atom
@@ -3710,13 +3708,6 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	decoder->TrickCounter = decoder->TrickSpeed;
 	goto skip_sync;
     }
-    // at start of new video stream, soft or hard sync video to audio
-    // FIXME: video waits for audio, audio for video
-    if (!VideoSoftStartSync && decoder->StartCounter < VideoSoftStartFrames && video_clock != (int64_t) AV_NOPTS_VALUE
-	&& (audio_clock == (int64_t) AV_NOPTS_VALUE || video_clock > audio_clock + VideoAudioDelay + 120 * 90)) {
-	err = VaapiMessage(2, "video: initial slow down video, frame %d", decoder->StartCounter);
-	goto out;
-    }
 
     if (decoder->SyncCounter && decoder->SyncCounter--) {
 	goto skip_sync;
@@ -3759,18 +3750,15 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    Debug("video: slow down video, duping frame (/\\=%.2f ms, vClk %s - aClk %s)", diff * 1000 / (double)90000,
 		Timestamp2String(video_clock), Timestamp2String(audio_clock));
 	    ++decoder->FramesDuped;
-	    if (VideoSoftStartSync) {
-		decoder->SyncCounter = 1;
-		goto out;
-	    }
+	    decoder->SyncCounter = 1;
+	    goto out;
 	} else if ((diff < (int64_t) - 20 * 90) && (filled > 1 + 2 * decoder->Interlaced)) {
 	    Debug("video: speed up video, droping frame (/\\=%.2f ms, vClk %s - aClk %s)", diff * 1000 / (double)90000,
 		Timestamp2String(video_clock), Timestamp2String(audio_clock));
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
-	    if (VideoSoftStartSync) {
-		decoder->SyncCounter = 1;
-	    }
+	    decoder->SyncCounter = 1;
+	    goto out;
 	}
 #if defined(DEBUG) || defined(AV_INFO)
 	if (!decoder->SyncCounter && decoder->StartCounter < 1000) {
@@ -5210,16 +5198,6 @@ int VideoSetGeometry(const char *geometry)
 void VideoSet60HzMode(int onoff)
 {
     Video60HzMode = onoff;
-}
-
-///
-/// Set soft start audio/video sync.
-///
-/// @param onoff    enable / disable the soft start sync.
-///
-void VideoSetSoftStartSync(int onoff)
-{
-    VideoSoftStartSync = onoff;
 }
 
 ///
