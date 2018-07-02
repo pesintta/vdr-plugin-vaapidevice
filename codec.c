@@ -140,7 +140,7 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
     VideoDecoder *decoder;
 
     if (!(decoder = calloc(1, sizeof(*decoder)))) {
-	Fatal("codec: can't allocate vodeo decoder");
+	Fatal("codec: can't allocate vídeo decoder");
     }
 
     av_register_all();
@@ -199,7 +199,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	    codec_id = AV_CODEC_ID_MPEG2VIDEO;
 	    break;
 
-	case 0x1b:		       /* FALLTHRU */
+	case 0x1B:		       /* FALLTHRU */
 	case 0x20:
 	    codec_id = AV_CODEC_ID_H264;
 	    break;
@@ -209,7 +209,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 	    break;
 
 	default:
-	    Fatal("codec: unknown vtype: 0x%x", device_get_vtype());
+	    Error("codec: unknown vtype: 0x%x", device_get_vtype());
 	    break;
     }
 
@@ -250,7 +250,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     ret = avformat_find_stream_info(decoder->VideoFmtCtx, NULL);
     if (ret < 0) {
-	Error("codec: can't find stream info: %s", av_err2str(ret));
+	Error("codec: can't find video stream info: %s", av_err2str(ret));
 	goto error_avformat_find_stream_info;
     }
 
@@ -258,7 +258,7 @@ void CodecVideoOpen(VideoDecoder * decoder)
 
     ret = av_find_best_stream(decoder->VideoFmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
     if (ret < 0) {
-	Error("codec: can't find best stream: %s", av_err2str(ret));
+	Error("codec: can't find best video stream: %s", av_err2str(ret));
 	goto error_avformat_find_best_stream;
     }
     decoder->VideoCodec = video_codec;
@@ -564,18 +564,32 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
     pthread_mutex_lock(&CodecLockMutex);
 
     switch (device_get_atype()) {
+	case -1:
+	    goto error_avformat_alloc_context;
+	    break;
 	case 0:
 	    break;
 	case 0x3:		       /* FALLTHRU */
 	case 0x4:
 	    codec_id = AV_CODEC_ID_MP2;
 	    break;
-
-	case 0x6a:
+	case 0x6A:
 	    codec_id = AV_CODEC_ID_AC3;
 	    break;
+	case 0x6:
+	case 0x7A:
+	    codec_id = AV_CODEC_ID_EAC3;
+	    break;
+	case 0x7B:
+	    codec_id = AV_CODEC_ID_DTS;
+	    break;
+	case 0xF:
+	case 0x11:
+	case 0x7C:
+	    codec_id = AV_CODEC_ID_AAC;
+	    break;
 	default:
-	    Fatal("Unknown atype: 0x%x", device_get_atype());
+	    Error("Unknown atype: 0x%x", device_get_atype());
 	    break;
     }
 
