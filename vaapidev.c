@@ -36,7 +36,6 @@
 #include "video.h"
 #include "codec.h"
 
-
 //////////////////////////////////////////////////////////////////////////////
 //  Variables
 //////////////////////////////////////////////////////////////////////////////
@@ -481,11 +480,6 @@ struct __video_stream__
 };
 
 static VideoStream MyVideoStream[1];	///< normal video stream
-
-#ifdef DEBUG
-uint32_t VideoSwitch;			///< debug video switch ticks
-static int VideoMaxPacketSize;		///< biggest used packet buffer
-#endif
 
 const char *X11DisplayName;		///< x11 display name
 static volatile char Usr1Signal;	///< true got usr1 signal
@@ -1473,9 +1467,6 @@ int Start(void)
 */
 void Stop(void)
 {
-#ifdef DEBUG
-    Debug1("video: max used PES packet size: %d", VideoMaxPacketSize);
-#endif
 }
 
 /**
@@ -1613,6 +1604,7 @@ char *GetVideoStats(void)
 char *GetVideoInfo(void)
 {
     const char *codec = CodecVideoGetCodecName(MyVideoStream->Decoder);
+
     return MyVideoStream->HwDecoder ? VideoGetInfo(MyVideoStream->HwDecoder, codec) : NULL;
 }
 

@@ -857,7 +857,7 @@ static int AlsaThread(void)
 	}
 	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
-	    Error("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
+	    Debug("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 	    if (err >= 0) {
 		continue;

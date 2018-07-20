@@ -1979,6 +1979,7 @@ void cVaapiDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
     const int ringBufferSize = KILOBYTE(512);
+
     if (length > ringBufferSize) {
 	Error("Audio PES packet size (%d) too large for frame ringbuffer", length);
 	return 0;
@@ -1993,6 +1994,7 @@ int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
     if (audioEof || !audioBuffer->Put(packet)) {
 	// If this happens often enough vdr will start asking for a clear of device
 	delete packet;
+
 	return 0;
     }
     // TODO: remove vaapidev code
@@ -2040,6 +2042,7 @@ void cVaapiDevice::SetVolumeDevice(int volume)
 int cVaapiDevice::PlayVideo(const uchar * data, int length)
 {
     const int ringBufferSize = MEGABYTE(1);
+
     if (length > ringBufferSize) {
 	Error("Video PES packet size (%d) too large for frame ringbuffer", length);
 	return 0;
@@ -2054,6 +2057,7 @@ int cVaapiDevice::PlayVideo(const uchar * data, int length)
     if (videoEof || !videoBuffer->Put(packet)) {
 	// If this happens often enough vdr will start asking for a clear of device
 	delete packet;
+
 	return 0;
     }
 
@@ -2118,10 +2122,9 @@ int cVaapiDevice::DeviceGetAtype()
     eTrackType track = GetCurrentAudioTrack();
 
     if (IS_AUDIO_TRACK(track)) {
-	return PatPmtParser()->Atype(int(track - ttAudioFirst));
-    }
-    else if (IS_DOLBY_TRACK(track)) {
-	return PatPmtParser()->Dtype(int(track - ttDolbyFirst));
+	return PatPmtParser()->Atype(int (track - ttAudioFirst));
+    } else if (IS_DOLBY_TRACK(track)) {
+	return PatPmtParser()->Dtype(int (track - ttDolbyFirst));
     }
 
     return -1;
@@ -2202,7 +2205,6 @@ int cVaapiDevice::DeviceAudioReadCallback(uchar * data, int size)
 	    cCondWait::SleepMs(20);
 
     } while (!packet && ffmpegMode == 0 && retries++ < 3);
-
 
     if (!packet) {
 	return ffmpegMode ? 0 : AVERROR_EOF;

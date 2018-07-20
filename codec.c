@@ -450,14 +450,13 @@ void CodecVideoFlushBuffers(VideoDecoder * decoder)
 **
 **	@param decoder	video decoder data
 */
-const char* CodecVideoGetCodecName(VideoDecoder * decoder)
+const char *CodecVideoGetCodecName(VideoDecoder * decoder)
 {
     if (decoder && decoder->VideoCodec)
 	return avcodec_get_name(decoder->VideoCodec->id);
 
     return avcodec_get_name(AV_CODEC_ID_NONE);
 }
-
 
 //----------------------------------------------------------------------------
 //  Audio
@@ -567,7 +566,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
     switch (device_get_atype()) {
 	case 0:
 	    break;
-	case 0x3:	/* FALLTHRU */
+	case 0x3:		       /* FALLTHRU */
 	case 0x4:
 	    codec_id = AV_CODEC_ID_MP2;
 	    break;
@@ -600,7 +599,7 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
 	audio_decoder->AudioFmtCtx->audio_codec_id = codec_id;
 
     av_dict_set_int(&options, "analyzeduration", 500, 0);
-    av_dict_set_int(&options, "probesize", alloc_size / 2 , 0);
+    av_dict_set_int(&options, "probesize", alloc_size / 2, 0);
 
     input_format = av_find_input_format("mpeg");
     if (!input_format) {
@@ -622,21 +621,18 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
 	Error("codec: failed to add audio stream to context");
 	goto error_avformat_new_stream;
     }
-
-#if 1
     audio_decoder->AudioFmtCtx->streams[0]->codecpar->codec_id = codec_id;
     audio_decoder->AudioFmtCtx->streams[0]->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
-#endif
-#if 1
+
     ret = avformat_find_stream_info(audio_decoder->AudioFmtCtx, NULL);
     if (ret < 0) {
 	Error("codec: can't find audio stream info: %s", av_err2str(ret));
 	goto error_avformat_find_stream_info;
     }
-#endif
 
     av_dump_format(audio_decoder->AudioFmtCtx, 0, "vaapidevice audio", 0);
-#if 0
+//#define AVFORMAT_FIND_BEST_AUDIO_STREAM
+#ifdef AVFORMAT_FIND_BEST_AUDIO_STREAM
     ret = av_find_best_stream(audio_decoder->AudioFmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &audio_codec, 0);
     if (ret < 0) {
 	Error("codec: can't find best audio stream: %s", av_err2str(ret));
@@ -704,7 +700,9 @@ void CodecAudioOpen(AudioDecoder * audio_decoder, int codec_id_old)
   error_avcodec_alloc_context3:
   error_avcodec_find_decoder:
   error_avformat_new_stream:
+#ifdef AVFORMAT_FIND_BEST_AUDIO_STREAM
   error_avformat_find_best_stream:
+#endif
   error_avformat_find_stream_info:
   error_avformat_open_input:
     av_freep(avio_ctx);
