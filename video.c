@@ -74,6 +74,9 @@
 #define TO_VAAPI_DEVICE_CTX(x) ((AVVAAPIDeviceContext*)TO_AVHW_DEVICE_CTX(x)->hwctx)
 #define TO_VAAPI_FRAMES_CTX(x) ((AVVAAPIFramesContext*)TO_AVHW_FRAMES_CTX(x)->hwctx)
 
+// PTS Filter-Elements of 1, 2, 4, 8, 16, ..
+#define LP_FILTER_CNT 2
+
 //----------------------------------------------------------------------------
 //  Declarations
 //----------------------------------------------------------------------------
@@ -830,7 +833,11 @@ struct _vaapi_decoder_
     int SyncOnAudio;			///< flag sync to audio
     int64_t PTS;			///< video PTS clock
 
-    int LastAVDiff;			///< last audio - video difference
+    int64_t AvPtsDiffFilter;		///< AV-PTS-Diff Delay element – 64 bits
+    int AvPtsDiffFilterInit;		///< Filter Init Done
+    int64_t LastVideoPTS;		///< Video-PTS Rollover Test
+    int64_t LastAudioPTS;		///< Audio-PTS Rollover Test
+
     int SyncCounter;			///< counter to sync frames
     int StartCounter;			///< counter for video start
     int FramesDuped;			///< number of frames duplicated
@@ -1342,6 +1349,13 @@ static VaapiDecoder *VaapiNewHwDecoder(VideoStream * stream)
     decoder->PTS = AV_NOPTS_VALUE;
 
     decoder->GetPutImage = 1;
+
+    decoder->AvPtsDiffFilterInit = 1;
+    decoder->AvPtsDiffFilter = 0;
+    decoder->LastVideoPTS = 0;
+    decoder->LastAudioPTS = 0;
+    decoder->SyncCounter = 0;
+    decoder->StartCounter = 0;
 
     VaapiDecoders[VaapiDecoderN++] = decoder;
 
@@ -3654,6 +3668,11 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
     int filled;
     int64_t audio_clock;
     int64_t video_clock;
+    int64_t diff;
+
+    if (decoder == NULL) {
+	return;
+    }
 
     err = 0;
     mutex_start_time = GetMsTicks();
@@ -3675,7 +3694,7 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 	    goto out;
 	}
 	// both clocks are known
-	if (audio_clock + VideoAudioDelay <= video_clock + 25 * 90) {
+	if (audio_clock + (int64_t) VideoAudioDelay <= video_clock + (int64_t) 25 * 90) {
 	    goto out;
 	}
 	// out of sync: audio before video
@@ -3705,35 +3724,48 @@ static void VaapiSyncDecoder(VaapiDecoder * decoder)
 
     if (audio_clock != (int64_t) AV_NOPTS_VALUE && video_clock != (int64_t) AV_NOPTS_VALUE) {
 	// both clocks are known
-	int diff;
-	int lower_limit;
+	// FIXME: "diff" doesn't checks frametype (i - Top/Bottom, p - Full)
+	diff = video_clock - audio_clock - (int64_t) VideoAudioDelay;
 
-	diff = video_clock - audio_clock - VideoAudioDelay;
-	lower_limit = !IsReplay()? -25 : 32;
-	if (!IsReplay()) {
-	    diff = (decoder->LastAVDiff + diff) / 2;
-	    decoder->LastAVDiff = diff;
+	// AV-Diff greater than 1:00:00.000 should be a PTS-Rollover,
+	// but observable is: audio_clock jumps to negative values...
+	if ((audio_clock < 0) || (video_clock < 0) || (abs(diff) > (int64_t) 60 * 60 * 90000)) {
+	    // Set Bit 34 of video_clock if below 1:00:00.000
+	    if (video_clock < (int64_t) 60 * 60 * 90000)
+		video_clock = video_clock + (int64_t) 0x200000000;
+	    // Set Bit 34 of audio_clock if below 1:00:00.000
+	    if (audio_clock < (int64_t) 60 * 60 * 90000)
+		audio_clock = audio_clock + (int64_t) 0x200000000;
+
+	    // Calc correct diff
+	    err = VaapiMessage(1, "AV-PTS Rollover, correcting AV-PTS Difference");
+	    diff = (video_clock - audio_clock - (int64_t) VideoAudioDelay);
+	}
+	// Low-Pass Filter AV-PTS-Diff, if in Sync-Range of +/- 250 ms
+	if (abs(diff) < (int64_t) 250 * 90) {
+	    // Filter-Init done?
+	    if (decoder->AvPtsDiffFilterInit) {
+		// No.
+		decoder->AvPtsDiffFilterInit = 0;
+		decoder->AvPtsDiffFilter = diff * LP_FILTER_CNT;
+	    }
+	    decoder->AvPtsDiffFilter = decoder->AvPtsDiffFilter - (decoder->AvPtsDiffFilter / LP_FILTER_CNT) + diff;
+	    diff = decoder->AvPtsDiffFilter / LP_FILTER_CNT;
 	}
 
-	if (abs(diff) > 5000 * 90) {	// more than 5s
+	if (abs(diff) > (int64_t) 5000 * 90) {	// more than 5s
 	    err = VaapiMessage(2, "video: audio/video difference too big");
-	} else if (diff > 100 * 90) {
-	    // FIXME: this quicker sync step, did not work with new code!
-	    err = VaapiMessage(2, "video: slow down video, duping frame");
+	} else if (diff > (int64_t) 40 * 90) {
+	    Debug("video: slow down video, duping frame (/\\=%.2f ms, vClk %s - aClk %s)", diff * 1000 / (double)90000,
+		Timestamp2String(video_clock), Timestamp2String(audio_clock));
 	    ++decoder->FramesDuped;
 	    if (VideoSoftStartSync) {
 		decoder->SyncCounter = 1;
 		goto out;
 	    }
-	} else if (diff > 55 * 90) {
-	    err = VaapiMessage(2, "video: slow down video, duping frame");
-	    ++decoder->FramesDuped;
-	    if (VideoSoftStartSync) {
-		decoder->SyncCounter = 1;
-		goto out;
-	    }
-	} else if (diff < lower_limit * 90 && filled > 1 + 2 * decoder->Interlaced) {
-	    err = VaapiMessage(2, "video: speed up video, droping frame");
+	} else if ((diff < (int64_t) - 20 * 90) && (filled > 1 + 2 * decoder->Interlaced)) {
+	    Debug("video: speed up video, droping frame (/\\=%.2f ms, vClk %s - aClk %s)", diff * 1000 / (double)90000,
+		Timestamp2String(video_clock), Timestamp2String(audio_clock));
 	    ++decoder->FramesDropped;
 	    VaapiAdvanceDecoderFrame(decoder);
 	    if (VideoSoftStartSync) {

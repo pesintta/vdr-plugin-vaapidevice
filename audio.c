@@ -779,12 +779,13 @@ static int AlsaPlayRingbuffer(void)
 	    }
 	    if (err != frames) {
 		if (err < 0) {
-		    pthread_mutex_unlock(&ReadAdvance_mutex);
 		    if (err == -EAGAIN) {
+			pthread_mutex_unlock(&ReadAdvance_mutex);
 			continue;
 		    }
 		    Error("audio/alsa: writei underrun error? '%s'", snd_strerror(err));
 		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
+		    pthread_mutex_unlock(&ReadAdvance_mutex);
 		    if (err >= 0) {
 			return 0;
 		    }
