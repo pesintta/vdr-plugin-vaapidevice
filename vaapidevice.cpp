@@ -124,7 +124,6 @@ static volatile int DoMakePrimary;	///< switch primary device to this
 #define SUSPEND_NORMAL		1	    ///< normal suspend mode
 #define SUSPEND_DETACHED	2	    ///< detached suspend mode
 static signed char SuspendMode;		///< suspend mode
-volatile char SoftIsPlayingVideo;	///< stream contains video data
 static cString CommandLineParameters = "";  ///< plugin's command-line parameters
 
 //////////////////////////////////////////////////////////////////////////////
