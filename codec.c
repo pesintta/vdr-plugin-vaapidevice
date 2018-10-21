@@ -143,7 +143,9 @@ VideoDecoder *CodecVideoNewDecoder(VideoHwDecoder * hw_decoder)
 	Fatal("codec: can't allocate vídeo decoder");
     }
 
+#if LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58,9,100)
     av_register_all();
+#endif
 
     decoder->HwDecoder = hw_decoder;
 
@@ -1300,7 +1302,9 @@ void CodecInit(void)
     pthread_mutex_init(&CodecLockMutex, NULL);
     av_log_set_level(AV_LOG_VERBOSE);
     av_log_set_callback(FFmpegLogCallback);
+#if LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58,9,100)
     avcodec_register_all();		// register all formats and codecs
+#endif
 }
 
 /**
