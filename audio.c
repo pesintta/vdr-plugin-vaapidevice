@@ -105,12 +105,9 @@ static int AudioStereoDescent;		///< volume descent for stereo
 static int AudioVolume;			///< current volume (0 .. 1000)
 
 extern int VideoAudioDelay;		///< import audio/video delay
-extern volatile char SoftIsPlayingVideo;    ///< stream contains video data
 
     /// default ring buffer size ~2s 8ch 16bit (3 * 5 * 7 * 8)
 static const unsigned AudioRingBufferSize = 3 * 5 * 7 * 8 * 2 * 1000;
-
-#define AUDIO_MIN_BUFFER_FREE (3072 * 8 * 8)
 
 static int AudioChannelsInHw[9];	///< table which channels are supported
 enum _audio_rates
@@ -779,12 +776,13 @@ static int AlsaPlayRingbuffer(void)
 	    }
 	    if (err != frames) {
 		if (err < 0) {
-		    pthread_mutex_unlock(&ReadAdvance_mutex);
 		    if (err == -EAGAIN) {
+			pthread_mutex_unlock(&ReadAdvance_mutex);
 			continue;
 		    }
 		    Error("audio/alsa: writei underrun error? '%s'", snd_strerror(err));
 		    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
+		    pthread_mutex_unlock(&ReadAdvance_mutex);
 		    if (err >= 0) {
 			return 0;
 		    }
@@ -856,7 +854,7 @@ static int AlsaThread(void)
 	}
 	// wait for space in kernel buffers
 	if ((err = snd_pcm_wait(AlsaPCMHandle, 24)) < 0) {
-	    Error("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
+	    Debug("audio/alsa: wait underrun error? '%s'", snd_strerror(err));
 	    err = snd_pcm_recover(AlsaPCMHandle, err, 0);
 	    if (err >= 0) {
 		continue;
@@ -1332,7 +1330,6 @@ static int AudioNextRing(void)
     int sample_rate;
     int channels;
     size_t used;
-    size_t remain;
 
     // update audio format
     // not always needed, but check if needed is too complex
@@ -1356,13 +1353,7 @@ static int AudioNextRing(void)
 	/ (AudioRing[AudioRingWrite].HwSampleRate * AudioRing[AudioRingWrite].HwChannels * AudioBytesProSample));
 
     used = RingBufferUsedBytes(AudioRing[AudioRingRead].RingBuffer);
-    remain = RingBufferFreeBytes(AudioRing[AudioRingRead].RingBuffer);
-    // stop, if not enough in next buffer
-    if (remain <= AUDIO_MIN_BUFFER_FREE) {
-	Debug5("audio: force start");
-    }
-    if (remain <= AUDIO_MIN_BUFFER_FREE || ((AudioVideoIsReady || !SoftIsPlayingVideo)
-	    && AudioStartThreshold < used)) {
+    if (AudioStartThreshold * 4 < used || (AudioVideoIsReady && AudioStartThreshold < used)) {
 	return 0;
     }
     return 1;
@@ -1589,7 +1580,6 @@ void AudioEnqueue(const void *samples, int count)
 
     if (!AudioRunning) {		// check, if we can start the thread
 	int skip;
-	size_t remain;
 
 	n = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
 	skip = AudioSkip;
@@ -1609,12 +1599,8 @@ void AudioEnqueue(const void *samples, int count)
 	    n = RingBufferUsedBytes(AudioRing[AudioRingWrite].RingBuffer);
 	}
 	// forced start or enough video + audio buffered
-	remain = RingBufferFreeBytes(AudioRing[AudioRingRead].RingBuffer);
-	if (remain <= AUDIO_MIN_BUFFER_FREE) {
-	    Debug5("audio: force start");
-	}
-	if (remain <= AUDIO_MIN_BUFFER_FREE || ((AudioVideoIsReady || !SoftIsPlayingVideo)
-		&& AudioStartThreshold < n)) {
+	// for some exotic channels * 4 too small
+	if (AudioStartThreshold * 4 < n || (AudioVideoIsReady && AudioStartThreshold < n)) {
 	    // restart play-back
 	    // no lock needed, can wakeup next time
 	    AudioRunning = 1;

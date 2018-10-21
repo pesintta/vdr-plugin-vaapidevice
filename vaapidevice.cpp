@@ -69,7 +69,6 @@ static char Config4to3DisplayFormat = 1;    ///< config 4:3 display format
 static char ConfigOtherDisplayFormat = 1;   ///< config other display format
 static uint32_t ConfigVideoBackground;	///< config video background color
 static char ConfigVideo60HzMode;	///< config use 60Hz display mode
-static char ConfigVideoSoftStartSync;	///< config use softstart sync
 
 static int ConfigVideoColorBalance = 1; ///< config video color balance
 static int ConfigVideoBrightness;	///< config video brightness
@@ -125,7 +124,6 @@ static volatile int DoMakePrimary;	///< switch primary device to this
 #define SUSPEND_NORMAL		1	    ///< normal suspend mode
 #define SUSPEND_DETACHED	2	    ///< detached suspend mode
 static signed char SuspendMode;		///< suspend mode
-volatile char SoftIsPlayingVideo;	///< stream contains video data
 static cString CommandLineParameters = "";  ///< plugin's command-line parameters
 
 //////////////////////////////////////////////////////////////////////////////
@@ -721,7 +719,6 @@ class cMenuSetupSoft:public cMenuSetupPage
     uint32_t Background;
     uint32_t BackgroundAlpha;
     int _60HzMode;
-    int SoftStartSync;
 
     int ColorBalance;
     int Brightness;
@@ -878,7 +875,6 @@ void cMenuSetupSoft::Create(void)
 	Add(new cMenuEditIntItem(tr("Video background color (RGB)"), (int *)&Background, 0, 0x00FFFFFF));
 	Add(new cMenuEditIntItem(tr("Video background color (Alpha)"), (int *)&BackgroundAlpha, 0, 0xFF));
 	Add(new cMenuEditBoolItem(tr("60hz display mode"), &_60HzMode, trVDR("no"), trVDR("yes")));
-	Add(new cMenuEditBoolItem(tr("Soft start a/v sync"), &SoftStartSync, trVDR("no"), trVDR("yes")));
 
 	Add(new cMenuEditBoolItem(tr("Color balance"), &ColorBalance, trVDR("off"), trVDR("on")));
 	if (ColorBalance) {
@@ -1082,7 +1078,6 @@ cMenuSetupSoft::cMenuSetupSoft(void)
     Background = ConfigVideoBackground >> 8;
     BackgroundAlpha = ConfigVideoBackground & 0xFF;
     _60HzMode = ConfigVideo60HzMode;
-    SoftStartSync = ConfigVideoSoftStartSync;
 
     ColorBalance = ConfigVideoColorBalance;
     Brightness = ConfigVideoBrightness;
@@ -1170,8 +1165,6 @@ void cMenuSetupSoft::Store(void)
     VideoSetBackground(ConfigVideoBackground);
     SetupStore("60HzMode", ConfigVideo60HzMode = _60HzMode);
     VideoSet60HzMode(ConfigVideo60HzMode);
-    SetupStore("SoftStartSync", ConfigVideoSoftStartSync = SoftStartSync);
-    VideoSetSoftStartSync(ConfigVideoSoftStartSync);
 
     SetupStore("ColorBalance", ConfigVideoColorBalance = ColorBalance);
     VideoSetColorBalance(ConfigVideoColorBalance);
@@ -1780,7 +1773,7 @@ bool cVaapiDevice::SetPlayMode(ePlayMode play_mode)
 	    break;
 	case pmNone:
 	    videoEof = 1;
-	    audioEof = 1;
+	    //audioEof = 1;
 	    break;
 	case pmExtern_THIS_SHOULD_BE_AVOIDED:
 	    Debug1("Play mode external");
@@ -1984,8 +1977,8 @@ void cVaapiDevice::GetOsdSize(int &width, int &height, double &pixel_aspect)
 */
 int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
 {
-#if 0 // TODO: not in use yet
     const int ringBufferSize = KILOBYTE(512);
+
     if (length > ringBufferSize) {
 	Error("Audio PES packet size (%d) too large for frame ringbuffer", length);
 	return 0;
@@ -2000,9 +1993,10 @@ int cVaapiDevice::PlayAudio(const uchar * data, int length, uchar id)
     if (audioEof || !audioBuffer->Put(packet)) {
 	// If this happens often enough vdr will start asking for a clear of device
 	delete packet;
+
 	return 0;
     }
-#endif
+    // TODO: remove vaapidev code
     return::PlayAudio(data, length, id);
 }
 
@@ -2047,6 +2041,7 @@ void cVaapiDevice::SetVolumeDevice(int volume)
 int cVaapiDevice::PlayVideo(const uchar * data, int length)
 {
     const int ringBufferSize = MEGABYTE(1);
+
     if (length > ringBufferSize) {
 	Error("Video PES packet size (%d) too large for frame ringbuffer", length);
 	return 0;
@@ -2061,6 +2056,7 @@ int cVaapiDevice::PlayVideo(const uchar * data, int length)
     if (videoEof || !videoBuffer->Put(packet)) {
 	// If this happens often enough vdr will start asking for a clear of device
 	delete packet;
+
 	return 0;
     }
 
@@ -2125,10 +2121,9 @@ int cVaapiDevice::DeviceGetAtype()
     eTrackType track = GetCurrentAudioTrack();
 
     if (IS_AUDIO_TRACK(track)) {
-	return PatPmtParser()->Atype(int(track - ttAudioFirst));
-    }
-    else if (IS_DOLBY_TRACK(track)) {
-	return PatPmtParser()->Dtype(int(track - ttDolbyFirst));
+	return PatPmtParser()->Atype(int (track - ttAudioFirst));
+    } else if (IS_DOLBY_TRACK(track)) {
+	return PatPmtParser()->Dtype(int (track - ttDolbyFirst));
     }
 
     return -1;
@@ -2209,7 +2204,6 @@ int cVaapiDevice::DeviceAudioReadCallback(uchar * data, int size)
 	    cCondWait::SleepMs(20);
 
     } while (!packet && ffmpegMode == 0 && retries++ < 3);
-
 
     if (!packet) {
 	return ffmpegMode ? 0 : AVERROR_EOF;
@@ -2519,10 +2513,6 @@ bool cPluginVaapiDevice::SetupParse(const char *name, const char *value)
     }
     if (!strcasecmp(name, "60HzMode")) {
 	VideoSet60HzMode(ConfigVideo60HzMode = atoi(value));
-	return true;
-    }
-    if (!strcasecmp(name, "SoftStartSync")) {
-	VideoSetSoftStartSync(ConfigVideoSoftStartSync = atoi(value));
 	return true;
     }
     if (!strcasecmp(name, "ColorBalance")) {

@@ -58,9 +58,6 @@ extern int VideoSetGeometry(const char *);
     /// Set 60Hz display mode.
 extern void VideoSet60HzMode(int);
 
-    /// Set soft start audio/video sync.
-extern void VideoSetSoftStartSync(int);
-
     /// Set color balance mode.
 extern void VideoSetColorBalance(int);
 
