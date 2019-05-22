@@ -413,21 +413,6 @@ extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat, in
     }
 
     csoft->Receive(key);
-    /* TODO clarify what this is supposed to do (kls 2019-05-13)
-    if (key[1]) {			// no single character
-	if (!csoft->Put(key, repeat, release) && letter && !cRemote::IsLearning()) {
-	    cCharSetConv conv;
-	    unsigned code;
-
-	    code = Utf8CharGet(conv.Convert(letter));
-	    if (code <= 0xFF) {
-		cRemote::Put(KBDKEY(code)); // feed it for edit mode
-	    }
-	}
-    } else if (!csoft->Put(key, repeat, release)) {
-	cRemote::Put(KBDKEY(key[0]));	// feed it for edit mode
-    }
-    */
 }
 
 //////////////////////////////////////////////////////////////////////////////
