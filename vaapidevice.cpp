@@ -296,8 +296,13 @@ static class cDebugStatistics *MyDebug;
 /**
 **	Soft device plugin remote class.
 */
-class cSoftRemote:public cRemote
+class cSoftRemote:public cRemote, private cThread
 {
+  private:
+    cMutex mutex;
+    cCondVar keyReceived;
+    cString Command;
+    virtual void Action(void);
   public:
 
     /**
@@ -305,66 +310,109 @@ class cSoftRemote:public cRemote
     **
     **	@param name	remote name
     */
-    explicit cSoftRemote(const char *name):cRemote(name)
+    cSoftRemote(void) : cRemote("XKeySym")
     {
+      Start();
+    }
+
+    virtual ~cSoftRemote()
+    {
+      Cancel(3);
     }
 
     /**
-    **	Put keycode into vdr event queue.
+    **	Receive keycode.
     **
     **	@param code	key code
-    **	@param repeat	flag key repeated
-    **	@param release	flag key released
     */
-    bool Put(const char *code, bool repeat = false, bool release = false) {
-	return cRemote::Put(code, repeat, release);
+    void Receive(const char *code) {
+      cMutexLock MutexLock(&mutex);
+      Command = code;
+      keyReceived.Broadcast();
     }
 };
+
+void cSoftRemote::Action(void)
+{
+  // see also VDR's cKbdRemote::Action()
+  cTimeMs FirstTime;
+  cTimeMs LastTime;
+  cString FirstCommand = "";
+  cString LastCommand = "";
+  bool Delayed = false;
+  bool Repeat = false;
+
+  while (Running()) {
+        cMutexLock MutexLock(&mutex);
+        if (keyReceived.TimedWait(mutex, Setup.RcRepeatDelta * 3 / 2) && **Command) {
+           if (strcmp(Command, LastCommand) == 0) {
+              // If two keyboard events with the same command come in without an intermediate
+              // timeout, this is a long key press that caused the repeat function to kick in:
+              Delayed = false;
+              FirstCommand = "";
+              if (FirstTime.Elapsed() < (uint)Setup.RcRepeatDelay)
+                 continue; // repeat function kicks in after a short delay
+              if (LastTime.Elapsed() < (uint)Setup.RcRepeatDelta)
+                 continue; // skip same keys coming in too fast
+              cRemote::Put(Command, true);
+              Repeat = true;
+              LastTime.Set();
+              }
+           else if (strcmp(Command, FirstCommand) == 0) {
+              // If the same command comes in twice with an intermediate timeout, we
+              // need to delay the second command to see whether it is going to be
+              // a repeat function or a separate key press:
+              Delayed = true;
+              }
+           else {
+              // This is a totally new key press, so we accept it immediately:
+              cRemote::Put(Command);
+              Delayed = false;
+              FirstCommand = Command;
+              FirstTime.Set();
+              }
+           }
+        else if (Repeat) {
+           // Timeout after a repeat function, so we generate a 'release':
+           cRemote::Put(LastCommand, false, true);
+           Repeat = false;
+           }
+        else if (Delayed && *FirstCommand) {
+           // Timeout after two normal key presses of the same key, so accept the
+           // delayed key:
+           cRemote::Put(FirstCommand);
+           Delayed = false;
+           FirstCommand = "";
+           FirstTime.Set();
+           }
+        else if (**FirstCommand && FirstTime.Elapsed() > (uint)Setup.RcRepeatDelay) {
+           Delayed = false;
+           FirstCommand = "";
+           FirstTime.Set();
+           }
+        LastCommand = Command;
+        Command = "";
+        }
+}
+
+static cSoftRemote *csoft = NULL;
 
 /**
 **	Feed key press as remote input (called from C part).
 **
-**	@param keymap	target keymap "XKeymap" name
+**	@param keymap	target keymap "XKeymap" name (obsolete, ignored)
 **	@param key	pressed/released key name
-**	@param repeat	repeated key flag
-**	@param release	released key flag
+**	@param repeat	repeated key flag (obsolete, ignored)
+**	@param release	released key flag (obsolete, ignored)
 **	@param letter	x11 character string (system setting locale)
 */
 extern "C" void FeedKeyPress(const char *keymap, const char *key, int repeat, int release, const char *letter)
 {
-    cRemote *remote;
-    cSoftRemote *csoft;
-
-    if (!keymap || !key) {
+    if (!csoft || !keymap || !key) {
 	return;
     }
-    // find remote
-    for (remote = Remotes.First(); remote; remote = Remotes.Next(remote)) {
-	if (!strcmp(remote->Name(), keymap)) {
-	    break;
-	}
-    }
-    // if remote not already exists, create it
-    if (remote) {
-	csoft = reinterpret_cast < cSoftRemote * >(remote);
-    } else {
-	Debug1("%s: remote '%s' not found", __FUNCTION__, keymap);
-	csoft = new cSoftRemote(keymap);
-    }
 
-    if (key[1]) {			// no single character
-	if (!csoft->Put(key, repeat, release) && letter && !cRemote::IsLearning()) {
-	    cCharSetConv conv;
-	    unsigned code;
-
-	    code = Utf8CharGet(conv.Convert(letter));
-	    if (code <= 0xFF) {
-		cRemote::Put(KBDKEY(code)); // feed it for edit mode
-	    }
-	}
-    } else if (!csoft->Put(key, repeat, release)) {
-	cRemote::Put(KBDKEY(key[0]));	// feed it for edit mode
-    }
+    csoft->Receive(key);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2210,6 +2258,8 @@ bool cPluginVaapiDevice::Start(void)
 	}
     }
 
+    csoft = new cSoftRemote;
+
     switch (::Start()) {
 	case 1:
 	    //cControl::Launch(new cSoftHdControl);
@@ -2235,6 +2285,8 @@ bool cPluginVaapiDevice::Start(void)
 void cPluginVaapiDevice::Stop(void)
 {
     ::Stop();
+    delete csoft;
+    csoft = NULL;
 }
 
 /**
